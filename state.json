@@ -1,0 +1,121 @@
+{
+  "project": "ai-recruitment-poc",
+  "lastUpdated": "2026-06-23",
+  "lastAgent": "Forge-CallOutcomes",
+  "currentSprint": "B",
+  "sprintStatus": "in_progress",
+  "completedSprints": [1, 2, 3, 4, 5, 6, 7],
+  "completedTasks": [
+    "QA-Playwright: Playwright E2E setup — 41/41 tests passing across 5 suites (dashboard, job-detail, jobs, navigation, report); chromium installed; playwright.config.ts updated to list reporter",
+    "QA-Playwright: App bug fix — JobsPage.tsx required_skills.length crash on null (P1 null guard added: `(job.required_skills?.length ?? 0) > 0`)",
+    "QA-Playwright: App bug fix — JobDetailPage.tsx required_skills.length crash on null (same fix)",
+    "QA-Playwright: 12 test selector precision fixes — strict-mode violations from substring-match text/role queries; page.clock.tick renamed to page.clock.runFor in Playwright 1.50+",
+    "Sentinel Sprint 7 QA: QA_PASS — all P1/P2 Warden issues confirmed fixed (api.ts port 8080, isReportNotReady, refetchInterval function form, required_skills null guard, candidate_name/job_title, None scores); 3 P3 cosmetic notes; SPRINT-STATUS.md SENTINEL:PASS AUTHORIZED:YES",
+    "Sprint 7.1: GET /api/candidates/:id/report verified — registered in main.py, all fields present, 404 msg fixed to 'Report not ready yet', candidate_name + job_title added via joins",
+    "Sprint 7.2: INTERFACE.md written — 22 endpoints documented with request/response shapes, TS type interfaces, error codes, Nova gotchas",
+    "Sprint 7.3: InterviewReportResponse schema updated — candidate_name + job_title added, dict-merge pattern for Pydantic v2 compatibility",
+    "Sprint 7.3 (Nova): ReportPage.tsx — full assessment display: overall score, 5 score bars, strengths/weaknesses chips, JD fit paragraph, final_recommendation badge, transcript summary",
+    "Sprint 7.4 (Nova): DashboardPage.tsx — pipeline metrics (total jobs, candidates, screened, interviewed), active jobs table with per-stage counts, recent screening activity",
+    "Sprint 7.5 (Nova): CandidateTimeline.tsx — 6-stage pipeline timeline (Uploaded→Parsed→Shortlisted→Screened→Interview→Assessment), wired into CandidateDetailModal as collapsible section",
+    "Sprint 7.6 (Goku): ErrorBoundary.tsx — class-based React ErrorBoundary for hr-app (light theme) and candidate-app (dark theme)",
+    "Sprint 7.6 (Goku): NotFoundPage.tsx — 404 catch-all page for hr-app",
+    "Sprint 7.6 (Goku): hr-app App.tsx — ErrorBoundary wrapping + 404 route added",
+    "Sprint 7.6 (Goku): candidate-app App.tsx — ErrorBoundary wrapping + Toaster added",
+    "Sprint 7.6 (Goku): react-hot-toast installed in candidate-app",
+    "Sprint 7.7 (Sage): Prompt quality review — assessment_service.py experience field bug fixed (total_experience_years), resume_parser.py empty input guard added",
+    "Sprint 7.8 (Sage): End-to-end smoke test — 7/7 endpoints PASS, full pipeline healthy"
+  ],
+  "sprintACompletedTasks": [
+    "[A-3] Fixed hardcoded interview URL — now reads settings.CANDIDATE_APP_URL (default http://localhost:5174). Added to config.py + .env",
+    "[A-4] Implemented GET /api/jobs/{job_id}/interviews — was stub, now returns InterviewSessionResponse[] enriched with candidate_name + interview_url (batch candidate load, no N+1)",
+    "[A-2] Added POST /api/jobs/{job_id}/candidates/{candidate_id}/retry-parse — resets parse_status to pending_parse and re-queues Celery task. Validates retryable states (parse_failed or ready)",
+    "[A-1 backend] Added PATCH /api/candidates/{candidate_id} — partial update of name/email/phone. CandidateUpdate schema added to schemas.py",
+    "[A-13] Added expires_at to InterviewSession model (DateTime, nullable). Alembic migration c9d1e2f3a4b5 created. Session.expires_at set to +7 days on creation. get_session_by_token auto-marks session expired if past expires_at",
+    "[A-1 frontend] CandidateDetailModal: inline phone edit UI — pencil icon on hover, input+Save/Cancel, PATCH /api/candidates/{id}, invalidates candidates+candidate queries, toast on success, 'No phone — click to add' empty state",
+    "[A-5] InterviewsTab: useQuery(['interviews', jobId]) → GET /api/jobs/{jobId}/interviews; sessionsMap built; CandidateInterviewCard now accepts initialSession prop (fetched data is source of truth, localSession overrides after send)",
+    "[A-6] InterviewLandingPage: added 'expired' to InterviewInfo.status; explicit in_progress branch → RejoinScreen (Video icon, 'Rejoin Interview' button); explicit expired branch → ExpiredScreen; completed remains as-is",
+    "[A-7] InterviewRoomPage: beforeunload warning useEffect in InterviewRoom inner component; 409 reconnect fix — catch 409 via response.status, set roomReady=true instead of error; roomReady+!credentials render shows reconnect UI with 'Rejoin Interview' button navigating to landing",
+    "[A-9] ScreeningTab/TriggerSection: showConfirm state; Start AI Screening button now opens confirmation dialog; dialog shows candidate count and 'live phone calls' warning; Cancel/Confirm&Start buttons; mutation only fires after confirmation",
+    "[A-10] JobDetailPage: shortlistTriggered persisted to localStorage per-job (storageKey = shortlist_triggered_{jobId}); state initialized from localStorage; onShortlistTriggered writes key; onShortlistComplete removes key",
+    "[A-11] CandidatesTab: text search input (filter by name) + parse_status filter dropdown (All/Ready/Parsing/Queued/Failed) above candidates grid; client-side filter on filtered array; 'No results for X' empty state when filtered is empty",
+    "[A-12] ShortlistTab: bulk action buttons row above results — 'Approve All Shortlisted' (recommendation=shortlisted+hr_decision=pending) + 'Reject All Rejected' (recommendation=rejected+hr_decision=pending); Promise.all parallel PATCH calls; loading spinner on buttons; success toast with count; invalidates ['shortlist', jobId]",
+    "[A-14] JobDetailPage: job status dropdown next to StatusBadge — context-sensitive options (open/active→Pause/Close, paused→Reactivate/Close, closed→Reactivate); PATCH /api/jobs/{id} with {status}; click-outside to close via useRef+useEffect; invalidates ['job', jobId]; success/error toast"
+  ],
+  "callOutcomeTasks": [
+    "[CallOutcomes-1] ScreeningCall model: ended_reason (String, nullable), retry_count (Integer, default 0), call_outcome (String, nullable) added",
+    "[CallOutcomes-2] classify_call_outcome() function added to screening_tasks.py — classifies Vapi endedReason into completed/no_answer/voicemail/declined/dropped/failed + should_retry flag",
+    "[CallOutcomes-3] _async_process_webhook updated — extracts endedReason, persists ended_reason + call_outcome, skips GPT extraction for no_answer/voicemail (no transcript), runs extraction for completed/dropped",
+    "[CallOutcomes-4] _schedule_retry() async helper: creates new ScreeningCall with retry_count+1, enqueues initiate_screening_call.apply_async() with delays [30m, 2h, 24h]",
+    "[CallOutcomes-5] ScreeningCallResponse schema: ended_reason, call_outcome, retry_count fields added",
+    "[CallOutcomes-6] Alembic migration e7a3d1f2b6c8 created (down_revision: d4f1a2b3c5e6) — adds 3 columns to screening_calls",
+    "[CallOutcomes-7] INTERFACE.md updated: ScreeningCall TS interface + Nova gotcha #8 for call_outcome UI patterns"
+  ],
+  "sprintBCompletedTasks": [
+    "[B-1] ScreeningTab/TriggerSection: skippedCandidates state added; onSuccess now stores data.skipped[]; persistent amber warning banner shown listing skipped candidates and reasons. SkippedCandidate interface added to api.ts.",
+    "[B-2] ScreeningResultCard: Relevant Exp field added to structured fields grid (call.relevant_experience ?? '—'). Field already existed in ScreeningCall type.",
+    "[B-3] DashboardPage: isError + refetch destructured from jobs useQuery; AlertCircle imported from lucide-react; error banner shown at top of page with retry button when jobs fetch fails.",
+    "[B-6] ShortlistCard: showAllStrengths + showAllGaps state added; displayStrengths/displayGaps computed conditionally; '+ N more' / '− Show less' toggle buttons added under each chip list when count > 3.",
+    "[B-8] Created EditJobModal.tsx: pre-populated form with job values, skill chip input (same pattern as CreateJobModal), changed-fields-only PATCH payload, invalidates ['job', id] + ['jobs'], toast on success. JobDetailPage: Pencil icon button added next to title, editOpen state, EditJobModal rendered.",
+    "[B-9] CandidatesTab: Trash2 icon imported; deleteMutation (DELETE /api/candidates/{id}) + handleDelete (confirm dialog) added; CandidateCard updated with onDelete? prop + absolute trash button (opacity-0 group-hover:opacity-100); card wrapper gets relative + group classes.",
+    "[B-10] InterviewRoomPage: panel container changed from flex to flex flex-col md:flex-row; gap changed to gap-4 md:gap-6; panels get w-full md:w-1/2; control buttons get min-w-[44px] min-h-[44px] for touch targets.",
+    "[B-11] InterviewCompletePage: contact section added with careers@webknot.in mailto link, above existing 'You may close this tab' note.",
+    "[B-12] CandidatesTab: pollStartTime = useState(Date.now) added; refetchInterval updated with back-off: 5s for first 2 minutes, then 30s."
+  ],
+  "inProgressTasks": [],
+  "blockers": [],
+  "keyDecisions": [
+    "Sarvam AI dropped — not natively supported by Vapi; using Deepgram+OpenAI instead",
+    "Vapi free plan cannot call India — switched to Twilio BYOT (AC97437366..., +16093266088)",
+    "LiveKit agent uses AgentServer + @server.rtc_session pattern (official v1.6.2 pattern)",
+    "generate_reply() used for greeting instead of session.say() — proper interruption handling",
+    "Assessment triggered by agent after transcript saved (not by /complete endpoint) — fixes race condition",
+    "Backend runs on port 8080 (port 8000 has Windows ghost TCP connections)",
+    "Candidate app on 5174, HR app on 5173",
+    "EditJobModal sends changed-fields-only PATCH payload — avoids clobbering unchanged fields with null",
+    "CandidatesTab pollStartTime is per-mount (useState not useRef) — intentional: if user leaves and comes back, clock resets",
+    "Delete candidate button uses window.confirm — simple, no custom modal needed for POC"
+  ],
+  "artifacts": {
+    "new": [
+      "hr-app/src/components/EditJobModal.tsx"
+    ],
+    "modified": [
+      "hr-app/src/types/api.ts (SkippedCandidate interface added)",
+      "hr-app/src/components/ScreeningTab.tsx (B-1 skipped banner, B-2 relevant_experience)",
+      "hr-app/src/pages/DashboardPage.tsx (B-3 error state)",
+      "hr-app/src/components/ShortlistTab.tsx (B-6 show-all toggle strengths/gaps)",
+      "hr-app/src/pages/JobDetailPage.tsx (B-8 Pencil button, editOpen state, EditJobModal render)",
+      "hr-app/src/components/CandidatesTab.tsx (B-9 delete button, B-12 polling back-off)",
+      "candidate-app/src/pages/InterviewRoomPage.tsx (B-10 mobile responsive layout)",
+      "candidate-app/src/pages/InterviewCompletePage.tsx (B-11 contact info)"
+    ]
+  },
+  "runningServices": {
+    "backend": "port 8080 (uvicorn — confirmed active)",
+    "hrApp": "port 5173 (vite dev)",
+    "candidateApp": "port 5174 (vite dev)",
+    "celery": "background worker",
+    "interviewAgent": "background process (interview_agent.py dev)",
+    "postgres": "Docker (ai_recruitment_postgres)",
+    "redis": "Docker"
+  },
+  "testData": {
+    "testJob": "567cb1e7-987e-4f1c-ba57-856fd99619ef (Senior Frontend Engineer)",
+    "testCandidate": "c6a8b487-46f8-4011-98d1-ef4eebf83a59 (Karen Santos)",
+    "candidateEmail": "webknottechnologies@gmail.com (test routing)",
+    "vapiPhoneNumberId": "690d0a56-affc-4cf8-8fe3-132a2ee0a9ee (Twilio-backed)"
+  },
+  "nextAgentInstructions": {
+    "forge": "Sprint B + CallOutcomes complete. Smart call outcome handling done: ended_reason/retry_count/call_outcome on model+schema, classify_call_outcome(), auto-retry, migration e7a3d1f2b6c8. Frontend tasks B-1 through B-12 complete (Nova). Ready for Warden review.",
+    "warden": "Review Sprint B frontend changes. New file: EditJobModal.tsx. Modified: api.ts (SkippedCandidate), ScreeningTab.tsx (skipped banner + relevant_exp), DashboardPage.tsx (error state), ShortlistTab.tsx (show-all toggle), JobDetailPage.tsx (edit button + modal), CandidatesTab.tsx (delete button + poll backoff), InterviewRoomPage.tsx (mobile responsive), InterviewCompletePage.tsx (contact info). Check: no any types, no broken imports, correct query invalidations.",
+    "goku": "Sprint B frontend complete (9 tasks: B-1, B-2, B-3, B-6, B-8, B-9, B-10, B-11, B-12). 1 new file (EditJobModal.tsx), 8 files modified. Zero TypeScript any types. Ready for Warden review."
+  },
+  "pendingItems": [
+    "Warden Sprint B review (REVIEW_PASS required — no SPRINTB-WARDEN-REVIEW.md yet)",
+    "Sentinel Sprint B QA: COMPLETE — QA_PASS (2026-06-23). P2: 20MB guard fires after file.read(); P3: End Interview button lacks min-h-[44px]",
+    "ngrok webhook for Vapi screening results (backlog)",
+    "Video recording storage/retrieval for HR — Egress saves to LiveKit Cloud, no UI link yet (backlog)",
+    "Backend port 8000 ghost processes — Windows issue, using 8080 as workaround (backlog)"
+  ],
+  "tokenUsage": "~12k tokens (Sprint B frontend session)"
+}
