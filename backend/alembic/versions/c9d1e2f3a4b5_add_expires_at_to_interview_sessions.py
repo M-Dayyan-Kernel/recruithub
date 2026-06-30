@@ -22,12 +22,20 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _column_exists(table_name: str, column_name: str) -> bool:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    return column_name in {column["name"] for column in inspector.get_columns(table_name)}
+
+
 def upgrade() -> None:
-    op.add_column(
-        'interview_sessions',
-        sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
-    )
+    if not _column_exists('interview_sessions', 'expires_at'):
+        op.add_column(
+            'interview_sessions',
+            sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column('interview_sessions', 'expires_at')
+    if _column_exists('interview_sessions', 'expires_at'):
+        op.drop_column('interview_sessions', 'expires_at')

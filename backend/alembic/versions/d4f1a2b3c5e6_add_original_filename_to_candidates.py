@@ -18,12 +18,20 @@ branch_labels = None
 depends_on = None
 
 
+def _column_exists(table_name: str, column_name: str) -> bool:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    return column_name in {column["name"] for column in inspector.get_columns(table_name)}
+
+
 def upgrade() -> None:
-    op.add_column(
-        "candidates",
-        sa.Column("original_filename", sa.String(500), nullable=True),
-    )
+    if not _column_exists("candidates", "original_filename"):
+        op.add_column(
+            "candidates",
+            sa.Column("original_filename", sa.String(500), nullable=True),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("candidates", "original_filename")
+    if _column_exists("candidates", "original_filename"):
+        op.drop_column("candidates", "original_filename")
