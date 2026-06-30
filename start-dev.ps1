@@ -13,6 +13,31 @@ function Test-PortListening([int]$Port) {
     return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
 }
 
+function Stop-PortListeners([int]$Port) {
+    $pids = @(
+        Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty OwningProcess -Unique
+    )
+    foreach ($procId in $pids) {
+        if ($procId -and $procId -ne 0) {
+            Write-Host "  Stopping PID $procId (port $Port)" -ForegroundColor DarkYellow
+            Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Stop-CeleryWorkers() {
+    $workers = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Name -match 'python(\.exe)?' -and
+            $_.CommandLine -like '*celery*app.core.celery_app*'
+        }
+    foreach ($worker in $workers) {
+        Write-Host "  Stopping Celery worker PID $($worker.ProcessId)" -ForegroundColor DarkYellow
+        Stop-Process -Id $worker.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Start-ServiceWindow([string]$Title, [string]$Command) {
     $shell = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
     $fullCommand = "`$host.UI.RawUI.WindowTitle = '$Title'; $Command"
@@ -71,7 +96,15 @@ finally {
     Pop-Location
 }
 
-# --- Dev servers (skip if already listening) ---
+# --- Stop existing dev servers, then restart ---
+Write-Step "Stopping existing dev servers (if any)"
+Stop-PortListeners 8000
+Stop-PortListeners 5173
+Stop-PortListeners 5174
+Stop-CeleryWorkers
+Start-Sleep -Seconds 2
+
+# --- Dev servers ---
 $backendDir = Join-Path $Root "backend"
 $hrAppDir = Join-Path $Root "hr-app"
 $candidateAppDir = Join-Path $Root "candidate-app"
@@ -81,29 +114,17 @@ $celeryCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; celery
 $hrCmd = "Set-Location '$hrAppDir'; `$env:VITE_API_URL='$ViteApiUrl'; npm run dev"
 $candidateCmd = "Set-Location '$candidateAppDir'; `$env:VITE_API_URL='$ViteApiUrl'; npm run dev"
 
-if (Test-PortListening 8000) {
-    Write-Host "Port 8000 in use - skipping API server (already running?)" -ForegroundColor Yellow
-} else {
-    Write-Step "Starting API server (port 8000)"
-    Start-ServiceWindow "AI Recruitment - API" $apiCmd
-}
+Write-Step "Starting API server (port 8000)"
+Start-ServiceWindow "AI Recruitment - API" $apiCmd
 
 Write-Step "Starting Celery worker"
 Start-ServiceWindow "AI Recruitment - Celery" $celeryCmd
 
-if (Test-PortListening 5173) {
-    Write-Host "Port 5173 in use - skipping HR app (already running?)" -ForegroundColor Yellow
-} else {
-    Write-Step "Starting HR app (port 5173)"
-    Start-ServiceWindow "AI Recruitment - HR App" $hrCmd
-}
+Write-Step "Starting HR app (port 5173)"
+Start-ServiceWindow "AI Recruitment - HR App" $hrCmd
 
-if (Test-PortListening 5174) {
-    Write-Host "Port 5174 in use - skipping Candidate app (already running?)" -ForegroundColor Yellow
-} else {
-    Write-Step "Starting Candidate app (port 5174)"
-    Start-ServiceWindow "AI Recruitment - Candidate App" $candidateCmd
-}
+Write-Step "Starting Candidate app (port 5174)"
+Start-ServiceWindow "AI Recruitment - Candidate App" $candidateCmd
 
 Write-Host "`nAll services launched in separate terminal windows." -ForegroundColor Green
 Write-Host ""
