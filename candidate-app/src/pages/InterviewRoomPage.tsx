@@ -38,6 +38,19 @@ interface RoomCredentials {
 }
 
 // ---------------------------------------------------------------------------
+// Agent participant detection
+// ---------------------------------------------------------------------------
+function findAgentParticipant(
+  participants: RemoteParticipant[],
+): RemoteParticipant | undefined {
+  return participants.find(
+    (p) =>
+      p.identity.toLowerCase().includes('agent') ||
+      (p.name ?? '').toLowerCase().includes('interviewer'),
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Animated waveform — pure CSS, no hook dependencies
 // ---------------------------------------------------------------------------
 function WaveformBars() {
@@ -113,7 +126,12 @@ function AgentWaiting() {
         <span className="text-5xl select-none">🤖</span>
       </div>
       <div className="h-12 mb-3" />
-      <p className="text-sm text-slate-400 mb-8 text-center">Waiting for AI interviewer to join…</p>
+      <p className="text-sm text-slate-400 mb-8 text-center">
+        Waiting for AI interviewer to join…
+        <span className="block text-xs text-slate-500 mt-2">
+          If this takes more than 30s, ensure the interview agent is running locally.
+        </span>
+      </p>
     </>
   )
 }
@@ -186,7 +204,7 @@ function InterviewRoom({ token }: { token: string }) {
     return () => window.removeEventListener('beforeunload', handler)
   }, [])
 
-  const agentParticipant = remoteParticipants[0] as RemoteParticipant | undefined
+  const agentParticipant = findAgentParticipant(remoteParticipants)
 
   const handleEndConfirm = useCallback(async () => {
     if (ending) return

@@ -38,6 +38,18 @@ function Stop-CeleryWorkers() {
     }
 }
 
+function Stop-InterviewAgents() {
+    $agents = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Name -match 'python(\.exe)?' -and
+            $_.CommandLine -like '*interview_agent.py*'
+        }
+    foreach ($agent in $agents) {
+        Write-Host "  Stopping interview agent PID $($agent.ProcessId)" -ForegroundColor DarkYellow
+        Stop-Process -Id $agent.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Start-ServiceWindow([string]$Title, [string]$Command) {
     $shell = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
     $fullCommand = "`$host.UI.RawUI.WindowTitle = '$Title'; $Command"
@@ -102,6 +114,7 @@ Stop-PortListeners 8000
 Stop-PortListeners 5173
 Stop-PortListeners 5174
 Stop-CeleryWorkers
+Stop-InterviewAgents
 Start-Sleep -Seconds 2
 
 # --- Dev servers ---
@@ -111,6 +124,7 @@ $candidateAppDir = Join-Path $Root "candidate-app"
 
 $apiCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
 $celeryCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; celery -A app.core.celery_app.celery_app worker --loglevel=info --pool=solo"
+$agentCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; python interview_agent.py dev"
 $hrCmd = "Set-Location '$hrAppDir'; `$env:VITE_API_URL='$ViteApiUrl'; npm run dev"
 $candidateCmd = "Set-Location '$candidateAppDir'; `$env:VITE_API_URL='$ViteApiUrl'; npm run dev"
 
@@ -119,6 +133,9 @@ Start-ServiceWindow "AI Recruitment - API" $apiCmd
 
 Write-Step "Starting Celery worker"
 Start-ServiceWindow "AI Recruitment - Celery" $celeryCmd
+
+Write-Step "Starting LiveKit AI interview agent"
+Start-ServiceWindow "AI Recruitment - Interview Agent" $agentCmd
 
 Write-Step "Starting HR app (port 5173)"
 Start-ServiceWindow "AI Recruitment - HR App" $hrCmd
@@ -132,5 +149,6 @@ Write-Host "  HR App:         http://localhost:5173"
 Write-Host "  Candidate App:  http://localhost:5174"
 Write-Host "  API:            http://localhost:8000"
 Write-Host "  API docs:       http://localhost:8000/docs"
+Write-Host "  Interview agent: must show 'registered worker' in its terminal"
 Write-Host ""
 Write-Host "Close each terminal window to stop that service."

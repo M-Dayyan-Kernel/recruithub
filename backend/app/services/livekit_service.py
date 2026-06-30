@@ -17,6 +17,12 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _livekit_http_url() -> str:
+    """REST API expects https:// — candidates still use wss:// in LIVEKIT_URL."""
+    url = settings.LIVEKIT_URL.rstrip("/")
+    return url.replace("wss://", "https://").replace("ws://", "http://")
+
+
 async def create_room(room_name: str) -> tuple[str, str | None]:
     """
     Create a LiveKit room, dispatch the AI agent, and start egress recording.
@@ -27,7 +33,7 @@ async def create_room(room_name: str) -> tuple[str, str | None]:
     from livekit import api
 
     lkapi = api.LiveKitAPI(
-        url=settings.LIVEKIT_URL,
+        url=_livekit_http_url(),
         api_key=settings.LIVEKIT_API_KEY,
         api_secret=settings.LIVEKIT_API_SECRET,
     )
