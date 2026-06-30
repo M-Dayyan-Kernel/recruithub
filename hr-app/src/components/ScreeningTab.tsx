@@ -246,6 +246,8 @@ function ScreeningResultCard({
 
   const isCompleted = call.call_status === 'completed'
   const isActive = ['pending', 'initiated', 'in_progress'].includes(call.call_status)
+  const isTechnicalFailure =
+    call.call_status === 'failed' || call.call_outcome === 'failed'
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
@@ -265,7 +267,9 @@ function ScreeningResultCard({
             outcome={call.call_outcome}
             retryCount={call.retry_count}
           />
-          {isCompleted && call.result && <ResultBadge result={call.result} />}
+          {isCompleted && call.result && !isTechnicalFailure && (
+            <ResultBadge result={call.result} />
+          )}
         </div>
       </div>
 
@@ -288,8 +292,22 @@ function ScreeningResultCard({
         </div>
       )}
 
-      {/* Retry button — failed calls only */}
-      {call.call_status === 'failed' && (
+      {/* Technical failure — telephony / Vapi setup */}
+      {isTechnicalFailure && (
+        <div className="flex items-start gap-2 text-sm text-rose-800 mb-4 px-4 py-3 bg-rose-50 border border-rose-100 rounded-lg">
+          <AlertCircle size={16} className="shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium">Call could not connect</p>
+            <p className="text-rose-700 mt-1 text-xs leading-relaxed">
+              {call.summary ??
+                'Check Vapi phone number, Twilio provider, and Geo Permissions for India (+91).'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Retry button — failed calls */}
+      {isTechnicalFailure && (
         <button
           onClick={() => retryMutation.mutate()}
           disabled={retryMutation.isPending}
@@ -762,6 +780,12 @@ export function ScreeningTab({ jobId }: Props) {
                   <span className="flex items-center gap-1">
                     <span className="inline-block w-2 h-2 rounded-full bg-amber-400" />
                     {screeningCalls.filter((sc) => sc.result === 'needs_review').length} review
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block w-2 h-2 rounded-full bg-slate-400" />
+                    {screeningCalls.filter(
+                      (sc) => sc.call_status === 'failed' || sc.call_outcome === 'failed',
+                    ).length} failed
                   </span>
                 </div>
               )}

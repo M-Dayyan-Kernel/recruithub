@@ -139,36 +139,63 @@ async def trigger_screening(
 @router.post("/screening/webhook", status_code=status.HTTP_200_OK)
 async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     """
-    Receive Vapi.ai call-end webhooks.
+    Receive Vapi.ai server URL events (status updates, end-of-call reports).
 
-    Vapi sends JSON with: call.id, call.status, artifact.transcript, artifact.summary
-    Finds ScreeningCall by vapi_call_id and enqueues processing task.
+    Finds ScreeningCall by vapi_call_id and enqueues processing or updates status.
     Returns immediately — Vapi requires fast response.
     """
-    from app.tasks.screening_tasks import process_screening_webhook as _process_task
+    import logging
 
+    from app.tasks.screening_tasks import (
+        process_screening_webhook as _process_task,
+        sync_screening_call_status as _sync_task,
+    )
+
+    logger = logging.getLogger(__name__)
     body: Dict[str, Any] = await request.json()
 
-    call_data = body.get("call", {})
+    message = body.get("message") or {}
+    message_type = message.get("type") or body.get("type")
+
+    call_data = body.get("call") or message.get("call") or {}
     vapi_call_id = call_data.get("id")
 
-    if vapi_call_id:
-        # Check if we have this call in the DB
-        result = await db.execute(
-            select(ScreeningCall).where(ScreeningCall.vapi_call_id == vapi_call_id)
+    if not vapi_call_id:
+        return {"status": "received"}
+
+    result = await db.execute(
+        select(ScreeningCall).where(ScreeningCall.vapi_call_id == vapi_call_id)
+    )
+    screening_call = result.scalars().first()
+
+    if not screening_call:
+        logger.warning(
+            "Vapi webhook: no ScreeningCall found for vapi_call_id=%s", vapi_call_id
         )
-        screening_call = result.scalars().first()
+        return {"status": "received"}
 
-        if screening_call:
-            # Enqueue background processing — don't block the response
+    # Live status updates while the call is ringing / in progress
+    if message_type == "status-update":
+        status_value = (message.get("status") or call_data.get("status") or "").lower()
+        if status_value in ("ringing", "in-progress", "forwarding"):
+            screening_call.call_status = "in_progress"
+            await db.commit()
+        elif status_value in ("ended", "completed"):
             _process_task.delay(body)
-        else:
-            # Log but still return 200 — Vapi may retry on non-200
-            import logging
-            logging.getLogger(__name__).warning(
-                "Vapi webhook: no ScreeningCall found for vapi_call_id=%s", vapi_call_id
-            )
+        return {"status": "received"}
 
+    # End-of-call report — full transcript + summary processing
+    if message_type in ("end-of-call-report", "call-ended"):
+        _process_task.delay(body)
+        return {"status": "received"}
+
+    # Legacy / dashboard webhook shape — process on any call-end payload
+    if call_data.get("status", "").lower() == "ended" or body.get("artifact"):
+        _process_task.delay(body)
+        return {"status": "received"}
+
+    # Unknown event — poll Vapi as a safety net
+    _sync_task.delay(str(screening_call.id))
     return {"status": "received"}
 
 

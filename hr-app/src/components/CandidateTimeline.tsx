@@ -14,6 +14,47 @@ import type {
 
 type StageStatus = 'success' | 'fail' | 'in_progress' | 'pending'
 
+function deriveShortlistStatus(
+  result: ShortlistResultWithCandidate | undefined,
+): StageStatus {
+  if (!result) return 'pending'
+  if (result.hr_decision === 'approved' || result.hr_decision === 'overridden') {
+    return 'success'
+  }
+  if (result.hr_decision === 'rejected') return 'fail'
+  if (result.recommendation === 'shortlisted') return 'success'
+  if (result.recommendation === 'rejected') return 'fail'
+  return 'in_progress'
+}
+
+function deriveScreeningStatus(call: ScreeningCall | undefined): StageStatus {
+  if (!call) return 'pending'
+  if (call.call_status === 'failed' || call.call_outcome === 'failed') return 'fail'
+  if (call.call_status === 'completed' && call.result === 'pass') return 'success'
+  if (call.call_status === 'completed' && call.result === 'fail') return 'fail'
+  if (call.call_status === 'completed') return 'in_progress'
+  if (['pending', 'initiated', 'in_progress'].includes(call.call_status)) {
+    return 'in_progress'
+  }
+  return 'pending'
+}
+
+function deriveScreeningDetail(call: ScreeningCall | undefined): string {
+  if (!call) return 'Not yet screened'
+  if (call.call_status === 'failed' || call.call_outcome === 'failed') {
+    return call.summary ?? 'Call failed — check Vapi/Twilio setup'
+  }
+  if (call.call_status === 'completed') {
+    return `Result: ${call.result ?? 'pending review'}`
+  }
+  const statusLabels: Record<string, string> = {
+    pending: 'Queued for calling',
+    initiated: 'Calling candidate…',
+    in_progress: 'Call in progress…',
+  }
+  return statusLabels[call.call_status] ?? `Status: ${call.call_status}`
+}
+
 interface TimelineStage {
   emoji: string
   label: string
@@ -81,6 +122,15 @@ export function CandidateTimeline({ candidateId, jobId }: Props) {
         `/api/jobs/${jobId}/shortlist`,
       ) as unknown as Promise<ShortlistResultWithCandidate[]>,
     enabled: !!jobId,
+    refetchInterval: (query) => {
+      const data = query.state.data
+      const candidateResult = data?.find((r) => r.candidate_id === candidateId)
+      if (!candidateResult) return false
+      return candidateResult.recommendation === 'review' &&
+        candidateResult.hr_decision === 'pending'
+        ? 8000
+        : false
+    },
   })
 
   const { data: screeningCalls } = useQuery<ScreeningCall[]>({
@@ -88,6 +138,14 @@ export function CandidateTimeline({ candidateId, jobId }: Props) {
     queryFn: () =>
       api.get(`/api/jobs/${jobId}/screening`) as unknown as Promise<ScreeningCall[]>,
     enabled: !!jobId,
+    refetchInterval: (query) => {
+      const data = query.state.data
+      const call = data?.find((sc) => sc.candidate_id === candidateId)
+      if (!call) return false
+      return ['pending', 'initiated', 'in_progress'].includes(call.call_status)
+        ? 8000
+        : false
+    },
   })
 
   const { data: report } = useQuery<InterviewReport>({
@@ -140,13 +198,7 @@ export function CandidateTimeline({ candidateId, jobId }: Props) {
       : 'Waiting to parse'
 
   // Stage 3: Shortlisted
-  const shortlistStatus: StageStatus = !shortlistResult
-    ? 'pending'
-    : shortlistResult.recommendation === 'shortlisted'
-    ? 'success'
-    : shortlistResult.recommendation === 'rejected'
-    ? 'fail'
-    : 'in_progress'
+  const shortlistStatus = deriveShortlistStatus(shortlistResult)
 
   const shortlistDetail = shortlistResult
     ? `${Math.round(shortlistResult.match_score)}% match · ${shortlistResult.recommendation}` +
@@ -156,23 +208,8 @@ export function CandidateTimeline({ candidateId, jobId }: Props) {
     : 'AI shortlisting not yet run'
 
   // Stage 4: Voice Screened
-  const screeningStatus: StageStatus = !screeningCall
-    ? 'pending'
-    : screeningCall.call_status === 'completed' && screeningCall.result === 'pass'
-    ? 'success'
-    : screeningCall.call_status === 'completed' && screeningCall.result === 'fail'
-    ? 'fail'
-    : screeningCall.call_status === 'completed'
-    ? 'in_progress' // needs_review
-    : ['initiated', 'in_progress'].includes(screeningCall.call_status)
-    ? 'in_progress'
-    : 'pending'
-
-  const screeningDetail = screeningCall
-    ? screeningCall.call_status === 'completed'
-      ? `Result: ${screeningCall.result ?? 'pending review'}`
-      : `Status: ${screeningCall.call_status}`
-    : 'Not yet screened'
+  const screeningStatus = deriveScreeningStatus(screeningCall)
+  const screeningDetail = deriveScreeningDetail(screeningCall)
 
   // Stage 5: Interview
   const interviewStatus: StageStatus = report

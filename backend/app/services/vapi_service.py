@@ -50,6 +50,40 @@ Guidelines:
 """
 
 
+async def get_vapi_call(vapi_call_id: str) -> dict:
+    """Fetch call details from Vapi REST API."""
+    headers = {
+        "Authorization": f"Bearer {settings.VAPI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(
+            f"{VAPI_API_BASE}/call/{vapi_call_id}",
+            headers=headers,
+        )
+    if response.status_code != 200:
+        raise Exception(
+            f"Vapi API error {response.status_code}: {response.text[:500]}"
+        )
+    return response.json()
+
+
+def map_vapi_status_to_call_status(vapi_status: str | None) -> str | None:
+    """Map Vapi call.status to our ScreeningCall.call_status."""
+    if not vapi_status:
+        return None
+    status = vapi_status.lower().replace("_", "-")
+    if status in ("queued", "scheduled"):
+        return "initiated"
+    if status in ("ringing", "in-progress", "forwarding"):
+        return "in_progress"
+    if status == "ended":
+        return "completed"
+    if status in ("failed", "busy", "no-answer", "canceled", "cancelled"):
+        return "failed"
+    return None
+
+
 async def initiate_screening_call(
     candidate: "Candidate",
     job: "Job",
@@ -114,6 +148,12 @@ async def initiate_screening_call(
             "screening_call_id": str(screening_call_id),
         },
     }
+
+    if settings.BACKEND_PUBLIC_URL:
+        webhook_url = (
+            f"{settings.BACKEND_PUBLIC_URL.rstrip('/')}/api/screening/webhook"
+        )
+        payload["assistant"]["serverUrl"] = webhook_url
 
     headers = {
         "Authorization": f"Bearer {settings.VAPI_API_KEY}",

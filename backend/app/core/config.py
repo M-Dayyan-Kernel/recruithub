@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     VAPI_API_KEY: str = ""
     VAPI_PHONE_NUMBER_ID: str = ""
+    # Public HTTPS base URL for webhooks (e.g. ngrok tunnel). Enables Vapi call status updates.
+    BACKEND_PUBLIC_URL: str = ""
     SARVAM_API_KEY: str = ""
     LIVEKIT_API_KEY: str = ""
     LIVEKIT_API_SECRET: str = ""
