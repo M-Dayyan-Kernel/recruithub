@@ -54,11 +54,11 @@ function JobHeaderSkeleton() {
 // ---------------------------------------------------------------------------
 
 const TABS = [
+  'AI Shortlisted',
   'Upload',
   'Parsing',
   'Parsed Resumes',
   'AI Shortlisting',
-  'AI Shortlisted',
 ] as const
 type Tab = (typeof TABS)[number]
 
@@ -68,7 +68,7 @@ type Tab = (typeof TABS)[number]
 
 export default function JobDetailPage() {
   const { id: jobId } = useParams<{ id: string }>()
-  const [activeTab, setActiveTab] = useState<Tab>('Upload')
+  const [activeTab, setActiveTab] = useState<Tab>('AI Shortlisted')
   const queryClient = useQueryClient()
 
   const [editOpen, setEditOpen] = useState(false)
