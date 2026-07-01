@@ -1,7 +1,4 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
-import { api } from '@/lib/api'
 import type { Candidate } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
 import {
@@ -9,7 +6,6 @@ import {
   WORKFLOW_TABLE_CLASS,
   WORKFLOW_TABLE_EMPTY_ROW_CLASS,
   WORKFLOW_TABLE_EMPTY_CELL_CLASS,
-  candidatesListUrl,
   formatUploadedAt,
   resumeDisplayName,
 } from '@/lib/workflow'
@@ -20,24 +16,18 @@ const PROGRESS_LABEL: Record<string, string> = {
 }
 
 interface Props {
-  jobId: string
+  parsingCandidates: Candidate[]
+  isLoading?: boolean
+  isError?: boolean
+  onRetry?: () => void
 }
 
-export function ParsingTab({ jobId }: Props) {
-  const [pollStartTime] = useState(() => Date.now())
-
-  const { data: parsing, isLoading, isError, refetch } = useQuery<Candidate[]>({
-    queryKey: ['candidates', jobId, 'parsing'],
-    queryFn: () =>
-      api.get(candidatesListUrl(jobId, { parse_status: 'parsing,parsed' })) as unknown as Promise<
-        Candidate[]
-      >,
-    refetchInterval: () => {
-      const elapsed = Date.now() - pollStartTime
-      return elapsed > 120_000 ? 30_000 : 5_000
-    },
-  })
-
+export function ParsingTab({
+  parsingCandidates,
+  isLoading = false,
+  isError = false,
+  onRetry,
+}: Props) {
   return (
     <div className="space-y-6">
       <div className="space-y-3">
@@ -48,7 +38,7 @@ export function ParsingTab({ jobId }: Props) {
         </p>
       </div>
 
-      {isError && <BackendError onRetry={refetch} />}
+      {isError && onRetry && <BackendError onRetry={onRetry} />}
 
       {!isError && (
         <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>
@@ -73,14 +63,14 @@ export function ParsingTab({ jobId }: Props) {
                     <Loader2 size={20} className="mx-auto animate-spin text-slate-300" />
                   </td>
                 </tr>
-              ) : !parsing?.length ? (
+              ) : parsingCandidates.length === 0 ? (
                 <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
                   <td colSpan={3} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
                     No resumes are currently being parsed.
                   </td>
                 </tr>
               ) : (
-                parsing.map((candidate) => (
+                parsingCandidates.map((candidate) => (
                   <tr key={candidate.id} className="hover:bg-slate-50/60">
                     <td className="px-6 py-3 text-sm font-medium text-slate-800">
                       {resumeDisplayName(candidate)}

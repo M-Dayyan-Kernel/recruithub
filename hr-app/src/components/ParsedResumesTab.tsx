@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Loader2, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -12,7 +12,6 @@ import {
   WORKFLOW_TABLE_EMPTY_CELL_CLASS,
   WORKFLOW_INPUT_CLASS,
   WORKFLOW_PRIMARY_BUTTON_CLASS,
-  candidatesListUrl,
 } from '@/lib/workflow'
 
 function candidateDisplayName(candidate: Candidate): string {
@@ -39,31 +38,26 @@ function candidateExperience(candidate: Candidate): string {
 
 interface Props {
   jobId: string
+  parsedCandidates: Candidate[]
+  isLoading?: boolean
+  isError?: boolean
+  onRetry?: () => void
   onShortlistTriggered: () => void
   onSwitchToShortlisting: () => void
 }
 
 export function ParsedResumesTab({
   jobId,
+  parsedCandidates,
+  isLoading = false,
+  isError = false,
+  onRetry,
   onShortlistTriggered,
   onSwitchToShortlisting,
 }: Props) {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-
-  const { data: candidates, isLoading, isError, refetch } = useQuery<Candidate[]>({
-    queryKey: ['candidates', jobId, 'parsed'],
-    queryFn: () =>
-      api.get(
-        candidatesListUrl(jobId, {
-          parse_status: 'ready',
-          has_shortlist_result: false,
-        }),
-      ) as unknown as Promise<Candidate[]>,
-  })
-
-  const parsedCandidates = candidates ?? []
 
   const filtered = parsedCandidates.filter((c) => {
     const term = search.toLowerCase()
@@ -181,7 +175,7 @@ export function ParsedResumesTab({
         </div>
       </div>
 
-      {isError && <BackendError onRetry={refetch} />}
+      {isError && onRetry && <BackendError onRetry={onRetry} />}
 
       {!isError && (
         <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>

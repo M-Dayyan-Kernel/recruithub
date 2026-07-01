@@ -146,11 +146,9 @@ async def upload_resumes(
 
     await db.commit()
 
-    # --- Enqueue text-extraction tasks ---
-    from app.tasks.resume_tasks import extract_resume_text  # noqa: PLC0415
+    from app.services.parse_queue_service import dispatch_parse_slots  # noqa: PLC0415
 
-    for cid in created_ids:
-        extract_resume_text.apply_async(args=[cid])
+    await dispatch_parse_slots(db, job_id)
 
     logger.info(
         "Uploaded resumes for job %s: created=%d skipped=%d",
@@ -342,10 +340,9 @@ async def import_resumes_from_drive(
         for candidate in candidates:
             await db.refresh(candidate)
 
-        from app.tasks.resume_tasks import extract_resume_text  # noqa: PLC0415
+        from app.services.parse_queue_service import dispatch_parse_slots  # noqa: PLC0415
 
-        for candidate in candidates:
-            extract_resume_text.apply_async(args=[str(candidate.id)])
+        await dispatch_parse_slots(db, job_id)
 
         logger.info(
             "Imported %d resume(s) from Google Drive for job %s", len(candidates), job_id
@@ -451,11 +448,12 @@ async def retry_parse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Candidate is not in a retryable state",
         )
-    # Reset to pending and re-queue
+    # Reset to pending and fill parse slots (concurrency-limited queue)
     candidate.parse_status = "pending_parse"
     await db.commit()
-    from app.tasks.resume_tasks import extract_resume_text  # noqa: PLC0415
-    extract_resume_text.delay(str(candidate_id))
+    from app.services.parse_queue_service import dispatch_parse_slots  # noqa: PLC0415
+
+    await dispatch_parse_slots(db, job_id)
     logger.info("retry-parse queued for candidate=%s", candidate_id)
     return {"status": "queued", "candidate_id": str(candidate_id)}
 
@@ -482,8 +480,14 @@ async def delete_candidate(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Candidate not found",
         )
+    job_id = candidate.job_id
+    was_active = candidate.parse_status in ("parsing", "parsed")
+    from app.services.parse_queue_service import dispatch_parse_slots  # noqa: PLC0415
+
     await db.delete(candidate)
     await db.commit()
+    if was_active:
+        await dispatch_parse_slots(db, job_id)
     return None
 
 

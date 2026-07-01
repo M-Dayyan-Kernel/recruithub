@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     CANDIDATE_APP_URL: str = "http://localhost:5174"
 
     UPLOAD_DIR: str = "uploads/resumes"
+    MAX_CONCURRENT_PARSES: int = 10
 
     GOOGLE_DRIVE_API_KEY: str = ""
     # Service-account JSON string for Drive API access.

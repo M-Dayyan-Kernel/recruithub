@@ -98,6 +98,8 @@ Upload one or more resume files (PDF or DOCX). Triggers async parse pipeline.
 
 > **Nova gotcha:** Response shape changed in Sprint B — no longer returns `CandidateResponse[]`. Use `candidate_ids` to build any follow-up calls. `skipped_files` lists filenames that already existed for this job (dedup by filename). A 413 aborts the entire request — fix the oversized file and retry the whole batch.
 
+> **Parse queue:** Only up to `MAX_CONCURRENT_PARSES` (default 10, env-configurable) resumes parse at once per job. Excess uploads stay `pending_parse` in the Upload tab until a slot frees. When parsing finishes (`ready` or `parse_failed`), the next queued resume starts automatically.
+
 ---
 
 #### `POST /api/jobs/{job_id}/resumes/drive`

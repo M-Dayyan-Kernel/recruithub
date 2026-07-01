@@ -10,8 +10,13 @@ from sqlalchemy import select
 from app.core.celery_app import celery_app
 from app.core.database import get_celery_db
 from app.models.models import Candidate
+from app.services.parse_queue_service import dispatch_parse_slots_after_complete
 
 logger = logging.getLogger(__name__)
+
+
+def _release_slot_and_dispatch(job_id: uuid.UUID, candidate_id: str) -> None:
+    dispatch_parse_slots_after_complete(str(job_id))
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +59,7 @@ async def _async_extract(task_self, candidate_id: str) -> None:
             )
             return
 
+        job_id = candidate.job_id
         candidate.parse_status = "parsing"
         await session.commit()
 
@@ -69,6 +75,7 @@ async def _async_extract(task_self, candidate_id: str) -> None:
                 )
                 candidate.parse_status = "parse_failed"
                 await session.commit()
+                _release_slot_and_dispatch(job_id, candidate_id)
                 raise _NoRetryError(f"File not found: {file_path}")
 
             suffix = file_path.suffix.lower()
@@ -103,6 +110,7 @@ async def _async_extract(task_self, candidate_id: str) -> None:
             )
             candidate.parse_status = "parse_failed"
             await session.commit()
+            _release_slot_and_dispatch(job_id, candidate_id)
             raise
 
 
@@ -142,12 +150,15 @@ async def _async_parse(candidate_id: str) -> None:
             )
             return
 
+        job_id = candidate.job_id
+
         if not candidate.resume_raw_text:
             logger.warning(
                 "parse_resume: candidate %s has no raw text — marking failed", candidate_id
             )
             candidate.parse_status = "parse_failed"
             await session.commit()
+            _release_slot_and_dispatch(job_id, candidate_id)
             return
 
         try:
@@ -178,30 +189,25 @@ async def _async_parse(candidate_id: str) -> None:
             )
             candidate.parse_status = "parse_failed"
             await session.commit()
+            _release_slot_and_dispatch(job_id, candidate_id)
             return  # Do not retry — bad key won't fix itself
 
         except openai.RateLimitError as exc:
             logger.warning(
                 "OpenAI rate limit hit for candidate %s — will retry: %s", candidate_id, exc
             )
-            candidate.parse_status = "parse_failed"
-            await session.commit()
-            raise parse_resume.retry(exc=exc, countdown=300)  # 5-min backoff
+            raise parse_resume.retry(exc=exc, countdown=300)
 
         except openai.APIConnectionError as exc:
             logger.warning(
                 "OpenAI connection error for candidate %s — will retry: %s", candidate_id, exc
             )
-            candidate.parse_status = "parse_failed"
-            await session.commit()
             raise parse_resume.retry(exc=exc, countdown=120)
 
         except Exception as exc:
             logger.error(
                 "Unexpected error parsing resume for candidate %s: %s", candidate_id, exc
             )
-            candidate.parse_status = "parse_failed"
-            await session.commit()
             raise parse_resume.retry(exc=exc, countdown=120)
 
 
@@ -240,6 +246,8 @@ async def _async_embed(candidate_id: str) -> None:
             )
             return
 
+        job_id = candidate.job_id
+
         if not candidate.resume_raw_text:
             logger.warning(
                 "generate_candidate_embedding: candidate %s has no raw text — marking failed",
@@ -247,6 +255,7 @@ async def _async_embed(candidate_id: str) -> None:
             )
             candidate.parse_status = "parse_failed"
             await session.commit()
+            _release_slot_and_dispatch(job_id, candidate_id)
             return
 
         try:
@@ -259,6 +268,7 @@ async def _async_embed(candidate_id: str) -> None:
                 candidate_id,
                 len(embedding),
             )
+            _release_slot_and_dispatch(job_id, candidate_id)
 
         except openai.AuthenticationError as exc:
             logger.error(
@@ -268,7 +278,8 @@ async def _async_embed(candidate_id: str) -> None:
             )
             candidate.parse_status = "parse_failed"
             await session.commit()
-            return  # Do not retry — bad key won't fix itself
+            _release_slot_and_dispatch(job_id, candidate_id)
+            return
 
         except openai.RateLimitError as exc:
             logger.warning(
@@ -276,8 +287,6 @@ async def _async_embed(candidate_id: str) -> None:
                 candidate_id,
                 exc,
             )
-            candidate.parse_status = "parse_failed"
-            await session.commit()
             raise generate_candidate_embedding.retry(exc=exc, countdown=300)
 
         except openai.APIConnectionError as exc:
@@ -286,8 +295,6 @@ async def _async_embed(candidate_id: str) -> None:
                 candidate_id,
                 exc,
             )
-            candidate.parse_status = "parse_failed"
-            await session.commit()
             raise generate_candidate_embedding.retry(exc=exc, countdown=120)
 
         except Exception as exc:
@@ -296,6 +303,4 @@ async def _async_embed(candidate_id: str) -> None:
                 candidate_id,
                 exc,
             )
-            candidate.parse_status = "parse_failed"
-            await session.commit()
             raise generate_candidate_embedding.retry(exc=exc, countdown=120)

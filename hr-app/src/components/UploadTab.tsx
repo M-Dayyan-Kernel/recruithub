@@ -1,5 +1,5 @@
 import { useState, useRef, type DragEvent, type ChangeEvent } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   Upload,
@@ -17,7 +17,6 @@ import {
   WORKFLOW_TABLE_CLASS,
   WORKFLOW_TABLE_EMPTY_ROW_CLASS,
   WORKFLOW_TABLE_EMPTY_CELL_CLASS,
-  candidatesListUrl,
   formatUploadedAt,
   resumeDisplayName,
 } from '@/lib/workflow'
@@ -206,26 +205,22 @@ function UploadZone({ jobId }: { jobId: string }) {
 
 interface Props {
   jobId: string
+  queueCandidates: Candidate[]
+  isLoading?: boolean
+  isError?: boolean
+  onRetry?: () => void
 }
 
-export function UploadTab({ jobId }: Props) {
+export function UploadTab({
+  jobId,
+  queueCandidates,
+  isLoading = false,
+  isError = false,
+  onRetry,
+}: Props) {
   const queryClient = useQueryClient()
-  const [pollStartTime] = useState(() => Date.now())
 
-  const { data: queued, isLoading, isError, refetch } = useQuery<Candidate[]>({
-    queryKey: ['candidates', jobId, 'upload'],
-    queryFn: () =>
-      api.get(candidatesListUrl(jobId, { parse_status: 'pending_parse,parse_failed' })) as unknown as Promise<
-        Candidate[]
-      >,
-    refetchInterval: (query) => {
-      const hasPending = ((query.state.data ?? []) as Candidate[]).some(
-        (c) => c.parse_status === 'pending_parse',
-      )
-      if (!hasPending) return false
-      return Date.now() - pollStartTime > 120_000 ? 30_000 : 5_000
-    },
-  })
+  const waitingInQueue = queueCandidates.filter((c) => c.parse_status === 'pending_parse')
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/api/candidates/${id}`),
@@ -262,8 +257,15 @@ export function UploadTab({ jobId }: Props) {
       </div>
 
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold text-slate-900">Queued Resumes</h2>
-        {isError && <BackendError onRetry={refetch} />}
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-lg font-semibold text-slate-900">Queued Resumes</h2>
+          {waitingInQueue.length > 0 && (
+            <span className="text-sm text-slate-500">
+              {waitingInQueue.length} waiting for a parse slot
+            </span>
+          )}
+        </div>
+        {isError && onRetry && <BackendError onRetry={onRetry} />}
         {!isError && (
           <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>
             <table className={`${WORKFLOW_TABLE_CLASS} h-full`}>
@@ -290,14 +292,14 @@ export function UploadTab({ jobId }: Props) {
                       <Loader2 size={20} className="mx-auto animate-spin text-slate-300" />
                     </td>
                   </tr>
-                ) : !queued?.length ? (
+                ) : queueCandidates.length === 0 ? (
                   <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
                     <td colSpan={4} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
                       No resumes in queue.
                     </td>
                   </tr>
                 ) : (
-                  queued.map((candidate) => {
+                  queueCandidates.map((candidate) => {
                     const name = resumeDisplayName(candidate)
                     const isFailed = candidate.parse_status === 'parse_failed'
                     return (

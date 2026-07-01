@@ -11,6 +11,7 @@ import { ParsedResumesTab } from '@/components/ParsedResumesTab'
 import { UploadTab } from '@/components/UploadTab'
 import { ParsingTab } from '@/components/ParsingTab'
 import { AIShortlistingTab } from '@/components/AIShortlistingTab'
+import { useJobPipelineCandidates } from '@/hooks/useJobPipelineCandidates'
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -172,6 +173,8 @@ export default function JobDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['shortlist-status', jobId] })
   }
 
+  const pipeline = useJobPipelineCandidates(job?.id ?? '')
+
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
       <Link
@@ -315,12 +318,27 @@ export default function JobDetailPage() {
               />
             </div>
           ) : activeTab === 'Upload' ? (
-            <UploadTab jobId={jobId ?? ''} />
+            <UploadTab
+              jobId={jobId ?? ''}
+              queueCandidates={pipeline.queueCandidates}
+              isLoading={pipeline.isLoading}
+              isError={pipeline.isError}
+              onRetry={pipeline.refetch}
+            />
           ) : activeTab === 'Parsing' ? (
-            <ParsingTab jobId={jobId ?? ''} />
+            <ParsingTab
+              parsingCandidates={pipeline.parsingCandidates}
+              isLoading={pipeline.isLoading}
+              isError={pipeline.isError}
+              onRetry={pipeline.refetch}
+            />
           ) : activeTab === 'Parsed Resumes' ? (
             <ParsedResumesTab
               jobId={jobId ?? ''}
+              parsedCandidates={pipeline.parsedCandidates}
+              isLoading={pipeline.isLoading}
+              isError={pipeline.isError}
+              onRetry={pipeline.refetch}
               onShortlistTriggered={handleShortlistTriggered}
               onSwitchToShortlisting={() => setActiveTab('AI Shortlisting')}
             />
