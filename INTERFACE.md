@@ -337,6 +337,24 @@ List all screening calls for a job.
 
 ---
 
+#### `PATCH /api/screening/{screening_id}/result`
+Set HR decision on a completed screening call.
+
+**Request Body:**
+```json
+{ "result": "pass | fail | needs_review" }
+```
+
+**Response `200`:** `ScreeningCallResponse`
+
+**Errors:**
+- `404` — screening call not found
+- `422` — invalid result or call not yet completed
+
+> **Nova UI:** Screening tab **Approve Pass** / **Reject Fail** buttons call this endpoint with `pass` or `fail`.
+
+---
+
 ### Interviews
 
 #### `GET /api/jobs/{job_id}/interviews` *(NEW — Sprint A — was listed as stub, now implemented)*
@@ -664,6 +682,7 @@ VITE_API_URL=http://localhost:8080
 | POST | `/api/jobs/{id}/screening/trigger` | Trigger voice screening |
 | POST | `/api/screening/webhook` | Vapi webhook (internal) |
 | GET | `/api/jobs/{id}/screening` | Get screening results |
+| PATCH | `/api/screening/{id}/result` | HR pass/fail decision on screening |
 | GET | `/api/jobs/{id}/interviews` | List interview sessions for job |
 | POST | `/api/candidates/{id}/interview/send` | Send interview link |
 | GET | `/api/interview/{token}` | Get session by token |

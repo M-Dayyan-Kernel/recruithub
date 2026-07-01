@@ -16,7 +16,7 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.models.models import Candidate, Job, ScreeningCall, ShortlistResult
-from app.schemas.schemas import ScreeningCallResponse
+from app.schemas.schemas import ScreeningCallResponse, ScreeningResultUpdate
 from app.services.phone_validation import validate_phone
 
 router = APIRouter()
@@ -227,3 +227,49 @@ async def get_screening_results(
     )
     calls = result.scalars().all()
     return calls
+
+
+# ---------------------------------------------------------------------------
+# 5.4 — HR screening result decision
+# ---------------------------------------------------------------------------
+
+@router.patch(
+    "/screening/{screening_id}/result",
+    response_model=ScreeningCallResponse,
+)
+async def update_screening_result(
+    screening_id: uuid.UUID,
+    payload: ScreeningResultUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Set HR decision on a completed screening call.
+    Body: { "result": "pass" | "fail" | "needs_review" }
+    """
+    valid_results = {"pass", "fail", "needs_review"}
+    if payload.result not in valid_results:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"result must be one of: {', '.join(sorted(valid_results))}",
+        )
+
+    call_result = await db.execute(
+        select(ScreeningCall).where(ScreeningCall.id == screening_id)
+    )
+    screening_call = call_result.scalar_one_or_none()
+    if not screening_call:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Screening call not found",
+        )
+
+    if screening_call.call_status != "completed":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Screening result can only be set after the call is completed.",
+        )
+
+    screening_call.result = payload.result
+    await db.commit()
+    await db.refresh(screening_call)
+    return screening_call

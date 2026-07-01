@@ -216,6 +216,86 @@ const QUALITY_COLORS: Record<string, string> = {
 }
 
 // ---------------------------------------------------------------------------
+// HR screening decision buttons
+// ---------------------------------------------------------------------------
+
+function ScreeningHrDecisionButtons({
+  call,
+  jobId,
+}: {
+  call: ScreeningCall
+  jobId: string
+}) {
+  const queryClient = useQueryClient()
+
+  const decisionMutation = useMutation<
+    unknown,
+    Error,
+    ScreeningCall['result']
+  >({
+    mutationFn: (result) =>
+      api.patch(`/api/screening/${call.id}/result`, { result }),
+    onMutate: async (result) => {
+      await queryClient.cancelQueries({ queryKey: ['screening', jobId] })
+      const previous = queryClient.getQueryData<ScreeningCall[]>(['screening', jobId])
+      queryClient.setQueryData<ScreeningCall[]>(['screening', jobId], (old) =>
+        old
+          ? old.map((sc) => (sc.id === call.id ? { ...sc, result } : sc))
+          : old,
+      )
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      const ctx = context as { previous?: ScreeningCall[] } | undefined
+      if (ctx?.previous) {
+        queryClient.setQueryData(['screening', jobId], ctx.previous)
+      }
+      toast.error('Failed to update screening decision')
+    },
+    onSuccess: (_data, result) => {
+      toast.success(
+        result === 'pass' ? 'Candidate marked as pass' : 'Candidate marked as fail',
+      )
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
+    },
+  })
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 mb-4 border-t border-slate-100 pt-4">
+      <button
+        type="button"
+        onClick={() => decisionMutation.mutate('pass')}
+        disabled={decisionMutation.isPending}
+        className={`px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+          call.result === 'pass'
+            ? 'bg-emerald-600 text-white border-emerald-600'
+            : 'border-slate-200 text-slate-400 hover:border-emerald-300 hover:text-emerald-600'
+        }`}
+      >
+        Approve Pass
+      </button>
+      <button
+        type="button"
+        onClick={() => decisionMutation.mutate('fail')}
+        disabled={decisionMutation.isPending}
+        className={`px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+          call.result === 'fail'
+            ? 'bg-rose-600 text-white border-rose-600'
+            : 'border-slate-200 text-slate-400 hover:border-rose-300 hover:text-rose-600'
+        }`}
+      >
+        Reject Fail
+      </button>
+      {decisionMutation.isPending && (
+        <Loader2 size={14} className="animate-spin text-slate-400" />
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Screening result card
 // ---------------------------------------------------------------------------
 
@@ -351,6 +431,11 @@ function ScreeningResultCard({
             </div>
           )}
         </div>
+      )}
+
+      {/* HR decision — completed calls with screening outcome */}
+      {isCompleted && !isTechnicalFailure && (
+        <ScreeningHrDecisionButtons call={call} jobId={jobId} />
       )}
 
       {/* Expandable: summary + transcript */}

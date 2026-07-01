@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronUp,
   Search,
+  Trash2,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ShortlistResultWithCandidate, HrDecision } from '@/types/api'
@@ -158,11 +159,13 @@ function ShortlistCard({
   jobId,
   readOnly = false,
   decisionActions,
+  showDelete = false,
 }: {
   result: ShortlistResultWithCandidate
   jobId: string
   readOnly?: boolean
   decisionActions?: DecisionActionsMode
+  showDelete?: boolean
 }) {
   const actionsMode: DecisionActionsMode =
     decisionActions ?? (readOnly ? 'none' : 'full')
@@ -223,6 +226,16 @@ function ShortlistCard({
     },
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: () => api.delete(`/api/candidates/${result.candidate_id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['candidates', jobId, 'pipeline'] })
+      toast.success('Resume removed')
+    },
+    onError: () => toast.error('Failed to remove resume'),
+  })
+
   // Feedback mutation
   const feedbackMutation = useMutation({
     mutationFn: () =>
@@ -242,6 +255,12 @@ function ShortlistCard({
 
   const displayName = result.candidate_name ?? 'Candidate'
   const displayEmail = result.candidate_email
+
+  const handleDelete = () => {
+    if (window.confirm(`Remove ${displayName}?`)) {
+      deleteMutation.mutate()
+    }
+  }
 
   return (
     <div className="w-full rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -370,6 +389,22 @@ function ShortlistCard({
                 className="ml-auto px-3 py-1.5 border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-300 rounded-lg text-xs font-medium transition-colors"
               >
                 Give Feedback
+              </button>
+            )}
+            {showDelete && (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleteMutation.isPending || decisionMutation.isPending}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium text-slate-500 transition-colors hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 disabled:opacity-50 disabled:cursor-not-allowed ${showFeedback ? '' : 'ml-auto'}`}
+                title="Remove resume"
+              >
+                {deleteMutation.isPending ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <Trash2 size={12} />
+                )}
+                Delete
               </button>
             )}
           </div>
@@ -517,7 +552,7 @@ export function ShortlistTab({
     return name.includes(normalizedSearch) || email.includes(normalizedSearch)
   })
 
-  // Bulk action state (default mode only)
+  // Bulk approve/reject by AI recommendation (shortlisted = passed, rejected = failed)
   const queryClient = useQueryClient()
   const [approvingAll, setApprovingAll] = useState(false)
   const [rejectingAll, setRejectingAll] = useState(false)
@@ -535,7 +570,7 @@ export function ShortlistTab({
       (r) => r.recommendation === 'shortlisted' && r.hr_decision === 'pending',
     )
     if (toApprove.length === 0) {
-      toast('No shortlisted candidates pending a decision.')
+      toast('No AI-passed candidates pending approval.')
       return
     }
     setApprovingAll(true)
@@ -562,7 +597,7 @@ export function ShortlistTab({
       (r) => r.recommendation === 'rejected' && r.hr_decision === 'pending',
     )
     if (toReject.length === 0) {
-      toast('No AI-rejected candidates pending a decision.')
+      toast('No AI-failed candidates pending rejection.')
       return
     }
     setRejectingAll(true)
@@ -682,8 +717,42 @@ export function ShortlistTab({
             </div>
           </div>
 
-          <div className="text-sm font-medium text-slate-600 whitespace-nowrap">
-            Total Scored Candidates: {scoredResults.length}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
+            <div className="text-sm font-medium text-slate-600 whitespace-nowrap">
+              Total Scored Candidates: {scoredResults.length}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void handleApproveAll()}
+                disabled={approvingAll || rejectingAll}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {approvingAll ? (
+                  <>
+                    <Loader2 size={11} className="animate-spin" />
+                    Approving…
+                  </>
+                ) : (
+                  'Approve All Passed'
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleRejectAll()}
+                disabled={approvingAll || rejectingAll}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 text-white text-xs font-medium rounded-lg hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {rejectingAll ? (
+                  <>
+                    <Loader2 size={11} className="animate-spin" />
+                    Rejecting…
+                  </>
+                ) : (
+                  'Reject All Failed'
+                )}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -699,6 +768,7 @@ export function ShortlistTab({
                 result={result}
                 jobId={jobId}
                 decisionActions="approveReject"
+                showDelete
               />
             ))}
           </div>

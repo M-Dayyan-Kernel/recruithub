@@ -172,6 +172,11 @@ class ScreeningCallResponse(BaseModel):
     created_at: datetime
 
 
+class ScreeningResultUpdate(BaseModel):
+    """HR override of AI screening result."""
+    result: str  # pass | fail | needs_review
+
+
 # ---------------------------------------------------------------------------
 # InterviewSession schemas
 # ---------------------------------------------------------------------------
