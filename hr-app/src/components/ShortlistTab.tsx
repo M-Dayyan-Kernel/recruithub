@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Loader2, Users, AlertCircle, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react'
+import {
+  Loader2,
+  Users,
+  AlertCircle,
+  CheckCircle,
+  ChevronDown,
+  ChevronUp,
+  Search,
+} from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ShortlistResultWithCandidate, HrDecision } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
@@ -123,9 +131,11 @@ const REASON_TRUNCATE_LENGTH = 160
 function ShortlistCard({
   result,
   jobId,
+  readOnly = false,
 }: {
   result: ShortlistResultWithCandidate
   jobId: string
+  readOnly?: boolean
 }) {
   const queryClient = useQueryClient()
   const [showFeedback, setShowFeedback] = useState(false)
@@ -291,110 +301,115 @@ function ShortlistCard({
         </div>
       )}
 
-      {/* HR Decision buttons + feedback trigger */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {(Object.keys(DECISION_CONFIG) as Exclude<HrDecision, 'pending'>[]).map((decision) => {
-          const cfg = DECISION_CONFIG[decision]
-          const isActive = result.hr_decision === decision
-          return (
+      {!readOnly && (
+        <>
+          {/* HR Decision buttons + feedback trigger */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {(Object.keys(DECISION_CONFIG) as Exclude<HrDecision, 'pending'>[]).map((decision) => {
+              const cfg = DECISION_CONFIG[decision]
+              const isActive = result.hr_decision === decision
+              return (
+                <button
+                  key={decision}
+                  onClick={() => decisionMutation.mutate(decision)}
+                  disabled={decisionMutation.isPending}
+                  className={`px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isActive ? cfg.active : cfg.inactive
+                  }`}
+                >
+                  {cfg.label}
+                </button>
+              )
+            })}
             <button
-              key={decision}
-              onClick={() => decisionMutation.mutate(decision)}
-              disabled={decisionMutation.isPending}
-              className={`px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                isActive ? cfg.active : cfg.inactive
-              }`}
+              onClick={() => {
+                setShowFeedback((v) => !v)
+                setFeedbackDone(false)
+              }}
+              className="ml-auto px-3 py-1.5 border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-300 rounded-lg text-xs font-medium transition-colors"
             >
-              {cfg.label}
+              Give Feedback
             </button>
-          )
-        })}
-        <button
-          onClick={() => {
-            setShowFeedback((v) => !v)
-            setFeedbackDone(false)
-          }}
-          className="ml-auto px-3 py-1.5 border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-300 rounded-lg text-xs font-medium transition-colors"
-        >
-          Give Feedback
-        </button>
-      </div>
-
-      {/* Decision error */}
-      {decisionMutation.isError && (
-        <p className="mt-2 text-xs text-rose-600 flex items-center gap-1">
-          <AlertCircle size={11} />
-          Failed to update decision. Please try again.
-        </p>
-      )}
-
-      {/* Inline feedback form */}
-      {showFeedback && (
-        <div className="mt-4 border-t border-slate-100 pt-4 space-y-3">
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1.5">
-              Feedback Type
-            </label>
-            <select
-              value={feedbackType}
-              onChange={(e) => setFeedbackType(e.target.value)}
-              disabled={feedbackMutation.isPending || feedbackDone}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50"
-            >
-              {FEEDBACK_TYPES.map((ft) => (
-                <option key={ft.value} value={ft.value}>
-                  {ft.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1.5">
-              Comments <span className="text-slate-400 font-normal">(optional)</span>
-            </label>
-            <textarea
-              value={feedbackComments}
-              onChange={(e) => setFeedbackComments(e.target.value)}
-              rows={2}
-              placeholder="Any additional context…"
-              disabled={feedbackMutation.isPending || feedbackDone}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none disabled:opacity-50"
-            />
           </div>
 
-          {feedbackDone ? (
-            <p className="text-xs text-emerald-600 font-medium flex items-center gap-1">
-              <CheckCircle size={12} />
-              Feedback submitted!
+          {/* Decision error */}
+          {decisionMutation.isError && (
+            <p className="mt-2 text-xs text-rose-600 flex items-center gap-1">
+              <AlertCircle size={11} />
+              Failed to update decision. Please try again.
             </p>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => feedbackMutation.mutate()}
-                disabled={feedbackMutation.isPending}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-              >
-                {feedbackMutation.isPending && (
-                  <Loader2 size={10} className="animate-spin" />
-                )}
-                Submit Feedback
-              </button>
-              <button
-                onClick={() => setShowFeedback(false)}
-                className="px-3 py-1.5 border border-slate-200 text-slate-500 text-xs font-medium rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                Cancel
-              </button>
+          )}
+
+          {/* Inline feedback form */}
+          {showFeedback && (
+            <div className="mt-4 border-t border-slate-100 pt-4 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">
+                  Feedback Type
+                </label>
+                <select
+                  value={feedbackType}
+                  onChange={(e) => setFeedbackType(e.target.value)}
+                  disabled={feedbackMutation.isPending || feedbackDone}
+                  aria-label="Feedback Type"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50"
+                >
+                  {FEEDBACK_TYPES.map((ft) => (
+                    <option key={ft.value} value={ft.value}>
+                      {ft.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">
+                  Comments <span className="text-slate-400 font-normal">(optional)</span>
+                </label>
+                <textarea
+                  value={feedbackComments}
+                  onChange={(e) => setFeedbackComments(e.target.value)}
+                  rows={2}
+                  placeholder="Any additional context…"
+                  disabled={feedbackMutation.isPending || feedbackDone}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none disabled:opacity-50"
+                />
+              </div>
+
+              {feedbackDone ? (
+                <p className="text-xs text-emerald-600 font-medium flex items-center gap-1">
+                  <CheckCircle size={12} />
+                  Feedback submitted!
+                </p>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => feedbackMutation.mutate()}
+                    disabled={feedbackMutation.isPending}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                  >
+                    {feedbackMutation.isPending && (
+                      <Loader2 size={10} className="animate-spin" />
+                    )}
+                    Submit Feedback
+                  </button>
+                  <button
+                    onClick={() => setShowFeedback(false)}
+                    className="px-3 py-1.5 border border-slate-200 text-slate-500 text-xs font-medium rounded-lg hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+
+              {feedbackMutation.isError && (
+                <p className="text-xs text-rose-600 flex items-center gap-1">
+                  <AlertCircle size={11} />
+                  Failed to submit feedback. Please try again.
+                </p>
+              )}
             </div>
           )}
-
-          {feedbackMutation.isError && (
-            <p className="text-xs text-rose-600 flex items-center gap-1">
-              <AlertCircle size={11} />
-              Failed to submit feedback. Please try again.
-            </p>
-          )}
-        </div>
+        </>
       )}
     </div>
   )
@@ -412,6 +427,7 @@ interface Props {
   onShortlistComplete: () => void
   /** Called when the user clicks "Go to Candidates tab" in the empty state */
   onSwitchToCandidates: () => void
+  mode?: 'default' | 'aiShortlisted'
 }
 
 export function ShortlistTab({
@@ -419,7 +435,11 @@ export function ShortlistTab({
   shortlistTriggered,
   onShortlistComplete,
   onSwitchToCandidates,
+  mode = 'default',
 }: Props) {
+  const isAiShortlistedMode = mode === 'aiShortlisted'
+  const [search, setSearch] = useState('')
+
   const { data: results, isLoading, isError, refetch } = useQuery<
     ShortlistResultWithCandidate[]
   >({
@@ -446,11 +466,26 @@ export function ShortlistTab({
 
   const hasResults = results && results.length > 0
   const isInProgress = shortlistTriggered && !hasResults
+  const shortlistedResults = (results ?? []).filter((r) => r.recommendation === 'shortlisted')
+  const normalizedSearch = search.trim().toLowerCase()
+  const filteredShortlisted = shortlistedResults.filter((r) => {
+    if (!normalizedSearch) return true
+    const name = (r.candidate_name ?? '').toLowerCase()
+    const email = (r.candidate_email ?? '').toLowerCase()
+    return name.includes(normalizedSearch) || email.includes(normalizedSearch)
+  })
 
   // Bulk action state
   const queryClient = useQueryClient()
   const [approvingAll, setApprovingAll] = useState(false)
   const [rejectingAll, setRejectingAll] = useState(false)
+
+  const aiShortlistedHeader = (
+    <div className="space-y-1">
+      <h2 className="text-xl font-semibold text-slate-900">AI Shortlisted</h2>
+      <p className="text-sm text-slate-500">Candidates successfully shortlisted by AI.</p>
+    </div>
+  )
 
   const handleApproveAll = async () => {
     if (!results) return
@@ -509,7 +544,8 @@ export function ShortlistTab({
   // ── Loading skeleton ──────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="space-y-4">
+      <div className={isAiShortlistedMode ? 'space-y-6' : 'space-y-4'}>
+        {isAiShortlistedMode && aiShortlistedHeader}
         {[1, 2, 3].map((i) => (
           <ShortlistCardSkeleton key={i} />
         ))}
@@ -519,26 +555,48 @@ export function ShortlistTab({
 
   // ── Error ─────────────────────────────────────────────────────────────────
   if (isError) {
-    return <BackendError onRetry={refetch} />
+    return (
+      <div className={isAiShortlistedMode ? 'space-y-6' : undefined}>
+        {isAiShortlistedMode && aiShortlistedHeader}
+        <BackendError onRetry={refetch} />
+      </div>
+    )
   }
 
   // ── Shortlisting in progress ──────────────────────────────────────────────
   if (isInProgress) {
     return (
-      <div className="py-20 flex flex-col items-center justify-center text-center">
-        <div className="w-14 h-14 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
-          <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+      <div className={isAiShortlistedMode ? 'space-y-6' : undefined}>
+        {isAiShortlistedMode && aiShortlistedHeader}
+        <div className="py-20 flex flex-col items-center justify-center text-center">
+          <div className="w-14 h-14 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
+            <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+          </div>
+          <p className="text-slate-700 font-semibold mb-1">AI is scoring candidates…</p>
+          <p className="text-slate-400 text-sm max-w-xs">
+            This usually takes 30–60 seconds. Results will appear automatically when ready.
+          </p>
         </div>
-        <p className="text-slate-700 font-semibold mb-1">AI is scoring candidates…</p>
-        <p className="text-slate-400 text-sm max-w-xs">
-          This usually takes 30–60 seconds. Results will appear automatically when ready.
-        </p>
       </div>
     )
   }
 
   // ── Empty state (no shortlist yet) ────────────────────────────────────────
-  if (!hasResults) {
+  if (!hasResults || (isAiShortlistedMode && shortlistedResults.length === 0)) {
+    if (isAiShortlistedMode) {
+      return (
+        <div className="space-y-6">
+          {aiShortlistedHeader}
+          <div className="py-20 flex flex-col items-center justify-center text-center">
+            <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mb-4">
+              <Users className="w-6 h-6 text-slate-400" />
+            </div>
+            <p className="text-slate-700 font-semibold mb-1">No candidates have been shortlisted yet.</p>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="py-20 flex flex-col items-center justify-center text-center">
         <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mb-4">
@@ -559,6 +617,48 @@ export function ShortlistTab({
   }
 
   // ── Results ───────────────────────────────────────────────────────────────
+  if (isAiShortlistedMode) {
+    return (
+      <div className="space-y-6">
+        {aiShortlistedHeader}
+
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="w-full max-w-md">
+            <div className="relative">
+              <Search
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+              />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search candidates..."
+                className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              />
+            </div>
+          </div>
+
+          <div className="text-sm font-medium text-slate-600">
+            Total Shortlisted Candidates: {shortlistedResults.length}
+          </div>
+        </div>
+
+        {filteredShortlisted.length === 0 ? (
+          <div className="py-20 text-center">
+            <p className="text-slate-400 text-sm">No results found for your search.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {filteredShortlisted.map((result) => (
+              <ShortlistCard key={result.id} result={result} jobId={jobId} readOnly />
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       {/* Header row: count + bulk actions */}

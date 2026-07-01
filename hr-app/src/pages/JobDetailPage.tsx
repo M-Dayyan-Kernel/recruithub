@@ -6,6 +6,7 @@ import { ArrowLeft, ChevronDown, Loader2, Pencil, Upload } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { EditJobModal } from '@/components/EditJobModal'
+import { ShortlistTab } from '@/components/ShortlistTab'
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -296,7 +297,15 @@ export default function JobDetailPage() {
           </div>
 
           {/* Tab content */}
-          {activeTab === 'Upload' ? (
+          {activeTab === 'AI Shortlisted' ? (
+            <ShortlistTab
+              jobId={jobId ?? ''}
+              shortlistTriggered={false}
+              onShortlistComplete={() => {}}
+              onSwitchToCandidates={() => {}}
+              mode="aiShortlisted"
+            />
+          ) : activeTab === 'Upload' ? (
             <div className="space-y-6">
               <div className="space-y-1">
                 <h2 className="text-xl font-semibold text-slate-900">Upload Resumes</h2>
