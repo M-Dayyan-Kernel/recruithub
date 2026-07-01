@@ -129,6 +129,19 @@ class ShortlistFeedbackCreate(BaseModel):
     hr_comments: Optional[str] = None
 
 
+class ShortlistTriggerRequest(BaseModel):
+    """Optional body for POST /api/jobs/{job_id}/shortlist."""
+    candidate_ids: Optional[List[uuid.UUID]] = None
+
+
+class ShortlistStatusResponse(BaseModel):
+    in_progress: bool
+    candidate_ids: List[str]
+    completed: int
+    total: int
+    failed: int = 0
+
+
 # ---------------------------------------------------------------------------
 # ScreeningCall schemas
 # ---------------------------------------------------------------------------

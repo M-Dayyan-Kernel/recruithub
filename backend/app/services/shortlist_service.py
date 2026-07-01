@@ -151,7 +151,9 @@ async def _gpt4o_assess(
 # ---------------------------------------------------------------------------
 
 async def shortlist_candidates(
-    job_id: uuid.UUID, db: AsyncSession
+    job_id: uuid.UUID,
+    db: AsyncSession,
+    candidate_ids: list[uuid.UUID] | None = None,
 ) -> list[ShortlistResult]:
     """
     Run AI shortlisting for all ready candidates in a job.
@@ -175,13 +177,14 @@ async def shortlist_candidates(
     if not job:
         raise ValueError(f"Job {job_id} not found")
 
-    # --- Load all ready candidates ---
-    candidates_result = await db.execute(
-        select(Candidate).where(
-            Candidate.job_id == job_id,
-            Candidate.parse_status == "ready",
-        )
+    # --- Load ready candidates (optionally filtered to a subset) ---
+    stmt = select(Candidate).where(
+        Candidate.job_id == job_id,
+        Candidate.parse_status == "ready",
     )
+    if candidate_ids:
+        stmt = stmt.where(Candidate.id.in_(candidate_ids))
+    candidates_result = await db.execute(stmt)
     candidates = candidates_result.scalars().all()
 
     if not candidates:

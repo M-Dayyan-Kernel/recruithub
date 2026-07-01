@@ -180,7 +180,7 @@ export function CandidateTimeline({ candidateId, jobId }: Props) {
     ? 'success'
     : parseStatus === 'parse_failed'
     ? 'fail'
-    : ['parsing', 'parsed', 'embedding_done'].includes(parseStatus)
+    : ['parsing', 'parsed'].includes(parseStatus)
     ? 'in_progress'
     : 'pending'
 
@@ -191,7 +191,7 @@ export function CandidateTimeline({ candidateId, jobId }: Props) {
       ? 'Parsing failed — re-upload resume'
       : parseStatus === 'parsing'
       ? 'Parsing in progress…'
-      : parseStatus === 'embedding_done'
+      : parseStatus === 'parsed'
       ? 'Generating embeddings…'
       : parseStatus === 'pending_parse'
       ? 'Queued for parsing'

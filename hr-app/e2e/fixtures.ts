@@ -381,11 +381,41 @@ export async function mockGetJob(page: Page, jobId: string, job: object | null =
   })
 }
 
-/** Mock GET /api/jobs/:id/candidates */
-export async function mockGetCandidates(page: Page, jobId: string, candidates = MOCK_CANDIDATES.filter(c => c.job_id === jobId)) {
-  await page.route(`**/api/jobs/${jobId}/candidates`, (route: Route) => {
+/** Mock GET /api/jobs/:id/candidates (supports parse_status and has_shortlist_result query params) */
+export async function mockGetCandidates(
+  page: Page,
+  jobId: string,
+  candidates = MOCK_CANDIDATES.filter(c => c.job_id === jobId),
+  shortlistedIds: string[] = [],
+) {
+  await page.route(`**/api/jobs/${jobId}/candidates**`, (route: Route) => {
     if (route.request().method() !== 'GET') return route.continue()
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(candidates) })
+    const url = new URL(route.request().url())
+    let result = [...candidates]
+    const parseStatus = url.searchParams.get('parse_status')
+    if (parseStatus) {
+      const statuses = parseStatus.split(',').map(s => s.trim())
+      result = result.filter(c => statuses.includes(c.parse_status))
+    }
+    const hasShortlist = url.searchParams.get('has_shortlist_result')
+    if (hasShortlist === 'true') {
+      result = result.filter(c => shortlistedIds.includes(c.id))
+    } else if (hasShortlist === 'false') {
+      result = result.filter(c => !shortlistedIds.includes(c.id))
+    }
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(result) })
+  })
+}
+
+/** Mock GET /api/jobs/:id/shortlist/status */
+export async function mockGetShortlistStatus(
+  page: Page,
+  jobId: string,
+  status = { in_progress: false, candidate_ids: [] as string[], completed: 0, total: 0, failed: 0 },
+) {
+  await page.route(`**/api/jobs/${jobId}/shortlist/status`, (route: Route) => {
+    if (route.request().method() !== 'GET') return route.continue()
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(status) })
   })
 }
 
@@ -393,6 +423,7 @@ export async function mockGetCandidates(page: Page, jobId: string, candidates = 
 export async function mockGetShortlist(page: Page, jobId: string, results = MOCK_SHORTLIST) {
   await page.route(`**/api/jobs/${jobId}/shortlist`, (route: Route) => {
     if (route.request().method() !== 'GET') return route.continue()
+    if (route.request().url().includes('/shortlist/status')) return route.continue()
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(results) })
   })
 }

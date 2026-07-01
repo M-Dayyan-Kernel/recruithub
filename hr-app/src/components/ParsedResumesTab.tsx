@@ -5,16 +5,15 @@ import { Loader2, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Candidate } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
-
-const WORKFLOW_CARD_CLASS = 'overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm'
-const WORKFLOW_TABLE_CLASS = 'min-w-full divide-y divide-slate-200'
-const WORKFLOW_TABLE_EMPTY_ROW_CLASS = 'h-[360px]'
-const WORKFLOW_TABLE_EMPTY_CELL_CLASS =
-  'h-[360px] align-middle px-6 text-center text-sm text-slate-400'
-const WORKFLOW_INPUT_CLASS =
-  'h-11 w-full rounded-lg border border-slate-200 bg-white px-4 text-sm text-slate-700 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100'
-const WORKFLOW_PRIMARY_BUTTON_CLASS =
-  'inline-flex h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50'
+import {
+  WORKFLOW_CARD_CLASS,
+  WORKFLOW_TABLE_CLASS,
+  WORKFLOW_TABLE_EMPTY_ROW_CLASS,
+  WORKFLOW_TABLE_EMPTY_CELL_CLASS,
+  WORKFLOW_INPUT_CLASS,
+  WORKFLOW_PRIMARY_BUTTON_CLASS,
+  candidatesListUrl,
+} from '@/lib/workflow'
 
 function candidateDisplayName(candidate: Candidate): string {
   return (
@@ -40,19 +39,31 @@ function candidateExperience(candidate: Candidate): string {
 
 interface Props {
   jobId: string
+  onShortlistTriggered: () => void
+  onSwitchToShortlisting: () => void
 }
 
-export function ParsedResumesTab({ jobId }: Props) {
+export function ParsedResumesTab({
+  jobId,
+  onShortlistTriggered,
+  onSwitchToShortlisting,
+}: Props) {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const { data: candidates, isLoading, isError, refetch } = useQuery<Candidate[]>({
-    queryKey: ['candidates', jobId],
-    queryFn: () => api.get(`/api/jobs/${jobId}/candidates`) as unknown as Promise<Candidate[]>,
+    queryKey: ['candidates', jobId, 'parsed'],
+    queryFn: () =>
+      api.get(
+        candidatesListUrl(jobId, {
+          parse_status: 'ready',
+          has_shortlist_result: false,
+        }),
+      ) as unknown as Promise<Candidate[]>,
   })
 
-  const parsedCandidates = (candidates ?? []).filter((c) => c.parse_status === 'ready')
+  const parsedCandidates = candidates ?? []
 
   const filtered = parsedCandidates.filter((c) => {
     const term = search.toLowerCase()
@@ -74,10 +85,36 @@ export function ParsedResumesTab({ jobId }: Props) {
     onError: () => toast.error('Failed to remove resume'),
   })
 
+  const shortlistMutation = useMutation({
+    mutationFn: (candidateIds: string[]) =>
+      api.post(`/api/jobs/${jobId}/shortlist`, { candidate_ids: candidateIds }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['shortlist-status', jobId] })
+      toast.success('AI shortlisting started')
+      onShortlistTriggered()
+      onSwitchToShortlisting()
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'Failed to start shortlisting')
+    },
+  })
+
   const handleDelete = (id: string, name: string) => {
     if (window.confirm(`Remove ${name}?`)) {
       deleteMutation.mutate(id)
     }
+  }
+
+  const handleSendToShortlisting = () => {
+    const ids =
+      selectedIds.size > 0 ? [...selectedIds] : parsedCandidates.map((c) => c.id)
+    if (ids.length === 0) {
+      toast.error('No parsed resumes available to shortlist')
+      return
+    }
+    shortlistMutation.mutate(ids)
   }
 
   const allSelected =
@@ -121,12 +158,24 @@ export function ParsedResumesTab({ jobId }: Props) {
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
-          <div className="text-sm font-medium text-slate-600 whitespace-nowrap">
+          <div className="whitespace-nowrap text-sm font-medium text-slate-600">
             Total Parsed Resumes: {parsedCandidates.length}
           </div>
           <div className="flex flex-wrap gap-2 sm:justify-end">
-            <button type="button" className={WORKFLOW_PRIMARY_BUTTON_CLASS}>
-              Send to AI Shortlisting
+            <button
+              type="button"
+              onClick={handleSendToShortlisting}
+              disabled={parsedCandidates.length === 0 || shortlistMutation.isPending}
+              className={`${WORKFLOW_PRIMARY_BUTTON_CLASS} disabled:opacity-50`}
+            >
+              {shortlistMutation.isPending ? (
+                <>
+                  <Loader2 size={14} className="mr-1.5 animate-spin" />
+                  Sending…
+                </>
+              ) : (
+                'Send to AI Shortlisting'
+              )}
             </button>
           </div>
         </div>
@@ -149,34 +198,19 @@ export function ParsedResumesTab({ jobId }: Props) {
                     className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                   />
                 </th>
-                <th
-                  scope="col"
-                  className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                >
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Candidate Name
                 </th>
-                <th
-                  scope="col"
-                  className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                >
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Email ID
                 </th>
-                <th
-                  scope="col"
-                  className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                >
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Phone Number
                 </th>
-                <th
-                  scope="col"
-                  className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                >
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Years of Experience
                 </th>
-                <th
-                  scope="col"
-                  className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                >
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Actions
                 </th>
               </tr>
@@ -191,9 +225,7 @@ export function ParsedResumesTab({ jobId }: Props) {
               ) : filtered.length === 0 ? (
                 <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
                   <td colSpan={6} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
-                    {search
-                      ? `No results for "${search}"`
-                      : 'No parsed resumes available.'}
+                    {search ? `No results for "${search}"` : 'No parsed resumes available.'}
                   </td>
                 </tr>
               ) : (

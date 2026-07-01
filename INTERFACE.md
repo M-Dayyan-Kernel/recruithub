@@ -122,7 +122,11 @@ Import resumes from a Google Drive folder or file URL.
 ---
 
 #### `GET /api/jobs/{job_id}/candidates`
-List all candidates for a job.
+List candidates for a job.
+
+**Query params (optional):**
+- `parse_status` — comma-separated filter, e.g. `pending_parse` or `parsing,parsed`
+- `has_shortlist_result` — `true` or `false` to filter candidates with/without a `ShortlistResult` row
 
 **Response `200`:** `CandidateResponse[]` — ordered by `created_at` desc
 
@@ -189,21 +193,53 @@ Re-queue resume parsing for a candidate whose parse failed or needs re-processin
 ### Shortlisting
 
 #### `POST /api/jobs/{job_id}/shortlist`
-Trigger AI shortlisting for all `parse_status = "ready"` candidates.
+Trigger AI shortlisting for eligible candidates (`parse_status = "ready"`, no existing `ShortlistResult`).
+
+**Request Body (optional):**
+```json
+{
+  "candidate_ids": ["uuid", "..."]
+}
+```
+If `candidate_ids` is omitted, all eligible ready candidates are scored.
 
 **Response `202`:**
 ```json
-{ "status": "shortlisting_started", "job_id": "uuid" }
+{
+  "status": "shortlisting_started",
+  "job_id": "uuid",
+  "candidate_ids": ["uuid", "..."],
+  "skipped": [{ "id": "uuid", "reason": "..." }]
+}
 ```
+`skipped` is present only when some requested IDs were ineligible.
 
 **Errors:**
 - `404` — job not found
 - `409` — shortlisting already in progress for this job (Redis lock held) *(Sprint B-7)*
-- `422` — no ready candidates found
+- `422` — no eligible candidates found (may include `skipped` array in detail)
 
-> **Nova gotcha:** This is async. After triggering, poll `GET /api/jobs/{job_id}/shortlist` every 3s until results appear. Empty array = still running.
+> **Nova gotcha:** This is async. Poll `GET /api/jobs/{job_id}/shortlist/status` every 3s while `in_progress` is true, or poll `GET /api/jobs/{job_id}/shortlist` until results appear.
 
 > **Nova gotcha (B-7):** `409 Conflict` means the Celery task is still running. Show the user a "Shortlisting already in progress" banner and suppress the trigger button until the lock clears (task takes 1–120s depending on candidate count). Lock auto-expires after 5 min in case of task crash.
+
+---
+
+#### `GET /api/jobs/{job_id}/shortlist/status`
+Shortlist run progress for the AI Shortlisting tab.
+
+**Response `200`:**
+```json
+{
+  "in_progress": true,
+  "candidate_ids": ["uuid", "..."],
+  "completed": 2,
+  "total": 5,
+  "failed": 0
+}
+```
+
+**Errors:** `404` — job not found
 
 ---
 
@@ -436,8 +472,7 @@ interface Candidate {
 type ParseStatus =
   | "pending_parse"      // just uploaded
   | "parsing"            // text extraction running
-  | "parsed"             // GPT-4o parse complete
-  | "embedding_done"     // embedding generated (intermediate)
+  | "parsed"             // GPT-4o parse complete, embedding pending
   | "ready"              // fully processed — safe to shortlist
   | "parse_failed";      // pipeline error — manual review needed
 
@@ -577,7 +612,7 @@ VITE_API_URL=http://localhost:8080
 
 ## Gotchas for Nova
 
-1. **parse_status polling** — After upload, poll `GET /api/jobs/{job_id}/candidates` every 5s while any candidate has `parse_status` in `["pending_parse", "parsing", "parsed", "embedding_done"]`. Stop polling when all are `"ready"` or `"parse_failed"`.
+1. **parse_status polling** — After upload, poll `GET /api/jobs/{job_id}/candidates` every 5s while any candidate has `parse_status` in `["pending_parse", "parsing", "parsed"]`. Stop polling when all are `"ready"` or `"parse_failed"`.
 
 2. **Shortlist is async** — Empty `[]` from `GET /api/jobs/{job_id}/shortlist` means Celery task is still running. Do NOT show "No results" state immediately after triggering. Poll every 3s until results appear.
 
@@ -616,6 +651,7 @@ VITE_API_URL=http://localhost:8080
 | PATCH | `/api/candidates/{id}` | Update candidate contact fields |
 | POST | `/api/jobs/{id}/candidates/{id}/retry-parse` | Re-queue failed parse |
 | POST | `/api/jobs/{id}/shortlist` | Trigger AI shortlisting |
+| GET | `/api/jobs/{id}/shortlist/status` | Shortlist run progress |
 | GET | `/api/jobs/{id}/shortlist` | Get shortlist results |
 | PATCH | `/api/shortlist/{id}/decision` | HR approve/reject/override |
 | POST | `/api/shortlist/{id}/feedback` | HR feedback |

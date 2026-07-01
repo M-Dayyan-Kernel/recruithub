@@ -2,12 +2,15 @@ import { useState, useRef, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { ArrowLeft, ChevronDown, Loader2, Pencil, Upload } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Loader2, Pencil } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { EditJobModal } from '@/components/EditJobModal'
 import { ShortlistTab } from '@/components/ShortlistTab'
 import { ParsedResumesTab } from '@/components/ParsedResumesTab'
+import { UploadTab } from '@/components/UploadTab'
+import { ParsingTab } from '@/components/ParsingTab'
+import { AIShortlistingTab } from '@/components/AIShortlistingTab'
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -65,14 +68,6 @@ const TABS = [
 type Tab = (typeof TABS)[number]
 
 const WORKFLOW_SECTION_CLASS = 'space-y-3'
-const WORKFLOW_CARD_CLASS = 'overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm'
-const WORKFLOW_TABLE_CLASS = 'min-w-full divide-y divide-slate-200'
-const WORKFLOW_TABLE_EMPTY_ROW_CLASS = 'h-[360px]'
-const WORKFLOW_TABLE_EMPTY_CELL_CLASS = 'h-[360px] align-middle px-6 text-center text-sm text-slate-400'
-const WORKFLOW_INPUT_CLASS =
-  'h-11 w-full rounded-lg border border-slate-200 bg-white px-4 text-sm text-slate-700 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100'
-const WORKFLOW_PRIMARY_BUTTON_CLASS =
-  'inline-flex h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50'
 
 // ---------------------------------------------------------------------------
 // Main page
@@ -80,12 +75,12 @@ const WORKFLOW_PRIMARY_BUTTON_CLASS =
 
 export default function JobDetailPage() {
   const { id: jobId } = useParams<{ id: string }>()
-  const [activeTab, setActiveTab] = useState<Tab>('AI Shortlisted')
+  const [activeTab, setActiveTab] = useState<Tab>('Upload')
+  const [shortlistTriggered, setShortlistTriggered] = useState(false)
   const queryClient = useQueryClient()
 
   const [editOpen, setEditOpen] = useState(false)
 
-  // Job status dropdown (A-14)
   const [showStatusMenu, setShowStatusMenu] = useState(false)
   const statusMenuRef = useRef<HTMLDivElement>(null)
 
@@ -146,7 +141,6 @@ export default function JobDetailPage() {
     queryFn: () => api.get(`/api/jobs/${jobId}`) as unknown as Promise<Job>,
     enabled: !!jobId,
     retry: (failureCount, err: Error) => {
-      // Don't retry 404s
       if (err.message?.includes('404') || err.message?.toLowerCase().includes('not found')) {
         return false
       }
@@ -167,9 +161,19 @@ export default function JobDetailPage() {
     return null
   }
 
+  const handleShortlistTriggered = () => {
+    setShortlistTriggered(true)
+  }
+
+  const handleShortlistComplete = () => {
+    setShortlistTriggered(false)
+    queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
+    queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
+    queryClient.invalidateQueries({ queryKey: ['shortlist-status', jobId] })
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-      {/* Back nav */}
       <Link
         to="/jobs"
         className="inline-flex items-center gap-1.5 text-sm text-slate-500 transition-colors hover:text-slate-700"
@@ -178,7 +182,6 @@ export default function JobDetailPage() {
         Back to Jobs
       </Link>
 
-      {/* Loading skeleton */}
       {isLoading && (
         <>
           <JobHeaderSkeleton />
@@ -191,7 +194,6 @@ export default function JobDetailPage() {
         </>
       )}
 
-      {/* 404 state */}
       {is404 && (
         <div className="py-20 text-center">
           <p className="text-slate-700 font-semibold text-lg mb-2">Job not found</p>
@@ -208,17 +210,14 @@ export default function JobDetailPage() {
         </div>
       )}
 
-      {/* Generic error state */}
       {isError && !is404 && (
         <div className="bg-rose-50 border border-rose-200 rounded-lg px-5 py-4 text-sm text-rose-700">
           Failed to load job details. Please go back and try again.
         </div>
       )}
 
-      {/* Job loaded */}
       {!isLoading && job && (
         <>
-          {/* Job header card */}
           <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 min-w-0">
@@ -233,7 +232,6 @@ export default function JobDetailPage() {
                     <Pencil size={15} />
                   </button>
                 </div>
-                {/* Job status dropdown */}
                 <div className="relative inline-block mb-3" ref={statusMenuRef}>
                   <button
                     onClick={() => setShowStatusMenu((v) => !v)}
@@ -288,7 +286,6 @@ export default function JobDetailPage() {
             </div>
           </div>
 
-          {/* Tabs */}
           <div className="border-b border-slate-200">
             <div className="flex gap-0">
               {TABS.map(tab => (
@@ -307,218 +304,39 @@ export default function JobDetailPage() {
             </div>
           </div>
 
-          {/* Tab content */}
           {activeTab === 'AI Shortlisted' ? (
             <div className={WORKFLOW_SECTION_CLASS}>
               <ShortlistTab
                 jobId={jobId ?? ''}
-                shortlistTriggered={false}
-                onShortlistComplete={() => {}}
-                onSwitchToCandidates={() => {}}
+                shortlistTriggered={shortlistTriggered}
+                onShortlistComplete={handleShortlistComplete}
+                onSwitchToCandidates={() => setActiveTab('Parsed Resumes')}
                 mode="aiShortlisted"
               />
             </div>
           ) : activeTab === 'Upload' ? (
-            <div className="space-y-6">
-              <div className={WORKFLOW_SECTION_CLASS}>
-                <h2 className="text-xl font-semibold text-slate-900">Upload Resumes</h2>
-                <p className="text-sm text-slate-500">Upload resumes to begin the parsing process.</p>
-              </div>
-
-              <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm">
-                <label
-                  htmlFor="resume-upload"
-                  className="group flex min-h-64 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 px-8 py-12 text-center transition-colors hover:border-indigo-300 hover:bg-indigo-50/40"
-                >
-                  <input id="resume-upload" type="file" multiple className="sr-only" />
-                  <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-white text-indigo-600 shadow-sm ring-1 ring-slate-200 group-hover:ring-indigo-200">
-                    <Upload size={22} />
-                  </div>
-                  <p className="text-sm font-medium text-slate-700">
-                    Drag &amp; drop resumes here or click to browse.
-                  </p>
-                  <p className="mt-2 text-xs text-slate-400">
-                    UI only for now. No upload will be started.
-                  </p>
-                </label>
-              </div>
-
-              <div className="space-y-4">
-                <h2 className="text-lg font-semibold text-slate-900">Queued Resumes</h2>
-                <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>
-                  <table className={`${WORKFLOW_TABLE_CLASS} h-full`}>
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th
-                          scope="col"
-                          className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                        >
-                          Resume Name
-                        </th>
-                        <th
-                          scope="col"
-                          className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                        >
-                          Uploaded At
-                        </th>
-                        <th
-                          scope="col"
-                          className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                        >
-                          Status
-                        </th>
-                        <th
-                          scope="col"
-                          className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                        >
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
-                        <td colSpan={4} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
-                          No resumes in queue.
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          ) : activeTab === 'Parsed Resumes' ? (
-            <ParsedResumesTab jobId={jobId ?? ''} />
+            <UploadTab jobId={jobId ?? ''} />
           ) : activeTab === 'Parsing' ? (
-            <div className="space-y-6">
-              <div className={WORKFLOW_SECTION_CLASS}>
-                <h2 className="text-xl font-semibold text-slate-900">Parsing Queue</h2>
-                <p className="text-sm text-slate-500">
-                  Resumes currently being processed. They will automatically move to Parsed Resumes once parsing is complete.
-                </p>
-              </div>
-
-              <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>
-                <table className={`${WORKFLOW_TABLE_CLASS} h-full`}>
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th
-                        scope="col"
-                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                      >
-                        Resume Name
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                      >
-                        Uploaded At
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                      >
-                        Progress
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
-                      <td colSpan={3} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
-                        No resumes are currently being parsed.
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <ParsingTab jobId={jobId ?? ''} />
+          ) : activeTab === 'Parsed Resumes' ? (
+            <ParsedResumesTab
+              jobId={jobId ?? ''}
+              onShortlistTriggered={handleShortlistTriggered}
+              onSwitchToShortlisting={() => setActiveTab('AI Shortlisting')}
+            />
           ) : activeTab === 'AI Shortlisting' ? (
-            <div className="space-y-6">
-              <div className={WORKFLOW_SECTION_CLASS}>
-                <h2 className="text-xl font-semibold text-slate-900">AI Shortlisting</h2>
-                <p className="text-sm text-slate-500">
-                  AI is evaluating selected resumes against the job requirements.
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                <div className="w-full max-w-md">
-                  <input
-                    type="text"
-                    placeholder="Search candidates..."
-                    className={WORKFLOW_INPUT_CLASS}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
-                  <div className="text-sm font-medium text-slate-600 whitespace-nowrap">
-                    Total Shortlisted Candidates: 0
-                  </div>
-                  <div className="flex flex-wrap gap-2 sm:justify-end">
-                    <button type="button" className={WORKFLOW_PRIMARY_BUTTON_CLASS}>
-                      Send to AI Shortlisting
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>
-                <table className={`${WORKFLOW_TABLE_CLASS} h-full`}>
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th
-                        scope="col"
-                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                      >
-                        Candidate Name
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                      >
-                        Email ID
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                      >
-                        Phone Number
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                      >
-                        Years of Experience
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                      >
-                        Progress
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
-                      <td colSpan={5} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
-                        No resumes are currently being shortlisted.
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : (
-            <div className="py-20 text-center">
-              <p className="text-slate-700 font-semibold text-lg mb-2">{activeTab}</p>
-              <p className="text-slate-400 text-sm">
-                This section will be implemented in the next phase.
-              </p>
-            </div>
-          )}
+            <AIShortlistingTab
+              jobId={jobId ?? ''}
+              shortlistTriggered={shortlistTriggered}
+              onShortlistComplete={() => {
+                handleShortlistComplete()
+                setActiveTab('AI Shortlisted')
+              }}
+            />
+          ) : null}
         </>
       )}
 
-      {/* Edit Job Modal — mount only when open so state resets on each open */}
       {editOpen && job && (
         <EditJobModal
           job={job}

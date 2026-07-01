@@ -1,19 +1,21 @@
 """
 Shortlist Routes — Sprint 4
 
-4.1  POST /api/jobs/{job_id}/shortlist     — trigger AI shortlisting
-4.2  GET  /api/jobs/{job_id}/shortlist     — get shortlist results (with candidate name/email)
-4.3  PATCH /api/shortlist/{id}/decision   — HR approve / reject / override
-4.4  POST  /api/shortlist/{id}/feedback   — HR feedback type + comments
+4.1  POST /api/jobs/{job_id}/shortlist          — trigger AI shortlisting
+4.2  GET  /api/jobs/{job_id}/shortlist          — get shortlist results (with candidate name/email)
+4.3  PATCH /api/shortlist/{id}/decision         — HR approve / reject / override
+4.4  POST  /api/shortlist/{id}/feedback         — HR feedback type + comments
+4.5  GET  /api/jobs/{job_id}/shortlist/status   — shortlist run progress
 """
 
+import json
 import uuid
-from typing import List
+from typing import List, Optional
 
 import redis as redis_lib
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, exists
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -23,9 +25,25 @@ from app.schemas.schemas import (
     ShortlistFeedbackCreate,
     ShortlistResultResponse,
     ShortlistResultWithCandidateResponse,
+    ShortlistStatusResponse,
+    ShortlistTriggerRequest,
 )
 
 router = APIRouter()
+
+SHORTLIST_BATCH_TTL = 600  # 10 minutes
+
+
+def _redis_client():
+    return redis_lib.from_url(settings.REDIS_URL or "redis://localhost:6379/0")
+
+
+def _shortlist_lock_key(job_id: uuid.UUID) -> str:
+    return f"shortlist_lock:{job_id}"
+
+
+def _shortlist_batch_key(job_id: uuid.UUID) -> str:
+    return f"shortlist_batch:{job_id}"
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +65,61 @@ async def _get_shortlist_or_404(
     return record
 
 
+async def _candidate_has_shortlist_result(
+    candidate_id: uuid.UUID, db: AsyncSession
+) -> bool:
+    result = await db.execute(
+        select(ShortlistResult.id).where(ShortlistResult.candidate_id == candidate_id)
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def _resolve_eligible_candidate_ids(
+    job_id: uuid.UUID,
+    db: AsyncSession,
+    requested_ids: Optional[List[uuid.UUID]],
+) -> tuple[List[uuid.UUID], List[dict]]:
+    """
+    Return eligible candidate UUIDs for shortlisting and a list of skipped entries.
+    Eligible: parse_status=ready, belongs to job, no existing ShortlistResult.
+    """
+    shortlist_exists = (
+        select(ShortlistResult.id)
+        .where(ShortlistResult.candidate_id == Candidate.id)
+        .correlate(Candidate)
+    )
+    stmt = select(Candidate).where(
+        Candidate.job_id == job_id,
+        Candidate.parse_status == "ready",
+        ~exists(shortlist_exists),
+    )
+    if requested_ids is not None:
+        stmt = stmt.where(Candidate.id.in_(requested_ids))
+
+    result = await db.execute(stmt)
+    eligible = [c.id for c in result.scalars().all()]
+
+    skipped: List[dict] = []
+    if requested_ids is not None:
+        eligible_set = set(eligible)
+        for raw_id in requested_ids:
+            if raw_id in eligible_set:
+                continue
+            cand = await db.get(Candidate, raw_id)
+            if not cand or cand.job_id != job_id:
+                skipped.append({"id": str(raw_id), "reason": "Candidate not found for this job"})
+            elif cand.parse_status != "ready":
+                skipped.append(
+                    {"id": str(raw_id), "reason": f"parse_status is '{cand.parse_status}', expected 'ready'"}
+                )
+            elif await _candidate_has_shortlist_result(raw_id, db):
+                skipped.append({"id": str(raw_id), "reason": "Already shortlisted"})
+            else:
+                skipped.append({"id": str(raw_id), "reason": "Not eligible for shortlisting"})
+
+    return eligible, skipped
+
+
 # ---------------------------------------------------------------------------
 # Task 4.1 — Trigger shortlisting
 # ---------------------------------------------------------------------------
@@ -54,17 +127,15 @@ async def _get_shortlist_or_404(
 @router.post("/jobs/{job_id}/shortlist", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_shortlist(
     job_id: uuid.UUID,
+    body: Optional[ShortlistTriggerRequest] = None,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Trigger AI shortlisting for a job.
 
-    - Validates job exists (404 if not)
-    - Validates at least one candidate with parse_status='ready' exists (422 if none)
-    - Enqueues tasks.run_shortlist Celery task
-    - Returns immediately with 202 Accepted
+    Optional body: { "candidate_ids": ["uuid", ...] }
+    If omitted, all eligible ready candidates (without ShortlistResult) are scored.
     """
-    # --- Validate job exists ---
     job_result = await db.execute(select(Job).where(Job.id == job_id))
     job = job_result.scalar_one_or_none()
     if not job:
@@ -73,28 +144,22 @@ async def trigger_shortlist(
             detail="Job not found",
         )
 
-    # --- Validate at least one ready candidate ---
-    ready_result = await db.execute(
-        select(Candidate).where(
-            Candidate.job_id == job_id,
-            Candidate.parse_status == "ready",
-        )
+    requested_ids = body.candidate_ids if body else None
+    eligible_ids, skipped = await _resolve_eligible_candidate_ids(
+        job_id, db, requested_ids
     )
-    ready_candidates = ready_result.scalars().all()
-    if not ready_candidates:
+
+    if not eligible_ids:
+        detail = "No eligible candidates found for shortlisting."
+        if skipped:
+            detail = {"message": detail, "skipped": skipped}
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "No candidates with parse_status='ready' found for this job. "
-                "Wait for resume parsing to complete before triggering shortlisting."
-            ),
+            detail=detail,
         )
 
-    # --- B-7: Redis concurrent-execution lock ---
-    # Prevents double-triggering when HR clicks the button twice or a retry races
-    # with an in-progress run. Lock expires after 5 min in case Celery task crashes.
-    _r = redis_lib.from_url(settings.REDIS_URL or "redis://localhost:6379/0")
-    lock_key = f"shortlist_lock:{job_id}"
+    _r = _redis_client()
+    lock_key = _shortlist_lock_key(job_id)
     acquired = _r.set(lock_key, "1", nx=True, ex=300)
     if not acquired:
         raise HTTPException(
@@ -102,15 +167,73 @@ async def trigger_shortlist(
             detail="Shortlisting is already in progress for this job. Please wait.",
         )
 
-    # --- Enqueue Celery task ---
+    batch_key = _shortlist_batch_key(job_id)
+    id_strings = [str(cid) for cid in eligible_ids]
+    _r.set(batch_key, json.dumps(id_strings), ex=SHORTLIST_BATCH_TTL)
+
     from app.tasks.shortlist_tasks import run_shortlist  # noqa: PLC0415
 
-    run_shortlist.apply_async(args=[str(job_id)])
+    run_shortlist.apply_async(args=[str(job_id), id_strings])
 
-    return {
+    response = {
         "status": "shortlisting_started",
         "job_id": str(job_id),
+        "candidate_ids": id_strings,
     }
+    if skipped:
+        response["skipped"] = skipped
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Task 4.5 — Shortlist run status
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/jobs/{job_id}/shortlist/status",
+    response_model=ShortlistStatusResponse,
+)
+async def get_shortlist_status(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return progress for the current or most recent shortlist batch."""
+    job_result = await db.execute(select(Job).where(Job.id == job_id))
+    if not job_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+
+    _r = _redis_client()
+    in_progress = bool(_r.exists(_shortlist_lock_key(job_id)))
+
+    batch_raw = _r.get(_shortlist_batch_key(job_id))
+    candidate_ids: List[str] = []
+    if batch_raw:
+        try:
+            candidate_ids = json.loads(batch_raw)
+        except (json.JSONDecodeError, TypeError):
+            candidate_ids = []
+
+    completed = 0
+    if candidate_ids:
+        cand_uuids = [uuid.UUID(cid) for cid in candidate_ids]
+        result = await db.execute(
+            select(ShortlistResult.candidate_id).where(
+                ShortlistResult.job_id == job_id,
+                ShortlistResult.candidate_id.in_(cand_uuids),
+            )
+        )
+        completed = len(result.scalars().all())
+
+    return ShortlistStatusResponse(
+        in_progress=in_progress,
+        candidate_ids=candidate_ids,
+        completed=completed,
+        total=len(candidate_ids),
+        failed=0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +249,6 @@ async def get_shortlist(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     Return all ShortlistResult records for a job, ordered by match_score desc.
     Each record is enriched with candidate name and email.
     """
-    # Validate job exists
     job_result = await db.execute(select(Job).where(Job.id == job_id))
     if not job_result.scalar_one_or_none():
         raise HTTPException(
@@ -144,7 +266,6 @@ async def get_shortlist(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     if not shortlist_records:
         return []
 
-    # Batch-load candidates to avoid N+1
     candidate_ids = [r.candidate_id for r in shortlist_records]
     candidates_result = await db.execute(
         select(Candidate).where(Candidate.id.in_(candidate_ids))

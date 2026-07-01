@@ -5,16 +5,16 @@ import re
 import uuid
 import logging
 from pathlib import Path
-from typing import List
+from typing import Optional, List
 
-from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, File, status, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, exists
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.models import Candidate, Job
+from app.models.models import Candidate, Job, ShortlistResult
 from app.schemas.schemas import CandidateResponse, CandidateUpdate, ResumeUploadResponse
 
 logger = logging.getLogger(__name__)
@@ -367,15 +367,41 @@ async def import_resumes_from_drive(
 # ---------------------------------------------------------------------------
 
 @router.get("/jobs/{job_id}/candidates", response_model=List[CandidateResponse])
-async def list_candidates(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """List all candidates for a job, ordered by created_at desc."""
+async def list_candidates(
+    job_id: uuid.UUID,
+    parse_status: Optional[str] = Query(
+        None,
+        description="Comma-separated parse_status values, e.g. pending_parse or parsing,parsed",
+    ),
+    has_shortlist_result: Optional[bool] = Query(
+        None,
+        description="Filter candidates with (true) or without (false) a ShortlistResult row",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """List candidates for a job, optionally filtered by parse_status and shortlist state."""
     await _get_job_or_404(job_id, db)
 
-    result = await db.execute(
-        select(Candidate)
-        .where(Candidate.job_id == job_id)
-        .order_by(Candidate.created_at.desc())
-    )
+    stmt = select(Candidate).where(Candidate.job_id == job_id)
+
+    if parse_status:
+        statuses = [s.strip() for s in parse_status.split(",") if s.strip()]
+        if statuses:
+            stmt = stmt.where(Candidate.parse_status.in_(statuses))
+
+    if has_shortlist_result is not None:
+        shortlist_exists = (
+            select(ShortlistResult.id)
+            .where(ShortlistResult.candidate_id == Candidate.id)
+            .correlate(Candidate)
+        )
+        if has_shortlist_result:
+            stmt = stmt.where(exists(shortlist_exists))
+        else:
+            stmt = stmt.where(~exists(shortlist_exists))
+
+    stmt = stmt.order_by(Candidate.created_at.desc())
+    result = await db.execute(stmt)
     return result.scalars().all()
 
 

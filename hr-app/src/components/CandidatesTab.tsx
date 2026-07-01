@@ -18,7 +18,6 @@ const statusConfig: Record<
   pending_parse: { label: 'Queued', className: 'bg-slate-100 text-slate-500' },
   parsing: { label: 'Parsing...', className: 'bg-blue-100 text-blue-700', spinner: true },
   parsed: { label: 'Parsed', className: 'bg-amber-100 text-amber-700', spinner: true },
-  embedding_done: { label: 'Processing', className: 'bg-indigo-100 text-indigo-700', spinner: true },
   ready: { label: 'Ready', className: 'bg-emerald-100 text-emerald-700' },
   parse_failed: { label: 'Failed', className: 'bg-rose-100 text-rose-700' },
 }
@@ -73,8 +72,7 @@ function CandidateCard({
   const isProcessing =
     candidate.parse_status === 'pending_parse' ||
     candidate.parse_status === 'parsing' ||
-    candidate.parse_status === 'parsed' ||
-    candidate.parse_status === 'embedding_done'
+    candidate.parse_status === 'parsed'
 
   const displayName =
     candidate.parsed_data?.name ??
@@ -409,7 +407,7 @@ export function CandidatesTab({ jobId, onShortlistTriggered }: Props) {
     queryFn: () => api.get(`/api/jobs/${jobId}/candidates`) as unknown as Promise<Candidate[]>,
     refetchInterval: (query) => {
       const hasPending = ((query.state.data ?? []) as Candidate[]).some((c) =>
-        ['pending_parse', 'parsing', 'parsed', 'embedding_done'].includes(c.parse_status),
+        ['pending_parse', 'parsing', 'parsed'].includes(c.parse_status),
       )
       if (!hasPending) return false
       const elapsed = Date.now() - pollStartTime

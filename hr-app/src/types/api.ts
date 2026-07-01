@@ -138,6 +138,14 @@ export interface InterviewReport {
   created_at: string
 }
 
+export interface ShortlistStatusResponse {
+  in_progress: boolean
+  candidate_ids: string[]
+  completed: number
+  total: number
+  failed: number
+}
+
 export interface Candidate {
   id: string
   job_id: string
@@ -145,12 +153,12 @@ export interface Candidate {
   email?: string | null
   phone?: string | null
   resume_file_path?: string | null
+  original_filename?: string | null
   parsed_data?: ParsedData | null
   parse_status:
     | 'pending_parse'
     | 'parsing'
     | 'parsed'
-    | 'embedding_done'
     | 'ready'
     | 'parse_failed'
   created_at: string
