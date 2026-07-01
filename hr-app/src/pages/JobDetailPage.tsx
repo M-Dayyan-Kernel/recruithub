@@ -487,6 +487,61 @@ export default function JobDetailPage() {
                 </table>
               </div>
             </div>
+          ) : activeTab === 'AI Shortlisting' ? (
+            <div className="space-y-6">
+              <div className="space-y-1">
+                <h2 className="text-xl font-semibold text-slate-900">AI Shortlisting</h2>
+                <p className="text-sm text-slate-500">
+                  AI is evaluating selected resumes against the job requirements.
+                </p>
+              </div>
+
+              <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th
+                        scope="col"
+                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                      >
+                        Candidate Name
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                      >
+                        Email ID
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                      >
+                        Phone Number
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                      >
+                        Years of Experience
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                      >
+                        Progress
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td colSpan={5} className="px-6 py-16 text-center text-sm text-slate-400">
+                        No resumes are currently being shortlisted.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           ) : (
             <div className="py-20 text-center">
               <p className="text-slate-700 font-semibold text-lg mb-2">{activeTab}</p>
