@@ -182,11 +182,14 @@ export default function JobDetailPage() {
 
   const handleShortlistComplete = () => {
     resetShortlistRun()
+    setShortlistBatchIds([])
+    setShortlistBatchCandidates([])
     refreshShortlistData()
   }
 
   const pipeline = useJobPipelineCandidates(job?.id ?? '', {
-    shortlistInProgress: shortlistTriggered,
+    shortlistInProgress: shortlistTriggered || shortlistBatchIds.length > 0,
+    pendingShortlistIds: shortlistBatchIds,
   })
 
   return (

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { CheckCircle, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Candidate, ShortlistResultWithCandidate, ShortlistStatusResponse } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
@@ -11,6 +11,9 @@ import {
   WORKFLOW_TABLE_EMPTY_CELL_CLASS,
   WORKFLOW_INPUT_CLASS,
 } from '@/lib/workflow'
+
+const SHORTLIST_ACTIVE_POLL_MS = 1_000
+const COMPLETE_REDIRECT_MS = 400
 
 function candidateDisplayName(candidate: Candidate): string {
   return (
@@ -52,7 +55,8 @@ export function AIShortlistingTab({
   const [search, setSearch] = useState('')
   const completionFiredRef = useRef(false)
 
-  const shouldPoll = shortlistTriggered || batchCandidateIds.length > 0 || batchCandidates.length > 0
+  const shouldPoll =
+    shortlistTriggered || batchCandidateIds.length > 0 || batchCandidates.length > 0
 
   const { data: status, isError: statusError, refetch: refetchStatus } = useQuery<ShortlistStatusResponse>({
     queryKey: ['shortlist-status', jobId],
@@ -61,7 +65,7 @@ export function AIShortlistingTab({
     enabled: !!jobId && shouldPoll,
     staleTime: 0,
     retry: 1,
-    refetchInterval: () => (shouldPoll ? 3000 : false),
+    refetchInterval: () => (shouldPoll ? SHORTLIST_ACTIVE_POLL_MS : false),
   })
 
   const { data: results, isError: resultsError, refetch: refetchResults } = useQuery<
@@ -72,8 +76,26 @@ export function AIShortlistingTab({
       api.get(`/api/jobs/${jobId}/shortlist`) as unknown as Promise<ShortlistResultWithCandidate[]>,
     enabled: !!jobId && shouldPoll,
     staleTime: 0,
-    refetchInterval: () => (shouldPoll ? 3000 : false),
+    refetchInterval: (query) => {
+      if (!shouldPoll) return false
+      const list = (query.state.data ?? []) as ShortlistResultWithCandidate[]
+      const batch =
+        batchCandidateIds.length > 0
+          ? batchCandidateIds
+          : (status?.candidate_ids ?? batchCandidates.map((c) => c.id))
+      if (batch.length > 0 && list.some((r) => batch.includes(r.candidate_id))) {
+        const done = batch.filter((id) => list.some((r) => r.candidate_id === id)).length
+        if (done >= batch.length) return false
+      }
+      return SHORTLIST_ACTIVE_POLL_MS
+    },
   })
+
+  useEffect(() => {
+    if (!shouldPoll) return
+    void refetchStatus()
+    void refetchResults()
+  }, [shouldPoll, batchCandidateIds, shortlistTriggered, refetchStatus, refetchResults])
 
   const batchIds = useMemo(() => {
     if (batchCandidateIds.length > 0) return batchCandidateIds
@@ -93,10 +115,16 @@ export function AIShortlistingTab({
 
   const completedCount = batchIds.filter((id) => completedIds.has(id)).length
   const totalCount = batchIds.length
+  const allComplete = totalCount > 0 && completedCount >= totalCount
   const inProgress =
     shortlistTriggered ||
     status?.in_progress === true ||
     (totalCount > 0 && completedCount < totalCount)
+
+  const scoringCandidates = useMemo(
+    () => displayCandidates.filter((c) => !completedIds.has(c.id)),
+    [displayCandidates, completedIds],
+  )
 
   useEffect(() => {
     completionFiredRef.current = false
@@ -105,26 +133,18 @@ export function AIShortlistingTab({
   useEffect(() => {
     if (completionFiredRef.current) return
     if (
-      totalCount > 0 &&
-      completedCount >= totalCount &&
+      allComplete &&
       results &&
       results.length > 0 &&
       (shortlistTriggered || status?.in_progress === false)
     ) {
       completionFiredRef.current = true
-      const timer = setTimeout(() => onShortlistComplete(), 1500)
+      const timer = setTimeout(() => onShortlistComplete(), COMPLETE_REDIRECT_MS)
       return () => clearTimeout(timer)
     }
-  }, [
-    totalCount,
-    completedCount,
-    shortlistTriggered,
-    status?.in_progress,
-    results,
-    onShortlistComplete,
-  ])
+  }, [allComplete, shortlistTriggered, status?.in_progress, results, onShortlistComplete])
 
-  const filtered = displayCandidates.filter((c) => {
+  const filtered = scoringCandidates.filter((c) => {
     const term = search.toLowerCase()
     if (!term) return true
     return candidateDisplayName(c).toLowerCase().includes(term)
@@ -132,6 +152,7 @@ export function AIShortlistingTab({
 
   const showEmpty = !inProgress && totalCount === 0
   const showStarting = shortlistTriggered && totalCount === 0
+  const showAllComplete = allComplete && inProgress
   const showServerError =
     statusError && resultsError && totalCount === 0 && !shortlistTriggered
 
@@ -210,6 +231,15 @@ export function AIShortlistingTab({
                     </span>
                   </td>
                 </tr>
+              ) : showAllComplete ? (
+                <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
+                  <td colSpan={5} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 size={16} className="animate-spin text-slate-300" />
+                      All candidates scored — opening AI Shortlisted…
+                    </span>
+                  </td>
+                </tr>
               ) : filtered.length === 0 ? (
                 <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
                   <td colSpan={5} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
@@ -217,38 +247,28 @@ export function AIShortlistingTab({
                   </td>
                 </tr>
               ) : (
-                filtered.map((candidate) => {
-                  const done = completedIds.has(candidate.id)
-                  return (
-                    <tr key={candidate.id} className="hover:bg-slate-50/60">
-                      <td className="px-6 py-3 text-sm font-medium text-slate-800">
-                        {candidateDisplayName(candidate)}
-                      </td>
-                      <td className="px-6 py-3 text-sm text-slate-600">
-                        {candidateEmail(candidate)}
-                      </td>
-                      <td className="px-6 py-3 text-sm text-slate-600">
-                        {candidatePhone(candidate)}
-                      </td>
-                      <td className="px-6 py-3 text-sm text-slate-600">
-                        {candidateExperience(candidate)}
-                      </td>
-                      <td className="px-6 py-3">
-                        {done ? (
-                          <span className="inline-flex items-center gap-1.5 text-sm text-emerald-600">
-                            <CheckCircle size={14} />
-                            Done
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 text-sm text-indigo-600">
-                            <Loader2 size={14} className="animate-spin" />
-                            Scoring…
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })
+                filtered.map((candidate) => (
+                  <tr key={candidate.id} className="hover:bg-slate-50/60">
+                    <td className="px-6 py-3 text-sm font-medium text-slate-800">
+                      {candidateDisplayName(candidate)}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-slate-600">
+                      {candidateEmail(candidate)}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-slate-600">
+                      {candidatePhone(candidate)}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-slate-600">
+                      {candidateExperience(candidate)}
+                    </td>
+                    <td className="px-6 py-3">
+                      <span className="inline-flex items-center gap-1.5 text-sm text-indigo-600">
+                        <Loader2 size={14} className="animate-spin" />
+                        Scoring…
+                      </span>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>

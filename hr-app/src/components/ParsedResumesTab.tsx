@@ -92,9 +92,9 @@ export function ParsedResumesTab({
     onSuccess: (data, variables) => {
       const ids = data.candidate_ids ?? variables
       const snapshot = parsedCandidates.filter((c) => ids.includes(c.id))
-      queryClient.invalidateQueries({ queryKey: ['candidates', jobId, 'pipeline'] })
-      queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
-      queryClient.invalidateQueries({ queryKey: ['shortlist-status', jobId] })
+      void queryClient.refetchQueries({ queryKey: ['candidates', jobId, 'pipeline'] })
+      void queryClient.refetchQueries({ queryKey: ['shortlist', jobId] })
+      void queryClient.refetchQueries({ queryKey: ['shortlist-status', jobId] })
       toast.success('AI shortlisting started')
       onShortlistTriggered({ candidateIds: ids, candidates: snapshot })
       onSwitchToShortlisting()

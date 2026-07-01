@@ -6,16 +6,21 @@ import type { Candidate, ShortlistResultWithCandidate } from '@/types/api'
 const PIPELINE_POLL_MS = 5_000
 const PIPELINE_POLL_SLOW_MS = 30_000
 const PIPELINE_POLL_CUTOFF_MS = 120_000
-const SHORTLIST_POLL_MS = 3_000
+const SHORTLIST_POLL_MS = 1_000
 
 const IN_FLIGHT_PARSE = new Set<Candidate['parse_status']>(['pending_parse', 'parsing', 'parsed'])
 
 interface Options {
   shortlistInProgress?: boolean
+  pendingShortlistIds?: string[]
 }
 
 export function useJobPipelineCandidates(jobId: string, options: Options = {}) {
-  const { shortlistInProgress = false } = options
+  const { shortlistInProgress = false, pendingShortlistIds = [] } = options
+  const pendingShortlistSet = useMemo(
+    () => new Set(pendingShortlistIds),
+    [pendingShortlistIds],
+  )
   const [pollStartTime] = useState(() => Date.now())
 
   const getPollInterval = (parseInFlight: boolean) => {
@@ -75,9 +80,12 @@ export function useJobPipelineCandidates(jobId: string, options: Options = {}) {
   const parsedCandidates = useMemo(
     () =>
       candidates.filter(
-        (c) => c.parse_status === 'ready' && !shortlistedIds.has(c.id),
+        (c) =>
+          c.parse_status === 'ready' &&
+          !shortlistedIds.has(c.id) &&
+          !pendingShortlistSet.has(c.id),
       ),
-    [candidates, shortlistedIds],
+    [candidates, shortlistedIds, pendingShortlistSet],
   )
 
   return {
