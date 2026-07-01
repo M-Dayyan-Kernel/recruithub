@@ -4,11 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { ArrowLeft, ChevronDown, Loader2, Pencil } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { Job, Candidate } from '@/types/api'
-import { CandidatesTab } from '@/components/CandidatesTab'
-import { ShortlistTab } from '@/components/ShortlistTab'
-import { ScreeningTab } from '@/components/ScreeningTab'
-import { InterviewsTab } from '@/components/InterviewsTab'
+import type { Job } from '@/types/api'
 import { EditJobModal } from '@/components/EditJobModal'
 
 // ---------------------------------------------------------------------------
@@ -57,7 +53,13 @@ function JobHeaderSkeleton() {
 // Tabs
 // ---------------------------------------------------------------------------
 
-const TABS = ['Candidates', 'Shortlist', 'Screening', 'Interviews'] as const
+const TABS = [
+  'Upload',
+  'Parsing',
+  'Parsed Resumes',
+  'AI Shortlisting',
+  'AI Shortlisted',
+] as const
 type Tab = (typeof TABS)[number]
 
 // ---------------------------------------------------------------------------
@@ -66,16 +68,10 @@ type Tab = (typeof TABS)[number]
 
 export default function JobDetailPage() {
   const { id: jobId } = useParams<{ id: string }>()
-  const [activeTab, setActiveTab] = useState<Tab>('Candidates')
+  const [activeTab, setActiveTab] = useState<Tab>('Upload')
   const queryClient = useQueryClient()
 
   const [editOpen, setEditOpen] = useState(false)
-
-  // Persist shortlist in-progress state across refreshes (A-10)
-  const storageKey = `shortlist_triggered_${jobId ?? ''}`
-  const [shortlistTriggered, setShortlistTriggered] = useState(
-    () => localStorage.getItem(`shortlist_triggered_${jobId ?? ''}`) === 'true',
-  )
 
   // Job status dropdown (A-14)
   const [showStatusMenu, setShowStatusMenu] = useState(false)
@@ -149,14 +145,6 @@ export default function JobDetailPage() {
   const is404 =
     isError &&
     (error?.message?.includes('404') || error?.message?.toLowerCase().includes('not found'))
-
-  // Candidate count for tab badge (pre-loaded by CandidatesTab; re-use here)
-  const { data: candidates } = useQuery<Candidate[]>({
-    queryKey: ['candidates', jobId],
-    queryFn: () => api.get(`/api/jobs/${jobId}/candidates`) as unknown as Promise<Candidate[]>,
-    enabled: !!jobId && !is404,
-  })
-  const candidateCount = candidates?.length ?? 0
 
   const experienceLabel = () => {
     if (!job) return null
@@ -302,43 +290,18 @@ export default function JobDetailPage() {
                   }`}
                 >
                   {tab}
-                  {tab === 'Candidates' && candidateCount > 0 && (
-                    <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold">
-                      {candidateCount > 99 ? '99+' : candidateCount}
-                    </span>
-                  )}
                 </button>
               ))}
             </div>
           </div>
 
           {/* Tab content */}
-          {activeTab === 'Candidates' && (
-            <CandidatesTab
-              jobId={jobId!}
-              onShortlistTriggered={() => {
-                setShortlistTriggered(true)
-                if (jobId) localStorage.setItem(storageKey, 'true')
-              }}
-            />
-          )}
-          {activeTab === 'Shortlist' && (
-            <ShortlistTab
-              jobId={jobId!}
-              shortlistTriggered={shortlistTriggered}
-              onShortlistComplete={() => {
-                setShortlistTriggered(false)
-                if (jobId) localStorage.removeItem(storageKey)
-              }}
-              onSwitchToCandidates={() => setActiveTab('Candidates')}
-            />
-          )}
-          {activeTab === 'Screening' && (
-            <ScreeningTab jobId={jobId!} />
-          )}
-          {activeTab === 'Interviews' && (
-            <InterviewsTab jobId={jobId!} />
-          )}
+          <div className="py-20 text-center">
+            <p className="text-slate-700 font-semibold text-lg mb-2">{activeTab}</p>
+            <p className="text-slate-400 text-sm">
+              This section will be implemented in the next phase.
+            </p>
+          </div>
         </>
       )}
 
