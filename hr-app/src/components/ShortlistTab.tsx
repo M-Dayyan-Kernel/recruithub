@@ -38,13 +38,26 @@ function ScoreBadge({ score }: { score: number }) {
 // ---------------------------------------------------------------------------
 
 const REC_CONFIG = {
-  shortlisted: { label: 'Shortlisted', className: 'bg-emerald-100 text-emerald-700' },
-  rejected: { label: 'Rejected', className: 'bg-rose-100 text-rose-700' },
+  shortlisted: { label: 'Pass', className: 'bg-emerald-100 text-emerald-700' },
+  rejected: { label: 'Fail', className: 'bg-rose-100 text-rose-700' },
   review: { label: 'Needs Review', className: 'bg-amber-100 text-amber-700' },
 } as const
 
+type RecommendationFilter = 'all' | keyof typeof REC_CONFIG
+
+const RECOMMENDATION_FILTER_OPTIONS: { value: RecommendationFilter; label: string }[] = [
+  { value: 'all', label: 'All recommendations' },
+  { value: 'shortlisted', label: 'Pass' },
+  { value: 'rejected', label: 'Fail' },
+  { value: 'review', label: 'Needs Review' },
+]
+
+const SHORTLIST_FILTER_SELECT_CLASS =
+  'h-11 w-full sm:w-44 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100'
+
 function RecommendationBadge({ rec }: { rec: ShortlistResultWithCandidate['recommendation'] }) {
-  const cfg = REC_CONFIG[rec]
+  const cfg = REC_CONFIG[rec as keyof typeof REC_CONFIG]
+  if (!cfg) return null
   return (
     <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${cfg.className}`}>
       {cfg.label}
@@ -516,6 +529,7 @@ export function ShortlistTab({
 }: Props) {
   const isAiShortlistedMode = mode === 'aiShortlisted'
   const [search, setSearch] = useState('')
+  const [recommendationFilter, setRecommendationFilter] = useState<RecommendationFilter>('all')
 
   const { data: results, isLoading, isFetching, isError, refetch } = useQuery<
     ShortlistResultWithCandidate[]
@@ -546,6 +560,9 @@ export function ShortlistTab({
   const scoredResults = results ?? []
   const normalizedSearch = search.trim().toLowerCase()
   const filteredScored = scoredResults.filter((r) => {
+    if (recommendationFilter !== 'all' && r.recommendation !== recommendationFilter) {
+      return false
+    }
     if (!normalizedSearch) return true
     const name = (r.candidate_name ?? '').toLowerCase()
     const email = (r.candidate_email ?? '').toLowerCase()
@@ -701,8 +718,8 @@ export function ShortlistTab({
         {aiShortlistedHeader}
 
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="w-full max-w-md">
-            <div className="relative">
+          <div className="flex w-full max-w-2xl flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative flex-1 min-w-0">
               <Search
                 size={14}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
@@ -715,11 +732,25 @@ export function ShortlistTab({
                 className={SHORTLIST_SEARCH_CLASS}
               />
             </div>
+            <select
+              value={recommendationFilter}
+              onChange={(e) => setRecommendationFilter(e.target.value as RecommendationFilter)}
+              aria-label="Filter by recommendation"
+              className={SHORTLIST_FILTER_SELECT_CLASS}
+            >
+              {RECOMMENDATION_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
             <div className="text-sm font-medium text-slate-600 whitespace-nowrap">
-              Total Scored Candidates: {scoredResults.length}
+              {recommendationFilter === 'all'
+                ? `Total Scored Candidates: ${scoredResults.length}`
+                : `Showing ${filteredScored.length} of ${scoredResults.length}`}
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -758,7 +789,13 @@ export function ShortlistTab({
 
         {filteredScored.length === 0 ? (
           <div className={SHORTLIST_EMPTY_STATE_CLASS}>
-            <p className="text-slate-400 text-sm">No results found for your search.</p>
+            <p className="text-slate-400 text-sm">
+              {scoredResults.length === 0
+                ? 'No scored candidates yet.'
+                : search || recommendationFilter !== 'all'
+                  ? 'No candidates match your filters.'
+                  : 'No results found.'}
+            </p>
           </div>
         ) : (
           <div className="space-y-4">
