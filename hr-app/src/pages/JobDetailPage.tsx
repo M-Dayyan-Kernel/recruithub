@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { ArrowLeft, ChevronDown, Loader2, Pencil } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Loader2, Pencil, Upload } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { EditJobModal } from '@/components/EditJobModal'
@@ -296,12 +296,82 @@ export default function JobDetailPage() {
           </div>
 
           {/* Tab content */}
-          <div className="py-20 text-center">
-            <p className="text-slate-700 font-semibold text-lg mb-2">{activeTab}</p>
-            <p className="text-slate-400 text-sm">
-              This section will be implemented in the next phase.
-            </p>
-          </div>
+          {activeTab === 'Upload' ? (
+            <div className="space-y-6">
+              <div className="space-y-1">
+                <h2 className="text-xl font-semibold text-slate-900">Upload Resumes</h2>
+                <p className="text-sm text-slate-500">Upload resumes to begin the parsing process.</p>
+              </div>
+
+              <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm">
+                <label
+                  htmlFor="resume-upload"
+                  className="group flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center transition-colors hover:border-indigo-300 hover:bg-indigo-50/40"
+                >
+                  <input id="resume-upload" type="file" multiple className="sr-only" />
+                  <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-white text-indigo-600 shadow-sm ring-1 ring-slate-200 group-hover:ring-indigo-200">
+                    <Upload size={22} />
+                  </div>
+                  <p className="text-sm font-medium text-slate-700">
+                    Drag &amp; drop resumes here or click to browse.
+                  </p>
+                  <p className="mt-2 text-xs text-slate-400">
+                    UI only for now. No upload will be started.
+                  </p>
+                </label>
+              </div>
+
+              <div className="space-y-3">
+                <h2 className="text-lg font-semibold text-slate-900">Queued Resumes</h2>
+                <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                  <table className="min-w-full divide-y divide-slate-200">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th
+                          scope="col"
+                          className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                        >
+                          Resume Name
+                        </th>
+                        <th
+                          scope="col"
+                          className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                        >
+                          Uploaded At
+                        </th>
+                        <th
+                          scope="col"
+                          className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                        >
+                          Status
+                        </th>
+                        <th
+                          scope="col"
+                          className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                        >
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td colSpan={4} className="px-6 py-16 text-center text-sm text-slate-400">
+                          No resumes in queue.
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="py-20 text-center">
+              <p className="text-slate-700 font-semibold text-lg mb-2">{activeTab}</p>
+              <p className="text-slate-400 text-sm">
+                This section will be implemented in the next phase.
+              </p>
+            </div>
+          )}
         </>
       )}
 
