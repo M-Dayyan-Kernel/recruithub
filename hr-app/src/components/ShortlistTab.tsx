@@ -57,8 +57,8 @@ function RecommendationBadge({ rec }: { rec: ShortlistResultWithCandidate['recom
 
 function ShortlistCardSkeleton() {
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-5 animate-pulse">
-      <div className="flex items-start justify-between mb-4">
+    <div className="animate-pulse rounded-xl border border-slate-200 bg-white p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-slate-200 shrink-0" />
           <div className="space-y-1.5">
@@ -71,14 +71,14 @@ function ShortlistCardSkeleton() {
           <div className="h-6 w-20 bg-slate-100 rounded-full" />
         </div>
       </div>
-      <div className="mb-3 space-y-1.5">
+      <div className="mb-2.5 space-y-1.5">
         <div className="h-2.5 bg-slate-100 rounded w-16 mb-1" />
         <div className="flex gap-1.5">
           <div className="h-5 w-20 bg-slate-100 rounded-full" />
           <div className="h-5 w-24 bg-slate-100 rounded-full" />
         </div>
       </div>
-      <div className="mb-4 space-y-1.5">
+      <div className="mb-3 space-y-1.5">
         <div className="h-2.5 bg-slate-100 rounded w-3/4" />
         <div className="h-2.5 bg-slate-100 rounded w-1/2" />
       </div>
@@ -127,6 +127,9 @@ const FEEDBACK_TYPES = [
 ] as const
 
 const REASON_TRUNCATE_LENGTH = 160
+const SHORTLIST_EMPTY_STATE_CLASS = 'flex min-h-[360px] flex-col items-center justify-center px-6 text-center'
+const SHORTLIST_SEARCH_CLASS =
+  'h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-700 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100'
 
 function ShortlistCard({
   result,
@@ -207,9 +210,9 @@ function ShortlistCard({
   const displayEmail = result.candidate_email
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+    <div className="w-full rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       {/* Header row */}
-      <div className="flex items-start justify-between gap-3 mb-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-semibold text-sm shrink-0 uppercase">
             {displayName[0] ?? '?'}
@@ -229,8 +232,8 @@ function ShortlistCard({
 
       {/* Strengths */}
       {displayStrengths.length > 0 && (
-        <div className="mb-3">
-          <p className="text-xs font-medium text-slate-500 mb-1.5">Strengths</p>
+        <div className="mb-2.5">
+          <p className="mb-1 text-xs font-medium text-slate-500">Strengths</p>
           <div className="flex flex-wrap gap-1.5">
             {displayStrengths.map((s, i) => (
               <span
@@ -254,8 +257,8 @@ function ShortlistCard({
 
       {/* Gaps */}
       {displayGaps.length > 0 && (
-        <div className="mb-3">
-          <p className="text-xs font-medium text-slate-500 mb-1.5">Gaps</p>
+        <div className="mb-2.5">
+          <p className="mb-1 text-xs font-medium text-slate-500">Gaps</p>
           <div className="flex flex-wrap gap-1.5">
             {displayGaps.map((g, i) => (
               <span
@@ -279,9 +282,9 @@ function ShortlistCard({
 
       {/* Reason */}
       {result.reason && (
-        <div className="mb-4">
-          <p className="text-xs font-medium text-slate-500 mb-1">AI Assessment</p>
-          <p className="text-sm text-slate-600 leading-relaxed">{reasonText}</p>
+        <div className="mb-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
+          <p className="mb-1 text-xs font-medium text-slate-500">AI Assessment</p>
+          <p className="text-sm leading-relaxed text-slate-600">{reasonText}</p>
           {isLongReason && (
             <button
               onClick={() => setReasonExpanded((v) => !v)}
@@ -568,7 +571,7 @@ export function ShortlistTab({
     return (
       <div className={isAiShortlistedMode ? 'space-y-6' : undefined}>
         {isAiShortlistedMode && aiShortlistedHeader}
-        <div className="py-20 flex flex-col items-center justify-center text-center">
+        <div className={SHORTLIST_EMPTY_STATE_CLASS}>
           <div className="w-14 h-14 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
             <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
           </div>
@@ -587,7 +590,7 @@ export function ShortlistTab({
       return (
         <div className="space-y-6">
           {aiShortlistedHeader}
-          <div className="py-20 flex flex-col items-center justify-center text-center">
+          <div className={SHORTLIST_EMPTY_STATE_CLASS}>
             <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mb-4">
               <Users className="w-6 h-6 text-slate-400" />
             </div>
@@ -622,7 +625,7 @@ export function ShortlistTab({
       <div className="space-y-6">
         {aiShortlistedHeader}
 
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="w-full max-w-md">
             <div className="relative">
               <Search
@@ -634,18 +637,18 @@ export function ShortlistTab({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search candidates..."
-                className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                className={SHORTLIST_SEARCH_CLASS}
               />
             </div>
           </div>
 
-          <div className="text-sm font-medium text-slate-600">
+          <div className="text-sm font-medium text-slate-600 whitespace-nowrap">
             Total Shortlisted Candidates: {shortlistedResults.length}
           </div>
         </div>
 
         {filteredShortlisted.length === 0 ? (
-          <div className="py-20 text-center">
+          <div className={SHORTLIST_EMPTY_STATE_CLASS}>
             <p className="text-slate-400 text-sm">No results found for your search.</p>
           </div>
         ) : (

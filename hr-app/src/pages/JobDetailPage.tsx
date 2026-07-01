@@ -63,6 +63,16 @@ const TABS = [
 ] as const
 type Tab = (typeof TABS)[number]
 
+const WORKFLOW_SECTION_CLASS = 'space-y-3'
+const WORKFLOW_CARD_CLASS = 'overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm'
+const WORKFLOW_TABLE_CLASS = 'min-w-full divide-y divide-slate-200'
+const WORKFLOW_TABLE_EMPTY_ROW_CLASS = 'h-[360px]'
+const WORKFLOW_TABLE_EMPTY_CELL_CLASS = 'h-[360px] align-middle px-6 text-center text-sm text-slate-400'
+const WORKFLOW_INPUT_CLASS =
+  'h-11 w-full rounded-lg border border-slate-200 bg-white px-4 text-sm text-slate-700 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100'
+const WORKFLOW_PRIMARY_BUTTON_CLASS =
+  'inline-flex h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50'
+
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
@@ -157,11 +167,11 @@ export default function JobDetailPage() {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
       {/* Back nav */}
       <Link
         to="/jobs"
-        className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-5 transition-colors"
+        className="inline-flex items-center gap-1.5 text-sm text-slate-500 transition-colors hover:text-slate-700"
       >
         <ArrowLeft size={14} />
         Back to Jobs
@@ -208,7 +218,7 @@ export default function JobDetailPage() {
       {!isLoading && job && (
         <>
           {/* Job header card */}
-          <div className="bg-white border border-slate-200 rounded-lg p-6 mb-6 shadow-sm">
+          <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-3 flex-wrap mb-2">
@@ -278,7 +288,7 @@ export default function JobDetailPage() {
           </div>
 
           {/* Tabs */}
-          <div className="border-b border-slate-200 mb-6">
+          <div className="border-b border-slate-200">
             <div className="flex gap-0">
               {TABS.map(tab => (
                 <button
@@ -298,16 +308,18 @@ export default function JobDetailPage() {
 
           {/* Tab content */}
           {activeTab === 'AI Shortlisted' ? (
-            <ShortlistTab
-              jobId={jobId ?? ''}
-              shortlistTriggered={false}
-              onShortlistComplete={() => {}}
-              onSwitchToCandidates={() => {}}
-              mode="aiShortlisted"
-            />
+            <div className={WORKFLOW_SECTION_CLASS}>
+              <ShortlistTab
+                jobId={jobId ?? ''}
+                shortlistTriggered={false}
+                onShortlistComplete={() => {}}
+                onSwitchToCandidates={() => {}}
+                mode="aiShortlisted"
+              />
+            </div>
           ) : activeTab === 'Upload' ? (
             <div className="space-y-6">
-              <div className="space-y-1">
+              <div className={WORKFLOW_SECTION_CLASS}>
                 <h2 className="text-xl font-semibold text-slate-900">Upload Resumes</h2>
                 <p className="text-sm text-slate-500">Upload resumes to begin the parsing process.</p>
               </div>
@@ -315,7 +327,7 @@ export default function JobDetailPage() {
               <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm">
                 <label
                   htmlFor="resume-upload"
-                  className="group flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center transition-colors hover:border-indigo-300 hover:bg-indigo-50/40"
+                  className="group flex min-h-64 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 px-8 py-12 text-center transition-colors hover:border-indigo-300 hover:bg-indigo-50/40"
                 >
                   <input id="resume-upload" type="file" multiple className="sr-only" />
                   <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-white text-indigo-600 shadow-sm ring-1 ring-slate-200 group-hover:ring-indigo-200">
@@ -330,10 +342,10 @@ export default function JobDetailPage() {
                 </label>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <h2 className="text-lg font-semibold text-slate-900">Queued Resumes</h2>
-                <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                  <table className="min-w-full divide-y divide-slate-200">
+                <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>
+                  <table className={`${WORKFLOW_TABLE_CLASS} h-full`}>
                     <thead className="bg-slate-50">
                       <tr>
                         <th
@@ -363,8 +375,8 @@ export default function JobDetailPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      <tr>
-                        <td colSpan={4} className="px-6 py-16 text-center text-sm text-slate-400">
+                      <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
+                        <td colSpan={4} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
                           No resumes in queue.
                         </td>
                       </tr>
@@ -375,30 +387,30 @@ export default function JobDetailPage() {
             </div>
           ) : activeTab === 'Parsed Resumes' ? (
             <div className="space-y-6">
-              <div className="space-y-1">
+              <div className={WORKFLOW_SECTION_CLASS}>
                 <h2 className="text-xl font-semibold text-slate-900">Parsed Resumes</h2>
                 <p className="text-sm text-slate-500">
                   Review parsed resumes and select candidates to send for AI shortlisting.
                 </p>
               </div>
 
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                 <div className="w-full max-w-md">
                   <input
                     type="text"
                     placeholder="Search candidates..."
-                    className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    className={WORKFLOW_INPUT_CLASS}
                   />
                 </div>
 
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-                  <div className="text-sm font-medium text-slate-600 sm:mr-2">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
+                  <div className="text-sm font-medium text-slate-600 whitespace-nowrap">
                     Total Parsed Resumes: 0
                   </div>
                   <div className="flex flex-wrap gap-2 sm:justify-end">
                     <button
                       type="button"
-                      className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                      className={WORKFLOW_PRIMARY_BUTTON_CLASS}
                     >
                       Send to AI Shortlisting
                     </button>
@@ -406,11 +418,11 @@ export default function JobDetailPage() {
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                <table className="min-w-full divide-y divide-slate-200">
+              <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>
+                <table className={`${WORKFLOW_TABLE_CLASS} h-full`}>
                   <thead className="bg-slate-50">
                     <tr>
-                      <th scope="col" className="w-12 px-6 py-3 text-left">
+                      <th scope="col" className="w-10 px-4 py-3 text-left">
                         <input
                           type="checkbox"
                           aria-label="Select all parsed resumes"
@@ -444,8 +456,8 @@ export default function JobDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr>
-                      <td colSpan={5} className="px-6 py-16 text-center text-sm text-slate-400">
+                    <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
+                      <td colSpan={5} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
                         No parsed resumes available.
                       </td>
                     </tr>
@@ -455,15 +467,15 @@ export default function JobDetailPage() {
             </div>
           ) : activeTab === 'Parsing' ? (
             <div className="space-y-6">
-              <div className="space-y-1">
+              <div className={WORKFLOW_SECTION_CLASS}>
                 <h2 className="text-xl font-semibold text-slate-900">Parsing Queue</h2>
                 <p className="text-sm text-slate-500">
                   Resumes currently being processed. They will automatically move to Parsed Resumes once parsing is complete.
                 </p>
               </div>
 
-              <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                <table className="min-w-full divide-y divide-slate-200">
+              <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>
+                <table className={`${WORKFLOW_TABLE_CLASS} h-full`}>
                   <thead className="bg-slate-50">
                     <tr>
                       <th
@@ -487,8 +499,8 @@ export default function JobDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr>
-                      <td colSpan={3} className="px-6 py-16 text-center text-sm text-slate-400">
+                    <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
+                      <td colSpan={3} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
                         No resumes are currently being parsed.
                       </td>
                     </tr>
@@ -498,15 +510,36 @@ export default function JobDetailPage() {
             </div>
           ) : activeTab === 'AI Shortlisting' ? (
             <div className="space-y-6">
-              <div className="space-y-1">
+              <div className={WORKFLOW_SECTION_CLASS}>
                 <h2 className="text-xl font-semibold text-slate-900">AI Shortlisting</h2>
                 <p className="text-sm text-slate-500">
                   AI is evaluating selected resumes against the job requirements.
                 </p>
               </div>
 
-              <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                <table className="min-w-full divide-y divide-slate-200">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div className="w-full max-w-md">
+                  <input
+                    type="text"
+                    placeholder="Search candidates..."
+                    className={WORKFLOW_INPUT_CLASS}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
+                  <div className="text-sm font-medium text-slate-600 whitespace-nowrap">
+                    Total Shortlisted Candidates: 0
+                  </div>
+                  <div className="flex flex-wrap gap-2 sm:justify-end">
+                    <button type="button" className={WORKFLOW_PRIMARY_BUTTON_CLASS}>
+                      Send to AI Shortlisting
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>
+                <table className={`${WORKFLOW_TABLE_CLASS} h-full`}>
                   <thead className="bg-slate-50">
                     <tr>
                       <th
@@ -542,8 +575,8 @@ export default function JobDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr>
-                      <td colSpan={5} className="px-6 py-16 text-center text-sm text-slate-400">
+                    <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
+                      <td colSpan={5} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
                         No resumes are currently being shortlisted.
                       </td>
                     </tr>
