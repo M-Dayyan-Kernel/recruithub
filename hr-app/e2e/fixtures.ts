@@ -407,6 +407,29 @@ export async function mockGetCandidates(
   })
 }
 
+/** Mock POST /api/jobs/:id/shortlist */
+export async function mockPostShortlist(
+  page: Page,
+  jobId: string,
+  onPost?: (candidateIds: string[]) => void,
+) {
+  await page.route(`**/api/jobs/${jobId}/shortlist`, (route: Route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    const body = route.request().postDataJSON() as { candidate_ids?: string[] } | null
+    const ids = body?.candidate_ids ?? []
+    onPost?.(ids)
+    route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'shortlisting_started',
+        job_id: jobId,
+        candidate_ids: ids,
+      }),
+    })
+  })
+}
+
 /** Mock GET /api/jobs/:id/shortlist/status */
 export async function mockGetShortlistStatus(
   page: Page,

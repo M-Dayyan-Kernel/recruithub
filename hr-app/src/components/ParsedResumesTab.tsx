@@ -36,13 +36,18 @@ function candidateExperience(candidate: Candidate): string {
   return `${years} ${years === 1 ? 'year' : 'years'}`
 }
 
+export interface ShortlistTriggeredPayload {
+  candidateIds: string[]
+  candidates: Candidate[]
+}
+
 interface Props {
   jobId: string
   parsedCandidates: Candidate[]
   isLoading?: boolean
   isError?: boolean
   onRetry?: () => void
-  onShortlistTriggered: () => void
+  onShortlistTriggered: (payload: ShortlistTriggeredPayload) => void
   onSwitchToShortlisting: () => void
 }
 
@@ -68,7 +73,7 @@ export function ParsedResumesTab({
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/api/candidates/${id}`),
     onSuccess: (_data, id) => {
-      queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['candidates', jobId, 'pipeline'] })
       setSelectedIds((prev) => {
         const next = new Set(prev)
         next.delete(id)
@@ -81,13 +86,17 @@ export function ParsedResumesTab({
 
   const shortlistMutation = useMutation({
     mutationFn: (candidateIds: string[]) =>
-      api.post(`/api/jobs/${jobId}/shortlist`, { candidate_ids: candidateIds }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
+      api.post(`/api/jobs/${jobId}/shortlist`, { candidate_ids: candidateIds }) as Promise<{
+        candidate_ids?: string[]
+      }>,
+    onSuccess: (data, variables) => {
+      const ids = data.candidate_ids ?? variables
+      const snapshot = parsedCandidates.filter((c) => ids.includes(c.id))
+      queryClient.invalidateQueries({ queryKey: ['candidates', jobId, 'pipeline'] })
       queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
       queryClient.invalidateQueries({ queryKey: ['shortlist-status', jobId] })
       toast.success('AI shortlisting started')
-      onShortlistTriggered()
+      onShortlistTriggered({ candidateIds: ids, candidates: snapshot })
       onSwitchToShortlisting()
     },
     onError: (err: Error) => {

@@ -7,7 +7,7 @@
 # Test info
 
 - Name: job-detail.spec.ts >> 404 job renders Job not found state
-- Location: e2e\job-detail.spec.ts:93:1
+- Location: e2e\job-detail.spec.ts:84:1
 
 # Error details
 

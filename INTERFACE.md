@@ -618,23 +618,25 @@ VITE_API_URL=http://localhost:8080
 
 2. **Shortlist is async** — Empty `[]` from `GET /api/jobs/{job_id}/shortlist` means Celery task is still running. Do NOT show "No results" state immediately after triggering. Poll every 3s until results appear.
 
-3. **candidate_email placeholder** — `email.endsWith("@upload.pending")` means parse hasn't completed yet or email wasn't found in resume. Show `null` / dash in UI.
+3. **AI Shortlisted tab** — Shows **all** scored candidates (shortlisted, rejected, needs review) with recommendation badges. Do not filter to `recommendation === 'shortlisted'` only.
 
-4. **Report 404 ≠ error** — `GET /api/candidates/{id}/report` returns `404 "Report not ready yet"` when assessment is still running. Show a polling skeleton/spinner, not an error page. Assessment typically takes 10–30 seconds.
+4. **candidate_email placeholder** — `email.endsWith("@upload.pending")` means parse hasn't completed yet or email wasn't found in resume. Show `null` / dash in UI. `GET /shortlist` enriches `candidate_name` / `candidate_email` from `parsed_data` when available.
 
-5. **Interview session idempotency** — Calling `POST /api/interview/{token}/start` twice returns `409`. Handle this in the candidate app by detecting `409` and re-fetching session status.
+5. **Report 404 ≠ error** — `GET /api/candidates/{id}/report` returns `404 "Report not ready yet"` when assessment is still running. Show a polling skeleton/spinner, not an error page. Assessment typically takes 10–30 seconds.
 
-6. **Email non-fatal** — `POST /api/candidates/{id}/interview/send` always creates the session even if email delivery fails. Check `email_sent_at` — if `null`, show the `interview_url` directly to HR so they can share it manually.
+6. **Interview session idempotency** — Calling `POST /api/interview/{token}/start` twice returns `409`. Handle this in the candidate app by detecting `409` and re-fetching session status.
 
-7. **Vapi webhook URL** — Must be configured in Vapi dashboard as `POST /api/screening/webhook` (with the server's public URL — use ngrok in dev). If not configured, screening results never arrive.
+7. **Email non-fatal** — `POST /api/candidates/{id}/interview/send` always creates the session even if email delivery fails. Check `email_sent_at` — if `null`, show the `interview_url` directly to HR so they can share it manually.
 
-8. **Screening call_outcome** — New field (Sprint 8) on `ScreeningCallResponse`. Use `call_outcome` to drive UI state: `no_answer`/`voicemail`/`dropped` = show "Retrying" badge; `completed` = show result; `failed` = show error. `retry_count` (0–3) shows how many auto-retries have been scheduled. `ended_reason` is the raw Vapi string for debug purposes.
+8. **Vapi webhook URL** — Must be configured in Vapi dashboard as `POST /api/screening/webhook` (with the server's public URL — use ngrok in dev). If not configured, screening results never arrive.
 
-9. **Backend port** — Always `8080`. Port 8000 has Windows ghost TCP connections and must not be used.
+9. **Screening call_outcome** — New field (Sprint 8) on `ScreeningCallResponse`. Use `call_outcome` to drive UI state: `no_answer`/`voicemail`/`dropped` = show "Retrying" badge; `completed` = show result; `failed` = show error. `retry_count` (0–3) shows how many auto-retries have been scheduled. `ended_reason` is the raw Vapi string for debug purposes.
 
-9. **CORS** — Allowed origins: `5173`, `5174`, `5175`, `5176`, `5177`, `5178`, `127.0.0.1:5173`. If running on a different port, add it to `main.py` CORS allow_origins.
+10. **Backend port** — Always `8080`. Port 8000 has Windows ghost TCP connections and must not be used.
 
-10. **Google Drive 503** — This is expected in dev without Drive credentials. Show a friendly "Use direct upload instead" message — do not show a raw error.
+11. **CORS** — Allowed origins: `5173`, `5174`, `5175`, `5176`, `5177`, `5178`, `127.0.0.1:5173`. If running on a different port, add it to `main.py` CORS allow_origins.
+
+12. **Google Drive 503** — This is expected in dev without Drive credentials. Show a friendly "Use direct upload instead" message — do not show a raw error.
 
 ---
 

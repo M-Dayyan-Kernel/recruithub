@@ -4,10 +4,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { ArrowLeft, ChevronDown, Loader2, Pencil } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { Job } from '@/types/api'
+import type { Job, Candidate } from '@/types/api'
 import { EditJobModal } from '@/components/EditJobModal'
 import { ShortlistTab } from '@/components/ShortlistTab'
-import { ParsedResumesTab } from '@/components/ParsedResumesTab'
+import { ParsedResumesTab, type ShortlistTriggeredPayload } from '@/components/ParsedResumesTab'
 import { UploadTab } from '@/components/UploadTab'
 import { ParsingTab } from '@/components/ParsingTab'
 import { AIShortlistingTab } from '@/components/AIShortlistingTab'
@@ -78,6 +78,8 @@ export default function JobDetailPage() {
   const { id: jobId } = useParams<{ id: string }>()
   const [activeTab, setActiveTab] = useState<Tab>('Upload')
   const [shortlistTriggered, setShortlistTriggered] = useState(false)
+  const [shortlistBatchIds, setShortlistBatchIds] = useState<string[]>([])
+  const [shortlistBatchCandidates, setShortlistBatchCandidates] = useState<Candidate[]>([])
   const queryClient = useQueryClient()
 
   const [editOpen, setEditOpen] = useState(false)
@@ -162,18 +164,30 @@ export default function JobDetailPage() {
     return null
   }
 
-  const handleShortlistTriggered = () => {
+  const handleShortlistTriggered = ({ candidateIds, candidates }: ShortlistTriggeredPayload) => {
+    setShortlistBatchIds(candidateIds)
+    setShortlistBatchCandidates(candidates)
     setShortlistTriggered(true)
   }
 
-  const handleShortlistComplete = () => {
+  const resetShortlistRun = () => {
     setShortlistTriggered(false)
-    queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
+  }
+
+  const refreshShortlistData = () => {
+    queryClient.invalidateQueries({ queryKey: ['candidates', jobId, 'pipeline'] })
     queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
     queryClient.invalidateQueries({ queryKey: ['shortlist-status', jobId] })
   }
 
-  const pipeline = useJobPipelineCandidates(job?.id ?? '')
+  const handleShortlistComplete = () => {
+    resetShortlistRun()
+    refreshShortlistData()
+  }
+
+  const pipeline = useJobPipelineCandidates(job?.id ?? '', {
+    shortlistInProgress: shortlistTriggered,
+  })
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
@@ -345,6 +359,8 @@ export default function JobDetailPage() {
           ) : activeTab === 'AI Shortlisting' ? (
             <AIShortlistingTab
               jobId={jobId ?? ''}
+              batchCandidates={shortlistBatchCandidates}
+              batchCandidateIds={shortlistBatchIds}
               shortlistTriggered={shortlistTriggered}
               onShortlistComplete={() => {
                 handleShortlistComplete()

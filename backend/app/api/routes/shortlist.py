@@ -9,6 +9,7 @@ Shortlist Routes — Sprint 4
 """
 
 import json
+import logging
 import uuid
 from typing import List, Optional
 
@@ -30,6 +31,7 @@ from app.schemas.schemas import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 SHORTLIST_BATCH_TTL = 600  # 10 minutes
 
@@ -206,15 +208,24 @@ async def get_shortlist_status(
         )
 
     _r = _redis_client()
-    in_progress = bool(_r.exists(_shortlist_lock_key(job_id)))
+    try:
+        in_progress = bool(_r.exists(_shortlist_lock_key(job_id)))
 
-    batch_raw = _r.get(_shortlist_batch_key(job_id))
-    candidate_ids: List[str] = []
-    if batch_raw:
-        try:
-            candidate_ids = json.loads(batch_raw)
-        except (json.JSONDecodeError, TypeError):
-            candidate_ids = []
+        batch_raw = _r.get(_shortlist_batch_key(job_id))
+        candidate_ids: List[str] = []
+        if batch_raw:
+            if isinstance(batch_raw, bytes):
+                batch_raw = batch_raw.decode("utf-8")
+            try:
+                parsed = json.loads(batch_raw)
+                if isinstance(parsed, list):
+                    candidate_ids = [str(cid) for cid in parsed]
+            except (json.JSONDecodeError, TypeError, ValueError):
+                candidate_ids = []
+    except Exception as exc:
+        logger.warning("get_shortlist_status: Redis unavailable for job %s: %s", job_id, exc)
+        in_progress = False
+        candidate_ids = []
 
     completed = 0
     if candidate_ids:
@@ -275,6 +286,14 @@ async def get_shortlist(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     enriched = []
     for record in shortlist_records:
         candidate = candidates_by_id.get(record.candidate_id)
+        parsed = (candidate.parsed_data or {}) if candidate else {}
+        candidate_name = parsed.get("name") or (candidate.name if candidate else None)
+        raw_email = parsed.get("email") or (candidate.email if candidate else None)
+        candidate_email = (
+            raw_email
+            if raw_email and not str(raw_email).endswith("@upload.pending")
+            else None
+        )
         enriched.append(
             ShortlistResultWithCandidateResponse(
                 id=record.id,
@@ -289,12 +308,8 @@ async def get_shortlist(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
                 hr_feedback_type=record.hr_feedback_type,
                 hr_comments=record.hr_comments,
                 created_at=record.created_at,
-                candidate_name=candidate.name if candidate else None,
-                candidate_email=(
-                    candidate.email
-                    if candidate and not candidate.email.endswith("@upload.pending")
-                    else None
-                ),
+                candidate_name=candidate_name,
+                candidate_email=candidate_email,
             )
         )
     return enriched

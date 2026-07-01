@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { CheckCircle, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -10,7 +10,6 @@ import {
   WORKFLOW_TABLE_EMPTY_ROW_CLASS,
   WORKFLOW_TABLE_EMPTY_CELL_CLASS,
   WORKFLOW_INPUT_CLASS,
-  candidatesListUrl,
 } from '@/lib/workflow'
 
 function candidateDisplayName(candidate: Candidate): string {
@@ -37,74 +36,104 @@ function candidateExperience(candidate: Candidate): string {
 
 interface Props {
   jobId: string
+  batchCandidates: Candidate[]
+  batchCandidateIds: string[]
   shortlistTriggered: boolean
   onShortlistComplete: () => void
 }
 
 export function AIShortlistingTab({
   jobId,
+  batchCandidates,
+  batchCandidateIds,
   shortlistTriggered,
   onShortlistComplete,
 }: Props) {
   const [search, setSearch] = useState('')
+  const completionFiredRef = useRef(false)
+
+  const shouldPoll = shortlistTriggered || batchCandidateIds.length > 0 || batchCandidates.length > 0
 
   const { data: status, isError: statusError, refetch: refetchStatus } = useQuery<ShortlistStatusResponse>({
     queryKey: ['shortlist-status', jobId],
     queryFn: () =>
       api.get(`/api/jobs/${jobId}/shortlist/status`) as unknown as Promise<ShortlistStatusResponse>,
-    enabled: !!jobId,
-    refetchInterval: (query) => {
-      const data = query.state.data
-      if (data?.in_progress || shortlistTriggered) return 3000
-      return false
-    },
+    enabled: !!jobId && shouldPoll,
+    staleTime: 0,
+    retry: 1,
+    refetchInterval: () => (shouldPoll ? 3000 : false),
   })
 
-  const { data: results } = useQuery<ShortlistResultWithCandidate[]>({
+  const { data: results, isError: resultsError, refetch: refetchResults } = useQuery<
+    ShortlistResultWithCandidate[]
+  >({
     queryKey: ['shortlist', jobId],
     queryFn: () =>
       api.get(`/api/jobs/${jobId}/shortlist`) as unknown as Promise<ShortlistResultWithCandidate[]>,
-    enabled: !!jobId && (status?.in_progress || shortlistTriggered || (status?.total ?? 0) > 0),
-    refetchInterval: () => {
-      if (status?.in_progress || shortlistTriggered) return 3000
-      return false
-    },
+    enabled: !!jobId && shouldPoll,
+    staleTime: 0,
+    refetchInterval: () => (shouldPoll ? 3000 : false),
   })
 
-  const batchIds = status?.candidate_ids ?? []
-  const completedIds = new Set((results ?? []).map((r) => r.candidate_id))
+  const batchIds = useMemo(() => {
+    if (batchCandidateIds.length > 0) return batchCandidateIds
+    if (status?.candidate_ids?.length) return status.candidate_ids
+    return batchCandidates.map((c) => c.id)
+  }, [batchCandidateIds, status?.candidate_ids, batchCandidates])
 
-  const { data: batchCandidates, isLoading, isError, refetch } = useQuery<Candidate[]>({
-    queryKey: ['candidates', jobId, 'shortlisting', batchIds.join(',')],
-    queryFn: async () => {
-      const all = (await api.get(
-        candidatesListUrl(jobId, { parse_status: 'ready' }),
-      )) as unknown as Candidate[]
-      return all.filter((c) => batchIds.includes(c.id))
-    },
-    enabled: batchIds.length > 0,
-  })
+  const completedIds = useMemo(
+    () => new Set((results ?? []).map((r) => r.candidate_id)),
+    [results],
+  )
+
+  const displayCandidates = useMemo(() => {
+    if (batchCandidates.length > 0) return batchCandidates
+    return batchIds.map((id) => ({ id, name: `Candidate #${id.slice(0, 8)}` }) as Candidate)
+  }, [batchCandidates, batchIds])
+
+  const completedCount = batchIds.filter((id) => completedIds.has(id)).length
+  const totalCount = batchIds.length
+  const inProgress =
+    shortlistTriggered ||
+    status?.in_progress === true ||
+    (totalCount > 0 && completedCount < totalCount)
 
   useEffect(() => {
-    if (
-      status &&
-      !status.in_progress &&
-      status.total > 0 &&
-      status.completed >= status.total &&
-      shortlistTriggered
-    ) {
-      onShortlistComplete()
-    }
-  }, [status, shortlistTriggered, onShortlistComplete])
+    completionFiredRef.current = false
+  }, [batchCandidateIds])
 
-  const filtered = (batchCandidates ?? []).filter((c) => {
+  useEffect(() => {
+    if (completionFiredRef.current) return
+    if (
+      totalCount > 0 &&
+      completedCount >= totalCount &&
+      results &&
+      results.length > 0 &&
+      (shortlistTriggered || status?.in_progress === false)
+    ) {
+      completionFiredRef.current = true
+      const timer = setTimeout(() => onShortlistComplete(), 1500)
+      return () => clearTimeout(timer)
+    }
+  }, [
+    totalCount,
+    completedCount,
+    shortlistTriggered,
+    status?.in_progress,
+    results,
+    onShortlistComplete,
+  ])
+
+  const filtered = displayCandidates.filter((c) => {
     const term = search.toLowerCase()
     if (!term) return true
     return candidateDisplayName(c).toLowerCase().includes(term)
   })
 
-  const inProgress = status?.in_progress || shortlistTriggered
-  const showEmpty = !inProgress && batchIds.length === 0
+  const showEmpty = !inProgress && totalCount === 0
+  const showStarting = shortlistTriggered && totalCount === 0
+  const showServerError =
+    statusError && resultsError && totalCount === 0 && !shortlistTriggered
 
   return (
     <div className="space-y-6">
@@ -123,22 +152,27 @@ export function AIShortlistingTab({
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search candidates..."
             className={WORKFLOW_INPUT_CLASS}
-            disabled={batchIds.length === 0}
+            disabled={totalCount === 0}
           />
         </div>
 
         <div className="whitespace-nowrap text-sm font-medium text-slate-600">
-          {status && status.total > 0
-            ? `Progress: ${status.completed} / ${status.total}`
+          {totalCount > 0
+            ? `Progress: ${completedCount} / ${totalCount}`
             : 'Total Shortlisting: 0'}
         </div>
       </div>
 
-      {(statusError || isError) && (
-        <BackendError onRetry={() => { void refetchStatus(); void refetch() }} />
+      {showServerError && (
+        <BackendError
+          onRetry={() => {
+            void refetchStatus()
+            void refetchResults()
+          }}
+        />
       )}
 
-      {!statusError && !isError && (
+      {!showServerError && (
         <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>
           <table className={`${WORKFLOW_TABLE_CLASS} h-full`}>
             <thead className="bg-slate-50">
@@ -161,22 +195,25 @@ export function AIShortlistingTab({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
-              {isLoading && batchIds.length > 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center">
-                    <Loader2 size={20} className="mx-auto animate-spin text-slate-300" />
-                  </td>
-                </tr>
-              ) : showEmpty ? (
+              {showEmpty ? (
                 <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
                   <td colSpan={5} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
                     No resumes are currently being shortlisted.
                   </td>
                 </tr>
-              ) : filtered.length === 0 && batchIds.length > 0 ? (
+              ) : showStarting ? (
                 <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
                   <td colSpan={5} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
-                    {search ? `No results for "${search}"` : 'Loading candidates…'}
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 size={16} className="animate-spin text-slate-300" />
+                      Starting shortlisting…
+                    </span>
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
+                <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
+                  <td colSpan={5} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
+                    {search ? `No results for "${search}"` : 'No candidates in this batch.'}
                   </td>
                 </tr>
               ) : (

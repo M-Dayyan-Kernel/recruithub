@@ -443,7 +443,7 @@ export function ShortlistTab({
   const isAiShortlistedMode = mode === 'aiShortlisted'
   const [search, setSearch] = useState('')
 
-  const { data: results, isLoading, isError, refetch } = useQuery<
+  const { data: results, isLoading, isFetching, isError, refetch } = useQuery<
     ShortlistResultWithCandidate[]
   >({
     queryKey: ['shortlist', jobId],
@@ -460,18 +460,19 @@ export function ShortlistTab({
     },
   })
 
-  // When results finally arrive, notify parent so it can reset shortlistTriggered
+  // When results finally arrive, notify parent so it can reset shortlistTriggered (default mode only)
   useEffect(() => {
-    if (shortlistTriggered && results && results.length > 0) {
+    if (!isAiShortlistedMode && shortlistTriggered && results && results.length > 0) {
       onShortlistComplete()
     }
-  }, [shortlistTriggered, results, onShortlistComplete])
+  }, [isAiShortlistedMode, shortlistTriggered, results, onShortlistComplete])
 
   const hasResults = results && results.length > 0
   const isInProgress = shortlistTriggered && !hasResults
-  const shortlistedResults = (results ?? []).filter((r) => r.recommendation === 'shortlisted')
+  const scoredResults = results ?? []
+  const shortlistedResults = scoredResults.filter((r) => r.recommendation === 'shortlisted')
   const normalizedSearch = search.trim().toLowerCase()
-  const filteredShortlisted = shortlistedResults.filter((r) => {
+  const filteredScored = scoredResults.filter((r) => {
     if (!normalizedSearch) return true
     const name = (r.candidate_name ?? '').toLowerCase()
     const email = (r.candidate_email ?? '').toLowerCase()
@@ -486,7 +487,7 @@ export function ShortlistTab({
   const aiShortlistedHeader = (
     <div className="space-y-1">
       <h2 className="text-xl font-semibold text-slate-900">AI Shortlisted</h2>
-      <p className="text-sm text-slate-500">Candidates successfully shortlisted by AI.</p>
+      <p className="text-sm text-slate-500">Candidates scored by AI with match scores and recommendations.</p>
     </div>
   )
 
@@ -545,7 +546,8 @@ export function ShortlistTab({
   }
 
   // ── Loading skeleton ──────────────────────────────────────────────────────
-  if (isLoading) {
+  const showLoading = isLoading || (isFetching && !results)
+  if (showLoading) {
     return (
       <div className={isAiShortlistedMode ? 'space-y-6' : 'space-y-4'}>
         {isAiShortlistedMode && aiShortlistedHeader}
@@ -585,7 +587,7 @@ export function ShortlistTab({
   }
 
   // ── Empty state (no shortlist yet) ────────────────────────────────────────
-  if (!hasResults || (isAiShortlistedMode && shortlistedResults.length === 0)) {
+  if (!hasResults) {
     if (isAiShortlistedMode) {
       return (
         <div className="space-y-6">
@@ -594,7 +596,7 @@ export function ShortlistTab({
             <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mb-4">
               <Users className="w-6 h-6 text-slate-400" />
             </div>
-            <p className="text-slate-700 font-semibold mb-1">No candidates have been shortlisted yet.</p>
+            <p className="text-slate-700 font-semibold mb-1">No candidates have been scored yet.</p>
           </div>
         </div>
       )
@@ -643,17 +645,17 @@ export function ShortlistTab({
           </div>
 
           <div className="text-sm font-medium text-slate-600 whitespace-nowrap">
-            Total Shortlisted Candidates: {shortlistedResults.length}
+            Total Scored Candidates: {scoredResults.length}
           </div>
         </div>
 
-        {filteredShortlisted.length === 0 ? (
+        {filteredScored.length === 0 ? (
           <div className={SHORTLIST_EMPTY_STATE_CLASS}>
             <p className="text-slate-400 text-sm">No results found for your search.</p>
           </div>
         ) : (
           <div className="space-y-4">
-            {filteredShortlisted.map((result) => (
+            {filteredScored.map((result) => (
               <ShortlistCard key={result.id} result={result} jobId={jobId} readOnly />
             ))}
           </div>

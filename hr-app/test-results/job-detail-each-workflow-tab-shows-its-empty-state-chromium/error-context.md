@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: job-detail.spec.ts >> each workflow tab shows its placeholder title and subtitle
-- Location: e2e\job-detail.spec.ts:76:1
+- Name: job-detail.spec.ts >> each workflow tab shows its empty state
+- Location: e2e\job-detail.spec.ts:64:1
 
 # Error details
 

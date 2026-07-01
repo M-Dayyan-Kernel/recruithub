@@ -7,7 +7,7 @@
 # Test info
 
 - Name: job-detail.spec.ts >> Back to Jobs link navigates to /jobs
-- Location: e2e\job-detail.spec.ts:134:1
+- Location: e2e\job-detail.spec.ts:116:1
 
 # Error details
 

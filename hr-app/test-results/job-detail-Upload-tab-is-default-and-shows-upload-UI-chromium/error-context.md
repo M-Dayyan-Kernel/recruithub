@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: job-detail.spec.ts >> Upload tab is default and renders placeholder content
-- Location: e2e\job-detail.spec.ts:61:1
+- Name: job-detail.spec.ts >> Upload tab is default and shows upload UI
+- Location: e2e\job-detail.spec.ts:53:1
 
 # Error details
 

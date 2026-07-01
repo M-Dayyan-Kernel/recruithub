@@ -7,7 +7,7 @@
 # Test info
 
 - Name: job-detail.spec.ts >> job with null required_skills renders without skill chips or crash
-- Location: e2e\job-detail.spec.ts:117:1
+- Location: e2e\job-detail.spec.ts:103:1
 
 # Error details
 

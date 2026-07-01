@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: job-detail.spec.ts >> job detail page loads with title, skills, and experience range
-- Location: e2e\job-detail.spec.ts:39:1
+- Name: job-detail.spec.ts >> send parsed resume to AI shortlisting shows progress then scored results
+- Location: e2e\job-detail.spec.ts:138:1
 
 # Error details
 

@@ -6,7 +6,6 @@ at once. Additional `pending_parse` candidates wait in the Upload queue until
 a slot opens.
 """
 
-import asyncio
 import logging
 import uuid
 
@@ -14,7 +13,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.database import get_celery_db
 from app.models.models import Candidate
 
 logger = logging.getLogger(__name__)
@@ -86,13 +84,3 @@ async def dispatch_parse_slots(session: AsyncSession, job_id: uuid.UUID) -> int:
         )
 
     return dispatched
-
-
-def dispatch_parse_slots_after_complete(job_id: str) -> None:
-    """Celery-safe entry: open a DB session and fill freed parse slots."""
-
-    async def _run() -> None:
-        async with get_celery_db() as session:
-            await dispatch_parse_slots(session, uuid.UUID(job_id))
-
-    asyncio.run(_run())

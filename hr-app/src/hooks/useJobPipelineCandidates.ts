@@ -6,11 +6,25 @@ import type { Candidate, ShortlistResultWithCandidate } from '@/types/api'
 const PIPELINE_POLL_MS = 5_000
 const PIPELINE_POLL_SLOW_MS = 30_000
 const PIPELINE_POLL_CUTOFF_MS = 120_000
+const SHORTLIST_POLL_MS = 3_000
 
 const IN_FLIGHT_PARSE = new Set<Candidate['parse_status']>(['pending_parse', 'parsing', 'parsed'])
 
-export function useJobPipelineCandidates(jobId: string) {
+interface Options {
+  shortlistInProgress?: boolean
+}
+
+export function useJobPipelineCandidates(jobId: string, options: Options = {}) {
+  const { shortlistInProgress = false } = options
   const [pollStartTime] = useState(() => Date.now())
+
+  const getPollInterval = (parseInFlight: boolean) => {
+    if (!parseInFlight && !shortlistInProgress) return false
+    if (shortlistInProgress && !parseInFlight) return SHORTLIST_POLL_MS
+    return Date.now() - pollStartTime > PIPELINE_POLL_CUTOFF_MS
+      ? PIPELINE_POLL_SLOW_MS
+      : PIPELINE_POLL_MS
+  }
 
   const pipelineQuery = useQuery<Candidate[]>({
     queryKey: ['candidates', jobId, 'pipeline'],
@@ -19,10 +33,8 @@ export function useJobPipelineCandidates(jobId: string) {
     staleTime: 0,
     refetchInterval: (query) => {
       const list = (query.state.data ?? []) as Candidate[]
-      if (!list.some((c) => IN_FLIGHT_PARSE.has(c.parse_status))) return false
-      return Date.now() - pollStartTime > PIPELINE_POLL_CUTOFF_MS
-        ? PIPELINE_POLL_SLOW_MS
-        : PIPELINE_POLL_MS
+      const parseInFlight = list.some((c) => IN_FLIGHT_PARSE.has(c.parse_status))
+      return getPollInterval(parseInFlight)
     },
   })
 
@@ -32,12 +44,11 @@ export function useJobPipelineCandidates(jobId: string) {
       api.get(`/api/jobs/${jobId}/shortlist`) as unknown as Promise<ShortlistResultWithCandidate[]>,
     enabled: !!jobId,
     staleTime: 0,
-    refetchInterval: (query) => {
+    refetchInterval: () => {
       const list = (pipelineQuery.data ?? []) as Candidate[]
-      if (!list.some((c) => IN_FLIGHT_PARSE.has(c.parse_status))) return false
-      return Date.now() - pollStartTime > PIPELINE_POLL_CUTOFF_MS
-        ? PIPELINE_POLL_SLOW_MS
-        : PIPELINE_POLL_MS
+      const parseInFlight = list.some((c) => IN_FLIGHT_PARSE.has(c.parse_status))
+      if (shortlistInProgress) return SHORTLIST_POLL_MS
+      return getPollInterval(parseInFlight)
     },
   })
 

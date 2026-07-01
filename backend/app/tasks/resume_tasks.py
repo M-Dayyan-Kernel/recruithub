@@ -10,13 +10,9 @@ from sqlalchemy import select
 from app.core.celery_app import celery_app
 from app.core.database import get_celery_db
 from app.models.models import Candidate
-from app.services.parse_queue_service import dispatch_parse_slots_after_complete
+from app.services.parse_queue_service import dispatch_parse_slots
 
 logger = logging.getLogger(__name__)
-
-
-def _release_slot_and_dispatch(job_id: uuid.UUID, candidate_id: str) -> None:
-    dispatch_parse_slots_after_complete(str(job_id))
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +71,7 @@ async def _async_extract(task_self, candidate_id: str) -> None:
                 )
                 candidate.parse_status = "parse_failed"
                 await session.commit()
-                _release_slot_and_dispatch(job_id, candidate_id)
+                await dispatch_parse_slots(session, job_id)
                 raise _NoRetryError(f"File not found: {file_path}")
 
             suffix = file_path.suffix.lower()
@@ -110,7 +106,7 @@ async def _async_extract(task_self, candidate_id: str) -> None:
             )
             candidate.parse_status = "parse_failed"
             await session.commit()
-            _release_slot_and_dispatch(job_id, candidate_id)
+            await dispatch_parse_slots(session, job_id)
             raise
 
 
@@ -158,7 +154,7 @@ async def _async_parse(candidate_id: str) -> None:
             )
             candidate.parse_status = "parse_failed"
             await session.commit()
-            _release_slot_and_dispatch(job_id, candidate_id)
+            await dispatch_parse_slots(session, job_id)
             return
 
         try:
@@ -189,7 +185,7 @@ async def _async_parse(candidate_id: str) -> None:
             )
             candidate.parse_status = "parse_failed"
             await session.commit()
-            _release_slot_and_dispatch(job_id, candidate_id)
+            await dispatch_parse_slots(session, job_id)
             return  # Do not retry — bad key won't fix itself
 
         except openai.RateLimitError as exc:
@@ -255,7 +251,7 @@ async def _async_embed(candidate_id: str) -> None:
             )
             candidate.parse_status = "parse_failed"
             await session.commit()
-            _release_slot_and_dispatch(job_id, candidate_id)
+            await dispatch_parse_slots(session, job_id)
             return
 
         try:
@@ -268,7 +264,7 @@ async def _async_embed(candidate_id: str) -> None:
                 candidate_id,
                 len(embedding),
             )
-            _release_slot_and_dispatch(job_id, candidate_id)
+            await dispatch_parse_slots(session, job_id)
 
         except openai.AuthenticationError as exc:
             logger.error(
@@ -278,7 +274,7 @@ async def _async_embed(candidate_id: str) -> None:
             )
             candidate.parse_status = "parse_failed"
             await session.commit()
-            _release_slot_and_dispatch(job_id, candidate_id)
+            await dispatch_parse_slots(session, job_id)
             return
 
         except openai.RateLimitError as exc:
