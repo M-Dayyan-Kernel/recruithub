@@ -11,11 +11,13 @@ import {
   CANDIDATE_IDS,
   MOCK_CANDIDATES,
   MOCK_SHORTLIST,
+  SHORTLIST_IDS,
   mockGetJob,
   mockGetCandidates,
   mockGetShortlist,
   mockGetShortlistStatus,
   mockPostShortlist,
+  mockPatchShortlistDecision,
 } from './fixtures'
 
 const FRONTEND_JOB = MOCK_JOBS[0]
@@ -199,4 +201,30 @@ test('send parsed resume to AI shortlisting shows progress then scored results',
   await expect(page.getByRole('heading', { name: 'AI Shortlisted' })).toBeVisible({ timeout: 10000 })
   await expect(page.getByText('Alice Sharma')).toBeVisible()
   await expect(page.getByText('87%')).toBeVisible()
+})
+
+test('AI Shortlisted tab supports per-card approve', async ({ page }) => {
+  const aliceShortlist = MOCK_SHORTLIST.find((r) => r.candidate_id === CANDIDATE_IDS.alice)!
+  const patched: Array<{ id: string; hr_decision: string }> = []
+
+  await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
+  await mockGetCandidates(page, JOB_IDS.frontend, [])
+  await mockGetShortlist(page, JOB_IDS.frontend, [aliceShortlist])
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockPatchShortlistDecision(page, (id, hrDecision) => {
+    patched.push({ id, hr_decision: hrDecision })
+  })
+
+  await page.goto(FRONTEND_URL)
+  await page.waitForLoadState('networkidle')
+
+  await page.getByRole('button', { name: 'AI Shortlisted', exact: true }).click()
+  await expect(page.getByText('Alice Sharma')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Approve' }).click()
+
+  await expect(page.getByText('Approved')).toBeVisible({ timeout: 5000 })
+  expect(patched).toHaveLength(1)
+  expect(patched[0].id).toBe(SHORTLIST_IDS.alice)
+  expect(patched[0].hr_decision).toBe('approved')
 })

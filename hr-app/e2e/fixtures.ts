@@ -451,6 +451,30 @@ export async function mockGetShortlist(page: Page, jobId: string, results = MOCK
   })
 }
 
+/** Mock PATCH /api/shortlist/:id/decision */
+export async function mockPatchShortlistDecision(
+  page: Page,
+  onPatch?: (shortlistId: string, hrDecision: string) => void,
+) {
+  await page.route('**/api/shortlist/*/decision', (route: Route) => {
+    if (route.request().method() !== 'PATCH') return route.continue()
+    const url = route.request().url()
+    const match = url.match(/\/api\/shortlist\/([^/]+)\/decision/)
+    const shortlistId = match?.[1] ?? ''
+    const body = route.request().postDataJSON() as { hr_decision?: string } | null
+    const hrDecision = body?.hr_decision ?? 'approved'
+    onPatch?.(shortlistId, hrDecision)
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: shortlistId,
+        hr_decision: hrDecision,
+      }),
+    })
+  })
+}
+
 /** Mock GET /api/jobs/:id/screening */
 export async function mockGetScreening(page: Page, jobId: string, calls = MOCK_SCREENING) {
   await page.route(`**/api/jobs/${jobId}/screening`, (route: Route) => {

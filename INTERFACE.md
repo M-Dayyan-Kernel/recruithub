@@ -272,6 +272,8 @@ Set HR decision on a shortlist entry.
 - `404` — shortlist result not found
 - `422` — invalid `hr_decision` value
 
+> **Nova UI:** The **AI Shortlisted** tab uses this endpoint for per-card **Approve** / **Reject** buttons on each scored candidate card.
+
 ---
 
 #### `POST /api/shortlist/{shortlist_id}/feedback`

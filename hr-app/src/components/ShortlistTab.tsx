@@ -51,6 +51,26 @@ function RecommendationBadge({ rec }: { rec: ShortlistResultWithCandidate['recom
   )
 }
 
+const HR_DECISION_LABEL: Record<Exclude<HrDecision, 'pending'>, string> = {
+  approved: 'Approved',
+  rejected: 'Rejected',
+  overridden: 'Overridden',
+}
+
+function HrDecisionBadge({ decision }: { decision: Exclude<HrDecision, 'pending'> }) {
+  const className =
+    decision === 'approved'
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+      : decision === 'rejected'
+        ? 'bg-rose-50 text-rose-700 border-rose-200'
+        : 'bg-amber-50 text-amber-700 border-amber-200'
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${className}`}>
+      {HR_DECISION_LABEL[decision]}
+    </span>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Skeleton card
 // ---------------------------------------------------------------------------
@@ -131,17 +151,31 @@ const SHORTLIST_EMPTY_STATE_CLASS = 'flex min-h-[360px] flex-col items-center ju
 const SHORTLIST_SEARCH_CLASS =
   'h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-700 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100'
 
+type DecisionActionsMode = 'none' | 'approveReject' | 'full'
+
 function ShortlistCard({
   result,
   jobId,
   readOnly = false,
+  decisionActions,
 }: {
   result: ShortlistResultWithCandidate
   jobId: string
   readOnly?: boolean
+  decisionActions?: DecisionActionsMode
 }) {
+  const actionsMode: DecisionActionsMode =
+    decisionActions ?? (readOnly ? 'none' : 'full')
+  const visibleDecisions: Exclude<HrDecision, 'pending'>[] =
+    actionsMode === 'approveReject'
+      ? ['approved', 'rejected']
+      : actionsMode === 'full'
+        ? ['approved', 'rejected', 'overridden']
+        : []
+  const showDecisionButtons = visibleDecisions.length > 0
+  const showFeedback = actionsMode === 'full'
   const queryClient = useQueryClient()
-  const [showFeedback, setShowFeedback] = useState(false)
+  const [showFeedbackPanel, setShowFeedbackPanel] = useState(false)
   const [feedbackType, setFeedbackType] = useState<string>('correctly_shortlisted')
   const [feedbackComments, setFeedbackComments] = useState('')
   const [feedbackDone, setFeedbackDone] = useState(false)
@@ -199,7 +233,7 @@ function ShortlistCard({
     onSuccess: () => {
       setFeedbackDone(true)
       setTimeout(() => {
-        setShowFeedback(false)
+        setShowFeedbackPanel(false)
         setFeedbackDone(false)
         setFeedbackComments('')
       }, 2000)
@@ -225,6 +259,9 @@ function ShortlistCard({
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          {result.hr_decision !== 'pending' && (
+            <HrDecisionBadge decision={result.hr_decision} />
+          )}
           <ScoreBadge score={result.match_score} />
           <RecommendationBadge rec={result.recommendation} />
         </div>
@@ -304,11 +341,11 @@ function ShortlistCard({
         </div>
       )}
 
-      {!readOnly && (
+      {showDecisionButtons && (
         <>
-          {/* HR Decision buttons + feedback trigger */}
+          {/* HR Decision buttons + optional feedback trigger */}
           <div className="flex items-center gap-2 flex-wrap">
-            {(Object.keys(DECISION_CONFIG) as Exclude<HrDecision, 'pending'>[]).map((decision) => {
+            {visibleDecisions.map((decision) => {
               const cfg = DECISION_CONFIG[decision]
               const isActive = result.hr_decision === decision
               return (
@@ -324,15 +361,17 @@ function ShortlistCard({
                 </button>
               )
             })}
-            <button
-              onClick={() => {
-                setShowFeedback((v) => !v)
-                setFeedbackDone(false)
-              }}
-              className="ml-auto px-3 py-1.5 border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-300 rounded-lg text-xs font-medium transition-colors"
-            >
-              Give Feedback
-            </button>
+            {showFeedback && (
+              <button
+                onClick={() => {
+                  setShowFeedbackPanel((v) => !v)
+                  setFeedbackDone(false)
+                }}
+                className="ml-auto px-3 py-1.5 border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-300 rounded-lg text-xs font-medium transition-colors"
+              >
+                Give Feedback
+              </button>
+            )}
           </div>
 
           {/* Decision error */}
@@ -344,7 +383,7 @@ function ShortlistCard({
           )}
 
           {/* Inline feedback form */}
-          {showFeedback && (
+          {showFeedback && showFeedbackPanel && (
             <div className="mt-4 border-t border-slate-100 pt-4 space-y-3">
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1.5">
@@ -396,7 +435,7 @@ function ShortlistCard({
                     Submit Feedback
                   </button>
                   <button
-                    onClick={() => setShowFeedback(false)}
+                    onClick={() => setShowFeedbackPanel(false)}
                     className="px-3 py-1.5 border border-slate-200 text-slate-500 text-xs font-medium rounded-lg hover:bg-slate-50 transition-colors"
                   >
                     Cancel
@@ -470,7 +509,6 @@ export function ShortlistTab({
   const hasResults = results && results.length > 0
   const isInProgress = shortlistTriggered && !hasResults
   const scoredResults = results ?? []
-  const shortlistedResults = scoredResults.filter((r) => r.recommendation === 'shortlisted')
   const normalizedSearch = search.trim().toLowerCase()
   const filteredScored = scoredResults.filter((r) => {
     if (!normalizedSearch) return true
@@ -479,7 +517,7 @@ export function ShortlistTab({
     return name.includes(normalizedSearch) || email.includes(normalizedSearch)
   })
 
-  // Bulk action state
+  // Bulk action state (default mode only)
   const queryClient = useQueryClient()
   const [approvingAll, setApprovingAll] = useState(false)
   const [rejectingAll, setRejectingAll] = useState(false)
@@ -656,7 +694,12 @@ export function ShortlistTab({
         ) : (
           <div className="space-y-4">
             {filteredScored.map((result) => (
-              <ShortlistCard key={result.id} result={result} jobId={jobId} readOnly />
+              <ShortlistCard
+                key={result.id}
+                result={result}
+                jobId={jobId}
+                decisionActions="approveReject"
+              />
             ))}
           </div>
         )}
