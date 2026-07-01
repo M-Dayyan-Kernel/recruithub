@@ -364,6 +364,86 @@ export default function JobDetailPage() {
                 </div>
               </div>
             </div>
+          ) : activeTab === 'Parsed Resumes' ? (
+            <div className="space-y-6">
+              <div className="space-y-1">
+                <h2 className="text-xl font-semibold text-slate-900">Parsed Resumes</h2>
+                <p className="text-sm text-slate-500">
+                  Review parsed resumes and select candidates to send for AI shortlisting.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="w-full max-w-md">
+                  <input
+                    type="text"
+                    placeholder="Search candidates..."
+                    className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+                  <div className="text-sm font-medium text-slate-600 sm:mr-2">
+                    Total Parsed Resumes: 0
+                  </div>
+                  <div className="flex flex-wrap gap-2 sm:justify-end">
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                    >
+                      Send to AI Shortlisting
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th scope="col" className="w-12 px-6 py-3 text-left">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all parsed resumes"
+                          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                      >
+                        Candidate Name
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                      >
+                        Email ID
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                      >
+                        Phone Number
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                      >
+                        Years of Experience
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td colSpan={5} className="px-6 py-16 text-center text-sm text-slate-400">
+                        No parsed resumes available.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           ) : activeTab === 'Parsing' ? (
             <div className="space-y-6">
               <div className="space-y-1">
