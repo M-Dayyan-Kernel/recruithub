@@ -9,6 +9,7 @@ import {
   MOCK_JOBS,
   JOB_IDS,
   mockGetJob,
+  mockGetCandidates,
 } from './fixtures'
 
 const FRONTEND_JOB = MOCK_JOBS[0]  // active, has required_skills
@@ -75,6 +76,7 @@ test('Upload tab is default and renders placeholder content', async ({ page }) =
 
 test('each workflow tab shows its placeholder title and subtitle', async ({ page }) => {
   await mockFrontendJobDetail(page)
+  await mockGetCandidates(page, JOB_IDS.frontend, [])
 
   await page.goto(FRONTEND_URL)
   await page.waitForLoadState('networkidle')
@@ -82,7 +84,11 @@ test('each workflow tab shows its placeholder title and subtitle', async ({ page
   for (const tab of WORKFLOW_TABS) {
     await page.getByRole('button', { name: tab, exact: true }).click()
     await expect(page.getByText(tab, { exact: true }).last()).toBeVisible()
-    await expect(page.getByText(PLACEHOLDER_SUBTITLE)).toBeVisible()
+    if (tab === 'Parsed Resumes') {
+      await expect(page.getByText('No parsed resumes available.')).toBeVisible()
+    } else {
+      await expect(page.getByText(PLACEHOLDER_SUBTITLE)).toBeVisible()
+    }
   }
 })
 

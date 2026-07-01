@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { EditJobModal } from '@/components/EditJobModal'
 import { ShortlistTab } from '@/components/ShortlistTab'
+import { ParsedResumesTab } from '@/components/ParsedResumesTab'
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -386,85 +387,7 @@ export default function JobDetailPage() {
               </div>
             </div>
           ) : activeTab === 'Parsed Resumes' ? (
-            <div className="space-y-6">
-              <div className={WORKFLOW_SECTION_CLASS}>
-                <h2 className="text-xl font-semibold text-slate-900">Parsed Resumes</h2>
-                <p className="text-sm text-slate-500">
-                  Review parsed resumes and select candidates to send for AI shortlisting.
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                <div className="w-full max-w-md">
-                  <input
-                    type="text"
-                    placeholder="Search candidates..."
-                    className={WORKFLOW_INPUT_CLASS}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
-                  <div className="text-sm font-medium text-slate-600 whitespace-nowrap">
-                    Total Parsed Resumes: 0
-                  </div>
-                  <div className="flex flex-wrap gap-2 sm:justify-end">
-                    <button
-                      type="button"
-                      className={WORKFLOW_PRIMARY_BUTTON_CLASS}
-                    >
-                      Send to AI Shortlisting
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>
-                <table className={`${WORKFLOW_TABLE_CLASS} h-full`}>
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th scope="col" className="w-10 px-4 py-3 text-left">
-                        <input
-                          type="checkbox"
-                          aria-label="Select all parsed resumes"
-                          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                        />
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                      >
-                        Candidate Name
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                      >
-                        Email ID
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                      >
-                        Phone Number
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
-                      >
-                        Years of Experience
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
-                      <td colSpan={5} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
-                        No parsed resumes available.
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <ParsedResumesTab jobId={jobId ?? ''} />
           ) : activeTab === 'Parsing' ? (
             <div className="space-y-6">
               <div className={WORKFLOW_SECTION_CLASS}>
