@@ -48,13 +48,8 @@ export const REPORT_IDS = {
 
 /**
  * MOCK_JOBS_SAFE — all jobs have required_skills as string[] (not null).
- * Use this for tests that exercise JobsPage or DashboardPage to avoid the
- * known bug: `job.required_skills.length` crashes when required_skills is null.
- *
- * BUG DOCUMENTED: JobsPage.tsx and JobDetailPage.tsx call `.length` on
- * `required_skills` without a null check. The INTERFACE.md spec allows
- * `required_skills: null`. Tests that exercise these pages must use safe data.
- * The specific null-skills test in job-detail.spec.ts is marked test.fixme().
+ * Use this for tests that exercise sidebar jobs nav or DashboardPage to avoid
+ * issues when `required_skills` is null in mock data.
  */
 export const MOCK_JOBS_SAFE = [
   {
@@ -525,6 +520,14 @@ export async function mockPostJob(page: Page, response: object | 422 = MOCK_JOBS
       route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(response) })
     }
   })
+}
+
+/** Mock all per-job sub-endpoints used by job pages (candidates, shortlist, screening) */
+export async function mockJobSubroutes(page: Page, jobId: string) {
+  await mockGetCandidates(page, jobId, MOCK_CANDIDATES.filter(c => c.job_id === jobId))
+  await mockGetShortlist(page, jobId, MOCK_SHORTLIST.filter(s => s.job_id === jobId))
+  await mockGetShortlistStatus(page, jobId)
+  await mockGetScreening(page, jobId, MOCK_SCREENING.filter(s => s.job_id === jobId))
 }
 
 /**

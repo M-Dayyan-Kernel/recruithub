@@ -138,8 +138,11 @@ export function AIShortlistingTab({
       results.length > 0 &&
       (shortlistTriggered || status?.in_progress === false)
     ) {
-      completionFiredRef.current = true
-      const timer = setTimeout(() => onShortlistComplete(), COMPLETE_REDIRECT_MS)
+      const timer = setTimeout(() => {
+        if (completionFiredRef.current) return
+        completionFiredRef.current = true
+        onShortlistComplete()
+      }, COMPLETE_REDIRECT_MS)
       return () => clearTimeout(timer)
     }
   }, [allComplete, shortlistTriggered, status?.in_progress, results, onShortlistComplete])

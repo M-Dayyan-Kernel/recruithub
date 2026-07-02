@@ -169,7 +169,7 @@ export function EditJobModal({ job, open, onClose }: Props) {
             />
           </div>
 
-          {/* Required Skills — Chip input (same pattern as CreateJobModal) */}
+          {/* Required Skills — Chip input (same pattern as CreateJobForm) */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">
               Required Skills

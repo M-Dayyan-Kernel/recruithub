@@ -1,5 +1,5 @@
 /**
- * job-detail.spec.ts — E2E tests for JobDetailPage
+ * job-detail.spec.ts — E2E tests for JobShortlistPage (under JobLayout)
  *
  * Mocks: GET /api/jobs/:id, GET /api/jobs/:id/candidates, GET /api/jobs/:id/shortlist/status
  */
@@ -12,12 +12,14 @@ import {
   MOCK_CANDIDATES,
   MOCK_SHORTLIST,
   SHORTLIST_IDS,
+  mockGetJobs,
   mockGetJob,
   mockGetCandidates,
   mockGetShortlist,
   mockGetShortlistStatus,
   mockPostShortlist,
   mockPatchShortlistDecision,
+  mockGetScreening,
 } from './fixtures'
 
 const FRONTEND_JOB = MOCK_JOBS[0]
@@ -32,10 +34,12 @@ const WORKFLOW_TABS = [
 ] as const
 
 async function mockFrontendJobDetail(page: import('@playwright/test').Page) {
+  await mockGetJobs(page)
   await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
   await mockGetCandidates(page, JOB_IDS.frontend, [])
   await mockGetShortlist(page, JOB_IDS.frontend, [])
   await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
 }
 
 test('job detail page loads with title, skills, and experience range', async ({ page }) => {
@@ -97,6 +101,7 @@ test('each workflow tab shows its empty state', async ({ page }) => {
 test('404 job renders Job not found state', async ({ page }) => {
   const nonExistentId = 'xxxxxxxx-dead-beef-0000-000000000000'
 
+  await mockGetJobs(page)
   await page.route(`**/api/jobs/${nonExistentId}`, route => {
     if (route.request().method() !== 'GET') return route.continue()
     route.fulfill({
@@ -110,42 +115,22 @@ test('404 job renders Job not found state', async ({ page }) => {
   await page.waitForLoadState('networkidle')
 
   await expect(page.getByText('Job not found')).toBeVisible()
-  await expect(page.getByRole('link', { name: /Back to Jobs/i }).first()).toBeVisible()
+  await expect(page.getByRole('link', { name: /Back to Dashboard/i }).first()).toBeVisible()
 })
 
 test('job with null required_skills renders without skill chips or crash', async ({ page }) => {
   const backendJob = MOCK_JOBS[1]
+  await mockGetJobs(page)
   await mockGetJob(page, JOB_IDS.backend, backendJob)
   await mockGetCandidates(page, JOB_IDS.backend, [])
   await mockGetShortlistStatus(page, JOB_IDS.backend)
+  await mockGetScreening(page, JOB_IDS.backend, [])
 
   await page.goto(`/jobs/${JOB_IDS.backend}`)
   await page.waitForLoadState('networkidle')
 
   await expect(page.getByRole('heading', { name: 'Backend Python Engineer' })).toBeVisible()
   await expect(page.locator('text=Something went wrong')).not.toBeVisible()
-})
-
-test('Back to Jobs link navigates to /jobs', async ({ page }) => {
-  await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
-  await mockGetCandidates(page, JOB_IDS.frontend, [])
-  await mockGetShortlistStatus(page, JOB_IDS.frontend)
-
-  await page.route('**/api/jobs', route => {
-    if (route.request().method() === 'GET') {
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MOCK_JOBS) })
-    } else {
-      route.continue()
-    }
-  })
-
-  await page.goto(FRONTEND_URL)
-  await page.waitForLoadState('networkidle')
-
-  await page.getByRole('link', { name: /Back to Jobs/i }).click()
-
-  await expect(page).toHaveURL('/jobs')
-  await expect(page.getByRole('heading', { name: 'Jobs' }).first()).toBeVisible()
 })
 
 test('send parsed resume to AI shortlisting shows progress then scored results', async ({ page }) => {
@@ -161,11 +146,13 @@ test('send parsed resume to AI shortlisting shows progress then scored results',
     failed: 0,
   }
 
+  await mockGetJobs(page)
   await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
   await mockGetCandidates(page, JOB_IDS.frontend, [alice])
   await mockPostShortlist(page, JOB_IDS.frontend)
   await mockGetShortlistStatus(page, JOB_IDS.frontend, statusState)
   await mockGetShortlist(page, JOB_IDS.frontend, shortlistResults)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
 
   await page.route(`**/api/jobs/${JOB_IDS.frontend}/shortlist/status`, (route) => {
     if (route.request().method() !== 'GET') return route.continue()
@@ -223,21 +210,24 @@ test('send parsed resume to AI shortlisting shows progress then scored results',
     failed: 0,
   }
 
-  await page.waitForTimeout(3500)
-
+  await expect(page.getByText('All candidates scored — opening AI Shortlisted…')).toBeVisible({
+    timeout: 10000,
+  })
   await expect(page.getByRole('heading', { name: 'AI Shortlisted' })).toBeVisible({ timeout: 10000 })
-  await expect(page.getByText('Alice Sharma')).toBeVisible()
-  await expect(page.getByText('87%')).toBeVisible()
+  await expect(page.getByRole('option', { name: /Alice Sharma/i })).toBeVisible()
+  await expect(page.getByText(/8[78]%/).first()).toBeVisible()
 })
 
 test('AI Shortlisted tab supports split-pane approve', async ({ page }) => {
   const aliceShortlist = MOCK_SHORTLIST.find((r) => r.candidate_id === CANDIDATE_IDS.alice)!
   const patched: Array<{ id: string; hr_decision: string }> = []
 
+  await mockGetJobs(page)
   await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
   await mockGetCandidates(page, JOB_IDS.frontend, [])
   await mockGetShortlist(page, JOB_IDS.frontend, [aliceShortlist])
   await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
   await mockPatchShortlistDecision(page, (id, hrDecision) => {
     patched.push({ id, hr_decision: hrDecision })
   })

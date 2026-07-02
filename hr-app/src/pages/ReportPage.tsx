@@ -155,7 +155,7 @@ export default function ReportPage() {
     <div className="p-6 max-w-5xl mx-auto">
       {/* Back link */}
       <Link
-        to={jobId ? `/jobs/${jobId}` : '/jobs'}
+        to={jobId ? `/jobs/${jobId}` : '/'}
         className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-5 transition-colors"
       >
         <ArrowLeft size={14} />
