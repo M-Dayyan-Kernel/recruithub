@@ -1,11 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Loader2, Mic, Phone } from 'lucide-react'
 import { api } from '@/lib/api'
 import type {
-  CallStatus,
   Candidate,
   ScreeningCall,
   ShortlistResultWithCandidate,
@@ -18,6 +17,7 @@ import { ScreeningCallDetails } from '@/components/screening/ScreeningCallDetail
 import {
   buildScreeningRows,
   countByTab,
+  SCREENING_ACTIVE_POLL_MS,
   type ScreeningRow,
   type ScreeningTabId,
 } from '@/components/screening/screeningRows'
@@ -170,14 +170,8 @@ export function ScreeningTab({ jobId }: Props) {
     queryKey: ['screening', jobId],
     queryFn: () => api.get(`/api/jobs/${jobId}/screening`) as unknown as Promise<ScreeningCall[]>,
     enabled: !!jobId,
-    refetchInterval: (query) => {
-      const data = query.state.data
-      if (!data?.length) return false
-      const hasActive = data.some((sc) =>
-        (['initiated', 'in_progress'] as CallStatus[]).includes(sc.call_status),
-      )
-      return hasActive ? 5000 : false
-    },
+    staleTime: 0,
+    refetchInterval: false,
   })
 
   const { data: shortlistResults } = useQuery<ShortlistResultWithCandidate[]>({
@@ -222,6 +216,47 @@ export function ScreeningTab({ jobId }: Props) {
       ),
     [approvedShortlist, candidatesMap, screeningCalls, systemSettings],
   )
+
+  const activeCallIds = useMemo(
+    () =>
+      rows
+        .filter((row) => row.isActive && row.latestCall?.id)
+        .map((row) => row.latestCall!.id),
+    [rows],
+  )
+
+  useEffect(() => {
+    if (activeCallIds.length === 0) return
+
+    let cancelled = false
+
+    const pollActiveCalls = async () => {
+      try {
+        const refreshed = await Promise.all(
+          activeCallIds.map(
+            (id) =>
+              api.post(`/api/screening/${id}/refresh`) as unknown as Promise<ScreeningCall>,
+          ),
+        )
+        if (cancelled) return
+
+        queryClient.setQueryData<ScreeningCall[]>(['screening', jobId], (prev) => {
+          if (!prev) return prev
+          const byId = new Map(refreshed.map((call) => [call.id, call]))
+          return prev.map((call) => byId.get(call.id) ?? call)
+        })
+      } catch {
+        // Keep polling on transient errors.
+      }
+    }
+
+    void pollActiveCalls()
+    const timer = window.setInterval(pollActiveCalls, SCREENING_ACTIVE_POLL_MS)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [activeCallIds, jobId, queryClient])
 
   const tabCounts = useMemo(() => countByTab(rows), [rows])
   const filteredRows = rows.filter((r) => r.tab === activeTab)

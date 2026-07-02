@@ -7,6 +7,7 @@ import type {
   ScreeningCall,
   InterviewReport,
 } from '@/types/api'
+import { SCREENING_ACTIVE_POLL_MS } from '@/components/screening/screeningRows'
 
 // ---------------------------------------------------------------------------
 // Stage status type
@@ -143,7 +144,7 @@ export function CandidateTimeline({ candidateId, jobId }: Props) {
       const call = data?.find((sc) => sc.candidate_id === candidateId)
       if (!call) return false
       return ['pending', 'initiated', 'in_progress'].includes(call.call_status)
-        ? 8000
+        ? SCREENING_ACTIVE_POLL_MS
         : false
     },
   })

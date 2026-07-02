@@ -50,13 +50,13 @@ Guidelines:
 """
 
 
-async def get_vapi_call(vapi_call_id: str) -> dict:
+async def get_vapi_call(vapi_call_id: str, *, timeout: float = 5.0) -> dict:
     """Fetch call details from Vapi REST API."""
     headers = {
         "Authorization": f"Bearer {settings.VAPI_API_KEY}",
         "Content-Type": "application/json",
     }
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.get(
             f"{VAPI_API_BASE}/call/{vapi_call_id}",
             headers=headers,
@@ -66,6 +66,28 @@ async def get_vapi_call(vapi_call_id: str) -> dict:
             f"Vapi API error {response.status_code}: {response.text[:500]}"
         )
     return response.json()
+
+
+def is_vapi_call_ended(vapi_call: dict) -> bool:
+    """True only when Vapi reports the dial has actually finished."""
+    status = (vapi_call.get("status") or "").lower().replace("_", "-")
+    if status in (
+        "ended",
+        "completed",
+        "failed",
+        "busy",
+        "no-answer",
+        "canceled",
+        "cancelled",
+    ):
+        return True
+    if vapi_call.get("endedAt") or vapi_call.get("ended_at"):
+        return True
+    # Do not treat endedReason alone as ended while the call is still ringing/live.
+    if status in ("ringing", "in-progress", "forwarding", "queued", "scheduled"):
+        return False
+    ended_reason = vapi_call.get("endedReason") or vapi_call.get("ended_reason")
+    return bool(ended_reason)
 
 
 def map_vapi_status_to_call_status(vapi_status: str | None) -> str | None:
@@ -154,6 +176,15 @@ async def initiate_screening_call(
             f"{settings.BACKEND_PUBLIC_URL.rstrip('/')}/api/screening/webhook"
         )
         payload["assistant"]["serverUrl"] = webhook_url
+        payload["assistant"]["serverMessages"] = [
+            "status-update",
+            "end-of-call-report",
+        ]
+    else:
+        logger.warning(
+            "BACKEND_PUBLIC_URL is not set — Vapi webhooks disabled; "
+            "screening status relies on polling (slower updates)."
+        )
 
     headers = {
         "Authorization": f"Bearer {settings.VAPI_API_KEY}",

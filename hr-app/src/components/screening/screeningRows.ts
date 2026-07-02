@@ -1,6 +1,8 @@
 import type { Candidate, ScreeningCall, ShortlistResultWithCandidate, SystemSettings } from '@/types/api'
 import { phoneLooksIndian } from '@/components/screening/screeningUtils'
 
+export const SCREENING_ACTIVE_POLL_MS = 2000
+
 export type ScreeningTabId = 'pending' | 'completed' | 'flagged'
 
 export interface ScreeningRow {
@@ -118,13 +120,13 @@ function classifyTab(
     return { tab: 'pending' }
   }
 
-  if (call.call_status === 'completed' && call.result === 'needs_review') {
-    return { tab: 'flagged', flagReason: 'Screening result needs HR review' }
-  }
-
   if (
     call.call_status === 'completed' &&
-    (call.call_outcome === 'completed' || call.result === 'pass' || call.result === 'fail')
+    (call.call_outcome === 'completed' ||
+      call.result === 'pass' ||
+      call.result === 'fail' ||
+      call.result === 'needs_review' ||
+      Boolean(call.transcript?.trim()))
   ) {
     return { tab: 'completed' }
   }
@@ -209,6 +211,7 @@ function statusLabelForRow(
   if (call.call_outcome === 'voicemail') return 'Voicemail'
   if (call.call_outcome === 'dropped') return 'Call Dropped'
   if (call.call_outcome === 'completed' || call.call_status === 'completed') {
+    if (call.result === 'needs_review') return 'Needs Review'
     return 'Completed'
   }
 

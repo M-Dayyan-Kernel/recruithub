@@ -24,6 +24,13 @@ from app.core.database import get_celery_db
 
 logger = logging.getLogger(__name__)
 
+SCREENING_SYNC_INITIAL_DELAY_SEC = 0
+SCREENING_SYNC_POLL_INTERVAL_SEC = 2
+SCREENING_SYNC_MAX_POLLS = 60
+VAPI_STATUS_TIMEOUT_SEC = 4.0
+
+LIVE_CALL_STATUSES = ("initiated", "in_progress")
+
 
 # ---------------------------------------------------------------------------
 # Task 5.6a — Initiate outbound Vapi screening call
@@ -133,7 +140,7 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
             )
             sync_screening_call_status.apply_async(
                 args=[screening_call_id],
-                countdown=10,
+                countdown=SCREENING_SYNC_INITIAL_DELAY_SEC,
             )
 
         except Exception as exc:
@@ -178,13 +185,6 @@ def sync_screening_call_status(self, screening_call_id: str, poll_attempt: int =
 
 async def _async_sync_status(screening_call_id: str, poll_attempt: int) -> None:
     from app.models.models import ScreeningCall
-    from app.services.vapi_service import (
-        get_vapi_call,
-        map_vapi_status_to_call_status,
-    )
-
-    max_polls = 24  # ~6 minutes at 15s intervals
-    poll_interval = 15
 
     async with get_celery_db() as session:
         result = await session.execute(
@@ -196,82 +196,164 @@ async def _async_sync_status(screening_call_id: str, poll_attempt: int) -> None:
         if screening_call.call_status in ("completed", "failed"):
             return
 
-        try:
-            vapi_call = await get_vapi_call(screening_call.vapi_call_id)
-        except Exception as exc:
+        finalized = await _finalize_screening_call_from_vapi(session, screening_call, force=False)
+        if finalized:
+            return
+
+        if poll_attempt < SCREENING_SYNC_MAX_POLLS:
+            sync_screening_call_status.apply_async(
+                args=[screening_call_id, poll_attempt + 1],
+                countdown=SCREENING_SYNC_POLL_INTERVAL_SEC,
+            )
+            return
+
+        logger.warning(
+            "sync_screening_call_status: max polls reached for %s — force finalizing",
+            screening_call_id,
+        )
+        await _finalize_screening_call_from_vapi(session, screening_call, force=True)
+
+
+def _parse_vapi_call_payload(vapi_call: dict) -> tuple[str, str | None, str | None, str, str | None]:
+    from app.services.vapi_service import map_vapi_status_to_call_status
+
+    vapi_status = (vapi_call.get("status") or "").lower()
+    mapped = map_vapi_status_to_call_status(vapi_call.get("status"))
+    ended_reason = vapi_call.get("endedReason") or vapi_call.get("ended_reason")
+    ended_at = vapi_call.get("endedAt") or vapi_call.get("ended_at")
+    artifact = vapi_call.get("artifact") or {}
+    transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
+    return vapi_status, mapped, ended_reason, transcript, ended_at
+
+
+def _infer_ended_reason(
+    vapi_status: str,
+    mapped: str | None,
+    ended_reason: str | None,
+    *,
+    started_at: str | None = None,
+    has_transcript: bool = False,
+) -> str:
+    if ended_reason:
+        return ended_reason
+    if vapi_status == "busy":
+        return "customer-busy"
+    if vapi_status == "no-answer":
+        return "customer-did-not-answer"
+    if mapped == "failed":
+        return vapi_status or "call-failed"
+    if started_at or has_transcript:
+        return "customer-ended-call"
+    return "customer-did-not-answer"
+
+
+async def _finalize_screening_call_from_vapi(
+    session,
+    screening_call,
+    *,
+    force: bool = False,
+) -> bool:
+    """Poll Vapi once and finalize the screening call when the dial has ended."""
+    from app.services.vapi_service import get_vapi_call, is_vapi_call_ended
+
+    if screening_call.call_status in ("completed", "failed"):
+        return False
+    if not screening_call.vapi_call_id:
+        return False
+
+    vapi_call: dict | None = None
+    try:
+        vapi_call = await get_vapi_call(
+            screening_call.vapi_call_id,
+            timeout=VAPI_STATUS_TIMEOUT_SEC,
+        )
+    except Exception as exc:
+        if not force:
             logger.warning(
                 "Could not fetch Vapi call %s: %s",
                 screening_call.vapi_call_id,
                 exc,
             )
-            if poll_attempt < max_polls:
-                sync_screening_call_status.apply_async(
-                    args=[screening_call_id, poll_attempt + 1],
-                    countdown=poll_interval,
-                )
-            return
-
-        vapi_status = (vapi_call.get("status") or "").lower()
-        mapped = map_vapi_status_to_call_status(vapi_call.get("status"))
-        ended_reason = vapi_call.get("endedReason")
-        artifact = vapi_call.get("artifact") or {}
-        transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
-
-        if mapped in ("initiated", "in_progress") and mapped != screening_call.call_status:
-            screening_call.call_status = mapped
-            await session.commit()
-
-        call_ended = (
-            mapped == "completed"
-            or vapi_status == "ended"
-            or bool(ended_reason)
+            return False
+        logger.warning(
+            "Force-finalizing screening call %s after Vapi fetch failure: %s",
+            screening_call.id,
+            exc,
         )
+        await apply_screening_call_end(
+            session,
+            screening_call,
+            ended_reason="customer-did-not-answer",
+            transcript="",
+        )
+        return True
 
-        if call_ended:
-            finalized = await apply_screening_call_end(
-                session,
-                screening_call,
-                ended_reason=ended_reason,
-                transcript=transcript,
-            )
-            if finalized and transcript.strip():
-                payload = {
-                    "call": vapi_call,
-                    "artifact": artifact,
-                    "endedReason": ended_reason,
-                }
-                process_screening_webhook.delay(payload)
-            return
+    vapi_status, mapped, ended_reason, transcript, _ended_at = _parse_vapi_call_payload(
+        vapi_call
+    )
+    started_at = vapi_call.get("startedAt") or vapi_call.get("started_at")
 
-        if mapped == "failed":
-            await apply_screening_call_end(
-                session,
-                screening_call,
-                ended_reason=ended_reason,
-                transcript=transcript,
-                schedule_retry=False,
-            )
-            return
+    if mapped in LIVE_CALL_STATUSES and mapped != screening_call.call_status:
+        screening_call.call_status = mapped
+        await session.flush()
 
-        if poll_attempt < max_polls and mapped in ("initiated", "in_progress", None):
-            sync_screening_call_status.apply_async(
-                args=[screening_call_id, poll_attempt + 1],
-                countdown=poll_interval,
-            )
-            return
+    if not force and not is_vapi_call_ended(vapi_call):
+        return False
 
-        if screening_call.call_status in ("initiated", "in_progress"):
-            logger.warning(
-                "sync_screening_call_status: max polls reached for %s (vapi_status=%s)",
-                screening_call_id,
-                vapi_status,
-            )
-            await apply_screening_call_end(
-                session,
-                screening_call,
-                ended_reason=ended_reason or "unknown-end",
-                transcript=transcript,
-            )
+    resolved_reason = _infer_ended_reason(
+        vapi_status,
+        mapped,
+        ended_reason,
+        started_at=started_at,
+        has_transcript=bool(transcript.strip()),
+    )
+
+    finalized = await apply_screening_call_end(
+        session,
+        screening_call,
+        ended_reason=resolved_reason,
+        transcript=transcript,
+    )
+    if finalized and transcript.strip() and vapi_call is not None:
+        artifact = vapi_call.get("artifact") or {}
+        payload = {
+            "call": vapi_call,
+            "artifact": artifact,
+            "endedReason": resolved_reason,
+        }
+        process_screening_webhook.delay(payload)
+    return finalized
+
+
+async def refresh_live_screening_calls_from_vapi(session, screening_calls) -> bool:
+    """Eagerly poll Vapi for in-flight calls. Returns True if any call was finalized."""
+    import asyncio
+
+    live_calls = [
+        call
+        for call in screening_calls
+        if call.call_status in LIVE_CALL_STATUSES and call.vapi_call_id
+    ]
+    if not live_calls:
+        return False
+
+    results = await asyncio.gather(
+        *[
+            _finalize_screening_call_from_vapi(session, call, force=False)
+            for call in live_calls
+        ],
+        return_exceptions=True,
+    )
+    any_updated = any(r is True for r in results)
+    for result in results:
+        if isinstance(result, Exception):
+            logger.warning("Live screening refresh failed: %s", result)
+    return any_updated
+
+
+async def refresh_screening_call_from_vapi(session, screening_call) -> bool:
+    """Poll Vapi for a single screening call and finalize if ended."""
+    return await _finalize_screening_call_from_vapi(session, screening_call, force=False)
 
 
 def describe_screening_failure(ended_reason: str | None) -> str:
@@ -397,17 +479,26 @@ def classify_call_outcome(ended_reason: str | None, transcript_length: int) -> t
     should_retry: True if we should auto-schedule a retry call
     """
     if not ended_reason:
-        return ("completed", False)
+        return ("completed", False) if transcript_length > 0 else ("no_answer", True)
 
     r = ended_reason.lower()
 
-    # Normal completion
-    if r in ("assistant-ended-call", "customer-ended-call") and transcript_length > 200:
+    assistant_end_reasons = (
+        "assistant-ended-call",
+        "assistant-said-end-call-phrase",
+        "assistant-ended-call-after-message-spoken",
+    )
+    if any(token in r for token in assistant_end_reasons):
         return ("completed", False)
 
-    # Candidate picked up but cut immediately (< 200 chars transcript = too short)
-    if r == "customer-ended-call" and transcript_length <= 200:
-        return ("dropped", True)  # retry once
+    if r == "customer-ended-call":
+        if transcript_length > 50:
+            return ("completed", False)
+        return ("dropped", True)
+
+    # Normal completion with a substantive transcript
+    if transcript_length > 200:
+        return ("completed", False)
 
     # No answer / not reachable
     if r in ("customer-did-not-answer", "no-answer", "customer-busy", "call-forwarded"):
@@ -419,10 +510,12 @@ def classify_call_outcome(ended_reason: str | None, transcript_length: int) -> t
 
     # Technical failures
     if "error" in r or "failed" in r or "pipeline" in r:
-        return ("failed", False)  # don't retry technical failures automatically
+        return ("failed", False)
 
-    # Default
-    return ("completed", False)
+    # Default — had a conversation transcript → completed
+    if transcript_length > 0:
+        return ("completed", False)
+    return ("no_answer", True)
 
 
 # ---------------------------------------------------------------------------
@@ -479,7 +572,6 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
                 screening_call,
                 ended_reason=ended_reason,
                 transcript=transcript,
-                schedule_retry=False,
             )
             await session.refresh(screening_call)
 
@@ -510,6 +602,7 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
             screening_call.summary = extracted.get("summary")
             screening_call.result = extracted.get("result", "needs_review")
             screening_call.call_status = "completed"
+            screening_call.call_outcome = "completed"
 
             outcome, should_retry = classify_call_outcome(
                 screening_call.ended_reason, transcript_length
@@ -683,10 +776,32 @@ def dispatch_pending_screening_calls():
 
 
 async def _async_dispatch_pending() -> None:
+    from datetime import datetime, timedelta, timezone
+
     from app.models.models import Job, ScreeningCall
     from app.services.call_window_service import is_within_call_window
 
+    stale_active_cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+
     async with get_celery_db() as session:
+        stale_active = await session.execute(
+            select(ScreeningCall).where(
+                ScreeningCall.call_status.in_(LIVE_CALL_STATUSES),
+                ScreeningCall.vapi_call_id.isnot(None),
+                ScreeningCall.created_at < stale_active_cutoff,
+            )
+        )
+        finalized = 0
+        for screening_call in stale_active.scalars().all():
+            if await _finalize_screening_call_from_vapi(session, screening_call, force=True):
+                finalized += 1
+
+        if finalized:
+            logger.info(
+                "dispatch_pending_screening_calls: force-finalized %d stale active calls",
+                finalized,
+            )
+
         result = await session.execute(
             select(ScreeningCall, Job)
             .join(Job, ScreeningCall.job_id == Job.id)
@@ -705,4 +820,4 @@ async def _async_dispatch_pending() -> None:
             dispatched += 1
 
         if dispatched:
-            logger.info("dispatch_pending_screening_calls: dispatched %d stale calls", dispatched)
+            logger.info("dispatch_pending_screening_calls: dispatched %d pending calls", dispatched)

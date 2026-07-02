@@ -240,13 +240,17 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
     if message_type == "status-update":
         status_value = (message.get("status") or call_data.get("status") or "").lower()
-        if status_value in ("ringing", "in-progress", "forwarding"):
+        ended_reason = message.get("endedReason") or call_data.get("endedReason")
+        artifact = message.get("artifact") or call_data.get("artifact") or {}
+        transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
+        ended_at = call_data.get("endedAt") or message.get("endedAt")
+
+        if status_value in ("ringing", "in-progress", "forwarding", "queued", "scheduled"):
             screening_call.call_status = "in_progress"
             await db.commit()
-        elif status_value in ("ended", "completed"):
-            ended_reason = message.get("endedReason") or call_data.get("endedReason")
-            artifact = message.get("artifact") or call_data.get("artifact") or {}
-            transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
+            return {"status": "received"}
+
+        if status_value in ("ended", "completed", "failed", "busy", "no-answer") or ended_at:
             await apply_screening_call_end(
                 db,
                 screening_call,
@@ -256,6 +260,8 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             )
             if transcript.strip():
                 _process_task.delay(body)
+            return {"status": "received"}
+
         return {"status": "received"}
 
     if message_type in ("end-of-call-report", "call-ended"):
@@ -315,6 +321,16 @@ async def get_screening_results(
     db: AsyncSession = Depends(get_db),
 ):
     """Return all ScreeningCall records for a job, ordered by created_at desc."""
+    import asyncio
+    import logging
+
+    from app.tasks.screening_tasks import (
+        refresh_live_screening_calls_from_vapi,
+        sync_screening_call_status,
+    )
+
+    logger = logging.getLogger(__name__)
+
     job_result = await db.execute(select(Job).where(Job.id == job_id))
     job = job_result.scalars().first()
     if not job:
@@ -325,7 +341,67 @@ async def get_screening_results(
         .where(ScreeningCall.job_id == job_id)
         .order_by(ScreeningCall.created_at.desc())
     )
-    return result.scalars().all()
+    calls = list(result.scalars().all())
+
+    live_ids = [
+        str(call.id)
+        for call in calls
+        if call.call_status in LIVE_CALL_STATUSES and call.vapi_call_id
+    ]
+    if live_ids:
+        try:
+            refreshed = await asyncio.wait_for(
+                refresh_live_screening_calls_from_vapi(db, calls),
+                timeout=5.0,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Timed out refreshing live screening calls for job %s", job_id
+            )
+            refreshed = False
+            for screening_call_id in live_ids:
+                sync_screening_call_status.apply_async(
+                    args=[screening_call_id],
+                    countdown=0,
+                )
+        else:
+            if refreshed:
+                result = await db.execute(
+                    select(ScreeningCall)
+                    .where(ScreeningCall.job_id == job_id)
+                    .order_by(ScreeningCall.created_at.desc())
+                )
+                calls = list(result.scalars().all())
+
+    return calls
+
+
+@router.post(
+    "/screening/{screening_id}/refresh",
+    response_model=ScreeningCallResponse,
+)
+async def refresh_screening_call(
+    screening_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Poll Vapi for one in-flight screening call and return the latest DB state."""
+    from app.tasks.screening_tasks import refresh_screening_call_from_vapi
+
+    result = await db.execute(
+        select(ScreeningCall).where(ScreeningCall.id == screening_id)
+    )
+    screening_call = result.scalars().first()
+    if not screening_call:
+        raise HTTPException(status_code=404, detail="Screening call not found")
+
+    if screening_call.call_status in LIVE_CALL_STATUSES and screening_call.vapi_call_id:
+        await refresh_screening_call_from_vapi(db, screening_call)
+        result = await db.execute(
+            select(ScreeningCall).where(ScreeningCall.id == screening_id)
+        )
+        screening_call = result.scalars().one()
+
+    return screening_call
 
 
 # ---------------------------------------------------------------------------
