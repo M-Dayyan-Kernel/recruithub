@@ -9,7 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.models import SystemSettings
 from app.schemas.schemas import SystemSettingsResponse, SystemSettingsUpdate
-from app.services.settings_service import invalidate_settings_cache
+from app.services.settings_service import (
+    invalidate_settings_cache,
+    normalize_max_retries,
+    normalize_retry_delay_seconds,
+)
 
 router = APIRouter()
 
@@ -24,6 +28,8 @@ async def _get_or_create_settings(db: AsyncSession) -> SystemSettings:
         id=1,
         allowed_phone_regions=["IN"],
         enforce_phone_geography=True,
+        screening_max_retries=3,
+        screening_retry_delay_seconds=1800,
     )
     db.add(row)
     await db.commit()
@@ -56,6 +62,29 @@ async def update_settings(
 
     if "enforce_phone_geography" in data and data["enforce_phone_geography"] is not None:
         row.enforce_phone_geography = data["enforce_phone_geography"]
+
+    if "screening_max_retries" in data and data["screening_max_retries"] is not None:
+        try:
+            row.screening_max_retries = normalize_max_retries(data["screening_max_retries"])
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+
+    if (
+        "screening_retry_delay_seconds" in data
+        and data["screening_retry_delay_seconds"] is not None
+    ):
+        try:
+            row.screening_retry_delay_seconds = normalize_retry_delay_seconds(
+                data["screening_retry_delay_seconds"]
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
 
     await db.commit()
     await db.refresh(row)

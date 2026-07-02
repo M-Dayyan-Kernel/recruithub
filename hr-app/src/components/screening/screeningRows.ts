@@ -14,10 +14,19 @@ export interface ScreeningRow {
   statusLabel: string
   canCallNow: boolean
   isActive: boolean
+  isScheduledRetry: boolean
   flagReason?: string
 }
 
-const ACTIVE_STATUSES = new Set(['pending', 'initiated', 'in_progress'])
+const LIVE_CALL_STATUSES = new Set(['initiated', 'in_progress'])
+
+function isScheduledRetry(call: ScreeningCall): boolean {
+  return call.call_status === 'pending' && !call.vapi_call_id
+}
+
+function isLiveCall(call: ScreeningCall): boolean {
+  return LIVE_CALL_STATUSES.has(call.call_status)
+}
 
 function latestCallForCandidate(
   candidateId: string,
@@ -61,6 +70,10 @@ function isTechnicalFailure(call: ScreeningCall): boolean {
   return call.call_status === 'failed' || call.call_outcome === 'failed'
 }
 
+function maxRetries(settings: SystemSettings | undefined): number {
+  return settings?.screening_max_retries ?? 3
+}
+
 function classifyTab(
   call: ScreeningCall | null,
   phone: string | null,
@@ -88,11 +101,13 @@ function classifyTab(
     return { tab: 'flagged', flagReason: technicalFailureReason(call) }
   }
 
-  if ((call.retry_count ?? 0) >= 3 && call.call_status !== 'completed') {
+  const limit = maxRetries(settings)
+
+  if ((call.retry_count ?? 0) >= limit && call.call_status !== 'completed') {
     return { tab: 'flagged', flagReason: 'Maximum retry attempts reached' }
   }
 
-  if (isConnectFailure(call) && (call.retry_count ?? 0) >= 3) {
+  if (isConnectFailure(call) && (call.retry_count ?? 0) >= limit) {
     return { tab: 'flagged', flagReason: 'Unable to connect after maximum retries' }
   }
 
@@ -113,13 +128,16 @@ function classifyTab(
 function statusLabelForRow(call: ScreeningCall | null, tab: ScreeningTabId): string {
   if (!call) return 'Pending'
 
-  if (ACTIVE_STATUSES.has(call.call_status)) {
-    if (call.call_status === 'pending' && (call.retry_count ?? 0) > 0) {
-      return 'Retry Scheduled'
-    }
-    if (call.call_status === 'pending') return 'Queued'
+  if (isLiveCall(call)) {
     return 'Call In Progress'
   }
+
+  if (isScheduledRetry(call)) {
+    if ((call.retry_count ?? 0) > 0) return 'Retry Scheduled'
+    return 'Queued'
+  }
+
+  if (call.call_status === 'pending') return 'Queued'
 
   if (call.call_outcome === 'no_answer' || call.call_outcome === 'failed') {
     return 'Unable to Connect'
@@ -151,15 +169,18 @@ export function buildScreeningRows(
     const latestCall = latestCallForCandidate(sr.candidate_id, screeningCalls)
     const { tab, flagReason } = classifyTab(latestCall, phone, settings)
     const attemptNumber = latestCall ? (latestCall.retry_count ?? 0) + 1 : 1
-    const isActive = latestCall ? ACTIVE_STATUSES.has(latestCall.call_status) : false
+    const retryLimit = maxRetries(settings)
+    const scheduledRetry = latestCall ? isScheduledRetry(latestCall) : false
+    const isActive = latestCall ? isLiveCall(latestCall) : false
     const canCallNow =
       !!phone &&
       !isActive &&
       tab !== 'completed' &&
       (latestCall === null ||
+        scheduledRetry ||
         (isConnectFailure(latestCall) &&
           !isConfigFailure(latestCall) &&
-          (latestCall.retry_count ?? 0) < 3)) &&
+          (latestCall.retry_count ?? 0) < retryLimit)) &&
       !(latestCall && isTechnicalFailure(latestCall))
 
     return {
@@ -173,6 +194,7 @@ export function buildScreeningRows(
       statusLabel: statusLabelForRow(latestCall, tab),
       canCallNow,
       isActive,
+      isScheduledRetry: scheduledRetry,
       flagReason,
     }
   })

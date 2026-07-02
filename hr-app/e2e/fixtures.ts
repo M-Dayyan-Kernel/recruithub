@@ -513,6 +513,8 @@ export async function mockPatchShortlistDecision(
 export const MOCK_SETTINGS = {
   allowed_phone_regions: ['IN'],
   enforce_phone_geography: true,
+  screening_max_retries: 3,
+  screening_retry_delay_seconds: 1800,
   updated_at: '2026-06-01T10:00:00.000Z',
 }
 

@@ -118,6 +118,10 @@ class SystemSettings(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     allowed_phone_regions: Mapped[List[str]] = mapped_column(JSON, nullable=False, default=list)
     enforce_phone_geography: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    screening_max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3, server_default="3")
+    screening_retry_delay_seconds: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1800, server_default="1800"
+    )
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 

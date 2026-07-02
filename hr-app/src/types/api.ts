@@ -104,6 +104,8 @@ export interface ScreeningCall {
 export interface SystemSettings {
   allowed_phone_regions: string[]
   enforce_phone_geography: boolean
+  screening_max_retries: number
+  screening_retry_delay_seconds: number
   updated_at: string
 }
 

@@ -60,6 +60,14 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
             logger.error("ScreeningCall %s not found — aborting (no retry)", screening_call_id)
             return
 
+        if screening_call.vapi_call_id or screening_call.call_status != "pending":
+            logger.info(
+                "ScreeningCall %s already dispatched (status=%s) — skipping duplicate initiate",
+                screening_call_id,
+                screening_call.call_status,
+            )
+            return
+
         # Load Candidate
         candidate_result = await session.execute(
             select(Candidate).where(Candidate.id == screening_call.candidate_id)
@@ -352,8 +360,12 @@ async def apply_screening_call_end(
             f"Outcome: {outcome}. No transcript available."
         )
 
-    if schedule_retry and should_retry and not transcript.strip() and screening_call.retry_count < 3:
-        await _schedule_retry(session, screening_call)
+    if schedule_retry and should_retry and not transcript.strip():
+        from app.services.settings_service import can_schedule_retry, get_system_settings
+
+        settings = await get_system_settings()
+        if can_schedule_retry(screening_call.retry_count, settings.screening_max_retries):
+            await _schedule_retry(session, screening_call)
 
     await session.commit()
     return True
@@ -484,8 +496,12 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
             outcome, should_retry = classify_call_outcome(
                 screening_call.ended_reason, transcript_length
             )
-            if should_retry and screening_call.retry_count < 3:
-                await _schedule_retry(session, screening_call)
+            if should_retry:
+                from app.services.settings_service import can_schedule_retry, get_system_settings
+
+                settings = await get_system_settings()
+                if can_schedule_retry(screening_call.retry_count, settings.screening_max_retries):
+                    await _schedule_retry(session, screening_call)
 
             await session.commit()
             logger.info(
@@ -524,6 +540,7 @@ async def _schedule_retry(session, screening_call) -> None:
     """Create a new ScreeningCall retry record and enqueue it with a delay."""
     from app.models.models import Job, ScreeningCall
     from app.services.call_window_service import effective_dispatch_delay
+    from app.services.settings_service import can_schedule_retry, get_system_settings
     from app.tasks.screening_tasks import initiate_screening_call
 
     job_result = await session.execute(
@@ -538,8 +555,16 @@ async def _schedule_retry(session, screening_call) -> None:
         )
         return
 
-    fixed_delays = [30 * 60, 2 * 60 * 60, 24 * 60 * 60]  # 30m, 2h, 24h
-    min_delay = fixed_delays[screening_call.retry_count]
+    settings = await get_system_settings()
+    if not can_schedule_retry(screening_call.retry_count, settings.screening_max_retries):
+        logger.info(
+            "Max retries (%d) reached for candidate=%s — not scheduling another retry",
+            settings.screening_max_retries,
+            screening_call.candidate_id,
+        )
+        return
+
+    min_delay = settings.screening_retry_delay_seconds
     countdown, _immediate = effective_dispatch_delay(job, force=False, min_delay=min_delay)
 
     retry_call = ScreeningCall(

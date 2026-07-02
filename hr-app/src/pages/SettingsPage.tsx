@@ -1,30 +1,52 @@
-import { Settings } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Clock, Settings } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import type { SystemSettings } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
-import { WORKFLOW_CARD_CLASS, WORKFLOW_PRIMARY_BUTTON_CLASS } from '@/lib/workflow'
+import { WORKFLOW_CARD_CLASS, WORKFLOW_INPUT_CLASS, WORKFLOW_PRIMARY_BUTTON_CLASS } from '@/lib/workflow'
+
+const DEFAULT_MAX_RETRIES = 3
+const DEFAULT_RETRY_DELAY_MINUTES = 30
+
+function formatDelayLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`
+  if (minutes < 1440) return `${Math.round(minutes / 60)} hr`
+  return `${Math.round(minutes / 1440)} day`
+}
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
-
   const { data, isLoading, isError, refetch } = useQuery<SystemSettings>({
     queryKey: ['settings'],
     queryFn: () => api.get('/api/settings') as unknown as Promise<SystemSettings>,
   })
 
+  const [enforceGeography, setEnforceGeography] = useState(true)
+  const [maxRetries, setMaxRetries] = useState(DEFAULT_MAX_RETRIES)
+  const [retryDelayMinutes, setRetryDelayMinutes] = useState(DEFAULT_RETRY_DELAY_MINUTES)
+
+  useEffect(() => {
+    if (!data) return
+    setEnforceGeography(data.enforce_phone_geography)
+    setMaxRetries(data.screening_max_retries)
+    setRetryDelayMinutes(Math.round(data.screening_retry_delay_seconds / 60))
+  }, [data])
+
   const mutation = useMutation({
-    mutationFn: (enforce: boolean) =>
+    mutationFn: () =>
       api.patch('/api/settings', {
-        enforce_phone_geography: enforce,
-        allowed_phone_regions: enforce ? ['IN'] : ['IN'],
+        enforce_phone_geography: enforceGeography,
+        allowed_phone_regions: ['IN'],
+        screening_max_retries: maxRetries,
+        screening_retry_delay_seconds: Math.max(1, Math.round(retryDelayMinutes)) * 60,
       }) as unknown as Promise<SystemSettings>,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       toast.success('Settings saved')
     },
-    onError: () => toast.error('Failed to save settings'),
+    onError: (err: Error) => toast.error(err.message || 'Failed to save settings'),
   })
 
   if (isLoading) {
@@ -56,9 +78,8 @@ export default function SettingsPage() {
         <label className="flex cursor-pointer items-start gap-3">
           <input
             type="checkbox"
-            checked={data.enforce_phone_geography}
-            onChange={(e) => mutation.mutate(e.target.checked)}
-            disabled={mutation.isPending}
+            checked={enforceGeography}
+            onChange={(e) => setEnforceGeography(e.target.checked)}
             className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
           />
           <span>
@@ -70,17 +91,69 @@ export default function SettingsPage() {
             </span>
           </span>
         </label>
-        <div className="mt-6">
-          <button
-            type="button"
-            onClick={() => mutation.mutate(data.enforce_phone_geography)}
-            disabled={mutation.isPending}
-            className={WORKFLOW_PRIMARY_BUTTON_CLASS}
-          >
-            Save
-          </button>
-        </div>
       </div>
+
+      <div className={`${WORKFLOW_CARD_CLASS} p-6`}>
+        <div className="mb-4 flex items-center gap-2">
+          <Clock className="h-5 w-5 text-slate-500" />
+          <h3 className="font-semibold text-slate-800">Screening Retries</h3>
+        </div>
+        <p className="mb-4 text-sm text-slate-600">
+          When a candidate cannot be reached (no answer, voicemail, or hangs up early), the system
+          automatically retries using the same delay between each attempt.
+        </p>
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <label htmlFor="max-retries" className="w-36 text-sm font-medium text-slate-700">
+              Number of retries
+            </label>
+            <input
+              id="max-retries"
+              type="number"
+              min={0}
+              max={10}
+              value={maxRetries}
+              onChange={(e) => setMaxRetries(Number(e.target.value))}
+              className={`${WORKFLOW_INPUT_CLASS} w-28`}
+            />
+            <span className="text-sm text-slate-500">
+              {maxRetries === 0
+                ? 'No automatic retries'
+                : `Up to ${maxRetries} automatic retr${maxRetries === 1 ? 'y' : 'ies'} after the first attempt`}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <label htmlFor="retry-delay" className="w-36 text-sm font-medium text-slate-700">
+              Delay between retries
+            </label>
+            <input
+              id="retry-delay"
+              type="number"
+              min={1}
+              max={10080}
+              value={retryDelayMinutes}
+              onChange={(e) => setRetryDelayMinutes(Number(e.target.value))}
+              disabled={maxRetries === 0}
+              className={`${WORKFLOW_INPUT_CLASS} w-28 disabled:cursor-not-allowed disabled:opacity-50`}
+            />
+            <span className="text-sm text-slate-500">
+              minutes ({formatDelayLabel(retryDelayMinutes)})
+            </span>
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-slate-500">
+          Tip: use 1–2 minutes while testing, then restore 30 minutes for production.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => mutation.mutate()}
+        disabled={mutation.isPending}
+        className={WORKFLOW_PRIMARY_BUTTON_CLASS}
+      >
+        {mutation.isPending ? 'Saving…' : 'Save Settings'}
+      </button>
     </div>
   )
 }

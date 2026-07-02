@@ -27,10 +27,10 @@ from app.services.screening_dispatch_service import enqueue_screening_call
 
 router = APIRouter()
 
-ACTIVE_CALL_STATUSES = ("pending", "initiated", "in_progress")
+LIVE_CALL_STATUSES = ("initiated", "in_progress")
 
 
-async def _candidate_has_active_call(
+async def _candidate_has_live_call(
     db: AsyncSession,
     job_id: uuid.UUID,
     candidate_id: uuid.UUID,
@@ -39,10 +39,30 @@ async def _candidate_has_active_call(
         select(ScreeningCall.id).where(
             ScreeningCall.job_id == job_id,
             ScreeningCall.candidate_id == candidate_id,
-            ScreeningCall.call_status.in_(ACTIVE_CALL_STATUSES),
+            ScreeningCall.call_status.in_(LIVE_CALL_STATUSES),
         )
     )
     return result.scalar_one_or_none() is not None
+
+
+async def _find_scheduled_pending_call(
+    db: AsyncSession,
+    job_id: uuid.UUID,
+    candidate_id: uuid.UUID,
+) -> ScreeningCall | None:
+    """Return a queued retry waiting for Celery (pending, no Vapi id yet)."""
+    result = await db.execute(
+        select(ScreeningCall)
+        .where(
+            ScreeningCall.job_id == job_id,
+            ScreeningCall.candidate_id == candidate_id,
+            ScreeningCall.call_status == "pending",
+            ScreeningCall.vapi_call_id.is_(None),
+        )
+        .order_by(ScreeningCall.created_at.desc())
+        .limit(1)
+    )
+    return result.scalars().first()
 
 
 # ---------------------------------------------------------------------------
@@ -114,11 +134,16 @@ async def trigger_screening(
             })
             continue
 
-        if await _candidate_has_active_call(db, job_id, cand_uuid):
+        if await _candidate_has_live_call(db, job_id, cand_uuid):
             skipped.append({
                 "name": candidate.name,
-                "reason": "A screening call is already active for this candidate",
+                "reason": "A screening call is already in progress for this candidate",
             })
+            continue
+
+        scheduled = await _find_scheduled_pending_call(db, job_id, cand_uuid)
+        if scheduled:
+            dispatch_queue.append((scheduled.id, body.force))
             continue
 
         if not candidate.phone:

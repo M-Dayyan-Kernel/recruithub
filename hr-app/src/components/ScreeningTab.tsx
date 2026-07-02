@@ -104,6 +104,9 @@ function ScreeningTableRow({
               In progress
             </span>
           )}
+          {row.isScheduledRetry && !row.canCallNow && (
+            <span className="text-xs text-slate-500">Waiting for retry</span>
+          )}
           {row.tab === 'completed' && row.latestCall && (
             <button
               type="button"
@@ -169,7 +172,7 @@ export function ScreeningTab({ jobId }: Props) {
       const data = query.state.data
       if (!data?.length) return false
       const hasActive = data.some((sc) =>
-        (['pending', 'initiated', 'in_progress'] as CallStatus[]).includes(sc.call_status),
+        (['initiated', 'in_progress'] as CallStatus[]).includes(sc.call_status),
       )
       return hasActive ? 5000 : false
     },
@@ -222,10 +225,7 @@ export function ScreeningTab({ jobId }: Props) {
   const filteredRows = rows.filter((r) => r.tab === activeTab)
 
   const eligibleForBulkCall = useMemo(
-    () =>
-      rows
-        .filter((r) => r.tab === 'pending' && r.phone && (r.canCallNow || !r.latestCall))
-        .map((r) => r.candidateId),
+    () => rows.filter((r) => r.tab === 'pending' && r.phone && r.canCallNow).map((r) => r.candidateId),
     [rows],
   )
 
