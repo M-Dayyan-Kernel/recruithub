@@ -82,49 +82,51 @@ function ScreeningTableRow({
         <td className="px-4 py-3">
           <StatusPill label={row.statusLabel} variant={variant} />
         </td>
-        <td className="px-4 py-3 text-right">
-          {row.canCallNow && (
-            <button
-              type="button"
-              onClick={() => callMutation.mutate()}
-              disabled={callMutation.isPending}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {callMutation.isPending ? (
+        <td className="px-4 py-3">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {row.canCallNow && (
+              <button
+                type="button"
+                onClick={() => callMutation.mutate()}
+                disabled={callMutation.isPending}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {callMutation.isPending ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <Phone size={12} />
+                )}
+                Call Now
+              </button>
+            )}
+            {row.isActive && (
+              <span className="inline-flex items-center gap-1 text-xs text-blue-600">
                 <Loader2 size={12} className="animate-spin" />
-              ) : (
-                <Phone size={12} />
-              )}
-              Call Now
-            </button>
-          )}
-          {row.isActive && (
-            <span className="inline-flex items-center gap-1 text-xs text-blue-600">
-              <Loader2 size={12} className="animate-spin" />
-              In progress
-            </span>
-          )}
-          {row.isScheduledRetry && !row.canCallNow && (
-            <span className="text-xs text-slate-500">Waiting for retry</span>
-          )}
-          {row.tab === 'completed' && row.latestCall && (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
-            >
-              {expanded ? 'Hide' : 'Details'}
-            </button>
-          )}
-          {row.tab === 'flagged' && row.flagReason && (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="max-w-xs text-left text-xs font-medium text-amber-700 hover:text-amber-900"
-            >
-              {expanded ? 'Hide details' : 'Why flagged?'}
-            </button>
-          )}
+                In progress
+              </span>
+            )}
+            {row.isScheduledRetry && !row.canCallNow && (
+              <span className="text-xs text-slate-500">Waiting for retry</span>
+            )}
+            {row.tab === 'completed' && row.latestCall && (
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
+              >
+                {expanded ? 'Hide' : 'Details'}
+              </button>
+            )}
+            {row.tab === 'flagged' && row.flagReason && (
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="text-xs font-medium text-amber-700 hover:text-amber-900"
+              >
+                {expanded ? 'Hide details' : 'Why flagged?'}
+              </button>
+            )}
+          </div>
         </td>
       </tr>
       {expanded && row.latestCall && row.tab === 'completed' && (
@@ -225,7 +227,10 @@ export function ScreeningTab({ jobId }: Props) {
   const filteredRows = rows.filter((r) => r.tab === activeTab)
 
   const eligibleForBulkCall = useMemo(
-    () => rows.filter((r) => r.tab === 'pending' && r.phone && r.canCallNow).map((r) => r.candidateId),
+    () =>
+      rows
+        .filter((r) => (r.tab === 'pending' || r.tab === 'flagged') && r.phone && r.canCallNow)
+        .map((r) => r.candidateId),
     [rows],
   )
 

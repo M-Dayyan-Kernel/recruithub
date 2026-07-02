@@ -107,12 +107,15 @@ function classifyTab(
 
   const maxAttempts = maxDialAttempts(settings)
 
-  if (dialAttemptsExhausted(call, maxAttempts) && call.call_status !== 'completed') {
-    return { tab: 'flagged', flagReason: 'Maximum dial attempts reached' }
+  if (isLiveCall(call) || isScheduledRetry(call) || call.call_status === 'pending') {
+    return { tab: 'pending' }
   }
 
-  if (isConnectFailure(call) && dialAttemptsExhausted(call, maxAttempts)) {
-    return { tab: 'flagged', flagReason: 'Unable to connect after maximum attempts' }
+  if (isConnectFailure(call)) {
+    if (dialAttemptsExhausted(call, maxAttempts)) {
+      return { tab: 'flagged', flagReason: 'Unable to connect after maximum attempts' }
+    }
+    return { tab: 'pending' }
   }
 
   if (call.call_status === 'completed' && call.result === 'needs_review') {
@@ -129,8 +132,65 @@ function classifyTab(
   return { tab: 'pending' }
 }
 
-function statusLabelForRow(call: ScreeningCall | null, tab: ScreeningTabId): string {
+function isCallablePhone(phone: string | null, settings: SystemSettings | undefined): boolean {
+  if (!phone) return false
+  if (settings?.enforce_phone_geography && settings.allowed_phone_regions.includes('IN')) {
+    return phoneLooksIndian(phone)
+  }
+  return true
+}
+
+function isManualCallBlocked(call: ScreeningCall | null): boolean {
+  if (!call) return false
+  return isTechnicalFailure(call) && isConfigFailure(call)
+}
+
+function canCallNowForRow(
+  tab: ScreeningTabId,
+  phone: string | null,
+  latestCall: ScreeningCall | null,
+  settings: SystemSettings | undefined,
+): boolean {
+  if (tab === 'completed') return false
+  if (!isCallablePhone(phone, settings)) return false
+  if (latestCall && isLiveCall(latestCall)) return false
+  if (tab !== 'flagged' && isManualCallBlocked(latestCall)) return false
+
+  const scheduledRetry = latestCall ? isScheduledRetry(latestCall) : false
+  const maxAttempts = maxDialAttempts(settings)
+
+  if (tab === 'pending') {
+    return (
+      latestCall === null ||
+      scheduledRetry ||
+      (latestCall !== null &&
+        isConnectFailure(latestCall) &&
+        !dialAttemptsExhausted(latestCall, maxAttempts))
+    )
+  }
+
+  if (tab === 'flagged') {
+    return true
+  }
+
+  return false
+}
+
+function statusLabelForRow(
+  call: ScreeningCall | null,
+  tab: ScreeningTabId,
+  flagReason?: string,
+): string {
   if (!call) return 'Pending'
+
+  if (tab === 'flagged') {
+    if (flagReason?.toLowerCase().includes('maximum attempts')) {
+      return 'Max Attempts Reached'
+    }
+    if (isConnectFailure(call)) return 'Unable to Connect'
+    if (flagReason?.toLowerCase().includes('needs hr review')) return 'Needs Review'
+    return 'Flagged'
+  }
 
   if (isLiveCall(call)) {
     return 'Call In Progress'
@@ -152,7 +212,6 @@ function statusLabelForRow(call: ScreeningCall | null, tab: ScreeningTabId): str
     return 'Completed'
   }
 
-  if (tab === 'flagged') return 'Flagged'
   return 'Pending'
 }
 
@@ -173,19 +232,9 @@ export function buildScreeningRows(
     const latestCall = latestCallForCandidate(sr.candidate_id, screeningCalls)
     const { tab, flagReason } = classifyTab(latestCall, phone, settings)
     const attemptNumber = latestCall ? (latestCall.retry_count ?? 0) + 1 : 1
-    const maxAttempts = maxDialAttempts(settings)
     const scheduledRetry = latestCall ? isScheduledRetry(latestCall) : false
     const isActive = latestCall ? isLiveCall(latestCall) : false
-    const canCallNow =
-      !!phone &&
-      !isActive &&
-      tab !== 'completed' &&
-      (latestCall === null ||
-        scheduledRetry ||
-        (isConnectFailure(latestCall) &&
-          !isConfigFailure(latestCall) &&
-          !dialAttemptsExhausted(latestCall, maxAttempts))) &&
-      !(latestCall && isTechnicalFailure(latestCall))
+    const canCallNow = canCallNowForRow(tab, phone, latestCall, settings)
 
     return {
       candidateId: sr.candidate_id,
@@ -195,7 +244,7 @@ export function buildScreeningRows(
       latestCall,
       attemptNumber,
       tab,
-      statusLabel: statusLabelForRow(latestCall, tab),
+      statusLabel: statusLabelForRow(latestCall, tab, flagReason),
       canCallNow,
       isActive,
       isScheduledRetry: scheduledRetry,
