@@ -70,8 +70,12 @@ function isTechnicalFailure(call: ScreeningCall): boolean {
   return call.call_status === 'failed' || call.call_outcome === 'failed'
 }
 
-function maxRetries(settings: SystemSettings | undefined): number {
+function maxDialAttempts(settings: SystemSettings | undefined): number {
   return settings?.screening_max_retries ?? 3
+}
+
+function dialAttemptsExhausted(call: ScreeningCall, maxAttempts: number): boolean {
+  return (call.retry_count ?? 0) >= maxAttempts - 1
 }
 
 function classifyTab(
@@ -101,14 +105,14 @@ function classifyTab(
     return { tab: 'flagged', flagReason: technicalFailureReason(call) }
   }
 
-  const limit = maxRetries(settings)
+  const maxAttempts = maxDialAttempts(settings)
 
-  if ((call.retry_count ?? 0) >= limit && call.call_status !== 'completed') {
-    return { tab: 'flagged', flagReason: 'Maximum retry attempts reached' }
+  if (dialAttemptsExhausted(call, maxAttempts) && call.call_status !== 'completed') {
+    return { tab: 'flagged', flagReason: 'Maximum dial attempts reached' }
   }
 
-  if (isConnectFailure(call) && (call.retry_count ?? 0) >= limit) {
-    return { tab: 'flagged', flagReason: 'Unable to connect after maximum retries' }
+  if (isConnectFailure(call) && dialAttemptsExhausted(call, maxAttempts)) {
+    return { tab: 'flagged', flagReason: 'Unable to connect after maximum attempts' }
   }
 
   if (call.call_status === 'completed' && call.result === 'needs_review') {
@@ -169,7 +173,7 @@ export function buildScreeningRows(
     const latestCall = latestCallForCandidate(sr.candidate_id, screeningCalls)
     const { tab, flagReason } = classifyTab(latestCall, phone, settings)
     const attemptNumber = latestCall ? (latestCall.retry_count ?? 0) + 1 : 1
-    const retryLimit = maxRetries(settings)
+    const maxAttempts = maxDialAttempts(settings)
     const scheduledRetry = latestCall ? isScheduledRetry(latestCall) : false
     const isActive = latestCall ? isLiveCall(latestCall) : false
     const canCallNow =
@@ -180,7 +184,7 @@ export function buildScreeningRows(
         scheduledRetry ||
         (isConnectFailure(latestCall) &&
           !isConfigFailure(latestCall) &&
-          (latestCall.retry_count ?? 0) < retryLimit)) &&
+          !dialAttemptsExhausted(latestCall, maxAttempts))) &&
       !(latestCall && isTechnicalFailure(latestCall))
 
     return {

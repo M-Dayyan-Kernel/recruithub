@@ -19,7 +19,7 @@ DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY_SECONDS = 1800  # 30 minutes
 MIN_RETRY_DELAY_SECONDS = 60
 MAX_RETRY_DELAY_SECONDS = 7 * 24 * 60 * 60  # 7 days
-MIN_MAX_RETRIES = 0
+MIN_MAX_RETRIES = 1
 MAX_MAX_RETRIES = 10
 
 
@@ -72,9 +72,16 @@ def normalize_retry_delay_seconds(value: int | None) -> int:
     return value
 
 
-def can_schedule_retry(retry_count: int, max_retries: int) -> bool:
-    """Return True if another auto-retry may be scheduled after this attempt."""
-    return retry_count < max_retries
+def can_schedule_retry(retry_count: int, max_attempts: int) -> bool:
+    """
+    Return True if another dial attempt may be scheduled after this one.
+
+    screening_max_retries is the total number of dial attempts allowed (including the first).
+    E.g. max_attempts=3 allows retry_count 0, 1, 2 then stops.
+    """
+    if max_attempts <= 1:
+        return False
+    return retry_count < max_attempts - 1
 
 
 async def get_system_settings() -> CachedSettings:

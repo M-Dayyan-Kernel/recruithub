@@ -9,8 +9,8 @@ test('settings page loads geography and retry sections', async ({ page }) => {
 
   await expect(page.getByRole('heading', { name: 'System Settings' })).toBeVisible()
   await expect(page.getByText('Restrict outbound calls to India (+91)')).toBeVisible()
-  await expect(page.getByText('Screening Retries')).toBeVisible()
-  await expect(page.getByLabel('Number of retries')).toBeVisible()
+  await expect(page.getByText('Screening Attempts')).toBeVisible()
+  await expect(page.getByLabel('Maximum attempts')).toBeVisible()
 })
 
 test('settings form saves via PATCH', async ({ page }) => {

@@ -96,35 +96,36 @@ export default function SettingsPage() {
       <div className={`${WORKFLOW_CARD_CLASS} p-6`}>
         <div className="mb-4 flex items-center gap-2">
           <Clock className="h-5 w-5 text-slate-500" />
-          <h3 className="font-semibold text-slate-800">Screening Retries</h3>
+          <h3 className="font-semibold text-slate-800">Screening Attempts</h3>
         </div>
         <p className="mb-4 text-sm text-slate-600">
           When a candidate cannot be reached (no answer, voicemail, or hangs up early), the system
-          automatically retries using the same delay between each attempt.
+          automatically redials using the same delay between each attempt, up to the maximum below.
+          After all attempts are used, the candidate is moved to Flagged.
         </p>
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
             <label htmlFor="max-retries" className="w-36 text-sm font-medium text-slate-700">
-              Number of retries
+              Maximum attempts
             </label>
             <input
               id="max-retries"
               type="number"
-              min={0}
+              min={1}
               max={10}
               value={maxRetries}
               onChange={(e) => setMaxRetries(Number(e.target.value))}
               className={`${WORKFLOW_INPUT_CLASS} w-28`}
             />
             <span className="text-sm text-slate-500">
-              {maxRetries === 0
-                ? 'No automatic retries'
-                : `Up to ${maxRetries} automatic retr${maxRetries === 1 ? 'y' : 'ies'} after the first attempt`}
+              {maxRetries === 1
+                ? 'One dial attempt only (no automatic retries)'
+                : `Up to ${maxRetries} dial attempts, then flagged`}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <label htmlFor="retry-delay" className="w-36 text-sm font-medium text-slate-700">
-              Delay between retries
+              Delay between attempts
             </label>
             <input
               id="retry-delay"
@@ -133,7 +134,7 @@ export default function SettingsPage() {
               max={10080}
               value={retryDelayMinutes}
               onChange={(e) => setRetryDelayMinutes(Number(e.target.value))}
-              disabled={maxRetries === 0}
+              disabled={maxRetries <= 1}
               className={`${WORKFLOW_INPUT_CLASS} w-28 disabled:cursor-not-allowed disabled:opacity-50`}
             />
             <span className="text-sm text-slate-500">
