@@ -76,7 +76,7 @@ const WORKFLOW_SECTION_CLASS = 'space-y-3'
 
 export default function JobDetailPage() {
   const { id: jobId } = useParams<{ id: string }>()
-  const [activeTab, setActiveTab] = useState<Tab>('Upload')
+  const [activeTab, setActiveTab] = useState<Tab>('AI Shortlisted')
   const [shortlistTriggered, setShortlistTriggered] = useState(false)
   const [shortlistBatchIds, setShortlistBatchIds] = useState<string[]>([])
   const [shortlistBatchCandidates, setShortlistBatchCandidates] = useState<Candidate[]>([])

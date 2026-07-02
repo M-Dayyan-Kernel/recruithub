@@ -52,13 +52,24 @@ test('job detail page loads with title, skills, and experience range', async ({ 
   await expect(page.getByText('Active').first()).toBeVisible()
 })
 
-test('Upload tab is default and shows upload UI', async ({ page }) => {
+test('AI Shortlisted tab is default on job detail load', async ({ page }) => {
   await mockFrontendJobDetail(page)
 
   await page.goto(FRONTEND_URL)
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByRole('button', { name: 'Upload', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'AI Shortlisted', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'AI Shortlisted' })).toBeVisible()
+  await expect(page.getByText('No candidates have been scored yet.')).toBeVisible()
+})
+
+test('Upload tab shows upload UI', async ({ page }) => {
+  await mockFrontendJobDetail(page)
+
+  await page.goto(FRONTEND_URL)
+  await page.waitForLoadState('networkidle')
+
+  await page.getByRole('button', { name: 'Upload', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Upload Resumes' })).toBeVisible()
   await expect(page.getByText('No resumes in queue.')).toBeVisible()
 })
