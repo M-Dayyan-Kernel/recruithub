@@ -45,17 +45,20 @@ function UploadZone({ jobId }: { jobId: string }) {
       (f) =>
         f.name.endsWith('.pdf') ||
         f.name.endsWith('.docx') ||
+        f.name.endsWith('.zip') ||
         f.type === 'application/pdf' ||
-        f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        f.type === 'application/zip' ||
+        f.type === 'application/x-zip-compressed',
     )
     const skipped = files.length - valid.length
 
     if (valid.length === 0) {
-      setFileError('Only PDF and DOCX files are allowed. Please select valid files.')
+      setFileError('Only PDF, DOCX, and ZIP files are allowed. Please select valid files.')
       return
     }
     if (skipped > 0) {
-      setFileError(`${skipped} file(s) were skipped — only PDF and DOCX are supported.`)
+      setFileError(`${skipped} file(s) were skipped — only PDF, DOCX, and ZIP are supported.`)
     }
 
     setIsUploading(true)
@@ -63,9 +66,21 @@ function UploadZone({ jobId }: { jobId: string }) {
     try {
       const formData = new FormData()
       valid.forEach((file) => formData.append('files', file))
-      await api.post(`/api/jobs/${jobId}/resumes`, formData)
+      const result = await api.post<{
+        created: number
+        skipped_oversized?: string[]
+      }>(`/api/jobs/${jobId}/resumes`, formData)
       invalidate()
-      toast.success(`${valid.length} resume(s) uploaded`)
+      if (result.created > 0) {
+        toast.success(`${result.created} resume(s) uploaded`)
+      } else {
+        toast.success('Upload complete — no new resumes added')
+      }
+      if (result.skipped_oversized && result.skipped_oversized.length > 0) {
+        setFileError(
+          `${result.skipped_oversized.length} file(s) exceeded the 20 MB limit and were skipped: ${result.skipped_oversized.join(', ')}`,
+        )
+      }
     } catch (err) {
       setFileError((err as Error).message ?? 'Upload failed. Please try again.')
     } finally {
@@ -136,14 +151,14 @@ function UploadZone({ jobId }: { jobId: string }) {
               Drag &amp; drop resumes here, or{' '}
               <span className="text-indigo-600">click to browse</span>
             </p>
-            <p className="mt-1 text-xs text-slate-400">PDF and DOCX files supported</p>
+            <p className="mt-1 text-xs text-slate-400">PDF, DOCX, and ZIP files supported</p>
           </>
         )}
         <input
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".pdf,.docx"
+          accept=".pdf,.docx,.zip"
           onChange={(e: ChangeEvent<HTMLInputElement>) => {
             void handleFiles(e.target.files)
             e.target.value = ''

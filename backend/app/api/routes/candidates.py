@@ -5,7 +5,7 @@ import re
 import uuid
 import logging
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, File, status, Query
 from fastapi.responses import JSONResponse
@@ -26,6 +26,8 @@ ALLOWED_CONTENT_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc"}
+ZIP_CONTENT_TYPES = {"application/zip", "application/x-zip-compressed"}
+ZIP_EXTENSIONS = {".zip"}
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +49,57 @@ def _is_allowed_file(file: UploadFile) -> bool:
     return ct_ok or ext_ok  # trust whichever passes (browser CT can be unreliable)
 
 
+def _is_zip_file(file: UploadFile) -> bool:
+    ct_ok = file.content_type in ZIP_CONTENT_TYPES
+    ext_ok = Path(file.filename or "").suffix.lower() in ZIP_EXTENSIONS
+    return ct_ok or ext_ok
+
+
+def _is_allowed_upload(file: UploadFile) -> bool:
+    return _is_allowed_file(file) or _is_zip_file(file)
+
+
+async def _ingest_resume_file(
+    job_id: uuid.UUID,
+    filename: str,
+    content: bytes,
+    upload_dir: Path,
+    db: AsyncSession,
+) -> tuple[Literal["created", "skipped", "oversized"], str | None]:
+    """Save a resume and create a Candidate row, or report skip reason."""
+    if len(content) > MAX_FILE_SIZE:
+        return "oversized", filename
+
+    filename = Path(filename).name
+
+    existing_result = await db.execute(
+        select(Candidate).where(
+            Candidate.job_id == job_id,
+            Candidate.original_filename == filename,
+        )
+    )
+    if existing_result.scalars().first():
+        logger.info(
+            "Skipping duplicate upload: job=%s filename=%s", job_id, filename
+        )
+        return "skipped", filename
+
+    dest = upload_dir / filename
+    dest.write_bytes(content)
+
+    candidate = Candidate(
+        job_id=job_id,
+        name=Path(filename).stem,
+        email=f"pending_{uuid.uuid4().hex}@upload.pending",
+        resume_file_path=str(dest),
+        original_filename=filename,
+        parse_status="pending_parse",
+    )
+    db.add(candidate)
+    await db.flush()
+    return "created", str(candidate.id)
+
+
 # ---------------------------------------------------------------------------
 # Task 3.2 — Resume Upload  (updated: B-4 dedup, B-5 size limit)
 # ---------------------------------------------------------------------------
@@ -64,21 +117,22 @@ async def upload_resumes(
     files: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Upload one or more resume files (PDF / DOCX). Triggers async text extraction.
+    """Upload resume files (PDF / DOCX) or ZIP archives containing them.
 
     Deduplicates by original filename per job — skipped files are reported in the
     response without raising an error. Returns created/skipped counts.
-    Files exceeding 20 MB raise 413.
+    Individual files exceeding 20 MB raise 413; ZIP archives may be up to 100 MB.
+    Oversized members inside a ZIP are skipped individually.
     """
 
     # --- Validate file types BEFORE any DB/disk work ---
     for f in files:
-        if not _is_allowed_file(f):
+        if not _is_allowed_upload(f):
             return JSONResponse(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 content={
                     "error": "unsupported_file_type",
-                    "message": "Only PDF and DOCX files are accepted.",
+                    "message": "Only PDF, DOCX, and ZIP files are accepted.",
                 },
             )
 
@@ -96,12 +150,49 @@ async def upload_resumes(
             detail="Upload directory could not be created. Check server file permissions.",
         )
 
+    from app.services.zip_extract_service import extract_resumes_from_zip  # noqa: PLC0415
+
     created_ids: List[str] = []
     skipped: List[str] = []
+    skipped_oversized: List[str] = []
+    extracted_from_zip = 0
 
     for file in files:
-        # --- B-5: File size guard ---
         content = await file.read()
+
+        if _is_zip_file(file):
+            if len(content) > settings.MAX_ZIP_FILE_SIZE:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=(
+                        f"ZIP file '{file.filename}' exceeds the "
+                        f"{settings.MAX_ZIP_FILE_SIZE // (1024 * 1024)} MB size limit."
+                    ),
+                )
+            try:
+                extracted = extract_resumes_from_zip(content)
+            except ValueError as exc:
+                return JSONResponse(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    content={
+                        "error": "invalid_zip",
+                        "message": str(exc),
+                    },
+                )
+
+            extracted_from_zip += len(extracted)
+            for member_name, member_content in extracted:
+                outcome, detail = await _ingest_resume_file(
+                    job_id, member_name, member_content, upload_dir, db
+                )
+                if outcome == "created" and detail:
+                    created_ids.append(detail)
+                elif outcome == "skipped" and detail:
+                    skipped.append(detail)
+                elif outcome == "oversized" and detail:
+                    skipped_oversized.append(detail)
+            continue
+
         if len(content) > MAX_FILE_SIZE:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -109,40 +200,13 @@ async def upload_resumes(
             )
 
         filename = file.filename or f"{uuid.uuid4()}.pdf"
-        # Sanitise filename — keep only the last path component
-        filename = Path(filename).name
-
-        # --- B-4: Dedup by original filename within this job ---
-        existing_result = await db.execute(
-            select(Candidate).where(
-                Candidate.job_id == job_id,
-                Candidate.original_filename == filename,
-            )
+        outcome, detail = await _ingest_resume_file(
+            job_id, filename, content, upload_dir, db
         )
-        if existing_result.scalars().first():
-            logger.info(
-                "Skipping duplicate upload: job=%s filename=%s", job_id, filename
-            )
-            skipped.append(filename)
-            continue
-
-        dest = upload_dir / filename
-        dest.write_bytes(content)
-
-        candidate = Candidate(
-            job_id=job_id,
-            # Name seeded from filename; parse_resume will overwrite with real name.
-            name=Path(filename).stem,
-            # Email placeholder — overwritten by parse_resume task once parsing completes.
-            email=f"pending_{uuid.uuid4().hex}@upload.pending",
-            resume_file_path=str(dest),
-            original_filename=filename,  # B-4: store for dedup on future uploads
-            parse_status="pending_parse",
-        )
-        db.add(candidate)
-        # Flush to get the id before committing
-        await db.flush()
-        created_ids.append(str(candidate.id))
+        if outcome == "created" and detail:
+            created_ids.append(detail)
+        elif outcome == "skipped" and detail:
+            skipped.append(detail)
 
     await db.commit()
 
@@ -151,16 +215,19 @@ async def upload_resumes(
     await dispatch_parse_slots(db, job_id)
 
     logger.info(
-        "Uploaded resumes for job %s: created=%d skipped=%d",
+        "Uploaded resumes for job %s: created=%d skipped=%d extracted_from_zip=%d",
         job_id,
         len(created_ids),
         len(skipped),
+        extracted_from_zip,
     )
     return ResumeUploadResponse(
         created=len(created_ids),
         skipped=len(skipped),
         skipped_files=skipped,
         candidate_ids=created_ids,
+        extracted_from_zip=extracted_from_zip,
+        skipped_oversized=skipped_oversized,
     )
 
 

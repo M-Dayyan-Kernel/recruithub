@@ -87,6 +87,8 @@ class ResumeUploadResponse(BaseModel):
     skipped: int
     skipped_files: List[str]
     candidate_ids: List[str]
+    extracted_from_zip: int = 0
+    skipped_oversized: List[str] = []
 
 
 # ---------------------------------------------------------------------------

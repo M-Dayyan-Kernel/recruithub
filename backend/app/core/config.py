@@ -19,6 +19,9 @@ class Settings(BaseSettings):
 
     UPLOAD_DIR: str = "uploads/resumes"
     MAX_CONCURRENT_PARSES: int = 10
+    MAX_ZIP_FILE_SIZE: int = 100 * 1024 * 1024  # 100 MB
+    MAX_RESUMES_PER_ZIP: int = 200
+    MAX_ZIP_UNCOMPRESSED_BYTES: int = 500 * 1024 * 1024  # 500 MB
 
     GOOGLE_DRIVE_API_KEY: str = ""
     # Service-account JSON string for Drive API access.

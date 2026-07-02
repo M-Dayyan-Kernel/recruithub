@@ -76,9 +76,17 @@ Partial update a job (any subset of fields).
 ### Candidates
 
 #### `POST /api/jobs/{job_id}/resumes`
-Upload one or more resume files (PDF or DOCX). Triggers async parse pipeline.
+Upload one or more resume files (PDF or DOCX), or ZIP archives containing them. Triggers async parse pipeline.
 
-**Request:** `multipart/form-data` with field `files` (multiple allowed)
+**Request:** `multipart/form-data` with field `files` (multiple allowed). ZIP files may be mixed with individual PDF/DOCX uploads in the same request.
+
+**ZIP behavior:** The server extracts PDF/DOCX members from each ZIP, including files in nested folders and nested ZIP archives. Paths are flattened for storage (e.g. `team/alice/cv.pdf` → `team_alice_cv.pdf`) so resumes in different folders are not lost to name collisions. Non-resume files inside a ZIP are ignored.
+
+**Size limits:**
+- Individual PDF/DOCX files: **20 MB** each (`413` aborts the request)
+- ZIP archives: **100 MB** each (`413` aborts the request)
+- Extracted members over 20 MB are skipped individually (`skipped_oversized` in response)
+- Max **200** resumes per ZIP; max **500 MB** total uncompressed size per ZIP
 
 **Response `202`:** `ResumeUploadResponse` *(updated Sprint B)*
 ```json
@@ -86,17 +94,19 @@ Upload one or more resume files (PDF or DOCX). Triggers async parse pipeline.
   "created": 2,
   "skipped": 1,
   "skipped_files": ["john_doe.pdf"],
-  "candidate_ids": ["uuid1", "uuid2"]
+  "candidate_ids": ["uuid1", "uuid2"],
+  "extracted_from_zip": 4,
+  "skipped_oversized": ["large_resume.pdf"]
 }
 ```
 
 **Errors:**
 - `404` — job not found
-- `413` — a file exceeds the 20 MB size limit *(Sprint B-5)*
-- `422` — unsupported file type (only PDF / DOCX accepted)
+- `413` — a file exceeds the size limit (20 MB for PDF/DOCX, 100 MB for ZIP)
+- `422` — unsupported file type (only PDF / DOCX / ZIP accepted), or invalid/empty ZIP with no resumes
 - `500` — upload directory creation failed
 
-> **Nova gotcha:** Response shape changed in Sprint B — no longer returns `CandidateResponse[]`. Use `candidate_ids` to build any follow-up calls. `skipped_files` lists filenames that already existed for this job (dedup by filename). A 413 aborts the entire request — fix the oversized file and retry the whole batch.
+> **Nova gotcha:** Response shape changed in Sprint B — no longer returns `CandidateResponse[]`. Use `candidate_ids` to build any follow-up calls. `skipped_files` lists filenames that already existed for this job (dedup by filename). A 413 on a direct PDF/DOCX upload aborts the entire request — fix the oversized file and retry the whole batch. For ZIP uploads, oversized inner members are skipped without aborting other files.
 
 > **Parse queue:** Only up to `MAX_CONCURRENT_PARSES` (default 10, env-configurable) resumes parse at once per job. Excess uploads stay `pending_parse` in the Upload tab until a slot frees. When parsing finishes (`ready` or `parse_failed`), the next queued resume starts automatically.
 
