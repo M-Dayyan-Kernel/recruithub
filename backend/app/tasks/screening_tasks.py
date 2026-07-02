@@ -107,7 +107,7 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
             )
             sync_screening_call_status.apply_async(
                 args=[screening_call_id],
-                countdown=20,
+                countdown=10,
             )
 
         except Exception as exc:
@@ -157,7 +157,8 @@ async def _async_sync_status(screening_call_id: str, poll_attempt: int) -> None:
         map_vapi_status_to_call_status,
     )
 
-    max_polls = 12  # ~6 minutes at 30s intervals
+    max_polls = 24  # ~6 minutes at 15s intervals
+    poll_interval = 15
 
     async with get_celery_db() as session:
         result = await session.execute(
@@ -180,38 +181,70 @@ async def _async_sync_status(screening_call_id: str, poll_attempt: int) -> None:
             if poll_attempt < max_polls:
                 sync_screening_call_status.apply_async(
                     args=[screening_call_id, poll_attempt + 1],
-                    countdown=30,
+                    countdown=poll_interval,
                 )
             return
 
+        vapi_status = (vapi_call.get("status") or "").lower()
         mapped = map_vapi_status_to_call_status(vapi_call.get("status"))
-        if mapped and mapped != screening_call.call_status:
+        ended_reason = vapi_call.get("endedReason")
+        artifact = vapi_call.get("artifact") or {}
+        transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
+
+        if mapped in ("initiated", "in_progress") and mapped != screening_call.call_status:
             screening_call.call_status = mapped
             await session.commit()
 
-        if mapped == "completed" or vapi_call.get("status", "").lower() == "ended":
-            payload = {
-                "call": vapi_call,
-                "artifact": vapi_call.get("artifact") or {},
-                "endedReason": vapi_call.get("endedReason"),
-            }
-            process_screening_webhook.delay(payload)
+        call_ended = (
+            mapped == "completed"
+            or vapi_status == "ended"
+            or bool(ended_reason)
+        )
+
+        if call_ended:
+            finalized = await apply_screening_call_end(
+                session,
+                screening_call,
+                ended_reason=ended_reason,
+                transcript=transcript,
+            )
+            if finalized and transcript.strip():
+                payload = {
+                    "call": vapi_call,
+                    "artifact": artifact,
+                    "endedReason": ended_reason,
+                }
+                process_screening_webhook.delay(payload)
             return
 
         if mapped == "failed":
-            screening_call.call_status = "failed"
-            screening_call.call_outcome = "failed"
-            screening_call.result = None
-            screening_call.summary = describe_screening_failure(
-                vapi_call.get("endedReason")
+            await apply_screening_call_end(
+                session,
+                screening_call,
+                ended_reason=ended_reason,
+                transcript=transcript,
+                schedule_retry=False,
             )
-            await session.commit()
             return
 
         if poll_attempt < max_polls and mapped in ("initiated", "in_progress", None):
             sync_screening_call_status.apply_async(
                 args=[screening_call_id, poll_attempt + 1],
-                countdown=30,
+                countdown=poll_interval,
+            )
+            return
+
+        if screening_call.call_status in ("initiated", "in_progress"):
+            logger.warning(
+                "sync_screening_call_status: max polls reached for %s (vapi_status=%s)",
+                screening_call_id,
+                vapi_status,
+            )
+            await apply_screening_call_end(
+                session,
+                screening_call,
+                ended_reason=ended_reason or "unknown-end",
+                transcript=transcript,
             )
 
 
@@ -245,6 +278,85 @@ def describe_screening_failure(ended_reason: str | None) -> str:
         f"Call failed before connecting ({ended_reason}). "
         "Check Vapi/Twilio configuration and the candidate phone number in E.164 format."
     )
+
+
+def _extract_vapi_end_fields(payload: dict) -> tuple[str | None, str, str | None]:
+    """Return (vapi_call_id, transcript, ended_reason) from a Vapi webhook or GET /call payload."""
+    message = payload.get("message") or {}
+    call_data = payload.get("call") or message.get("call") or {}
+    artifact = (
+        payload.get("artifact")
+        or message.get("artifact")
+        or call_data.get("artifact")
+        or {}
+    )
+    vapi_call_id = call_data.get("id")
+    transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
+    ended_reason = (
+        payload.get("endedReason")
+        or message.get("endedReason")
+        or call_data.get("endedReason")
+        or None
+    )
+    return vapi_call_id, transcript, ended_reason
+
+
+async def apply_screening_call_end(
+    session,
+    screening_call,
+    *,
+    ended_reason: str | None,
+    transcript: str = "",
+    schedule_retry: bool = True,
+) -> bool:
+    """
+    Immediately mark a ScreeningCall as finished (no GPT).
+
+    Returns True if the call was finalized, False if already terminal.
+    """
+    if screening_call.call_status in ("completed", "failed"):
+        return False
+
+    transcript_length = len((transcript or "").strip())
+    outcome, should_retry = classify_call_outcome(ended_reason, transcript_length)
+
+    screening_call.ended_reason = ended_reason
+    screening_call.call_outcome = outcome
+    if transcript:
+        screening_call.transcript = transcript
+
+    if outcome == "failed":
+        screening_call.call_status = "failed"
+        screening_call.result = None
+        screening_call.summary = describe_screening_failure(ended_reason)
+        await session.commit()
+        return True
+
+    screening_call.call_status = "completed"
+    if outcome in ("no_answer", "voicemail"):
+        screening_call.result = "needs_review"
+        screening_call.summary = (
+            f"Call ended with reason: {ended_reason or 'unknown'}. "
+            f"Outcome: {outcome}. No transcript available."
+        )
+    elif outcome == "dropped":
+        screening_call.result = "needs_review"
+        screening_call.summary = (
+            "Candidate hung up before the screening could be completed. "
+            "You can retry the call."
+        )
+    elif not transcript:
+        screening_call.result = "needs_review"
+        screening_call.summary = (
+            f"Call ended with reason: {ended_reason or 'unknown'}. "
+            f"Outcome: {outcome}. No transcript available."
+        )
+
+    if schedule_retry and should_retry and not transcript.strip() and screening_call.retry_count < 3:
+        await _schedule_retry(session, screening_call)
+
+    await session.commit()
+    return True
 
 
 def classify_call_outcome(ended_reason: str | None, transcript_length: int) -> tuple[str, bool]:
@@ -309,25 +421,10 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
     from app.models.models import ScreeningCall
     from app.core.config import settings
 
-    # Extract key fields from Vapi webhook payload
+    _, transcript, ended_reason = _extract_vapi_end_fields(payload)
     message = payload.get("message") or {}
     call_data = payload.get("call") or message.get("call") or {}
-    artifact = (
-        payload.get("artifact")
-        or message.get("artifact")
-        or call_data.get("artifact")
-        or {}
-    )
-
     vapi_call_id = call_data.get("id")
-    # endedReason may be at top-level, in message, or inside call object
-    ended_reason = (
-        payload.get("endedReason")
-        or message.get("endedReason")
-        or call_data.get("endedReason")
-        or ""
-    )
-    transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
     transcript_length = len(transcript.strip())
 
     if not vapi_call_id:
@@ -335,7 +432,6 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
         return
 
     async with get_celery_db() as session:
-        # Find ScreeningCall by vapi_call_id
         result = await session.execute(
             select(ScreeningCall).where(ScreeningCall.vapi_call_id == vapi_call_id)
         )
@@ -347,54 +443,21 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
             )
             return
 
-        # Classify call outcome
-        outcome, should_retry = classify_call_outcome(ended_reason or None, transcript_length)
+        if screening_call.call_status not in ("completed", "failed"):
+            await apply_screening_call_end(
+                session,
+                screening_call,
+                ended_reason=ended_reason,
+                transcript=transcript,
+                schedule_retry=False,
+            )
+            await session.refresh(screening_call)
 
-        # Persist ended_reason and outcome immediately
-        screening_call.ended_reason = ended_reason or None
-        screening_call.call_outcome = outcome
-
-        # Save transcript
-        if transcript:
-            screening_call.transcript = transcript
-
-        # --- No-transcript outcomes ---
         if not transcript:
-            if outcome == "failed":
-                screening_call.call_status = "failed"
-                screening_call.result = None
-                screening_call.summary = describe_screening_failure(ended_reason or None)
-                await session.commit()
-                return
-
-            if outcome in ("no_answer", "voicemail"):
-                screening_call.call_status = "completed"
-                screening_call.result = "needs_review"
-                screening_call.summary = (
-                    f"Call ended with reason: {ended_reason or 'unknown'}. "
-                    f"Outcome: {outcome}. No transcript available."
-                )
-                if should_retry and screening_call.retry_count < 3:
-                    await _schedule_retry(session, screening_call)
-                await session.commit()
-                return
-
-            logger.warning(
-                "process_screening_webhook: empty transcript for call %s (outcome=%s)",
-                vapi_call_id,
-                outcome,
-            )
-            screening_call.call_status = "completed"
-            screening_call.result = "needs_review"
-            screening_call.summary = (
-                f"Call ended with reason: {ended_reason or 'unknown'}. "
-                f"Outcome: {outcome}. No transcript available."
-            )
-            await session.commit()
             return
 
-        # --- Outcomes with transcript: completed / dropped / failed ---
-        # Run GPT-4o extraction
+        if screening_call.result in ("pass", "fail"):
+            return
         try:
             extracted = await _extract_screening_fields(transcript, settings.OPENAI_API_KEY)
 
@@ -418,7 +481,9 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
             screening_call.result = extracted.get("result", "needs_review")
             screening_call.call_status = "completed"
 
-            # dropped calls: retry even with extracted data (short call, may be worth retrying)
+            outcome, should_retry = classify_call_outcome(
+                screening_call.ended_reason, transcript_length
+            )
             if should_retry and screening_call.retry_count < 3:
                 await _schedule_retry(session, screening_call)
 
@@ -426,7 +491,7 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
             logger.info(
                 "Screening call %s processed: outcome=%s result=%s",
                 vapi_call_id,
-                outcome,
+                screening_call.call_outcome,
                 screening_call.result,
             )
 

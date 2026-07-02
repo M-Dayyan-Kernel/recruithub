@@ -178,6 +178,7 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     import logging
 
     from app.tasks.screening_tasks import (
+        apply_screening_call_end,
         process_screening_webhook as _process_task,
         sync_screening_call_status as _sync_task,
     )
@@ -211,15 +212,58 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             screening_call.call_status = "in_progress"
             await db.commit()
         elif status_value in ("ended", "completed"):
-            _process_task.delay(body)
+            ended_reason = message.get("endedReason") or call_data.get("endedReason")
+            artifact = message.get("artifact") or call_data.get("artifact") or {}
+            transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
+            await apply_screening_call_end(
+                db,
+                screening_call,
+                ended_reason=ended_reason,
+                transcript=transcript,
+                schedule_retry=not transcript.strip(),
+            )
+            if transcript.strip():
+                _process_task.delay(body)
         return {"status": "received"}
 
     if message_type in ("end-of-call-report", "call-ended"):
-        _process_task.delay(body)
+        ended_reason = message.get("endedReason") or call_data.get("endedReason")
+        artifact = (
+            body.get("artifact")
+            or message.get("artifact")
+            or call_data.get("artifact")
+            or {}
+        )
+        transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
+        await apply_screening_call_end(
+            db,
+            screening_call,
+            ended_reason=ended_reason,
+            transcript=transcript,
+            schedule_retry=not transcript.strip(),
+        )
+        if transcript.strip():
+            _process_task.delay(body)
         return {"status": "received"}
 
     if call_data.get("status", "").lower() == "ended" or body.get("artifact"):
-        _process_task.delay(body)
+        ended_reason = message.get("endedReason") or call_data.get("endedReason")
+        artifact = (
+            body.get("artifact")
+            or message.get("artifact")
+            or call_data.get("artifact")
+            or {}
+        )
+        transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
+        await apply_screening_call_end(
+            db,
+            screening_call,
+            ended_reason=ended_reason,
+            transcript=transcript,
+            schedule_retry=not transcript.strip(),
+        )
+        if transcript.strip():
+            _process_task.delay(body)
         return {"status": "received"}
 
     _sync_task.delay(str(screening_call.id))

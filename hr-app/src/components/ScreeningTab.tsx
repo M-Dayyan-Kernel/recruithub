@@ -171,7 +171,7 @@ export function ScreeningTab({ jobId }: Props) {
       const hasActive = data.some((sc) =>
         (['pending', 'initiated', 'in_progress'] as CallStatus[]).includes(sc.call_status),
       )
-      return hasActive ? 8000 : false
+      return hasActive ? 5000 : false
     },
   })
 
