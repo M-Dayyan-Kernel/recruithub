@@ -13,7 +13,7 @@ import type {
 import { BackendError } from '@/components/BackendError'
 import type { JobOutletContext } from '@/components/JobLayout'
 import { ScreeningSettingsCard } from '@/components/screening/ScreeningSettingsCard'
-import { ScreeningCallDetails } from '@/components/screening/ScreeningCallDetails'
+import { CompletedScreeningList } from '@/components/screening/CompletedScreeningList'
 import {
   buildScreeningRows,
   countByTab,
@@ -51,14 +51,12 @@ function StatusPill({ label, variant }: { label: string; variant: ScreeningTabId
 function ScreeningTableRow({
   row,
   jobId,
-  defaultExpanded = false,
 }: {
   row: ScreeningRow
   jobId: string
-  defaultExpanded?: boolean
 }) {
   const queryClient = useQueryClient()
-  const [expanded, setExpanded] = useState(defaultExpanded)
+  const [expanded, setExpanded] = useState(false)
 
   const callMutation = useMutation({
     mutationFn: () =>
@@ -117,15 +115,6 @@ function ScreeningTableRow({
             {row.isScheduledRetry && !row.canCallNow && (
               <span className="text-xs text-slate-500">Waiting for retry</span>
             )}
-            {row.tab === 'completed' && row.latestCall && (
-              <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
-              >
-                {expanded ? 'Collapse' : 'Expand'}
-              </button>
-            )}
             {row.tab === 'flagged' && row.flagReason && (
               <button
                 type="button"
@@ -138,17 +127,6 @@ function ScreeningTableRow({
           </div>
         </td>
       </tr>
-      {expanded && row.latestCall && row.tab === 'completed' && (
-        <tr>
-          <td colSpan={5} className="border-t border-slate-100 bg-slate-50/80 px-4 py-4">
-            <ScreeningCallDetails
-              call={row.latestCall}
-              jobId={jobId}
-              attemptNumber={row.attemptNumber}
-            />
-          </td>
-        </tr>
-      )}
       {expanded && row.tab === 'flagged' && (
         <tr>
           <td colSpan={5} className="border-t border-slate-100 bg-amber-50/50 px-4 py-3">
@@ -341,46 +319,45 @@ export function ScreeningTab({ jobId }: Props) {
         ))}
       </div>
 
-      <div className={WORKFLOW_CARD_CLASS}>
-        <table className={WORKFLOW_TABLE_CLASS}>
-          <thead className="bg-slate-50">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Candidate
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Phone
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Attempt
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Status
-              </th>
-              <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Action
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200 bg-white">
-            {filteredRows.length === 0 ? (
-              <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
-                <td colSpan={5} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
-                  No candidates in {TAB_LABELS[activeTab].toLowerCase()}.
-                </td>
+      <div className={activeTab === 'completed' ? '' : WORKFLOW_CARD_CLASS}>
+        {activeTab === 'completed' ? (
+          <CompletedScreeningList rows={filteredRows} jobId={jobId} />
+        ) : (
+          <table className={WORKFLOW_TABLE_CLASS}>
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Candidate
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Phone
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Attempt
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Action
+                </th>
               </tr>
-            ) : (
-              filteredRows.map((row) => (
-                <ScreeningTableRow
-                  key={row.candidateId}
-                  row={row}
-                  jobId={jobId}
-                  defaultExpanded={activeTab === 'completed'}
-                />
-              ))
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-200 bg-white">
+              {filteredRows.length === 0 ? (
+                <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
+                  <td colSpan={5} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
+                    No candidates in {TAB_LABELS[activeTab].toLowerCase()}.
+                  </td>
+                </tr>
+              ) : (
+                filteredRows.map((row) => (
+                  <ScreeningTableRow key={row.candidateId} row={row} jobId={jobId} />
+                ))
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   )
