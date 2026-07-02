@@ -8,7 +8,12 @@ const PIPELINE_POLL_SLOW_MS = 30_000
 const PIPELINE_POLL_CUTOFF_MS = 120_000
 const SHORTLIST_POLL_MS = 1_000
 
-const IN_FLIGHT_PARSE = new Set<Candidate['parse_status']>(['pending_parse', 'parsing', 'parsed'])
+const IN_FLIGHT_PARSE = new Set<Candidate['parse_status']>([
+  'pending_parse',
+  'parse_queued',
+  'parsing',
+  'parsed',
+])
 
 interface Options {
   shortlistInProgress?: boolean
@@ -67,7 +72,10 @@ export function useJobPipelineCandidates(jobId: string, options: Options = {}) {
   const queueCandidates = useMemo(
     () =>
       candidates.filter(
-        (c) => c.parse_status === 'pending_parse' || c.parse_status === 'parse_failed',
+        (c) =>
+          c.parse_status === 'pending_parse' ||
+          c.parse_status === 'parse_queued' ||
+          c.parse_status === 'parse_failed',
       ),
     [candidates],
   )

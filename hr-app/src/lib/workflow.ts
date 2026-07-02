@@ -43,4 +43,9 @@ export function resumeDisplayName(candidate: {
   )
 }
 
-export const IN_PROGRESS_PARSE_STATUSES = ['pending_parse', 'parsing', 'parsed'] as const
+export const IN_PROGRESS_PARSE_STATUSES = [
+  'pending_parse',
+  'parse_queued',
+  'parsing',
+  'parsed',
+] as const

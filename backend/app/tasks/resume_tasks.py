@@ -56,6 +56,15 @@ async def _async_extract(task_self, candidate_id: str) -> None:
             return
 
         job_id = candidate.job_id
+
+        if candidate.parse_status not in ("parse_queued", "pending_parse"):
+            logger.info(
+                "extract_resume_text: candidate %s not queued (status=%s) — skipping",
+                candidate_id,
+                candidate.parse_status,
+            )
+            return
+
         candidate.parse_status = "parsing"
         await session.commit()
 

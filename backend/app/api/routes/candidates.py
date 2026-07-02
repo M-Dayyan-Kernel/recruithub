@@ -548,7 +548,7 @@ async def delete_candidate(
             detail="Candidate not found",
         )
     job_id = candidate.job_id
-    was_active = candidate.parse_status in ("parsing", "parsed")
+    was_active = candidate.parse_status in ("parse_queued", "parsing", "parsed")
     from app.services.parse_queue_service import dispatch_parse_slots  # noqa: PLC0415
 
     await db.delete(candidate)

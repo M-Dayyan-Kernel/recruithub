@@ -1,8 +1,8 @@
 """
 Parse queue — limits concurrent resume parsing per job.
 
-Only up to MAX_CONCURRENT_PARSES candidates may be in `parsing` or `parsed`
-at once. Additional `pending_parse` candidates wait in the Upload queue until
+Only up to MAX_CONCURRENT_PARSES candidates may be in `parse_queued`, `parsing`, or
+`parsed` at once. Additional `pending_parse` candidates wait in the Upload queue until
 a slot opens.
 """
 
@@ -17,7 +17,7 @@ from app.models.models import Candidate
 
 logger = logging.getLogger(__name__)
 
-ACTIVE_PARSE_STATUSES = ("parsing", "parsed")
+ACTIVE_PARSE_STATUSES = ("parse_queued", "parsing", "parsed")
 
 
 async def _count_active_parses(session: AsyncSession, job_id: uuid.UUID) -> int:
@@ -36,8 +36,8 @@ async def dispatch_parse_slots(session: AsyncSession, job_id: uuid.UUID) -> int:
     """
     Start parsing for as many pending candidates as slots allow.
 
-    Claims a slot immediately by setting parse_status to `parsing` before
-    enqueueing Celery so the UI moves resumes out of the Upload queue at once.
+    Claims a slot by setting parse_status to `parse_queued` before enqueueing Celery.
+    Resumes stay in the Upload tab until a worker starts and moves them to `parsing`.
     """
     active = await _count_active_parses(session, job_id)
     max_concurrent = settings.MAX_CONCURRENT_PARSES
@@ -68,7 +68,7 @@ async def dispatch_parse_slots(session: AsyncSession, job_id: uuid.UUID) -> int:
     for candidate in pending:
         if dispatched >= slots:
             break
-        candidate.parse_status = "parsing"
+        candidate.parse_status = "parse_queued"
         await session.flush()
         extract_resume_text.apply_async(args=[str(candidate.id)])
         dispatched += 1

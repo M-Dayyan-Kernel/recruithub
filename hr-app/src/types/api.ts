@@ -157,6 +157,7 @@ export interface Candidate {
   parsed_data?: ParsedData | null
   parse_status:
     | 'pending_parse'
+    | 'parse_queued'
     | 'parsing'
     | 'parsed'
     | 'ready'

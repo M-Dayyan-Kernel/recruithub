@@ -15,7 +15,8 @@ const statusConfig: Record<
   Candidate['parse_status'],
   { label: string; className: string; spinner?: boolean }
 > = {
-  pending_parse: { label: 'Queued', className: 'bg-slate-100 text-slate-500' },
+  pending_parse: { label: 'Waiting', className: 'bg-amber-100 text-amber-700' },
+  parse_queued: { label: 'Queued', className: 'bg-slate-100 text-slate-500' },
   parsing: { label: 'Parsing...', className: 'bg-blue-100 text-blue-700', spinner: true },
   parsed: { label: 'Parsed', className: 'bg-amber-100 text-amber-700', spinner: true },
   ready: { label: 'Ready', className: 'bg-emerald-100 text-emerald-700' },
@@ -71,6 +72,7 @@ function CandidateCard({
   const isClickable = candidate.parse_status === 'ready'
   const isProcessing =
     candidate.parse_status === 'pending_parse' ||
+    candidate.parse_status === 'parse_queued' ||
     candidate.parse_status === 'parsing' ||
     candidate.parse_status === 'parsed'
 
@@ -407,7 +409,7 @@ export function CandidatesTab({ jobId, onShortlistTriggered }: Props) {
     queryFn: () => api.get(`/api/jobs/${jobId}/candidates`) as unknown as Promise<Candidate[]>,
     refetchInterval: (query) => {
       const hasPending = ((query.state.data ?? []) as Candidate[]).some((c) =>
-        ['pending_parse', 'parsing', 'parsed'].includes(c.parse_status),
+        ['pending_parse', 'parse_queued', 'parsing', 'parsed'].includes(c.parse_status),
       )
       if (!hasPending) return false
       const elapsed = Date.now() - pollStartTime
@@ -485,7 +487,8 @@ export function CandidatesTab({ jobId, onShortlistTriggered }: Props) {
               <option value="all">All Statuses</option>
               <option value="ready">Ready</option>
               <option value="parsing">Parsing</option>
-              <option value="pending_parse">Queued</option>
+              <option value="pending_parse">Waiting</option>
+              <option value="parse_queued">Queued</option>
               <option value="parse_failed">Failed</option>
             </select>
           </div>

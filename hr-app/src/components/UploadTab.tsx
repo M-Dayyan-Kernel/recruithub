@@ -236,6 +236,7 @@ export function UploadTab({
   const queryClient = useQueryClient()
 
   const waitingInQueue = queueCandidates.filter((c) => c.parse_status === 'pending_parse')
+  const queuedForParsing = queueCandidates.filter((c) => c.parse_status === 'parse_queued')
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/api/candidates/${id}`),
@@ -279,6 +280,11 @@ export function UploadTab({
               {waitingInQueue.length} waiting for a parse slot
             </span>
           )}
+          {queuedForParsing.length > 0 && waitingInQueue.length === 0 && (
+            <span className="text-sm text-slate-500">
+              {queuedForParsing.length} queued for parsing
+            </span>
+          )}
         </div>
         {isError && onRetry && <BackendError onRetry={onRetry} />}
         {!isError && (
@@ -317,6 +323,7 @@ export function UploadTab({
                   queueCandidates.map((candidate) => {
                     const name = resumeDisplayName(candidate)
                     const isFailed = candidate.parse_status === 'parse_failed'
+                    const isWaitingForSlot = candidate.parse_status === 'pending_parse'
                     return (
                       <tr key={candidate.id} className="hover:bg-slate-50/60">
                         <td className="px-6 py-3 text-sm font-medium text-slate-800">{name}</td>
@@ -327,6 +334,10 @@ export function UploadTab({
                           {isFailed ? (
                             <span className="inline-flex rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-700">
                               Failed
+                            </span>
+                          ) : isWaitingForSlot ? (
+                            <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+                              Waiting for slot
                             </span>
                           ) : (
                             <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">

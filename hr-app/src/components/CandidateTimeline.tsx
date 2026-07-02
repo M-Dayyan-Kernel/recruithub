@@ -194,6 +194,8 @@ export function CandidateTimeline({ candidateId, jobId }: Props) {
       : parseStatus === 'parsed'
       ? 'Generating embeddings…'
       : parseStatus === 'pending_parse'
+      ? 'Waiting for a parse slot'
+      : parseStatus === 'parse_queued'
       ? 'Queued for parsing'
       : 'Waiting to parse'
 

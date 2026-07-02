@@ -108,7 +108,7 @@ Upload one or more resume files (PDF or DOCX), or ZIP archives containing them. 
 
 > **Nova gotcha:** Response shape changed in Sprint B — no longer returns `CandidateResponse[]`. Use `candidate_ids` to build any follow-up calls. `skipped_files` lists filenames that already existed for this job (dedup by filename). A 413 on a direct PDF/DOCX upload aborts the entire request — fix the oversized file and retry the whole batch. For ZIP uploads, oversized inner members are skipped without aborting other files.
 
-> **Parse queue:** Only up to `MAX_CONCURRENT_PARSES` (default 10, env-configurable) resumes parse at once per job. Excess uploads stay `pending_parse` in the Upload tab until a slot frees. When parsing finishes (`ready` or `parse_failed`), the next queued resume starts automatically.
+> **Parse queue:** Only up to `MAX_CONCURRENT_PARSES` (default 10, env-configurable) resumes parse at once per job. Dispatched resumes show as `parse_queued` in the Upload tab until a Celery worker starts (`parsing`). Excess uploads stay `pending_parse` until a slot frees. When parsing finishes (`ready` or `parse_failed`), the next queued resume starts automatically.
 
 ---
 
@@ -502,7 +502,8 @@ interface Candidate {
 }
 
 type ParseStatus =
-  | "pending_parse"      // just uploaded
+  | "pending_parse"      // waiting for a parse slot
+  | "parse_queued"       // slot claimed, waiting for Celery worker
   | "parsing"            // text extraction running
   | "parsed"             // GPT-4o parse complete, embedding pending
   | "ready"              // fully processed — safe to shortlist
@@ -644,7 +645,7 @@ VITE_API_URL=http://localhost:8080
 
 ## Gotchas for Nova
 
-1. **parse_status polling** — After upload, poll `GET /api/jobs/{job_id}/candidates` every 5s while any candidate has `parse_status` in `["pending_parse", "parsing", "parsed"]`. Stop polling when all are `"ready"` or `"parse_failed"`.
+1. **parse_status polling** — After upload, poll `GET /api/jobs/{job_id}/candidates` every 5s while any candidate has `parse_status` in `["pending_parse", "parse_queued", "parsing", "parsed"]`. Stop polling when all are `"ready"` or `"parse_failed"`.
 
 2. **Shortlist is async** — Empty `[]` from `GET /api/jobs/{job_id}/shortlist` means Celery task is still running. Do NOT show "No results" state immediately after triggering. Poll every 3s until results appear.
 
