@@ -328,6 +328,7 @@ export default function JobDetailPage() {
             <div className={WORKFLOW_SECTION_CLASS}>
               <ShortlistTab
                 jobId={jobId ?? ''}
+                requiredSkills={job.required_skills ?? []}
                 shortlistTriggered={shortlistTriggered}
                 onShortlistComplete={handleShortlistComplete}
                 onSwitchToCandidates={() => setActiveTab('Parsed Resumes')}
