@@ -58,7 +58,7 @@ export function ScreeningSettingsCard({ job, eligibleCandidateIds, onCallsTrigge
       }
       onCallsTriggered()
     },
-    onError: () => toast.error('Failed to start screening calls'),
+    onError: (err: Error) => toast.error(err.message || 'Failed to start screening calls'),
   })
 
   return (

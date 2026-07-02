@@ -30,8 +30,23 @@ function latestCallForCandidate(
   )[0]
 }
 
-function isTechnicalFailure(call: ScreeningCall): boolean {
-  return call.call_status === 'failed' || call.call_outcome === 'failed'
+function isConfigFailure(call: ScreeningCall): boolean {
+  const reason = `${call.ended_reason ?? ''} ${call.summary ?? ''}`.toLowerCase()
+  return (
+    reason.includes('error-get-transport') ||
+    reason.includes('error-get-resources-validation') ||
+    reason.includes('vapi api error 401') ||
+    reason.includes('vapi api error 403') ||
+    reason.includes('api key')
+  )
+}
+
+function technicalFailureReason(call: ScreeningCall): string {
+  if (call.summary) return call.summary
+  if (call.ended_reason) {
+    return `Call failed before connecting (${call.ended_reason}). Check Vapi/Twilio configuration.`
+  }
+  return 'Call could not connect (technical failure). Check Vapi phone number and Twilio settings.'
 }
 
 function isConnectFailure(call: ScreeningCall): boolean {
@@ -40,6 +55,10 @@ function isConnectFailure(call: ScreeningCall): boolean {
     call.call_outcome === 'voicemail' ||
     call.call_outcome === 'dropped'
   )
+}
+
+function isTechnicalFailure(call: ScreeningCall): boolean {
+  return call.call_status === 'failed' || call.call_outcome === 'failed'
 }
 
 function classifyTab(
@@ -66,7 +85,7 @@ function classifyTab(
   }
 
   if (isTechnicalFailure(call)) {
-    return { tab: 'flagged', flagReason: 'Call could not connect (technical failure)' }
+    return { tab: 'flagged', flagReason: technicalFailureReason(call) }
   }
 
   if ((call.retry_count ?? 0) >= 3 && call.call_status !== 'completed') {
@@ -137,10 +156,11 @@ export function buildScreeningRows(
       !!phone &&
       !isActive &&
       tab !== 'completed' &&
-      ((latestCall === null) ||
-        isConnectFailure(latestCall) ||
-        isTechnicalFailure(latestCall)) &&
-      (latestCall === null || (latestCall.retry_count ?? 0) < 3)
+      (latestCall === null ||
+        (isConnectFailure(latestCall) &&
+          !isConfigFailure(latestCall) &&
+          (latestCall.retry_count ?? 0) < 3)) &&
+      !(latestCall && isTechnicalFailure(latestCall))
 
     return {
       candidateId: sr.candidate_id,

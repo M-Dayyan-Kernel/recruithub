@@ -115,11 +115,19 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
                 "Vapi initiation failed for screening_call %s: %s", screening_call_id, exc
             )
             screening_call.call_status = "failed"
+            screening_call.call_outcome = "failed"
+            screening_call.summary = str(exc)[:500]
             await session.commit()
             # Retry on transient errors — don't retry if it looks like a config/auth issue
             err_str = str(exc).lower()
-            if "401" in err_str or "403" in err_str or "api key" in err_str:
-                logger.error("Auth error — not retrying: %s", exc)
+            if (
+                "401" in err_str
+                or "403" in err_str
+                or "api key" in err_str
+                or "transport" in err_str
+                or "validation" in err_str
+            ):
+                logger.error("Config/auth error — not retrying: %s", exc)
                 return
             raise task_self.retry(exc=exc, countdown=120)
 

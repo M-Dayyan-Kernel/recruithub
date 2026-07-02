@@ -68,7 +68,7 @@ function ScreeningTableRow({
       queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
       toast.success(`Calling ${row.candidateName}`)
     },
-    onError: () => toast.error('Failed to start call'),
+    onError: (err: Error) => toast.error(err.message || 'Failed to start call'),
   })
 
   const variant = row.isActive ? 'active' : row.tab
@@ -114,14 +114,32 @@ function ScreeningTableRow({
             </button>
           )}
           {row.tab === 'flagged' && row.flagReason && (
-            <span className="text-xs text-amber-700">{row.flagReason}</span>
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="max-w-xs text-left text-xs font-medium text-amber-700 hover:text-amber-900"
+            >
+              {expanded ? 'Hide details' : 'Why flagged?'}
+            </button>
           )}
         </td>
       </tr>
-      {expanded && row.latestCall && (
+      {expanded && row.latestCall && row.tab === 'completed' && (
         <tr>
           <td colSpan={5} className="border-t border-slate-100 bg-slate-50/50 px-4 py-3">
             <ScreeningCallDetails call={row.latestCall} jobId={jobId} />
+          </td>
+        </tr>
+      )}
+      {expanded && row.tab === 'flagged' && (
+        <tr>
+          <td colSpan={5} className="border-t border-slate-100 bg-amber-50/50 px-4 py-3">
+            <p className="text-sm text-amber-900">{row.flagReason}</p>
+            {row.latestCall?.ended_reason && (
+              <p className="mt-1 text-xs text-amber-700">
+                Vapi reason: {row.latestCall.ended_reason}
+              </p>
+            )}
           </td>
         </tr>
       )}
