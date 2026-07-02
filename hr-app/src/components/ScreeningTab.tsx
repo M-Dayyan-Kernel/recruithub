@@ -51,12 +51,14 @@ function StatusPill({ label, variant }: { label: string; variant: ScreeningTabId
 function ScreeningTableRow({
   row,
   jobId,
+  defaultExpanded = false,
 }: {
   row: ScreeningRow
   jobId: string
+  defaultExpanded?: boolean
 }) {
   const queryClient = useQueryClient()
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(defaultExpanded)
 
   const callMutation = useMutation({
     mutationFn: () =>
@@ -80,7 +82,14 @@ function ScreeningTableRow({
         <td className="px-4 py-3 text-sm text-slate-500">{row.phone ?? '—'}</td>
         <td className="px-4 py-3 text-sm text-slate-500">#{row.attemptNumber}</td>
         <td className="px-4 py-3">
-          <StatusPill label={row.statusLabel} variant={variant} />
+          <div className="flex flex-col gap-1">
+            <StatusPill label={row.statusLabel} variant={variant} />
+            {row.tab === 'completed' && row.latestCall?.result && (
+              <span className="text-xs text-slate-500 capitalize">
+                AI: {row.latestCall.result.replace('_', ' ')}
+              </span>
+            )}
+          </div>
         </td>
         <td className="px-4 py-3">
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -114,7 +123,7 @@ function ScreeningTableRow({
                 onClick={() => setExpanded((v) => !v)}
                 className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
               >
-                {expanded ? 'Hide' : 'Details'}
+                {expanded ? 'Collapse' : 'Expand'}
               </button>
             )}
             {row.tab === 'flagged' && row.flagReason && (
@@ -131,8 +140,12 @@ function ScreeningTableRow({
       </tr>
       {expanded && row.latestCall && row.tab === 'completed' && (
         <tr>
-          <td colSpan={5} className="border-t border-slate-100 bg-slate-50/50 px-4 py-3">
-            <ScreeningCallDetails call={row.latestCall} jobId={jobId} />
+          <td colSpan={5} className="border-t border-slate-100 bg-slate-50/80 px-4 py-4">
+            <ScreeningCallDetails
+              call={row.latestCall}
+              jobId={jobId}
+              attemptNumber={row.attemptNumber}
+            />
           </td>
         </tr>
       )}
@@ -358,7 +371,12 @@ export function ScreeningTab({ jobId }: Props) {
               </tr>
             ) : (
               filteredRows.map((row) => (
-                <ScreeningTableRow key={row.candidateId} row={row} jobId={jobId} />
+                <ScreeningTableRow
+                  key={row.candidateId}
+                  row={row}
+                  jobId={jobId}
+                  defaultExpanded={activeTab === 'completed'}
+                />
               ))
             )}
           </tbody>
