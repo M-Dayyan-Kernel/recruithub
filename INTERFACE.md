@@ -300,13 +300,19 @@ Trigger AI voice screening calls for a set of HR-approved candidates.
 
 **Request Body:**
 ```json
-{ "candidate_ids": ["uuid", "uuid", ...] }
+{
+  "candidate_ids": ["uuid", "uuid", ...],
+  "force": false
+}
 ```
+`force: true` — dial immediately even outside the job's call window (Start Calling Now / Call Now).  
+`force: false` (default) — if outside window, calls are queued with Celery `countdown` until the window opens.
 
 **Response `202`:**
 ```json
 {
   "initiated": 3,
+  "queued": 1,
   "skipped": [{ "name": "John Doe", "reason": "No phone number on file" }]
 }
 ```
@@ -316,6 +322,10 @@ Trigger AI voice screening calls for a set of HR-approved candidates.
 - `422` — `candidate_ids` missing or empty
 
 > **Nova gotcha:** Only candidates with `hr_decision = "approved"` AND a valid phone number will be called. Others are silently skipped with a reason. Show `skipped` list to HR.
+
+> **Nova gotcha:** Skips candidates who already have an active call (`pending`, `initiated`, `in_progress`). When `enforce_phone_geography` is on in system settings, only +91 numbers pass validation.
+
+> **Call window:** Job fields `screening_call_from`, `screening_call_to`, `screening_timezone` (default `Asia/Kolkata`, 09:00–18:00). Auto-retries respect the window; manual `force: true` overrides.
 
 > **Nova gotcha:** The webhook URL for Vapi is `POST /api/screening/webhook` — configure this in the Vapi dashboard.
 
@@ -459,6 +469,35 @@ Liveness check.
 
 ---
 
+### System Settings
+
+#### `GET /api/settings`
+Return system-wide settings (geography restrictions for outbound screening).
+
+**Response `200`:**
+```json
+{
+  "allowed_phone_regions": ["IN"],
+  "enforce_phone_geography": true,
+  "updated_at": "ISO 8601"
+}
+```
+
+#### `PATCH /api/settings`
+Update system settings.
+
+**Request Body (partial):**
+```json
+{
+  "enforce_phone_geography": true,
+  "allowed_phone_regions": ["IN"]
+}
+```
+
+**Response `200`:** `SystemSettingsResponse`
+
+---
+
 ## Key Data Shapes
 
 ```typescript
@@ -472,6 +511,9 @@ interface Job {
   experience_max: number;
   screening_criteria: string | null;
   interview_evaluation_criteria: string | null;
+  screening_call_from: string | null;   // "HH:MM:SS" local job timezone
+  screening_call_to: string | null;
+  screening_timezone: string;         // IANA tz, default Asia/Kolkata
   status: "active" | "closed" | "draft" | "paused";
   created_at: string;                  // ISO 8601
   updated_at: string;
@@ -689,6 +731,8 @@ VITE_API_URL=http://localhost:8080
 | POST | `/api/interview/{token}/complete` | Mark interview complete |
 | POST | `/api/livekit/webhook` | LiveKit webhook (internal) |
 | GET | `/api/candidates/{id}/report` | Get interview report |
+| GET | `/api/settings` | System settings (geography) |
+| PATCH | `/api/settings` | Update system settings |
 | GET | `/health` | Health check |
 
 ---

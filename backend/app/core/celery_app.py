@@ -17,4 +17,10 @@ celery_app.conf.update(
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
+    beat_schedule={
+        "dispatch-pending-screening-calls": {
+            "task": "tasks.dispatch_pending_screening_calls",
+            "schedule": 300.0,  # every 5 minutes
+        },
+    },
 )

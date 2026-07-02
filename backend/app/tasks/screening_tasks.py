@@ -449,10 +449,25 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
 
 async def _schedule_retry(session, screening_call) -> None:
     """Create a new ScreeningCall retry record and enqueue it with a delay."""
-    from app.models.models import ScreeningCall
+    from app.models.models import Job, ScreeningCall
+    from app.services.call_window_service import effective_dispatch_delay
+    from app.tasks.screening_tasks import initiate_screening_call
 
-    delays = [30 * 60, 2 * 60 * 60, 24 * 60 * 60]  # 30m, 2h, 24h
-    delay_seconds = delays[screening_call.retry_count]
+    job_result = await session.execute(
+        select(Job).where(Job.id == screening_call.job_id)
+    )
+    job = job_result.scalars().first()
+    if not job:
+        logger.error(
+            "Cannot schedule retry — job %s not found for screening call %s",
+            screening_call.job_id,
+            screening_call.id,
+        )
+        return
+
+    fixed_delays = [30 * 60, 2 * 60 * 60, 24 * 60 * 60]  # 30m, 2h, 24h
+    min_delay = fixed_delays[screening_call.retry_count]
+    countdown, _immediate = effective_dispatch_delay(job, force=False, min_delay=min_delay)
 
     retry_call = ScreeningCall(
         candidate_id=screening_call.candidate_id,
@@ -461,17 +476,17 @@ async def _schedule_retry(session, screening_call) -> None:
         retry_count=screening_call.retry_count + 1,
     )
     session.add(retry_call)
-    await session.flush()  # get retry_call.id
+    await session.flush()
 
     initiate_screening_call.apply_async(
         args=[str(retry_call.id)],
-        countdown=delay_seconds,
+        countdown=countdown,
     )
     logger.info(
         "Scheduled retry #%d for candidate=%s in %ds (new screening_call_id=%s)",
         screening_call.retry_count + 1,
         screening_call.candidate_id,
-        delay_seconds,
+        countdown,
         retry_call.id,
     )
 
@@ -535,3 +550,48 @@ async def _extract_screening_fields(transcript: str, api_key: str) -> dict:
     raw_content = response.choices[0].message.content
     extracted = json.loads(raw_content)
     return extracted
+
+
+# ---------------------------------------------------------------------------
+# Periodic — dispatch stale pending screening calls when window opens
+# ---------------------------------------------------------------------------
+
+@celery_app.task(name="tasks.dispatch_pending_screening_calls")
+def dispatch_pending_screening_calls():
+    """Safety net: enqueue pending calls stuck without vapi_call_id when window is open."""
+    try:
+        asyncio.run(_async_dispatch_pending())
+    except Exception as exc:
+        logger.error("dispatch_pending_screening_calls failed: %s", exc)
+        raise
+
+
+async def _async_dispatch_pending() -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.models import Job, ScreeningCall
+    from app.services.call_window_service import is_within_call_window
+
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+
+    async with get_celery_db() as session:
+        result = await session.execute(
+            select(ScreeningCall, Job)
+            .join(Job, ScreeningCall.job_id == Job.id)
+            .where(
+                ScreeningCall.call_status == "pending",
+                ScreeningCall.vapi_call_id.is_(None),
+                ScreeningCall.created_at <= stale_cutoff,
+            )
+        )
+        rows = result.all()
+
+        dispatched = 0
+        for screening_call, job in rows:
+            if not is_within_call_window(job):
+                continue
+            initiate_screening_call.apply_async(args=[str(screening_call.id)], countdown=0)
+            dispatched += 1
+
+        if dispatched:
+            logger.info("dispatch_pending_screening_calls: dispatched %d stale calls", dispatched)

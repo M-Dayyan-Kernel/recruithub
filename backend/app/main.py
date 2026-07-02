@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import jobs, candidates, shortlist, screening, interviews
+from app.api.routes import jobs, candidates, shortlist, screening, interviews, settings
 
 app = FastAPI(title="AI Recruitment POC", version="1.0.0")
 
@@ -41,3 +41,4 @@ app.include_router(candidates.router, prefix="/api", tags=["candidates"])
 app.include_router(shortlist.router, prefix="/api", tags=["shortlist"])
 app.include_router(screening.router, prefix="/api", tags=["screening"])
 app.include_router(interviews.router, prefix="/api", tags=["interviews"])
+app.include_router(settings.router, prefix="/api", tags=["settings"])

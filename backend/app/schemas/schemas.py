@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, time
 from typing import Optional, List
 
 from pydantic import BaseModel, ConfigDict
@@ -28,6 +28,9 @@ class JobUpdate(BaseModel):
     experience_max: Optional[int] = None
     screening_criteria: Optional[str] = None
     interview_evaluation_criteria: Optional[str] = None
+    screening_call_from: Optional[time] = None
+    screening_call_to: Optional[time] = None
+    screening_timezone: Optional[str] = None
     status: Optional[str] = None
 
 
@@ -42,9 +45,44 @@ class JobResponse(BaseModel):
     experience_max: int
     screening_criteria: Optional[str] = None
     interview_evaluation_criteria: Optional[str] = None
+    screening_call_from: Optional[time] = None
+    screening_call_to: Optional[time] = None
+    screening_timezone: str = "Asia/Kolkata"
     status: str
     created_at: datetime
     updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# System settings schemas
+# ---------------------------------------------------------------------------
+
+class SystemSettingsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    allowed_phone_regions: List[str]
+    enforce_phone_geography: bool
+    updated_at: datetime
+
+
+class SystemSettingsUpdate(BaseModel):
+    allowed_phone_regions: Optional[List[str]] = None
+    enforce_phone_geography: Optional[bool] = None
+
+
+# ---------------------------------------------------------------------------
+# Screening trigger schemas
+# ---------------------------------------------------------------------------
+
+class ScreeningTriggerRequest(BaseModel):
+    candidate_ids: List[str]
+    force: bool = False
+
+
+class ScreeningTriggerResponse(BaseModel):
+    initiated: int
+    queued: int = 0
+    skipped: List[dict] = []
 
 
 # ---------------------------------------------------------------------------

@@ -61,6 +61,9 @@ export const MOCK_JOBS_SAFE = [
     experience_max: 7,
     screening_criteria: 'Must be available to join within 30 days.',
     interview_evaluation_criteria: 'Assess system design and React patterns.',
+    screening_call_from: '09:00:00',
+    screening_call_to: '18:00:00',
+    screening_timezone: 'Asia/Kolkata',
     status: 'active',
     created_at: '2026-06-01T10:00:00.000Z',
     updated_at: '2026-06-01T10:00:00.000Z',
@@ -74,6 +77,9 @@ export const MOCK_JOBS_SAFE = [
     experience_max: 5,
     screening_criteria: null,
     interview_evaluation_criteria: null,
+    screening_call_from: '09:00:00',
+    screening_call_to: '18:00:00',
+    screening_timezone: 'Asia/Kolkata',
     status: 'open',
     created_at: '2026-06-02T10:00:00.000Z',
     updated_at: '2026-06-02T10:00:00.000Z',
@@ -87,6 +93,9 @@ export const MOCK_JOBS_SAFE = [
     experience_max: 4,
     screening_criteria: null,
     interview_evaluation_criteria: null,
+    screening_call_from: '09:00:00',
+    screening_call_to: '18:00:00',
+    screening_timezone: 'Asia/Kolkata',
     status: 'paused',
     created_at: '2026-06-03T10:00:00.000Z',
     updated_at: '2026-06-03T10:00:00.000Z',
@@ -103,6 +112,9 @@ export const MOCK_JOBS = [
     experience_max: 7,
     screening_criteria: 'Must be available to join within 30 days.',
     interview_evaluation_criteria: 'Assess system design and React patterns.',
+    screening_call_from: '09:00:00',
+    screening_call_to: '18:00:00',
+    screening_timezone: 'Asia/Kolkata',
     status: 'active',
     created_at: '2026-06-01T10:00:00.000Z',
     updated_at: '2026-06-01T10:00:00.000Z',
@@ -116,6 +128,9 @@ export const MOCK_JOBS = [
     experience_max: 5,
     screening_criteria: null,
     interview_evaluation_criteria: null,
+    screening_call_from: '09:00:00',
+    screening_call_to: '18:00:00',
+    screening_timezone: 'Asia/Kolkata',
     status: 'open',
     created_at: '2026-06-02T10:00:00.000Z',
     updated_at: '2026-06-02T10:00:00.000Z',
@@ -129,6 +144,9 @@ export const MOCK_JOBS = [
     experience_max: 4,
     screening_criteria: null,
     interview_evaluation_criteria: null,
+    screening_call_from: '09:00:00',
+    screening_call_to: '18:00:00',
+    screening_timezone: 'Asia/Kolkata',
     status: 'paused',
     created_at: '2026-06-03T10:00:00.000Z',
     updated_at: '2026-06-03T10:00:00.000Z',
@@ -260,6 +278,7 @@ export const MOCK_SCREENING = [
     job_id: JOB_IDS.frontend,
     vapi_call_id: 'vapi-call-001',
     call_status: 'completed',
+    call_outcome: 'completed',
     availability: 'Immediately',
     employment_status: 'Employed',
     relevant_experience: '5 years React, 3 years TypeScript',
@@ -490,6 +509,72 @@ export async function mockPatchShortlistDecision(
   })
 }
 
+/** Mock GET /api/settings */
+export const MOCK_SETTINGS = {
+  allowed_phone_regions: ['IN'],
+  enforce_phone_geography: true,
+  updated_at: '2026-06-01T10:00:00.000Z',
+}
+
+export async function mockGetSettings(page: Page, settings = MOCK_SETTINGS) {
+  await page.route('**/api/settings', (route: Route) => {
+    const method = route.request().method()
+    if (method === 'GET') {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(settings) })
+      return
+    }
+    if (method === 'PATCH') {
+      const body = route.request().postDataJSON() as object
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...settings, ...body }),
+      })
+      return
+    }
+    route.continue()
+  })
+}
+
+export async function mockPatchSettings(page: Page, onPatch?: (body: object) => void) {
+  await page.route('**/api/settings', (route: Route) => {
+    const method = route.request().method()
+    if (method === 'GET') {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MOCK_SETTINGS) })
+      return
+    }
+    if (method === 'PATCH') {
+      const body = route.request().postDataJSON() as object
+      onPatch?.(body)
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...MOCK_SETTINGS, ...body }),
+      })
+      return
+    }
+    route.continue()
+  })
+}
+
+/** Mock POST /api/jobs/:id/screening/trigger */
+export async function mockPostScreeningTrigger(
+  page: Page,
+  jobId: string,
+  onPost?: (body: object) => void,
+) {
+  await page.route(`**/api/jobs/${jobId}/screening/trigger`, (route: Route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    const body = route.request().postDataJSON() as object
+    onPost?.(body)
+    route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ initiated: 1, queued: 0, skipped: [] }),
+    })
+  })
+}
+
 /** Mock GET /api/jobs/:id/screening */
 export async function mockGetScreening(page: Page, jobId: string, calls = MOCK_SCREENING) {
   await page.route(`**/api/jobs/${jobId}/screening`, (route: Route) => {
@@ -544,6 +629,7 @@ export async function mockPostJob(page: Page, response: object | 422 = MOCK_JOBS
 
 /** Mock all per-job sub-endpoints used by job pages (candidates, shortlist, screening) */
 export async function mockJobSubroutes(page: Page, jobId: string) {
+  await mockGetSettings(page)
   await mockGetCandidates(page, jobId, MOCK_CANDIDATES.filter(c => c.job_id === jobId))
   await mockGetShortlist(page, jobId, MOCK_SHORTLIST.filter(s => s.job_id === jobId))
   await mockGetShortlistStatus(page, jobId)
@@ -556,6 +642,7 @@ export async function mockJobSubroutes(page: Page, jobId: string) {
  * Uses MOCK_JOBS_SAFE to avoid the null required_skills bug.
  */
 export async function mockAllJobSubEndpoints(page: Page, jobs = MOCK_JOBS_SAFE) {
+  await mockGetSettings(page)
   for (const job of jobs) {
     await mockGetCandidates(page, job.id, MOCK_CANDIDATES.filter(c => c.job_id === job.id))
     await mockGetScreening(page, job.id,  MOCK_SCREENING.filter(s => s.job_id === job.id))

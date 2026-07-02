@@ -20,6 +20,8 @@ import {
   mockPostShortlist,
   mockPatchShortlistDecision,
   mockGetScreening,
+  mockGetSettings,
+  mockPostScreeningTrigger,
 } from './fixtures'
 
 const FRONTEND_JOB = MOCK_JOBS[0]
@@ -265,11 +267,62 @@ test('Delete Job button is hidden on Screening route', async ({ page }) => {
   await mockGetShortlist(page, JOB_IDS.frontend, [])
   await mockGetShortlistStatus(page, JOB_IDS.frontend)
   await mockGetScreening(page, JOB_IDS.frontend, [])
+  await mockGetSettings(page)
 
   await page.goto(`/jobs/${JOB_IDS.frontend}/screening`)
   await page.waitForLoadState('networkidle')
 
   await expect(page.getByRole('button', { name: 'Delete Job' })).not.toBeVisible()
+})
+
+test('Screening page shows settings card and tabs', async ({ page }) => {
+  const approvedShortlist = MOCK_SHORTLIST.map((s) =>
+    s.candidate_id === CANDIDATE_IDS.alice ? { ...s, hr_decision: 'approved' } : s,
+  )
+
+  await mockGetJobs(page)
+  await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
+  await mockGetCandidates(page, JOB_IDS.frontend, MOCK_CANDIDATES.filter((c) => c.job_id === JOB_IDS.frontend))
+  await mockGetShortlist(page, JOB_IDS.frontend, approvedShortlist)
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
+  await mockGetSettings(page)
+  await mockPostScreeningTrigger(page, JOB_IDS.frontend)
+
+  await page.goto(`/jobs/${JOB_IDS.frontend}/screening`)
+  await page.waitForLoadState('networkidle')
+
+  await expect(page.getByText('Screening Call Settings')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Pending' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Completed' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Flagged' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Start Calling Now' })).toBeVisible()
+})
+
+test('Screening Call Now triggers force screening', async ({ page }) => {
+  const approvedShortlist = MOCK_SHORTLIST.map((s) =>
+    s.candidate_id === CANDIDATE_IDS.alice ? { ...s, hr_decision: 'approved' } : s,
+  )
+  let triggerBody: { force?: boolean; candidate_ids?: string[] } | null = null
+
+  await mockGetJobs(page)
+  await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
+  await mockGetCandidates(page, JOB_IDS.frontend, MOCK_CANDIDATES.filter((c) => c.job_id === JOB_IDS.frontend))
+  await mockGetShortlist(page, JOB_IDS.frontend, approvedShortlist)
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
+  await mockGetSettings(page)
+  await mockPostScreeningTrigger(page, JOB_IDS.frontend, (body) => {
+    triggerBody = body as { force?: boolean; candidate_ids?: string[] }
+  })
+
+  await page.goto(`/jobs/${JOB_IDS.frontend}/screening`)
+  await page.waitForLoadState('networkidle')
+
+  await page.getByRole('button', { name: 'Call Now' }).first().click()
+  await expect(page.getByText('Calling Alice Sharma')).toBeVisible({ timeout: 5000 })
+  expect(triggerBody?.force).toBe(true)
+  expect(triggerBody?.candidate_ids).toContain(CANDIDATE_IDS.alice)
 })
 
 test('deleting a job navigates to dashboard', async ({ page }) => {

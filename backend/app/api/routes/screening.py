@@ -16,57 +16,78 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.models.models import Candidate, Job, ScreeningCall, ShortlistResult
-from app.schemas.schemas import ScreeningCallResponse, ScreeningResultUpdate
-from app.services.phone_validation import validate_phone
+from app.schemas.schemas import (
+    ScreeningCallResponse,
+    ScreeningResultUpdate,
+    ScreeningTriggerRequest,
+    ScreeningTriggerResponse,
+)
+from app.services.phone_validation import validate_phone_with_reason
+from app.services.screening_dispatch_service import enqueue_screening_call
 
 router = APIRouter()
+
+ACTIVE_CALL_STATUSES = ("pending", "initiated", "in_progress")
+
+
+async def _candidate_has_active_call(
+    db: AsyncSession,
+    job_id: uuid.UUID,
+    candidate_id: uuid.UUID,
+) -> bool:
+    result = await db.execute(
+        select(ScreeningCall.id).where(
+            ScreeningCall.job_id == job_id,
+            ScreeningCall.candidate_id == candidate_id,
+            ScreeningCall.call_status.in_(ACTIVE_CALL_STATUSES),
+        )
+    )
+    return result.scalar_one_or_none() is not None
 
 
 # ---------------------------------------------------------------------------
 # 5.1 — Screening trigger endpoint
 # ---------------------------------------------------------------------------
 
-@router.post("/jobs/{job_id}/screening/trigger", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/jobs/{job_id}/screening/trigger",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=ScreeningTriggerResponse,
+)
 async def trigger_screening(
     job_id: uuid.UUID,
-    body: Dict[str, Any],
+    body: ScreeningTriggerRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Trigger AI voice screening for a list of approved shortlisted candidates.
 
-    Body: { "candidate_ids": ["uuid", ...] }
-    Returns: { "initiated": N, "skipped": [{"name": ..., "reason": ...}] }
+    Body: { "candidate_ids": ["uuid", ...], "force": false }
+    Returns: { "initiated": N, "queued": M, "skipped": [...] }
     """
-    # Import here to avoid circular imports at task discovery
-    from app.core.celery_app import celery_app  # noqa: F401 — ensure task is discoverable
-    from app.tasks.screening_tasks import initiate_screening_call  # noqa: F401
-
-    candidate_ids_raw: List[str] = body.get("candidate_ids", [])
-    if not candidate_ids_raw:
+    if not body.candidate_ids:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="candidate_ids is required and must be a non-empty list.",
         )
 
-    # Validate job exists
     job_result = await db.execute(select(Job).where(Job.id == job_id))
     job = job_result.scalars().first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
     initiated = 0
-    skipped = []
-    new_screening_call_ids = []
+    queued = 0
+    skipped: List[dict] = []
+    dispatch_queue: List[tuple[uuid.UUID, bool]] = []
 
-    for raw_id in candidate_ids_raw:
+    for raw_id in body.candidate_ids:
         try:
             cand_uuid = uuid.UUID(str(raw_id))
         except (ValueError, AttributeError):
             skipped.append({"id": str(raw_id), "reason": "Invalid UUID format"})
             continue
 
-        # Load candidate
         cand_result = await db.execute(
             select(Candidate).where(
                 Candidate.id == cand_uuid,
@@ -78,7 +99,6 @@ async def trigger_screening(
             skipped.append({"id": str(cand_uuid), "reason": "Candidate not found in this job"})
             continue
 
-        # Validate hr_decision = "approved" in shortlist_results
         shortlist_result = await db.execute(
             select(ShortlistResult).where(
                 ShortlistResult.candidate_id == cand_uuid,
@@ -94,20 +114,29 @@ async def trigger_screening(
             })
             continue
 
-        # Validate phone number — skip instead of aborting entire request
+        if await _candidate_has_active_call(db, job_id, cand_uuid):
+            skipped.append({
+                "name": candidate.name,
+                "reason": "A screening call is already active for this candidate",
+            })
+            continue
+
         if not candidate.phone:
             skipped.append({"name": candidate.name, "reason": "No phone number on file"})
             continue
 
-        is_valid, normalized_phone = validate_phone(candidate.phone)
+        is_valid, normalized_phone, reject_reason = await validate_phone_with_reason(
+            candidate.phone
+        )
         if not is_valid:
-            skipped.append({"name": candidate.name, "reason": f"Invalid phone number: {candidate.phone}"})
+            skipped.append({
+                "name": candidate.name,
+                "reason": reject_reason or f"Invalid phone number: {candidate.phone}",
+            })
             continue
 
-        # Update candidate phone to normalized E.164
         candidate.phone = normalized_phone
 
-        # Create ScreeningCall record
         screening_call_id = uuid.uuid4()
         screening_call = ScreeningCall(
             id=screening_call_id,
@@ -116,20 +145,22 @@ async def trigger_screening(
             call_status="pending",
         )
         db.add(screening_call)
-        new_screening_call_ids.append(screening_call_id)
-        initiated += 1
+        dispatch_queue.append((screening_call_id, body.force))
 
-    await db.commit()  # commit all records first so IDs exist in DB
+    await db.commit()
 
-    # Enqueue Celery tasks AFTER commit
-    from app.tasks.screening_tasks import initiate_screening_call as _task
-    for sc_id in new_screening_call_ids:
-        _task.delay(str(sc_id))
+    for sc_id, force in dispatch_queue:
+        immediate = enqueue_screening_call(sc_id, job, force=force)
+        if immediate:
+            initiated += 1
+        else:
+            queued += 1
 
-    return {
-        "initiated": initiated,
-        "skipped": skipped,
-    }
+    return ScreeningTriggerResponse(
+        initiated=initiated,
+        queued=queued,
+        skipped=skipped,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +205,6 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         )
         return {"status": "received"}
 
-    # Live status updates while the call is ringing / in progress
     if message_type == "status-update":
         status_value = (message.get("status") or call_data.get("status") or "").lower()
         if status_value in ("ringing", "in-progress", "forwarding"):
@@ -184,17 +214,14 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             _process_task.delay(body)
         return {"status": "received"}
 
-    # End-of-call report — full transcript + summary processing
     if message_type in ("end-of-call-report", "call-ended"):
         _process_task.delay(body)
         return {"status": "received"}
 
-    # Legacy / dashboard webhook shape — process on any call-end payload
     if call_data.get("status", "").lower() == "ended" or body.get("artifact"):
         _process_task.delay(body)
         return {"status": "received"}
 
-    # Unknown event — poll Vapi as a safety net
     _sync_task.delay(str(screening_call.id))
     return {"status": "received"}
 
@@ -211,10 +238,7 @@ async def get_screening_results(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Return all ScreeningCall records for a job, ordered by created_at desc.
-    """
-    # Validate job exists
+    """Return all ScreeningCall records for a job, ordered by created_at desc."""
     job_result = await db.execute(select(Job).where(Job.id == job_id))
     job = job_result.scalars().first()
     if not job:
@@ -225,8 +249,7 @@ async def get_screening_results(
         .where(ScreeningCall.job_id == job_id)
         .order_by(ScreeningCall.created_at.desc())
     )
-    calls = result.scalars().all()
-    return calls
+    return result.scalars().all()
 
 
 # ---------------------------------------------------------------------------
@@ -242,10 +265,7 @@ async def update_screening_result(
     payload: ScreeningResultUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Set HR decision on a completed screening call.
-    Body: { "result": "pass" | "fail" | "needs_review" }
-    """
+    """Set HR decision on a completed screening call."""
     valid_results = {"pass", "fail", "needs_review"}
     if payload.result not in valid_results:
         raise HTTPException(

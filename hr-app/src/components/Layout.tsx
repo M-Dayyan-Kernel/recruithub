@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Menu, X, Zap } from 'lucide-react'
+import { LayoutDashboard, Menu, Settings, X, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SidebarJobsNav } from '@/components/SidebarJobsNav'
 
@@ -15,6 +15,7 @@ export default function Layout() {
     if (location.pathname.match(/^\/jobs\/[^/]+\/interviews/)) return 'Interviews'
     if (location.pathname.startsWith('/jobs/')) return 'AI Shortlist'
     if (location.pathname.startsWith('/report/')) return 'Interview Report'
+    if (location.pathname === '/settings') return 'Settings'
     return 'Recruitment Hub'
   })()
 
@@ -73,6 +74,24 @@ export default function Layout() {
 
             <SidebarJobsNav onNavigate={() => setSidebarOpen(false)} />
           </nav>
+
+          <div className="border-t border-slate-700 px-3 py-3">
+            <NavLink
+              to="/settings"
+              onClick={() => setSidebarOpen(false)}
+              className={({ isActive }) =>
+                cn(
+                  'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
+                )
+              }
+            >
+              <Settings className="h-4 w-4 shrink-0" />
+              Settings
+            </NavLink>
+          </div>
 
           <div className="border-t border-slate-700 px-5 py-4">
             <p className="text-xs text-slate-500">Powered by Olympus ⚡</p>

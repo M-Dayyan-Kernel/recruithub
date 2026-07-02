@@ -7,6 +7,9 @@ export interface Job {
   experience_max?: number
   screening_criteria?: string
   interview_evaluation_criteria?: string
+  screening_call_from?: string | null
+  screening_call_to?: string | null
+  screening_timezone?: string
   status: 'open' | 'closed' | 'paused' | 'active' | 'draft'
   created_at: string
   updated_at: string
@@ -96,6 +99,18 @@ export interface ScreeningCall {
   call_outcome?: 'completed' | 'no_answer' | 'voicemail' | 'declined' | 'dropped' | 'failed' | null
   retry_count?: number
   created_at: string
+}
+
+export interface SystemSettings {
+  allowed_phone_regions: string[]
+  enforce_phone_geography: boolean
+  updated_at: string
+}
+
+export interface ScreeningTriggerResponse {
+  initiated: number
+  queued: number
+  skipped: Array<{ id?: string; name?: string; reason: string }>
 }
 
 // ---------------------------------------------------------------------------

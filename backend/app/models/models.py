@@ -1,9 +1,9 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, time
 from typing import Optional, List
 
 from sqlalchemy import (
-    String, Text, Integer, Float, Boolean, DateTime, ForeignKey, func
+    String, Text, Integer, Float, Boolean, DateTime, ForeignKey, func, Time
 )
 from sqlalchemy.orm import relationship, mapped_column, Mapped
 from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSON
@@ -23,6 +23,9 @@ class Job(Base):
     experience_max: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     screening_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     interview_evaluation_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    screening_call_from: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
+    screening_call_to: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
+    screening_timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Kolkata", server_default="Asia/Kolkata")
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -107,6 +110,15 @@ class ScreeningCall(Base):
     # Relationships
     candidate: Mapped["Candidate"] = relationship("Candidate", back_populates="screening_calls")
     job: Mapped["Job"] = relationship("Job", back_populates="screening_calls")
+
+
+class SystemSettings(Base):
+    __tablename__ = "system_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    allowed_phone_regions: Mapped[List[str]] = mapped_column(JSON, nullable=False, default=list)
+    enforce_phone_geography: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
 class InterviewSession(Base):
