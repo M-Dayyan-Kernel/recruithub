@@ -177,8 +177,22 @@ test('send parsed resume to AI shortlisting shows progress then scored results',
   })
 
   await page.route(`**/api/jobs/${JOB_IDS.frontend}/shortlist`, (route) => {
-    if (route.request().method() !== 'GET') return route.continue()
     if (route.request().url().includes('/shortlist/status')) return route.continue()
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { candidate_ids?: string[] } | null
+      const ids = body?.candidate_ids ?? []
+      route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'shortlisting_started',
+          job_id: JOB_IDS.frontend,
+          candidate_ids: ids,
+        }),
+      })
+      return
+    }
+    if (route.request().method() !== 'GET') return route.continue()
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -192,6 +206,8 @@ test('send parsed resume to AI shortlisting shows progress then scored results',
   await page.getByRole('button', { name: 'Parsed Resumes', exact: true }).click()
   await expect(page.getByText('Alice Sharma')).toBeVisible()
 
+  await page.getByRole('checkbox', { name: 'Select Alice Sharma' }).check()
+  await expect(page.getByRole('button', { name: 'Send to AI Shortlisting' })).toBeEnabled()
   await page.getByRole('button', { name: 'Send to AI Shortlisting' }).click()
 
   await expect(page.getByRole('heading', { name: 'AI Shortlisting' })).toBeVisible()

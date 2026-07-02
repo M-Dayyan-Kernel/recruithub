@@ -111,13 +111,11 @@ export function ParsedResumesTab({
   }
 
   const handleSendToShortlisting = () => {
-    const ids =
-      selectedIds.size > 0 ? [...selectedIds] : parsedCandidates.map((c) => c.id)
-    if (ids.length === 0) {
-      toast.error('No parsed resumes available to shortlist')
+    if (selectedIds.size === 0) {
+      toast.error('Select at least one resume to shortlist')
       return
     }
-    shortlistMutation.mutate(ids)
+    shortlistMutation.mutate([...selectedIds])
   }
 
   const allSelected =
@@ -168,8 +166,8 @@ export function ParsedResumesTab({
             <button
               type="button"
               onClick={handleSendToShortlisting}
-              disabled={parsedCandidates.length === 0 || shortlistMutation.isPending}
-              className={`${WORKFLOW_PRIMARY_BUTTON_CLASS} disabled:opacity-50`}
+              disabled={selectedIds.size === 0 || shortlistMutation.isPending}
+              className={`${WORKFLOW_PRIMARY_BUTTON_CLASS} disabled:cursor-not-allowed disabled:opacity-50`}
             >
               {shortlistMutation.isPending ? (
                 <>
