@@ -364,15 +364,35 @@ export async function mockGetJobs(page: Page, jobs = MOCK_JOBS) {
   })
 }
 
-/** Mock GET /api/jobs/:id → return a single job (or 404) */
-export async function mockGetJob(page: Page, jobId: string, job: object | null = null) {
+/** Mock GET /api/jobs/:id → return a single job (or 404). Optionally handle DELETE on the same route. */
+export async function mockGetJob(
+  page: Page,
+  jobId: string,
+  job: object | null = null,
+  options?: { onDelete?: () => void },
+) {
   await page.route(`**/api/jobs/${jobId}`, (route: Route) => {
-    if (route.request().method() !== 'GET') return route.continue()
+    const method = route.request().method()
+    if (method === 'DELETE') {
+      options?.onDelete?.()
+      route.fulfill({ status: 204, body: '' })
+      return
+    }
+    if (method !== 'GET') return route.continue()
     if (job === null) {
       route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'Job not found' }) })
     } else {
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(job) })
     }
+  })
+}
+
+/** Mock DELETE /api/jobs/:id */
+export async function mockDeleteJob(page: Page, jobId: string, onDelete?: () => void) {
+  await page.route(`**/api/jobs/${jobId}`, (route: Route) => {
+    if (route.request().method() !== 'DELETE') return route.continue()
+    onDelete?.()
+    route.fulfill({ status: 204, body: '' })
   })
 }
 

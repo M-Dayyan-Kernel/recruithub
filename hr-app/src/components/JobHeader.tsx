@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { ChevronDown, Loader2, Pencil } from 'lucide-react'
+import { ChevronDown, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { EditJobModal } from '@/components/EditJobModal'
@@ -71,9 +72,11 @@ function experienceLabel(job: Job): string | null {
 
 interface Props {
   job: Job
+  showDelete?: boolean
 }
 
-export function JobHeader({ job }: Props) {
+export function JobHeader({ job, showDelete = false }: Props) {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [editOpen, setEditOpen] = useState(false)
   const [showStatusMenu, setShowStatusMenu] = useState(false)
@@ -104,6 +107,28 @@ export function JobHeader({ job }: Props) {
       toast.error('Failed to update job status')
     },
   })
+
+  const deleteMutation = useMutation({
+    mutationFn: () => api.delete(`/api/jobs/${job.id}`) as Promise<void>,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] })
+      queryClient.removeQueries({ queryKey: ['job', job.id] })
+      toast.success('Job deleted')
+      navigate('/')
+    },
+    onError: () => {
+      toast.error('Failed to delete job')
+    },
+  })
+
+  const handleDelete = () => {
+    const confirmed = window.confirm(
+      `Delete "${job.title}"? This will permanently remove the job and all candidates, shortlist results, screening calls, and interviews.`,
+    )
+    if (confirmed) deleteMutation.mutate()
+  }
+
+  const isActionPending = statusMutation.isPending || deleteMutation.isPending
 
   const expLabel = experienceLabel(job)
 
@@ -144,7 +169,7 @@ export function JobHeader({ job }: Props) {
                       key={opt.value}
                       type="button"
                       onClick={() => statusMutation.mutate(opt.value)}
-                      disabled={statusMutation.isPending}
+                      disabled={isActionPending}
                       className="w-full px-4 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
                     >
                       {opt.label}
@@ -173,6 +198,22 @@ export function JobHeader({ job }: Props) {
               </div>
             )}
           </div>
+
+          {showDelete && (
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={isActionPending}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-1.5 text-sm font-medium text-rose-600 transition-colors hover:bg-rose-50 disabled:opacity-50"
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Trash2 size={14} />
+              )}
+              Delete Job
+            </button>
+          )}
         </div>
       </div>
 

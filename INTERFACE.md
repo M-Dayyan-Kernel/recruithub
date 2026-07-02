@@ -73,6 +73,15 @@ Partial update a job (any subset of fields).
 
 ---
 
+#### `DELETE /api/jobs/{job_id}`
+Delete a job and all related records (candidates, shortlist results, screening calls, interview sessions).
+
+**Response `204`:** No content
+
+**Errors:** `404 Job not found`
+
+---
+
 ### Candidates
 
 #### `POST /api/jobs/{job_id}/resumes`
@@ -679,6 +688,7 @@ VITE_API_URL=http://localhost:8080
 | GET | `/api/jobs` | List jobs (`?status=`) |
 | GET | `/api/jobs/{id}` | Get job |
 | PATCH | `/api/jobs/{id}` | Update job |
+| DELETE | `/api/jobs/{id}` | Delete job and related records |
 | POST | `/api/jobs/{id}/resumes` | Upload resumes (multipart) |
 | POST | `/api/jobs/{id}/resumes/drive` | Import from Google Drive |
 | GET | `/api/jobs/{id}/candidates` | List candidates |

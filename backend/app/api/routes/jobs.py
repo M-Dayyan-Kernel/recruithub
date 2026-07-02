@@ -53,3 +53,20 @@ async def update_job(job_id: uuid.UUID, payload: JobUpdate, db: AsyncSession = D
     await db.commit()
     await db.refresh(job)
     return job
+
+
+@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_job(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """
+    Delete a job and all related records.
+
+    Job model has cascade='all, delete-orphan' on candidates, shortlist results,
+    screening calls, and interview sessions.
+    """
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await db.delete(job)
+    await db.commit()
+    return None

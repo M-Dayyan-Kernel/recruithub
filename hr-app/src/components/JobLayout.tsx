@@ -1,4 +1,4 @@
-import { Link, Outlet, useParams } from 'react-router-dom'
+import { Link, Outlet, useLocation, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -12,6 +12,10 @@ export interface JobOutletContext {
 
 export default function JobLayout() {
   const { jobId } = useParams<{ jobId: string }>()
+  const location = useLocation()
+  const isShortlistRoute =
+    !!jobId &&
+    (location.pathname === `/jobs/${jobId}` || location.pathname === `/jobs/${jobId}/`)
 
   const {
     data: job,
@@ -67,7 +71,7 @@ export default function JobLayout() {
 
       {!isLoading && job && jobId && (
         <>
-          <JobHeader job={job} />
+          <JobHeader job={job} showDelete={isShortlistRoute} />
           <Outlet context={{ job, jobId } satisfies JobOutletContext} />
         </>
       )}

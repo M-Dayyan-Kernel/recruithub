@@ -248,3 +248,51 @@ test('AI Shortlisted tab supports split-pane approve', async ({ page }) => {
   expect(patched[0].id).toBe(SHORTLIST_IDS.alice)
   expect(patched[0].hr_decision).toBe('approved')
 })
+
+test('Delete Job button is visible on AI Shortlist route', async ({ page }) => {
+  await mockFrontendJobDetail(page)
+
+  await page.goto(FRONTEND_URL)
+  await page.waitForLoadState('networkidle')
+
+  await expect(page.getByRole('button', { name: 'Delete Job' })).toBeVisible()
+})
+
+test('Delete Job button is hidden on Screening route', async ({ page }) => {
+  await mockGetJobs(page)
+  await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
+  await mockGetCandidates(page, JOB_IDS.frontend, [])
+  await mockGetShortlist(page, JOB_IDS.frontend, [])
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
+
+  await page.goto(`/jobs/${JOB_IDS.frontend}/screening`)
+  await page.waitForLoadState('networkidle')
+
+  await expect(page.getByRole('button', { name: 'Delete Job' })).not.toBeVisible()
+})
+
+test('deleting a job navigates to dashboard', async ({ page }) => {
+  let deleted = false
+
+  await mockGetJobs(page)
+  await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB, {
+    onDelete: () => {
+      deleted = true
+    },
+  })
+  await mockGetCandidates(page, JOB_IDS.frontend, [])
+  await mockGetShortlist(page, JOB_IDS.frontend, [])
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
+
+  await page.goto(FRONTEND_URL)
+  await page.waitForLoadState('networkidle')
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: 'Delete Job' }).click()
+
+  await expect(page.getByText('Job deleted')).toBeVisible({ timeout: 5000 })
+  await expect(page).toHaveURL('/')
+  expect(deleted).toBe(true)
+})
