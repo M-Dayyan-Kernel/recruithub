@@ -23,6 +23,7 @@ from app.schemas.schemas import (
     ScreeningTriggerResponse,
 )
 from app.services.phone_validation import validate_phone_with_reason
+from app.services.celery_health import CELERY_UNAVAILABLE_MSG, celery_workers_available
 from app.services.screening_dispatch_service import enqueue_screening_call
 
 router = APIRouter()
@@ -89,6 +90,12 @@ async def trigger_screening(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="candidate_ids is required and must be a non-empty list.",
+        )
+
+    if not celery_workers_available():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=CELERY_UNAVAILABLE_MSG,
         )
 
     job_result = await db.execute(select(Job).where(Job.id == job_id))

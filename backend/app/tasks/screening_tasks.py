@@ -98,6 +98,24 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
             await session.commit()
             return
 
+        from app.services.call_window_service import (
+            is_within_call_window,
+            seconds_until_next_window,
+        )
+
+        if not is_within_call_window(job):
+            countdown = seconds_until_next_window(job)
+            logger.info(
+                "ScreeningCall %s outside call window — rescheduling in %ds",
+                screening_call_id,
+                countdown,
+            )
+            initiate_screening_call.apply_async(
+                args=[screening_call_id],
+                countdown=countdown,
+            )
+            return
+
         # Call Vapi
         try:
             vapi_call_id = await vapi_initiate(
@@ -665,12 +683,8 @@ def dispatch_pending_screening_calls():
 
 
 async def _async_dispatch_pending() -> None:
-    from datetime import datetime, timedelta, timezone
-
     from app.models.models import Job, ScreeningCall
     from app.services.call_window_service import is_within_call_window
-
-    stale_cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
 
     async with get_celery_db() as session:
         result = await session.execute(
@@ -679,7 +693,6 @@ async def _async_dispatch_pending() -> None:
             .where(
                 ScreeningCall.call_status == "pending",
                 ScreeningCall.vapi_call_id.is_(None),
-                ScreeningCall.created_at <= stale_cutoff,
             )
         )
         rows = result.all()

@@ -20,7 +20,7 @@ celery_app.conf.update(
     beat_schedule={
         "dispatch-pending-screening-calls": {
             "task": "tasks.dispatch_pending_screening_calls",
-            "schedule": 300.0,  # every 5 minutes
+            "schedule": 60.0,  # every minute — dispatch queued calls when window opens
         },
     },
 )
