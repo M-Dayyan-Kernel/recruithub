@@ -71,6 +71,11 @@ async def get_vapi_call(vapi_call_id: str, *, timeout: float = 5.0) -> dict:
 def is_vapi_call_ended(vapi_call: dict) -> bool:
     """True only when Vapi reports the dial has actually finished."""
     status = (vapi_call.get("status") or "").lower().replace("_", "-")
+    active_statuses = ("ringing", "in-progress", "forwarding", "queued", "scheduled")
+
+    if status in active_statuses:
+        return False
+
     if status in (
         "ended",
         "completed",
@@ -81,13 +86,13 @@ def is_vapi_call_ended(vapi_call: dict) -> bool:
         "cancelled",
     ):
         return True
-    if vapi_call.get("endedAt") or vapi_call.get("ended_at"):
+
+    ended_at = vapi_call.get("endedAt") or vapi_call.get("ended_at")
+    if ended_at and status not in active_statuses:
         return True
-    # Do not treat endedReason alone as ended while the call is still ringing/live.
-    if status in ("ringing", "in-progress", "forwarding", "queued", "scheduled"):
-        return False
+
     ended_reason = vapi_call.get("endedReason") or vapi_call.get("ended_reason")
-    return bool(ended_reason)
+    return bool(ended_reason) and status not in active_statuses
 
 
 def map_vapi_status_to_call_status(vapi_status: str | None) -> str | None:

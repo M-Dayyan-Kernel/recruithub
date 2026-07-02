@@ -28,6 +28,8 @@ SCREENING_SYNC_INITIAL_DELAY_SEC = 0
 SCREENING_SYNC_POLL_INTERVAL_SEC = 2
 SCREENING_SYNC_MAX_POLLS = 60
 VAPI_STATUS_TIMEOUT_SEC = 4.0
+MIN_LIVE_CALL_GRACE_SECONDS = 12
+MIN_RETRY_CALL_GRACE_SECONDS = 20
 
 LIVE_CALL_STATUSES = ("initiated", "in_progress")
 
@@ -73,6 +75,25 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
                 screening_call_id,
                 screening_call.call_status,
             )
+            return
+
+        from app.models.models import ScreeningCall as ScreeningCallModel
+
+        other_live = await session.execute(
+            select(ScreeningCallModel.id).where(
+                ScreeningCallModel.job_id == screening_call.job_id,
+                ScreeningCallModel.candidate_id == screening_call.candidate_id,
+                ScreeningCallModel.id != screening_call.id,
+                ScreeningCallModel.call_status.in_(LIVE_CALL_STATUSES),
+            )
+        )
+        if other_live.scalar_one_or_none():
+            logger.info(
+                "Candidate %s already has a live screening call — deferring %s",
+                screening_call.candidate_id,
+                screening_call_id,
+            )
+            initiate_screening_call.apply_async(args=[screening_call_id], countdown=15)
             return
 
         # Load Candidate
@@ -226,6 +247,55 @@ def _parse_vapi_call_payload(vapi_call: dict) -> tuple[str, str | None, str | No
     return vapi_status, mapped, ended_reason, transcript, ended_at
 
 
+def _call_age_seconds(screening_call) -> float:
+    from datetime import datetime, timezone
+
+    created = screening_call.created_at
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - created).total_seconds()
+
+
+def _min_finalize_grace_seconds(screening_call) -> int:
+    if (screening_call.retry_count or 0) > 0:
+        return MIN_RETRY_CALL_GRACE_SECONDS
+    return MIN_LIVE_CALL_GRACE_SECONDS
+
+
+def _can_finalize_live_call(vapi_call: dict, screening_call, *, force: bool) -> bool:
+    """Block premature finalization while the phone may still be ringing."""
+    from app.services.vapi_service import is_vapi_call_ended
+
+    if force:
+        return True
+    if not is_vapi_call_ended(vapi_call):
+        return False
+
+    age_sec = _call_age_seconds(screening_call)
+    grace = _min_finalize_grace_seconds(screening_call)
+    vapi_status = (vapi_call.get("status") or "").lower().replace("_", "-")
+    artifact = vapi_call.get("artifact") or {}
+    transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
+
+    # Carrier-level failures — on retries, ignore instant busy/no-answer (rapid redial).
+    if vapi_status in ("busy", "no-answer", "failed"):
+        if (screening_call.retry_count or 0) > 0 and age_sec < 8:
+            return False
+        return True
+
+    if transcript.strip():
+        return True
+
+    started_at = vapi_call.get("startedAt") or vapi_call.get("started_at")
+    if started_at and age_sec < grace:
+        return False
+
+    if age_sec < grace:
+        return False
+
+    return True
+
+
 def _infer_ended_reason(
     vapi_status: str,
     mapped: str | None,
@@ -254,7 +324,7 @@ async def _finalize_screening_call_from_vapi(
     force: bool = False,
 ) -> bool:
     """Poll Vapi once and finalize the screening call when the dial has ended."""
-    from app.services.vapi_service import get_vapi_call, is_vapi_call_ended
+    from app.services.vapi_service import get_vapi_call
 
     if screening_call.call_status in ("completed", "failed"):
         return False
@@ -297,7 +367,7 @@ async def _finalize_screening_call_from_vapi(
         screening_call.call_status = mapped
         await session.flush()
 
-    if not force and not is_vapi_call_ended(vapi_call):
+    if not _can_finalize_live_call(vapi_call, screening_call, force=force):
         return False
 
     resolved_reason = _infer_ended_reason(
@@ -780,8 +850,11 @@ async def _async_dispatch_pending() -> None:
 
     from app.models.models import Job, ScreeningCall
     from app.services.call_window_service import is_within_call_window
+    from app.services.settings_service import get_system_settings
 
     stale_active_cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+    now = datetime.now(timezone.utc)
+    settings = await get_system_settings()
 
     async with get_celery_db() as session:
         stale_active = await session.execute(
@@ -816,6 +889,18 @@ async def _async_dispatch_pending() -> None:
         for screening_call, job in rows:
             if not is_within_call_window(job):
                 continue
+
+            created = screening_call.created_at
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            age_sec = (now - created).total_seconds()
+
+            # Let _schedule_retry's delayed Celery task place retry dials — don't race ahead.
+            if screening_call.retry_count > 0:
+                min_delay = max(settings.screening_retry_delay_seconds - 10, 0)
+                if age_sec < min_delay:
+                    continue
+
             initiate_screening_call.apply_async(args=[str(screening_call.id)], countdown=0)
             dispatched += 1
 

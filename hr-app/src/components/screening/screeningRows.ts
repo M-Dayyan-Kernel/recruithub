@@ -36,6 +36,13 @@ function latestCallForCandidate(
 ): ScreeningCall | null {
   const forCandidate = calls.filter((c) => c.candidate_id === candidateId)
   if (forCandidate.length === 0) return null
+
+  const live = forCandidate.find((c) => LIVE_CALL_STATUSES.has(c.call_status))
+  if (live) return live
+
+  const scheduledRetry = forCandidate.find((c) => isScheduledRetry(c))
+  if (scheduledRetry) return scheduledRetry
+
   return [...forCandidate].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   )[0]
@@ -115,6 +122,10 @@ function classifyTab(
 
   if (isConnectFailure(call)) {
     if (dialAttemptsExhausted(call, maxAttempts)) {
+      const ageMs = Date.now() - new Date(call.created_at).getTime()
+      if ((call.retry_count ?? 0) > 0 && ageMs < 25_000) {
+        return { tab: 'pending' }
+      }
       return { tab: 'flagged', flagReason: 'Unable to connect after maximum attempts' }
     }
     return { tab: 'pending' }
