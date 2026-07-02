@@ -67,7 +67,6 @@ export function CompletedScreeningList({
               phone={row.phone}
               variant="card"
               collapsible
-              listItem={!isExpanded(row.candidateId)}
               expanded={isExpanded(row.candidateId)}
               onExpandedChange={(open) =>
                 setExpandedMap((prev) => ({ ...prev, [row.candidateId]: open }))

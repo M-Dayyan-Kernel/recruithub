@@ -2,10 +2,15 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
+  Briefcase,
+  Calendar,
   CheckCircle2,
   ChevronDown,
+  DollarSign,
   FileText,
   Loader2,
+  Mic,
+  Phone,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
@@ -55,6 +60,8 @@ const RESULT_CONFIG: Record<
     dot: string
     avatarBg: string
     avatarText: string
+    headerBg: string
+    accentBorder: string
   }
 > = {
   pass: {
@@ -64,6 +71,8 @@ const RESULT_CONFIG: Record<
     dot: 'bg-emerald-500',
     avatarBg: 'bg-emerald-100',
     avatarText: 'text-emerald-700',
+    headerBg: 'bg-gradient-to-r from-emerald-50/90 to-white',
+    accentBorder: 'border-emerald-100',
   },
   fail: {
     label: 'Failed',
@@ -72,6 +81,8 @@ const RESULT_CONFIG: Record<
     dot: 'bg-rose-500',
     avatarBg: 'bg-rose-100',
     avatarText: 'text-rose-700',
+    headerBg: 'bg-gradient-to-r from-rose-50/90 to-white',
+    accentBorder: 'border-rose-100',
   },
   needs_review: {
     label: 'Review',
@@ -80,7 +91,23 @@ const RESULT_CONFIG: Record<
     dot: 'bg-amber-500',
     avatarBg: 'bg-amber-100',
     avatarText: 'text-amber-800',
+    headerBg: 'bg-gradient-to-r from-amber-50/90 to-white',
+    accentBorder: 'border-amber-100',
   },
+}
+
+const QUALITY_WIDTH: Record<string, string> = {
+  excellent: 'w-full',
+  good: 'w-3/4',
+  fair: 'w-1/2',
+  poor: 'w-1/4',
+}
+
+const QUALITY_COLOR: Record<string, string> = {
+  excellent: 'bg-emerald-500',
+  good: 'bg-blue-500',
+  fair: 'bg-amber-500',
+  poor: 'bg-rose-500',
 }
 
 type TranscriptTurn = { speaker: 'ai' | 'candidate' | 'unknown'; text: string }
@@ -113,17 +140,27 @@ function parseTranscript(transcript: string): TranscriptTurn[] {
   return turns
 }
 
-function DenseField({ label, value }: { label: string; value?: string | null }) {
+function DetailCard({ label, value }: { label: string; value?: string | null }) {
   if (!value?.trim()) return null
   return (
-    <>
-      <dt className="text-slate-400">{label}</dt>
-      <dd className="min-w-0 text-slate-800">{value}</dd>
-    </>
+    <div className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="mt-0.5 text-xs leading-snug text-slate-800">{value}</p>
+    </div>
   )
 }
 
-function HrDecisionButtons({ call, jobId }: { call: ScreeningCall; jobId: string }) {
+function StatChip({ label, value }: { label: string; value?: string | null }) {
+  if (!value?.trim()) return null
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px]">
+      <span className="text-slate-400">{label}</span>
+      <span className="font-medium text-slate-700">{value}</span>
+    </span>
+  )
+}
+
+function HrDecisionBar({ call, jobId }: { call: ScreeningCall; jobId: string }) {
   const queryClient = useQueryClient()
   const mutation = useMutation({
     mutationFn: (result: ScreeningResult) =>
@@ -136,35 +173,42 @@ function HrDecisionButtons({ call, jobId }: { call: ScreeningCall; jobId: string
   })
 
   return (
-    <div className="flex shrink-0 gap-1" onClick={(e) => e.stopPropagation()}>
-      <button
-        type="button"
-        onClick={() => mutation.mutate('pass')}
-        disabled={mutation.isPending}
-        title="Approve"
-        className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium ${
-          call.result === 'pass'
-            ? 'bg-emerald-600 text-white'
-            : 'border border-slate-200 text-slate-600 hover:bg-emerald-50'
-        }`}
-      >
-        {mutation.isPending ? <Loader2 size={11} className="animate-spin" /> : <ThumbsUp size={11} />}
-        Pass
-      </button>
-      <button
-        type="button"
-        onClick={() => mutation.mutate('fail')}
-        disabled={mutation.isPending}
-        title="Reject"
-        className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium ${
-          call.result === 'fail'
-            ? 'bg-rose-600 text-white'
-            : 'border border-slate-200 text-slate-600 hover:bg-rose-50'
-        }`}
-      >
-        {mutation.isPending ? <Loader2 size={11} className="animate-spin" /> : <ThumbsDown size={11} />}
-        Fail
-      </button>
+    <div
+      className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div>
+        <p className="text-xs font-semibold text-slate-800">HR decision</p>
+        <p className="text-[11px] text-slate-500">Confirm or override the AI screening result</p>
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => mutation.mutate('pass')}
+          disabled={mutation.isPending}
+          className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold sm:flex-none ${
+            call.result === 'pass'
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'border border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50'
+          }`}
+        >
+          {mutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <ThumbsUp size={13} />}
+          Approve
+        </button>
+        <button
+          type="button"
+          onClick={() => mutation.mutate('fail')}
+          disabled={mutation.isPending}
+          className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold sm:flex-none ${
+            call.result === 'fail'
+              ? 'bg-rose-600 text-white shadow-sm'
+              : 'border border-slate-200 bg-white text-slate-700 hover:border-rose-300 hover:bg-rose-50'
+          }`}
+        >
+          {mutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <ThumbsDown size={13} />}
+          Reject
+        </button>
+      </div>
     </div>
   )
 }
@@ -180,7 +224,6 @@ export function ScreeningCallDetails({
   expanded: expandedProp,
   defaultExpanded = false,
   onExpandedChange,
-  listItem = false,
 }: {
   call: ScreeningCall
   jobId: string
@@ -192,7 +235,6 @@ export function ScreeningCallDetails({
   expanded?: boolean
   defaultExpanded?: boolean
   onExpandedChange?: (expanded: boolean) => void
-  listItem?: boolean
 }) {
   const [showTranscript, setShowTranscript] = useState(false)
   const [expandedInternal, setExpandedInternal] = useState(defaultExpanded)
@@ -252,24 +294,26 @@ export function ScreeningCallDetails({
     .filter(Boolean)
     .join(' · ')
 
+  const toggleProps = {
+    onClick: isCollapsible ? toggleExpanded : undefined,
+    onKeyDown: isCollapsible
+      ? (e: { key: string; preventDefault: () => void }) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            toggleExpanded()
+          }
+        }
+      : undefined,
+    role: isCollapsible ? ('button' as const) : undefined,
+    tabIndex: isCollapsible ? 0 : undefined,
+  }
+
   const collapsedCard = (
     <div
+      {...toggleProps}
       className={`flex gap-3 px-3.5 py-2.5 ${
         isCollapsible ? 'cursor-pointer select-none hover:bg-slate-50/80' : ''
       }`}
-      onClick={isCollapsible ? toggleExpanded : undefined}
-      onKeyDown={
-        isCollapsible
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                toggleExpanded()
-              }
-            }
-          : undefined
-      }
-      role={isCollapsible ? 'button' : undefined}
-      tabIndex={isCollapsible ? 0 : undefined}
       aria-expanded={false}
     >
       {candidateName && (
@@ -318,53 +362,90 @@ export function ScreeningCallDetails({
     </div>
   )
 
-  const headerRow = (
+  const expandedHeader = (
     <div
-      className={`flex items-center gap-2 px-3 py-2 ${
-        isCollapsible ? 'cursor-pointer select-none hover:bg-slate-50' : ''
+      {...toggleProps}
+      className={`border-b ${result.accentBorder} ${result.headerBg} px-3.5 py-3 ${
+        isCollapsible ? 'cursor-pointer select-none hover:opacity-95' : ''
       }`}
-      onClick={isCollapsible ? toggleExpanded : undefined}
-      onKeyDown={
-        isCollapsible
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                toggleExpanded()
-              }
-            }
-          : undefined
-      }
-      role={isCollapsible ? 'button' : undefined}
-      tabIndex={isCollapsible ? 0 : undefined}
-      aria-expanded={isCollapsible ? expanded : undefined}
+      aria-expanded={true}
     >
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${result.dot}`} />
-      {candidateName && (
-        <span className="min-w-0 shrink truncate text-xs font-medium text-slate-900">
-          {candidateName}
-        </span>
-      )}
-      <span className={`shrink-0 rounded px-1.5 py-px text-[10px] font-semibold ${result.badge}`}>
-        {result.label}
-      </span>
-      {willingness && expanded && (
-        <span className={`hidden shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 sm:inline ${willingness.tone}`}>
-          {willingness.label}
-        </span>
-      )}
-      <span className="min-w-0 flex-1 truncate text-right text-[10px] text-slate-400">
-        {collapsedMeta}
-      </span>
-      {isCollapsible && (
-        <ChevronDown
-          size={14}
-          className={`shrink-0 text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`}
-        />
-      )}
+      <div className="flex items-start gap-3">
+        {candidateName && (
+          <div
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold ${result.avatarBg} ${result.avatarText}`}
+          >
+            {initials(candidateName)}
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              {candidateName && (
+                <h3 className="truncate text-sm font-bold text-slate-900">{candidateName}</h3>
+              )}
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${result.badge}`}
+                >
+                  <ResultIcon size={10} />
+                  {result.label}
+                </span>
+                {willingness && (
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${willingness.tone}`}>
+                    {willingness.label}
+                  </span>
+                )}
+                {attemptNumber != null && (
+                  <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200">
+                    Attempt {attemptNumber}
+                  </span>
+                )}
+              </div>
+            </div>
+            {isCollapsible && (
+              <ChevronDown size={18} className="shrink-0 rotate-180 text-slate-500" />
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
+            {phone && (
+              <span className="inline-flex items-center gap-1">
+                <Phone size={11} className="text-slate-400" />
+                {phone}
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1">
+              <Calendar size={11} className="text-slate-400" />
+              {formatCallDate(call.created_at)}
+            </span>
+            {call.ended_reason && (
+              <span className="text-slate-400">{humanizeEndedReason(call.ended_reason)}</span>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 
-  const outerClass = isCompactCard ? '' : 'overflow-hidden rounded-lg border border-slate-200 bg-white'
+  const quickStats = [
+    { label: 'Availability', value: call.availability },
+    { label: 'Notice', value: call.notice_period },
+    { label: 'Employment', value: call.employment_status },
+    { label: 'Location', value: call.location_preference },
+  ]
+
+  const hasDetailContent =
+    call.summary ||
+    call.relevant_experience ||
+    call.current_ctc ||
+    call.expected_ctc ||
+    quickStats.some((s) => s.value?.trim())
+
+  const outerClass = isCompactCard
+    ? expanded
+      ? 'mx-1 my-1.5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm'
+      : ''
+    : 'overflow-hidden rounded-lg border border-slate-200 bg-white'
 
   if (isCollapsible && !expanded) {
     return <div className={outerClass}>{collapsedCard}</div>
@@ -372,72 +453,154 @@ export function ScreeningCallDetails({
 
   return (
     <div className={outerClass}>
-      {headerRow}
+      {expandedHeader}
 
       {(!isCollapsible || expanded) && (
-        <div className="space-y-2 border-t border-slate-100 px-3 py-2 text-[11px]">
+        <div className="space-y-3 px-3.5 py-3">
           {call.summary && (
-            <p className="leading-snug text-slate-600">{call.summary}</p>
+            <section className="rounded-lg border border-indigo-100 bg-indigo-50/40 px-3 py-2.5">
+              <div className="mb-1 flex items-center gap-1.5">
+                <Sparkles size={12} className="text-indigo-500" />
+                <h4 className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">
+                  AI summary
+                </h4>
+              </div>
+              <p className="text-xs leading-relaxed text-slate-700">{call.summary}</p>
+            </section>
           )}
 
-          <dl className="grid grid-cols-[minmax(5rem,auto)_1fr] gap-x-3 gap-y-0.5">
-            <DenseField label="Experience" value={call.relevant_experience} />
-            <DenseField label="Employment" value={call.employment_status} />
-            <DenseField label="Location" value={call.location_preference} />
-            <DenseField label="Availability" value={call.availability} />
-            <DenseField label="Notice" value={call.notice_period} />
-            <DenseField label="Current CTC" value={call.current_ctc} />
-            <DenseField label="Expected CTC" value={call.expected_ctc} />
-            {call.communication_quality && (
-              <>
-                <dt className="text-slate-400">Comm. quality</dt>
-                <dd className="capitalize text-slate-800">{call.communication_quality}</dd>
-              </>
-            )}
-            {call.ended_reason && (
-              <>
-                <dt className="text-slate-400">End reason</dt>
-                <dd className="text-slate-600">{humanizeEndedReason(call.ended_reason)}</dd>
-              </>
-            )}
-          </dl>
+          {quickStats.some((s) => s.value?.trim()) && (
+            <section className="flex flex-wrap gap-1.5">
+              {quickStats.map((s) => (
+                <StatChip key={s.label} label={s.label} value={s.value} />
+              ))}
+              {call.communication_quality && (
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px]">
+                  <Mic size={11} className="text-slate-400" />
+                  <span className="text-slate-400">Comm.</span>
+                  <span className="font-medium capitalize text-slate-700">{call.communication_quality}</span>
+                </span>
+              )}
+            </section>
+          )}
 
-          <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5">
-            {call.transcript ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <section className="space-y-2">
+              <h4 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                <Briefcase size={11} />
+                Background
+              </h4>
+              <DetailCard label="Relevant experience" value={call.relevant_experience} />
+              <DetailCard label="Employment status" value={call.employment_status} />
+              <DetailCard label="Location preference" value={call.location_preference} />
+              {call.communication_quality && (
+                <div className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                      Communication
+                    </p>
+                    <span className="text-[11px] font-semibold capitalize text-slate-700">
+                      {call.communication_quality}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className={`h-full rounded-full ${QUALITY_COLOR[call.communication_quality] ?? 'bg-slate-400'} ${QUALITY_WIDTH[call.communication_quality] ?? 'w-1/2'}`}
+                    />
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="space-y-2">
+              <h4 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                <DollarSign size={11} />
+                Compensation & timing
+              </h4>
+              {(call.current_ctc || call.expected_ctc) && (
+                <div className="grid grid-cols-2 gap-2">
+                  {call.current_ctc && (
+                    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        Current
+                      </p>
+                      <p className="mt-0.5 text-sm font-bold text-slate-900">{call.current_ctc}</p>
+                    </div>
+                  )}
+                  {call.expected_ctc && (
+                    <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-2.5 py-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-500">
+                        Expected
+                      </p>
+                      <p className="mt-0.5 text-sm font-bold text-indigo-900">{call.expected_ctc}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              <DetailCard label="Availability to join" value={call.availability} />
+              <DetailCard label="Notice period" value={call.notice_period} />
+            </section>
+          </div>
+
+          {!hasDetailContent && (
+            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-5 text-center">
+              <Mic className="mx-auto mb-1.5 h-6 w-6 text-slate-300" />
+              <p className="text-xs font-medium text-slate-600">Limited structured data</p>
+              <p className="mt-0.5 text-[11px] text-slate-400">
+                Review the transcript below and set an HR decision.
+              </p>
+            </div>
+          )}
+
+          <HrDecisionBar call={call} jobId={jobId} />
+
+          {call.transcript && (
+            <section onClick={(e) => e.stopPropagation()}>
               <button
                 type="button"
                 onClick={() => setShowTranscript((v) => !v)}
-                className="inline-flex items-center gap-1 text-[10px] font-medium text-indigo-600 hover:text-indigo-800"
+                className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left transition-colors hover:bg-slate-100"
               >
-                <FileText size={11} />
-                Transcript ({transcriptTurns.length})
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-800">
+                  <FileText size={14} className="text-indigo-500" />
+                  Call transcript
+                  <span className="font-normal text-slate-400">
+                    ({transcriptTurns.length} segments)
+                  </span>
+                </span>
                 <ChevronDown
-                  size={11}
-                  className={`transition-transform ${showTranscript ? 'rotate-180' : ''}`}
+                  size={16}
+                  className={`text-slate-400 transition-transform ${showTranscript ? 'rotate-180' : ''}`}
                 />
               </button>
-            ) : (
-              <span />
-            )}
-            <HrDecisionButtons call={call} jobId={jobId} />
-          </div>
-
-          {showTranscript && call.transcript && (
-            <div
-              className="max-h-40 space-y-1 overflow-y-auto rounded border border-slate-100 bg-slate-50 p-2"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {transcriptTurns.map((turn, i) => (
-                <p key={i} className="leading-snug text-[10px] text-slate-700">
-                  {turn.speaker !== 'unknown' && (
-                    <span className="mr-1 font-semibold text-slate-400">
-                      {turn.speaker === 'ai' ? 'AI:' : 'Cand:'}
-                    </span>
-                  )}
-                  {turn.text}
-                </p>
-              ))}
-            </div>
+              {showTranscript && (
+                <div className="mt-2 max-h-52 space-y-2 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2.5">
+                  {transcriptTurns.map((turn, i) => (
+                    <div
+                      key={i}
+                      className={`flex ${turn.speaker === 'candidate' ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div
+                        className={`max-w-[88%] rounded-xl px-3 py-2 text-xs leading-relaxed ${
+                          turn.speaker === 'ai'
+                            ? 'rounded-bl-sm bg-indigo-50 text-indigo-950'
+                            : turn.speaker === 'candidate'
+                              ? 'rounded-br-sm bg-slate-100 text-slate-800'
+                              : 'bg-slate-50 text-slate-700 ring-1 ring-slate-100'
+                        }`}
+                      >
+                        {turn.speaker !== 'unknown' && (
+                          <p className="mb-0.5 text-[9px] font-bold uppercase tracking-wide opacity-60">
+                            {turn.speaker === 'ai' ? 'AI screener' : 'Candidate'}
+                          </p>
+                        )}
+                        {turn.text}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           )}
         </div>
       )}
