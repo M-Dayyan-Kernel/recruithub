@@ -221,6 +221,8 @@ If `candidate_ids` is omitted, all eligible ready candidates are scored.
 
 > **Nova gotcha:** This is async. Poll `GET /api/jobs/{job_id}/shortlist/status` every 3s while `in_progress` is true, or poll `GET /api/jobs/{job_id}/shortlist` until results appear.
 
+> **Concurrency:** Up to `MAX_CONCURRENT_SHORTLISTS` (default 10, env-configurable) GPT assessments run in parallel per batch. Results are saved incrementally so status polling shows progress as each candidate completes.
+
 > **Nova gotcha (B-7):** `409 Conflict` means the Celery task is still running. Show the user a "Shortlisting already in progress" banner and suppress the trigger button until the lock clears (task takes 1–120s depending on candidate count). Lock auto-expires after 5 min in case of task crash.
 
 ---
