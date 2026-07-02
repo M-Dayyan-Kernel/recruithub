@@ -121,27 +121,6 @@ Upload one or more resume files (PDF or DOCX), or ZIP archives containing them. 
 
 ---
 
-#### `POST /api/jobs/{job_id}/resumes/drive`
-Import resumes from a Google Drive folder or file URL.
-
-**Request Body:**
-```json
-{ "drive_url": "https://drive.google.com/drive/folders/..." }
-```
-
-**Response `200`:** `CandidateResponse[]`
-
-**Errors:**
-- `400` — missing `drive_url` or invalid URL format
-- `404` — job not found
-- `422` — no PDF/DOCX files found at the Drive URL
-- `502` — Google Drive API error
-- `503` — Google Drive not configured (`GOOGLE_DRIVE_CREDENTIALS_JSON` env var missing)
-
-> **Nova gotcha:** If `503` is returned, show a fallback message ("Use direct file upload instead.") — this is expected in dev environments without Drive credentials.
-
----
-
 #### `GET /api/jobs/{job_id}/candidates`
 List candidates for a job.
 
@@ -640,8 +619,8 @@ Common status codes:
 | `409` | Conflict (duplicate active session, already started, etc.) |
 | `422` | Unprocessable entity (validation failure, pre-condition not met) |
 | `500` | Unexpected server error |
-| `502` | Upstream service error (LiveKit, Drive API) |
-| `503` | Service not configured (Google Drive, etc.) |
+| `502` | Upstream service error (LiveKit, etc.) |
+| `503` | Service not configured |
 
 ---
 
@@ -676,8 +655,6 @@ VITE_API_URL=http://localhost:8080
 
 11. **CORS** — Allowed origins: `5173`, `5174`, `5175`, `5176`, `5177`, `5178`, `127.0.0.1:5173`. If running on a different port, add it to `main.py` CORS allow_origins.
 
-12. **Google Drive 503** — This is expected in dev without Drive credentials. Show a friendly "Use direct upload instead" message — do not show a raw error.
-
 ---
 
 ## Endpoint Quick Reference
@@ -690,7 +667,6 @@ VITE_API_URL=http://localhost:8080
 | PATCH | `/api/jobs/{id}` | Update job |
 | DELETE | `/api/jobs/{id}` | Delete job and related records |
 | POST | `/api/jobs/{id}/resumes` | Upload resumes (multipart) |
-| POST | `/api/jobs/{id}/resumes/drive` | Import from Google Drive |
 | GET | `/api/jobs/{id}/candidates` | List candidates |
 | GET | `/api/candidates/{id}` | Get candidate |
 | PATCH | `/api/candidates/{id}` | Update candidate contact fields |
