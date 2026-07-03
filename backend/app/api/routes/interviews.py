@@ -2,7 +2,8 @@
 Interviews Router — Sprint 6
 
 Endpoints for LiveKit interview session management:
-  POST /api/candidates/{candidate_id}/interview/send   — create session + send email
+  POST /api/candidates/{candidate_id}/interview/send      — create session + send email
+  POST /api/candidates/{candidate_id}/interview/schedule — create session for a future slot
   GET  /api/interview/{token}                          — candidate fetches session details
   POST /api/interview/{token}/start                    — create LiveKit room, return token
   POST /api/interview/{token}/complete                 — mark complete + enqueue assessment
@@ -32,6 +33,7 @@ from app.schemas.schemas import (
     InterviewStartResponse,
     InterviewReportResponse,
     InterviewPipelineResponse,
+    InterviewScheduleRequest,
 )
 
 router = APIRouter()
@@ -103,6 +105,109 @@ async def queue_candidate_for_interview(
 
 
 # ---------------------------------------------------------------------------
+# POST /api/candidates/{candidate_id}/interview/schedule
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/candidates/{candidate_id}/interview/schedule",
+    response_model=InterviewSessionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def schedule_interview(
+    candidate_id: uuid.UUID,
+    body: InterviewScheduleRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Create an interview session for a specific date/time.
+
+    The invitation email is sent immediately if the slot is now/past;
+  otherwise Celery beat sends it when the scheduled time arrives.
+    """
+    from app.models.models import Job
+    from app.services.interview_schedule_service import (
+        parse_scheduled_at,
+        send_interview_invitation_email,
+    )
+
+    try:
+        scheduled_at = parse_scheduled_at(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    now = datetime.now(timezone.utc)
+    if scheduled_at < now - timedelta(minutes=1):
+        raise HTTPException(
+            status_code=422,
+            detail="Scheduled time must be in the future.",
+        )
+
+    candidate_result = await db.execute(
+        select(Candidate).where(Candidate.id == candidate_id)
+    )
+    candidate = candidate_result.scalars().first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    screening_result = await db.execute(
+        select(ScreeningCall).where(
+            ScreeningCall.candidate_id == candidate_id,
+            ScreeningCall.result == "pass",
+        )
+    )
+    if not screening_result.scalars().first():
+        raise HTTPException(
+            status_code=400,
+            detail="Candidate has not passed screening. Interview cannot be scheduled.",
+        )
+
+    existing_result = await db.execute(
+        select(InterviewSession).where(
+            InterviewSession.candidate_id == candidate_id,
+            InterviewSession.job_id == candidate.job_id,
+            InterviewSession.status.in_(["pending", "in_progress"]),
+        )
+    )
+    if existing_result.scalars().first():
+        raise HTTPException(
+            status_code=409,
+            detail="An active interview session already exists for this candidate.",
+        )
+
+    unique_token = str(uuid.uuid4())
+    interview_session = InterviewSession(
+        candidate_id=candidate_id,
+        job_id=candidate.job_id,
+        unique_token=unique_token,
+        status="pending",
+        scheduled_interview_at=scheduled_at,
+        expires_at=scheduled_at + timedelta(days=7),
+    )
+    db.add(interview_session)
+    await db.flush()
+
+    await _mark_interview_queued(db, candidate_id, candidate.job_id)
+
+    job_result = await db.execute(select(Job).where(Job.id == candidate.job_id))
+    job = job_result.scalars().first()
+    job_title = job.title if job else "the position"
+
+    interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{unique_token}"
+
+    if scheduled_at <= now:
+        await send_interview_invitation_email(interview_session, candidate, job_title)
+
+    await db.commit()
+    await db.refresh(interview_session)
+
+    response_data = InterviewSessionResponse.model_validate(interview_session)
+    response_data.interview_url = interview_url
+    response_data.candidate_name = candidate.name
+    response_data.job_title = job_title
+    return response_data
+
+
+# ---------------------------------------------------------------------------
 # POST /api/candidates/{candidate_id}/interview/send
 # ---------------------------------------------------------------------------
 
@@ -125,7 +230,8 @@ async def send_interview_link(
 
     Email failure is non-fatal — session is still created and link is returned.
     """
-    from app.services.email_service import send_interview_link as email_send
+    from app.models.models import Job
+    from app.services.interview_schedule_service import send_interview_invitation_email
 
     # Load candidate
     candidate_result = await db.execute(
@@ -179,34 +285,12 @@ async def send_interview_link(
 
     await _mark_interview_queued(db, candidate_id, candidate.job_id)
 
-    # Build interview URL (candidate frontend)
-    interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{unique_token}"
-
-    # Load job title for email
-    from app.models.models import Job
     job_result = await db.execute(select(Job).where(Job.id == candidate.job_id))
     job = job_result.scalars().first()
     job_title = job.title if job else "the position"
+    interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{unique_token}"
 
-    # Send email (non-fatal)
-    email_sent = email_send(
-        candidate_name=candidate.name,
-        candidate_email=candidate.email,
-        job_title=job_title,
-        interview_url=interview_url,
-    )
-
-    if email_sent:
-        interview_session.email_sent_at = datetime.now(timezone.utc)
-        logger.info(
-            "Interview invitation sent to %s (session=%s)", candidate.email, interview_session.id
-        )
-    else:
-        logger.warning(
-            "Email delivery failed for candidate=%s session=%s — session still created, link available",
-            candidate_id,
-            interview_session.id,
-        )
+    await send_interview_invitation_email(interview_session, candidate, job_title)
 
     await db.commit()
     await db.refresh(interview_session)

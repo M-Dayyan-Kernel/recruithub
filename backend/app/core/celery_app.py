@@ -22,5 +22,9 @@ celery_app.conf.update(
             "task": "tasks.dispatch_pending_screening_calls",
             "schedule": 60.0,  # every minute — dispatch queued calls when window opens
         },
+        "dispatch-scheduled-interview-emails": {
+            "task": "tasks.dispatch_scheduled_interview_emails",
+            "schedule": 60.0,
+        },
     },
 )

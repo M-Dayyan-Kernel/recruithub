@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useOutletContext } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import {
   Briefcase,
@@ -20,6 +21,8 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ScreeningCall, ScreeningResult } from '@/types/api'
+import type { JobOutletContext } from '@/components/JobLayout'
+import { ScheduleInterviewModal } from '@/components/screening/ScheduleInterviewModal'
 
 function formatCallDate(iso: string): string {
   try {
@@ -162,8 +165,18 @@ function StatChip({ label, value }: { label: string; value?: string | null }) {
   )
 }
 
-function ScreeningActionBar({ call, jobId }: { call: ScreeningCall; jobId: string }) {
+function ScreeningActionBar({
+  call,
+  jobId,
+  candidateName,
+}: {
+  call: ScreeningCall
+  jobId: string
+  candidateName?: string
+}) {
+  const { job } = useOutletContext<JobOutletContext>()
   const queryClient = useQueryClient()
+  const [scheduleOpen, setScheduleOpen] = useState(false)
   const isApproved = call.result === 'pass'
   const isQueued = Boolean(call.interview_queued_at)
   const hasSession = Boolean(call.has_interview_session)
@@ -193,24 +206,14 @@ function ScreeningActionBar({ call, jobId }: { call: ScreeningCall; jobId: strin
     onError: (err: Error) => toast.error(err.message || 'Failed to queue for interview'),
   })
 
-  const scheduleMutation = useMutation({
-    mutationFn: () =>
-      api.post(`/api/candidates/${call.candidate_id}/interview/send`),
-    onSuccess: () => {
-      invalidate()
-      toast.success('Interview link sent')
-    },
-    onError: (err: Error) => toast.error(err.message || 'Failed to schedule interview'),
-  })
-
-  const busy =
-    decisionMutation.isPending || queueMutation.isPending || scheduleMutation.isPending
+  const busy = decisionMutation.isPending || queueMutation.isPending
 
   return (
-    <div
-      className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"
-      onClick={(e) => e.stopPropagation()}
-    >
+    <>
+      <div
+        className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"
+        onClick={(e) => e.stopPropagation()}
+      >
       <p className="text-[11px] font-medium text-slate-600">HR actions</p>
       <div className="flex flex-wrap gap-2">
         <button
@@ -266,7 +269,7 @@ function ScreeningActionBar({ call, jobId }: { call: ScreeningCall; jobId: strin
         </button>
         <button
           type="button"
-          onClick={() => scheduleMutation.mutate()}
+          onClick={() => setScheduleOpen(true)}
           disabled={busy || !isApproved || hasSession}
           className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${
             hasSession
@@ -274,18 +277,24 @@ function ScreeningActionBar({ call, jobId }: { call: ScreeningCall; jobId: strin
               : 'border border-indigo-200 bg-indigo-600 text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50'
           }`}
         >
-          {scheduleMutation.isPending ? (
-            <Loader2 size={13} className="animate-spin" />
-          ) : (
-            <Send size={13} />
-          )}
+          <Send size={13} />
           {hasSession ? 'Scheduled' : 'Schedule'}
         </button>
       </div>
       {!isApproved && (
         <p className="text-[10px] text-slate-500">Approve to enable interview actions.</p>
       )}
-    </div>
+      </div>
+
+      <ScheduleInterviewModal
+        job={job}
+        candidateId={call.candidate_id}
+        candidateName={candidateName ?? 'Candidate'}
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        onSuccess={invalidate}
+      />
+    </>
   )
 }
 
@@ -438,7 +447,7 @@ export function ScreeningCallDetails({
         </div>
       </div>
       <div className="px-3.5 pb-2.5">
-        <ScreeningActionBar call={call} jobId={jobId} />
+        <ScreeningActionBar call={call} jobId={jobId} candidateName={candidateName} />
       </div>
     </div>
   )
@@ -633,7 +642,7 @@ export function ScreeningCallDetails({
             </div>
           )}
 
-          <ScreeningActionBar call={call} jobId={jobId} />
+          <ScreeningActionBar call={call} jobId={jobId} candidateName={candidateName} />
 
           {call.transcript && (
             <section onClick={(e) => e.stopPropagation()}>

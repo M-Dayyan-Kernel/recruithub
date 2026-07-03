@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Link2,
   Clock,
+  CalendarClock,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
@@ -22,7 +23,13 @@ import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
 // Interview status chip
 // ---------------------------------------------------------------------------
 
-type InterviewStatus = 'not_sent' | 'link_sent' | 'in_progress' | 'completed' | 'report_ready'
+type InterviewStatus =
+  | 'not_sent'
+  | 'scheduled'
+  | 'link_sent'
+  | 'in_progress'
+  | 'completed'
+  | 'report_ready'
 
 type InterviewTabId = 'pending' | 'scheduled' | 'ongoing' | 'completed'
 
@@ -35,7 +42,7 @@ const TAB_LABELS: Record<InterviewTabId, string> = {
 
 const TAB_EMPTY_MESSAGES: Record<InterviewTabId, string> = {
   pending: 'No candidates waiting for an interview link.',
-  scheduled: 'No candidates with a sent link awaiting start.',
+  scheduled: 'No scheduled interviews awaiting link delivery or start.',
   ongoing: 'No interviews in progress right now.',
   completed: 'No completed interviews yet.',
 }
@@ -47,7 +54,29 @@ function resolveInterviewStatus(
   if (!session) return hasReport ? 'completed' : 'not_sent'
   if (hasReport || session.status === 'completed') return 'completed'
   if (session.status === 'in_progress') return 'in_progress'
+  if (
+    session.scheduled_interview_at &&
+    !session.email_sent_at &&
+    new Date(session.scheduled_interview_at) > new Date()
+  ) {
+    return 'scheduled'
+  }
   return 'link_sent'
+}
+
+function formatScheduledAt(iso: string, timezone?: string): string {
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: timezone || undefined,
+    }).format(new Date(iso))
+  } catch {
+    return new Date(iso).toLocaleString()
+  }
 }
 
 function activeTabClass(tab: InterviewTabId, isActive: boolean): string {
@@ -69,6 +98,11 @@ const INTERVIEW_STATUS_CONFIG: Record<
     label: 'Not Sent',
     className: 'bg-slate-50 text-slate-600 border-slate-200',
     dotClassName: 'bg-slate-400',
+  },
+  scheduled: {
+    label: 'Scheduled',
+    className: 'bg-violet-50 text-violet-700 border-violet-200',
+    dotClassName: 'bg-violet-500',
   },
   link_sent: {
     label: 'Link Sent',
@@ -165,6 +199,7 @@ interface CandidateInterviewCardProps {
   candidateId: string
   candidateName: string
   jobId: string
+  jobTimezone?: string
   hasReport: boolean
   /** Session pre-loaded from backend (source of truth) */
   initialSession?: InterviewSession | null
@@ -174,6 +209,7 @@ function CandidateInterviewCard({
   candidateId,
   candidateName,
   jobId,
+  jobTimezone,
   hasReport,
   initialSession = null,
 }: CandidateInterviewCardProps) {
@@ -209,13 +245,15 @@ function CandidateInterviewCard({
   const statusHint =
     interviewStatus === 'not_sent'
       ? 'Ready to send AI interview link'
-      : interviewStatus === 'link_sent'
-        ? 'Waiting for candidate to start'
-        : interviewStatus === 'in_progress'
-          ? 'Candidate is taking the interview'
-          : hasReport
-            ? 'Interview report is available'
-            : 'Interview finished — report generating'
+      : interviewStatus === 'scheduled'
+        ? 'Interview link will be emailed at the scheduled time'
+        : interviewStatus === 'link_sent'
+          ? 'Waiting for candidate to start'
+          : interviewStatus === 'in_progress'
+            ? 'Candidate is taking the interview'
+            : hasReport
+              ? 'Interview report is available'
+              : 'Interview finished — report generating'
 
   return (
     <div
@@ -277,8 +315,22 @@ function CandidateInterviewCard({
         <InterviewStatusChip status={interviewStatus} />
       </div>
 
+      {/* Scheduled slot (link not yet emailed) */}
+      {session?.scheduled_interview_at && !session.email_sent_at && (
+        <div className="mt-4 rounded-lg border border-violet-100 bg-violet-50/50 p-3">
+          <p className="text-xs font-medium text-violet-800">Scheduled for</p>
+          <p className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-violet-900">
+            <CalendarClock size={14} className="shrink-0" />
+            {formatScheduledAt(session.scheduled_interview_at, jobTimezone)}
+          </p>
+          <p className="mt-1 text-xs text-violet-700">
+            The interview invitation email sends automatically at this time.
+          </p>
+        </div>
+      )}
+
       {/* Interview link panel */}
-      {session?.interview_url && (
+      {session?.interview_url && session.email_sent_at && (
         <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50/50 p-3">
           <p className="mb-2 text-xs font-medium text-slate-600">Interview link</p>
           <CopyableUrl url={session.interview_url} />
@@ -442,6 +494,7 @@ export function InterviewsTab({ job, jobId }: Props) {
               candidateId={row.candidate_id}
               candidateName={row.candidate_name ?? 'Candidate'}
               jobId={jobId}
+              jobTimezone={job.screening_timezone}
               hasReport={row.has_report}
               initialSession={row.session ?? null}
             />

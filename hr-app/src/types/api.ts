@@ -160,6 +160,7 @@ export interface InterviewSession {
   email_sent_at?: string
   started_at?: string
   completed_at?: string
+  scheduled_interview_at?: string | null
   created_at: string
 }
 

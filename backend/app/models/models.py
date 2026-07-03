@@ -141,6 +141,7 @@ class InterviewSession(Base):
     transcript: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     egress_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # LiveKit egress recording ID
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)  # Link expiry (7 days from send)
+    scheduled_interview_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships

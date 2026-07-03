@@ -339,6 +339,7 @@ class InterviewSessionResponse(BaseModel):
     email_sent_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    scheduled_interview_at: Optional[datetime] = None
     created_at: datetime
     egress_id: Optional[str] = None  # LiveKit egress recording ID
     expires_at: Optional[datetime] = None  # Link expiry timestamp
@@ -346,6 +347,13 @@ class InterviewSessionResponse(BaseModel):
     interview_url: Optional[str] = None
     candidate_name: Optional[str] = None
     job_title: Optional[str] = None
+
+
+class InterviewScheduleRequest(BaseModel):
+    """Schedule an AI interview for a specific date and time (job timezone)."""
+    scheduled_date: str = Field(description="YYYY-MM-DD")
+    scheduled_time: str = Field(description="HH:MM (24h)")
+    timezone: str = Field(default="Asia/Kolkata", description="IANA timezone")
 
 
 class InterviewStartResponse(BaseModel):

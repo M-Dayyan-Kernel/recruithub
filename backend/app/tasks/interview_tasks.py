@@ -183,3 +183,22 @@ async def _async_generate_report(task_self, interview_session_id: str) -> None:
             report.overall_score,
             report.final_recommendation,
         )
+
+
+@celery_app.task(name="tasks.dispatch_scheduled_interview_emails")
+def dispatch_scheduled_interview_emails():
+    """Send interview invitation emails when scheduled_interview_at is reached."""
+    try:
+        asyncio.run(_async_dispatch_scheduled_interview_emails())
+    except Exception as exc:
+        logger.error("dispatch_scheduled_interview_emails failed: %s", exc)
+        raise
+
+
+async def _async_dispatch_scheduled_interview_emails() -> None:
+    from app.services.interview_schedule_service import dispatch_due_scheduled_interview_emails
+
+    async with get_celery_db() as session:
+        sent = await dispatch_due_scheduled_interview_emails(session)
+        if sent:
+            logger.info("dispatch_scheduled_interview_emails: sent %d invitations", sent)
