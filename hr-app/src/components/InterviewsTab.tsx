@@ -18,6 +18,7 @@ import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import type { InterviewSession, Job, InterviewPipelineResponse } from '@/types/api'
 import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
+import { ScheduleInterviewModal } from '@/components/screening/ScheduleInterviewModal'
 
 // ---------------------------------------------------------------------------
 // Interview status chip
@@ -196,6 +197,7 @@ function CopyableUrl({ url }: { url: string }) {
 // ---------------------------------------------------------------------------
 
 interface CandidateInterviewCardProps {
+  job: Job
   candidateId: string
   candidateName: string
   jobId: string
@@ -206,6 +208,7 @@ interface CandidateInterviewCardProps {
 }
 
 function CandidateInterviewCard({
+  job,
   candidateId,
   candidateName,
   jobId,
@@ -217,6 +220,7 @@ function CandidateInterviewCard({
   // localSession is set after a successful send — takes precedence over initialSession
   const [localSession, setLocalSession] = useState<InterviewSession | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
 
   // Fetched session is source of truth; override with freshly-sent session
   const session = localSession ?? initialSession
@@ -227,13 +231,18 @@ function CandidateInterviewCard({
     [session, hasReport],
   )
 
+  const invalidatePipeline = () => {
+    queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
+    queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
+  }
+
   const sendMutation = useMutation<InterviewSession, Error>({
     mutationFn: () =>
       api.post(`/api/candidates/${candidateId}/interview/send`) as Promise<InterviewSession>,
     onSuccess: (data) => {
       setLocalSession(data)
       setSendError(null)
-      queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
+      invalidatePipeline()
       toast.success(`Interview link sent to ${candidateName}!`)
     },
     onError: (err) => {
@@ -276,23 +285,35 @@ function CandidateInterviewCard({
         </div>
 
         {interviewStatus === 'not_sent' && (
-          <button
-            onClick={() => sendMutation.mutate()}
-            disabled={sendMutation.isPending}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {sendMutation.isPending ? (
-              <>
-                <Loader2 size={13} className="animate-spin" />
-                Sending…
-              </>
-            ) : (
-              <>
-                <Send size={13} />
-                Send Link
-              </>
-            )}
-          </button>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => sendMutation.mutate()}
+              disabled={sendMutation.isPending}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {sendMutation.isPending ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  Sending…
+                </>
+              ) : (
+                <>
+                  <Send size={13} />
+                  Send link
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setScheduleOpen(true)}
+              disabled={sendMutation.isPending}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <CalendarClock size={13} />
+              Schedule
+            </button>
+          </div>
         )}
 
         {hasReport && (
@@ -366,6 +387,15 @@ function CandidateInterviewCard({
           {sendError}
         </div>
       )}
+
+      <ScheduleInterviewModal
+        job={job}
+        candidateId={candidateId}
+        candidateName={candidateName}
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        onSuccess={invalidatePipeline}
+      />
     </div>
   )
 }
@@ -491,6 +521,7 @@ export function InterviewsTab({ job, jobId }: Props) {
           {pipelineCandidates.map((row) => (
             <CandidateInterviewCard
               key={row.candidate_id}
+              job={job}
               candidateId={row.candidate_id}
               candidateName={row.candidate_name ?? 'Candidate'}
               jobId={jobId}
