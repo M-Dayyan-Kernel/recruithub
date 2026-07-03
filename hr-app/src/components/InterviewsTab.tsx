@@ -12,7 +12,8 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { ScreeningCall, InterviewSession, Candidate } from '@/types/api'
+import type { ScreeningCall, InterviewSession, Candidate, Job } from '@/types/api'
+import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
 
 // ---------------------------------------------------------------------------
 // Interview status chip
@@ -207,10 +208,11 @@ function CandidateInterviewCard({
 // ---------------------------------------------------------------------------
 
 interface Props {
+  job: Job
   jobId: string
 }
 
-export function InterviewsTab({ jobId }: Props) {
+export function InterviewsTab({ job, jobId }: Props) {
   // Fetch existing interview sessions from backend
   const {
     data: interviewSessions,
@@ -297,6 +299,7 @@ export function InterviewsTab({ jobId }: Props) {
   if (screeningLoading || sessionsLoading) {
     return (
       <div className="space-y-4">
+        <InterviewRubricPanel job={job} />
         {[1, 2].map((i) => (
           <div
             key={i}
@@ -315,15 +318,18 @@ export function InterviewsTab({ jobId }: Props) {
   // ── Empty state ───────────────────────────────────────────────────────────
   if (passedCandidates.length === 0) {
     return (
-      <div className="py-20 flex flex-col items-center justify-center text-center">
-        <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mb-4">
-          <ClipboardList className="w-6 h-6 text-slate-400" />
+      <div>
+        <InterviewRubricPanel job={job} />
+        <div className="py-16 flex flex-col items-center justify-center text-center">
+          <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mb-4">
+            <ClipboardList className="w-6 h-6 text-slate-400" />
+          </div>
+          <p className="text-slate-700 font-semibold mb-1">No candidates ready for interview</p>
+          <p className="text-slate-400 text-sm max-w-xs">
+            Once a candidate passes voice screening, they will appear below. You can set up the
+            interview rubric above anytime.
+          </p>
         </div>
-        <p className="text-slate-700 font-semibold mb-1">No candidates ready for interview</p>
-        <p className="text-slate-400 text-sm max-w-xs">
-          No candidates have passed voice screening yet. Once screening is complete with a Pass
-          result, candidates will appear here.
-        </p>
       </div>
     )
   }
@@ -331,6 +337,8 @@ export function InterviewsTab({ jobId }: Props) {
   // ── Normal view ───────────────────────────────────────────────────────────
   return (
     <div>
+      <InterviewRubricPanel job={job} />
+
       <div className="flex items-center justify-between mb-5">
         <p className="text-sm text-slate-500">
           {passedCandidates.length} candidate{passedCandidates.length !== 1 ? 's' : ''} ready

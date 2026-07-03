@@ -5,6 +5,7 @@ interface Props {
   questions: InterviewQuestion[]
   onChange: (questions: InterviewQuestion[]) => void
   disabled?: boolean
+  embedded?: boolean
 }
 
 const fieldClass =
@@ -18,7 +19,7 @@ function newQuestion(): InterviewQuestion {
   }
 }
 
-export function InterviewQuestionsEditor({ questions, onChange, disabled }: Props) {
+export function InterviewQuestionsEditor({ questions, onChange, disabled, embedded }: Props) {
   const totalScore = questions.reduce((sum, q) => sum + (Number(q.score) || 0), 0)
 
   const updateQuestion = (id: string, patch: Partial<InterviewQuestion>) => {
@@ -35,23 +36,39 @@ export function InterviewQuestionsEditor({ questions, onChange, disabled }: Prop
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-slate-700">Interview rubric</p>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Questions the AI interviewer will ask, with point weights.
-          </p>
+      {!embedded && (
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-slate-700">Interview rubric</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Questions the AI interviewer will ask, with point weights.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={addQuestion}
+            disabled={disabled}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:border-indigo-200 hover:text-indigo-700 disabled:opacity-50"
+          >
+            <Plus size={13} />
+            Add question
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={addQuestion}
-          disabled={disabled}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:border-indigo-200 hover:text-indigo-700 disabled:opacity-50"
-        >
-          <Plus size={13} />
-          Add question
-        </button>
-      </div>
+      )}
+
+      {embedded && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={addQuestion}
+            disabled={disabled}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:border-indigo-200 hover:text-indigo-700 disabled:opacity-50"
+          >
+            <Plus size={13} />
+            Add question
+          </button>
+        </div>
+      )}
 
       {questions.length === 0 ? (
         <div className="flex flex-col items-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">

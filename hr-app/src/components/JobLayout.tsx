@@ -16,6 +16,8 @@ export default function JobLayout() {
   const isShortlistRoute =
     !!jobId &&
     (location.pathname === `/jobs/${jobId}` || location.pathname === `/jobs/${jobId}/`)
+  const isInterviewsRoute =
+    !!jobId && location.pathname === `/jobs/${jobId}/interviews`
 
   const {
     data: job,
@@ -42,7 +44,7 @@ export default function JobLayout() {
     <div className="mx-auto max-w-7xl space-y-6">
       {isLoading && (
         <>
-          <JobHeaderSkeleton />
+          {!isInterviewsRoute && <JobHeaderSkeleton />}
           <div className="mb-6 h-10 w-80 animate-pulse rounded bg-slate-200" />
         </>
       )}
@@ -71,7 +73,9 @@ export default function JobLayout() {
 
       {!isLoading && job && jobId && (
         <>
-          <JobHeader job={job} showDelete={isShortlistRoute} />
+          {!isInterviewsRoute && (
+            <JobHeader job={job} showDelete={isShortlistRoute} />
+          )}
           <Outlet context={{ job, jobId } satisfies JobOutletContext} />
         </>
       )}
