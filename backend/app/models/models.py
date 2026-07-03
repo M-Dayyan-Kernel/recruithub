@@ -105,6 +105,7 @@ class ScreeningCall(Base):
     retry_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     call_outcome: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     # call_outcome values: "completed" | "no_answer" | "voicemail" | "declined" | "dropped" | "failed"
+    interview_queued_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships

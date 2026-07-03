@@ -313,6 +313,8 @@ class ScreeningCallResponse(BaseModel):
     ended_reason: Optional[str] = None
     call_outcome: Optional[str] = None
     retry_count: int = 0
+    interview_queued_at: Optional[datetime] = None
+    has_interview_session: bool = False
     created_at: datetime
 
 

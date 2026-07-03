@@ -38,6 +38,70 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+async def _get_latest_pass_screening_call(
+    db: AsyncSession,
+    candidate_id: uuid.UUID,
+    job_id: uuid.UUID,
+) -> ScreeningCall | None:
+    result = await db.execute(
+        select(ScreeningCall)
+        .where(
+            ScreeningCall.candidate_id == candidate_id,
+            ScreeningCall.job_id == job_id,
+            ScreeningCall.call_status == "completed",
+            ScreeningCall.result == "pass",
+        )
+        .order_by(ScreeningCall.created_at.desc())
+        .limit(1)
+    )
+    return result.scalars().first()
+
+
+async def _mark_interview_queued(
+    db: AsyncSession,
+    candidate_id: uuid.UUID,
+    job_id: uuid.UUID,
+) -> ScreeningCall:
+    screening_call = await _get_latest_pass_screening_call(db, candidate_id, job_id)
+    if not screening_call:
+        raise HTTPException(
+            status_code=400,
+            detail="Candidate has not passed screening. Cannot queue for interview.",
+        )
+    screening_call.interview_queued_at = datetime.now(timezone.utc)
+    await db.flush()
+    return screening_call
+
+
+# ---------------------------------------------------------------------------
+# POST /api/candidates/{candidate_id}/interview/queue
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/candidates/{candidate_id}/interview/queue",
+    status_code=status.HTTP_200_OK,
+)
+async def queue_candidate_for_interview(
+    candidate_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    HR action: add a passed screening candidate to the interview pipeline (Pending tab)
+    without sending the interview link yet.
+    """
+    candidate = await db.get(Candidate, candidate_id)
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    await _mark_interview_queued(db, candidate_id, candidate.job_id)
+    await db.commit()
+
+    return {
+        "message": "Candidate queued for interview",
+        "candidate_id": str(candidate_id),
+    }
+
+
 # ---------------------------------------------------------------------------
 # POST /api/candidates/{candidate_id}/interview/send
 # ---------------------------------------------------------------------------
@@ -112,6 +176,8 @@ async def send_interview_link(
     )
     db.add(interview_session)
     await db.flush()  # get the session.id before commit
+
+    await _mark_interview_queued(db, candidate_id, candidate.job_id)
 
     # Build interview URL (candidate frontend)
     interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{unique_token}"

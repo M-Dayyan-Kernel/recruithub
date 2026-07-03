@@ -340,6 +340,23 @@ async def update_decision(
     record.hr_decision = payload.hr_decision
     await db.commit()
     await db.refresh(record)
+
+    if payload.hr_decision == "approved":
+        from app.services.call_window_service import is_within_call_window
+        from app.services.celery_health import celery_workers_available
+        from app.services.screening_trigger_service import (
+            auto_dispatch_unqueued_approved_for_job,
+            candidate_has_any_screening_call,
+        )
+
+        if celery_workers_available():
+            job = await db.get(Job, record.job_id)
+            if job and is_within_call_window(job):
+                if not await candidate_has_any_screening_call(
+                    db, record.job_id, record.candidate_id
+                ):
+                    await auto_dispatch_unqueued_approved_for_job(db, job)
+
     return record
 
 

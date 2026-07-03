@@ -67,33 +67,23 @@ async def get_interview_pipeline(
     if not job:
         raise ValueError("Job not found")
 
-    passed_ids_result = await db.execute(
-        select(ScreeningCall.candidate_id)
+    passed_calls_result = await db.execute(
+        select(ScreeningCall)
         .where(
             ScreeningCall.job_id == job_id,
             ScreeningCall.call_status == "completed",
             ScreeningCall.result == "pass",
         )
-        .distinct()
+        .order_by(ScreeningCall.created_at.desc())
     )
-    passed_candidate_ids = list(passed_ids_result.scalars().all())
-    if not passed_candidate_ids:
-        empty_counts = InterviewPipelineCounts(
-            pending=0, scheduled=0, ongoing=0, completed=0
-        )
-        return InterviewPipelineResponse(counts=empty_counts, candidates=[])
-
-    candidates_result = await db.execute(
-        select(Candidate).where(Candidate.id.in_(passed_candidate_ids))
-    )
-    candidate_map = {c.id: c for c in candidates_result.scalars().all()}
+    latest_pass_by_candidate: dict[uuid.UUID, ScreeningCall] = {}
+    for call in passed_calls_result.scalars().all():
+        if call.candidate_id not in latest_pass_by_candidate:
+            latest_pass_by_candidate[call.candidate_id] = call
 
     sessions_result = await db.execute(
         select(InterviewSession)
-        .where(
-            InterviewSession.job_id == job_id,
-            InterviewSession.candidate_id.in_(passed_candidate_ids),
-        )
+        .where(InterviewSession.job_id == job_id)
         .order_by(InterviewSession.created_at.desc())
     )
     latest_session_by_candidate: dict[uuid.UUID, InterviewSession] = {}
@@ -101,11 +91,28 @@ async def get_interview_pipeline(
         if session.candidate_id not in latest_session_by_candidate:
             latest_session_by_candidate[session.candidate_id] = session
 
+    eligible_candidate_ids = [
+        candidate_id
+        for candidate_id, pass_call in latest_pass_by_candidate.items()
+        if pass_call.interview_queued_at is not None
+        or candidate_id in latest_session_by_candidate
+    ]
+    if not eligible_candidate_ids:
+        empty_counts = InterviewPipelineCounts(
+            pending=0, scheduled=0, ongoing=0, completed=0
+        )
+        return InterviewPipelineResponse(counts=empty_counts, candidates=[])
+
+    candidates_result = await db.execute(
+        select(Candidate).where(Candidate.id.in_(eligible_candidate_ids))
+    )
+    candidate_map = {c.id: c for c in candidates_result.scalars().all()}
+
     reports_result = await db.execute(
         select(InterviewReport.candidate_id)
         .where(
             InterviewReport.job_id == job_id,
-            InterviewReport.candidate_id.in_(passed_candidate_ids),
+            InterviewReport.candidate_id.in_(eligible_candidate_ids),
         )
         .distinct()
     )
@@ -116,7 +123,7 @@ async def get_interview_pipeline(
     )
     pipeline_candidates: list[InterviewPipelineCandidate] = []
 
-    for candidate_id in passed_candidate_ids:
+    for candidate_id in eligible_candidate_ids:
         candidate = candidate_map.get(candidate_id)
         session = latest_session_by_candidate.get(candidate_id)
         has_report = candidate_id in candidates_with_report
