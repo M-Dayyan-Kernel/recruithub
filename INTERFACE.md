@@ -33,7 +33,9 @@ Create a new job posting.
   "experience_min": 0,
   "experience_max": 5,
   "screening_criteria": "string | null",
-  "interview_evaluation_criteria": "string | null",
+  "interview_questions": [
+    { "id": "uuid", "question": "string", "score": 25 }
+  ],
   "status": "active | closed | draft | paused (default: active)"
 }
 ```
@@ -87,7 +89,9 @@ Upload a job description document (PDF or DOCX) and extract structured fields vi
   "experience_min": 0,
   "experience_max": 5,
   "screening_criteria": "string | null",
-  "interview_evaluation_criteria": "string | null"
+  "interview_questions": [
+    { "id": "uuid", "question": "string", "score": 25 }
+  ]
 }
 ```
 
@@ -535,7 +539,8 @@ interface Job {
   experience_min: number;
   experience_max: number;
   screening_criteria: string | null;
-  interview_evaluation_criteria: string | null;
+  interview_questions: Array<{ id: string; question: string; score: number }>;
+  interview_total_score: number;        // computed: sum of question scores
   screening_call_from: string | null;   // "HH:MM:SS" local job timezone
   screening_call_to: string | null;
   screening_timezone: string;         // IANA tz, default Asia/Kolkata
@@ -664,6 +669,15 @@ interface InterviewReport {
   // Enriched (joined by backend)
   candidate_name: string | null;
   job_title: string | null;
+  // Rubric-based assessment (when job had interview_questions)
+  question_scores: Array<{
+    id: string;
+    question: string;
+    score: number;
+    earned_score: number | null;
+    notes: string | null;
+  }> | null;
+  rubric_total: number | null;           // sum of rubric question weights
 }
 ```
 

@@ -2,12 +2,42 @@ import uuid
 from datetime import datetime, time
 from typing import Optional, List
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
 # Job schemas
 # ---------------------------------------------------------------------------
+
+class InterviewQuestion(BaseModel):
+    id: str
+    question: str
+    score: int = Field(gt=0)
+
+
+def _normalize_interview_questions(questions: Optional[List]) -> List[dict]:
+    """Assign UUIDs to questions missing ids; validate non-empty text and score >= 1."""
+    if not questions:
+        return []
+    normalized: List[dict] = []
+    for item in questions:
+        if isinstance(item, InterviewQuestion):
+            q = item
+        elif isinstance(item, dict):
+            q = InterviewQuestion(
+                id=item.get("id") or str(uuid.uuid4()),
+                question=(item.get("question") or "").strip(),
+                score=int(item.get("score") or 0),
+            )
+        else:
+            continue
+        if not q.question:
+            raise ValueError("Each interview question must have non-empty question text")
+        if q.score < 1:
+            raise ValueError("Each interview question must have score >= 1")
+        normalized.append(q.model_dump())
+    return normalized
+
 
 class JobCreate(BaseModel):
     title: str
@@ -16,8 +46,16 @@ class JobCreate(BaseModel):
     experience_min: int = 0
     experience_max: int = 0
     screening_criteria: Optional[str] = None
-    interview_evaluation_criteria: Optional[str] = None
+    interview_questions: List[InterviewQuestion] = []
     status: str = "active"
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_questions(cls, data):
+        if isinstance(data, dict) and "interview_questions" in data:
+            data = dict(data)
+            data["interview_questions"] = _normalize_interview_questions(data.get("interview_questions"))
+        return data
 
 
 class JobUpdate(BaseModel):
@@ -27,11 +65,19 @@ class JobUpdate(BaseModel):
     experience_min: Optional[int] = None
     experience_max: Optional[int] = None
     screening_criteria: Optional[str] = None
-    interview_evaluation_criteria: Optional[str] = None
+    interview_questions: Optional[List[InterviewQuestion]] = None
     screening_call_from: Optional[time] = None
     screening_call_to: Optional[time] = None
     screening_timezone: Optional[str] = None
     status: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_questions(cls, data):
+        if isinstance(data, dict) and data.get("interview_questions") is not None:
+            data = dict(data)
+            data["interview_questions"] = _normalize_interview_questions(data.get("interview_questions"))
+        return data
 
 
 class JobResponse(BaseModel):
@@ -44,13 +90,25 @@ class JobResponse(BaseModel):
     experience_min: int
     experience_max: int
     screening_criteria: Optional[str] = None
-    interview_evaluation_criteria: Optional[str] = None
+    interview_questions: List[InterviewQuestion] = []
     screening_call_from: Optional[time] = None
     screening_call_to: Optional[time] = None
     screening_timezone: str = "Asia/Kolkata"
     status: str
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("interview_questions", mode="before")
+    @classmethod
+    def coerce_questions(cls, value):
+        if value is None:
+            return []
+        return value
+
+    @computed_field
+    @property
+    def interview_total_score(self) -> int:
+        return sum(q.score for q in self.interview_questions)
 
 
 class JobParseResponse(BaseModel):
@@ -60,7 +118,7 @@ class JobParseResponse(BaseModel):
     experience_min: Optional[int] = None
     experience_max: Optional[int] = None
     screening_criteria: Optional[str] = None
-    interview_evaluation_criteria: Optional[str] = None
+    interview_questions: List[InterviewQuestion] = []
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +325,14 @@ class InterviewStartResponse(BaseModel):
 # InterviewReport schemas
 # ---------------------------------------------------------------------------
 
+class InterviewQuestionScore(BaseModel):
+    id: str
+    question: str
+    score: int
+    earned_score: Optional[int] = None
+    notes: Optional[str] = None
+
+
 class InterviewReportResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -291,3 +357,5 @@ class InterviewReportResponse(BaseModel):
     # Enriched fields — not stored on the model, populated by route handler via joins
     candidate_name: Optional[str] = None
     job_title: Optional[str] = None
+    question_scores: Optional[List[InterviewQuestionScore]] = None
+    rubric_total: Optional[int] = None

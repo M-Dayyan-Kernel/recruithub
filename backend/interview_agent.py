@@ -53,6 +53,43 @@ except ImportError:
 AGENT_NAME = "interview-agent"
 
 
+def _format_rubric_block(questions: list) -> str:
+    lines = []
+    for i, q in enumerate(questions, start=1):
+        if isinstance(q, dict):
+            text = (q.get("question") or "").strip()
+            score = q.get("score", "")
+        else:
+            text = ""
+            score = ""
+        if text:
+            lines.append(f"{i}. {text} (worth {score} points)")
+    return "\n".join(lines)
+
+
+def _build_interview_structure(job) -> str:
+    questions = job.interview_questions or []
+    valid = [q for q in questions if isinstance(q, dict) and (q.get("question") or "").strip()]
+    if valid:
+        rubric = _format_rubric_block(valid)
+        return f"""INTERVIEW STRUCTURE (follow this order):
+1. You have already greeted the candidate — move straight to asking for a brief self-introduction
+2. Ask each rubric question below IN ORDER. Probe with follow-ups until you are satisfied, then move to the next question.
+3. Ask about their interest in this role at Webknot
+4. Let them ask one or two questions
+5. Close warmly — thank them, say the hiring team will follow up
+
+RUBRIC QUESTIONS (ask in order):
+{rubric}"""
+    return f"""INTERVIEW STRUCTURE (follow this order):
+1. You have already greeted the candidate — move straight to asking for a brief self-introduction
+2. Ask 2-3 technical questions relevant to {job.title} and their skills — ask follow-ups based on answers
+3. One behavioural question (challenging project, conflict resolution, or leadership)
+4. Ask about their interest in this role at Webknot
+5. Let them ask one or two questions
+6. Close warmly — thank them, say the hiring team will follow up"""
+
+
 # ---------------------------------------------------------------------------
 # Load session data from DB
 # ---------------------------------------------------------------------------
@@ -94,7 +131,7 @@ async def _load_session_data(session_id: str) -> tuple[str, str, str]:
         exp_years = parsed.get("total_experience_years", "unknown")
         current_role = parsed.get("current_role", "unknown")
         current_company = parsed.get("current_company", "unknown")
-        eval_criteria = job.interview_evaluation_criteria or "Problem solving and communication skills."
+        interview_structure = _build_interview_structure(job)
 
         prompt = f"""You are a professional AI interviewer conducting a structured technical interview on behalf of Webknot Technologies. Speak naturally — this is a voice conversation.
 
@@ -104,15 +141,8 @@ EXPERIENCE: {exp_years} years
 SKILLS: {skills}
 ROLE: {job.title}
 JOB: {(job.description or '')[:400]}
-EVALUATION: {eval_criteria}
 
-INTERVIEW STRUCTURE (follow this order):
-1. You have already greeted the candidate — move straight to asking for a brief self-introduction
-2. Ask 2-3 technical questions relevant to {job.title} and their skills — ask follow-ups based on answers
-3. One behavioural question (challenging project, conflict resolution, or leadership)
-4. Ask about their interest in this role at Webknot
-5. Let them ask one or two questions
-6. Close warmly — thank them, say the hiring team will follow up
+{interview_structure}
 
 VOICE RULES:
 - Speak in short, natural sentences — this is voice, not text

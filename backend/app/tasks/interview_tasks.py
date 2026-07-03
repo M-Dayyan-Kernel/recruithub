@@ -131,12 +131,38 @@ async def _async_generate_report(task_self, interview_session_id: str) -> None:
             db.add(report)
 
         # Populate report fields from assessment dict
-        report.technical_fit_score = float(assessment.get("technical_fit_score", 0))
-        report.communication_score = float(assessment.get("communication_score", 0))
-        report.problem_solving_score = float(assessment.get("problem_solving_score", 0))
-        report.experience_score = float(assessment.get("experience_score", 0))
-        report.role_alignment_score = float(assessment.get("role_alignment_score", 0))
-        report.overall_score = float(assessment.get("overall_score", 0))
+        is_rubric = assessment.get("assessment_mode") == "rubric"
+        if is_rubric:
+            report.technical_fit_score = None
+            report.communication_score = None
+            report.problem_solving_score = None
+            report.experience_score = None
+            report.role_alignment_score = None
+            earned = assessment.get("overall_score")
+            report.overall_score = float(earned) if earned is not None else None
+        else:
+            report.technical_fit_score = (
+                float(assessment["technical_fit_score"])
+                if assessment.get("technical_fit_score") is not None else None
+            )
+            report.communication_score = (
+                float(assessment["communication_score"])
+                if assessment.get("communication_score") is not None else None
+            )
+            report.problem_solving_score = (
+                float(assessment["problem_solving_score"])
+                if assessment.get("problem_solving_score") is not None else None
+            )
+            report.experience_score = (
+                float(assessment["experience_score"])
+                if assessment.get("experience_score") is not None else None
+            )
+            report.role_alignment_score = (
+                float(assessment["role_alignment_score"])
+                if assessment.get("role_alignment_score") is not None else None
+            )
+            earned = assessment.get("overall_score")
+            report.overall_score = float(earned) if earned is not None else None
         report.strengths = assessment.get("strengths") or []
         report.weaknesses = assessment.get("weaknesses") or []
         report.jd_fit = assessment.get("jd_fit", "")
@@ -151,7 +177,7 @@ async def _async_generate_report(task_self, interview_session_id: str) -> None:
         await db.commit()
 
         logger.info(
-            "InterviewReport created for session=%s candidate=%s overall_score=%.1f recommendation=%s",
+            "InterviewReport created for session=%s candidate=%s overall_score=%s recommendation=%s",
             interview_session_id,
             candidate.name,
             report.overall_score,

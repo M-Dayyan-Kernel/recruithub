@@ -1,3 +1,14 @@
+export interface InterviewQuestion {
+  id: string
+  question: string
+  score: number
+}
+
+export interface InterviewQuestionScore extends InterviewQuestion {
+  earned_score?: number | null
+  notes?: string | null
+}
+
 export interface ParsedJobDescription {
   title: string
   description: string
@@ -5,7 +16,7 @@ export interface ParsedJobDescription {
   experience_min?: number | null
   experience_max?: number | null
   screening_criteria?: string | null
-  interview_evaluation_criteria?: string | null
+  interview_questions?: InterviewQuestion[]
 }
 
 export interface Job {
@@ -16,7 +27,8 @@ export interface Job {
   experience_min?: number
   experience_max?: number
   screening_criteria?: string
-  interview_evaluation_criteria?: string
+  interview_questions?: InterviewQuestion[]
+  interview_total_score?: number
   screening_call_from?: string | null
   screening_call_to?: string | null
   screening_timezone?: string
@@ -154,6 +166,8 @@ export interface InterviewReport {
   experience_score?: number
   role_alignment_score?: number
   overall_score?: number
+  rubric_total?: number | null
+  question_scores?: InterviewQuestionScore[]
   strengths?: string[]
   weaknesses?: string[]
   jd_fit?: string

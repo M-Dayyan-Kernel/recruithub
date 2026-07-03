@@ -3,7 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Loader2, AlertCircle, Upload, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { Job, ParsedJobDescription } from '@/types/api'
+import type { Job, ParsedJobDescription, InterviewQuestion } from '@/types/api'
+import { InterviewQuestionsEditor } from '@/components/InterviewQuestionsEditor'
 
 interface CreateJobPayload {
   title: string
@@ -12,7 +13,7 @@ interface CreateJobPayload {
   experience_min?: number
   experience_max?: number
   screening_criteria?: string
-  interview_evaluation_criteria?: string
+  interview_questions?: InterviewQuestion[]
 }
 
 interface FieldErrors {
@@ -36,7 +37,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
   const [minExp, setMinExp] = useState('')
   const [maxExp, setMaxExp] = useState('')
   const [screeningCriteria, setScreeningCriteria] = useState('')
-  const [interviewCriteria, setInterviewCriteria] = useState('')
+  const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([])
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -63,7 +64,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
       setMinExp(parsed.experience_min != null ? String(parsed.experience_min) : '')
       setMaxExp(parsed.experience_max != null ? String(parsed.experience_max) : '')
       if (parsed.screening_criteria) setScreeningCriteria(parsed.screening_criteria)
-      if (parsed.interview_evaluation_criteria) setInterviewCriteria(parsed.interview_evaluation_criteria)
+      if (parsed.interview_questions?.length) setInterviewQuestions(parsed.interview_questions)
 
       toast.success('Job description extracted — review the fields below')
     },
@@ -155,7 +156,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
       experience_min: minExp ? Number(minExp) : undefined,
       experience_max: maxExp ? Number(maxExp) : undefined,
       screening_criteria: screeningCriteria.trim() || undefined,
-      interview_evaluation_criteria: interviewCriteria.trim() || undefined,
+      interview_questions: interviewQuestions.filter((q) => q.question.trim()),
     })
   }
 
@@ -366,18 +367,11 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
           />
         </div>
 
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">
-            Interview Evaluation Criteria
-          </label>
-          <textarea
-            rows={3}
-            value={interviewCriteria}
-            onChange={(e) => setInterviewCriteria(e.target.value)}
-            placeholder="e.g. Assess problem-solving, system design, communication..."
-            className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        </div>
+        <InterviewQuestionsEditor
+          questions={interviewQuestions}
+          onChange={setInterviewQuestions}
+          disabled={isParsing || mutation.isPending}
+        />
       </div>
 
       <div className="mt-6 flex justify-end gap-3 border-t border-slate-100 pt-4">

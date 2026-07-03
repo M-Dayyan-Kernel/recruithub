@@ -232,7 +232,11 @@ export function CandidateTimeline({ candidateId, jobId }: Props) {
 
   const assessmentDetail = report
     ? [
-        report.overall_score != null ? `Score: ${report.overall_score}/100` : null,
+        report.overall_score != null
+          ? report.rubric_total != null
+            ? `Score: ${report.overall_score}/${report.rubric_total}`
+            : `Score: ${report.overall_score}/100`
+          : null,
         report.final_recommendation
           ? `Recommendation: ${report.final_recommendation.replace(/_/g, ' ')}`
           : null,

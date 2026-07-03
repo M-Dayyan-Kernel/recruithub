@@ -44,8 +44,14 @@ def _build_jd_text(job: Job) -> str:
         parts.append("Required skills: " + ", ".join(job.required_skills))
     if job.screening_criteria:
         parts.append(job.screening_criteria)
-    if job.interview_evaluation_criteria:
-        parts.append(job.interview_evaluation_criteria)
+    if job.interview_questions:
+        q_lines = [
+            (q.get("question") or "").strip()
+            for q in job.interview_questions
+            if isinstance(q, dict) and (q.get("question") or "").strip()
+        ]
+        if q_lines:
+            parts.append("Interview questions: " + "; ".join(q_lines))
     return "\n\n".join(p for p in parts if p)
 
 

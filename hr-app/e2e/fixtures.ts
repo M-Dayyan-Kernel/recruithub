@@ -43,6 +43,28 @@ export const REPORT_IDS = {
 }
 
 // ---------------------------------------------------------------------------
+// Sample interview rubric
+// ---------------------------------------------------------------------------
+
+export const MOCK_INTERVIEW_QUESTIONS = [
+  {
+    id: 'q1111111-0000-0000-0000-000000000001',
+    question: 'Explain React reconciliation and the virtual DOM.',
+    score: 30,
+  },
+  {
+    id: 'q1111111-0000-0000-0000-000000000002',
+    question: 'How would you design a scalable frontend architecture?',
+    score: 40,
+  },
+  {
+    id: 'q1111111-0000-0000-0000-000000000003',
+    question: 'Describe a challenging project and your role.',
+    score: 30,
+  },
+]
+
+// ---------------------------------------------------------------------------
 // Mock jobs
 // ---------------------------------------------------------------------------
 
@@ -60,7 +82,8 @@ export const MOCK_JOBS_SAFE = [
     experience_min: 3,
     experience_max: 7,
     screening_criteria: 'Must be available to join within 30 days.',
-    interview_evaluation_criteria: 'Assess system design and React patterns.',
+    interview_questions: MOCK_INTERVIEW_QUESTIONS,
+    interview_total_score: 100,
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',
     screening_timezone: 'Asia/Kolkata',
@@ -76,7 +99,7 @@ export const MOCK_JOBS_SAFE = [
     experience_min: 2,
     experience_max: 5,
     screening_criteria: null,
-    interview_evaluation_criteria: null,
+    interview_questions: [],
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',
     screening_timezone: 'Asia/Kolkata',
@@ -92,7 +115,7 @@ export const MOCK_JOBS_SAFE = [
     experience_min: 2,
     experience_max: 4,
     screening_criteria: null,
-    interview_evaluation_criteria: null,
+    interview_questions: [],
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',
     screening_timezone: 'Asia/Kolkata',
@@ -111,7 +134,8 @@ export const MOCK_JOBS = [
     experience_min: 3,
     experience_max: 7,
     screening_criteria: 'Must be available to join within 30 days.',
-    interview_evaluation_criteria: 'Assess system design and React patterns.',
+    interview_questions: MOCK_INTERVIEW_QUESTIONS,
+    interview_total_score: 100,
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',
     screening_timezone: 'Asia/Kolkata',
@@ -127,7 +151,7 @@ export const MOCK_JOBS = [
     experience_min: 2,
     experience_max: 5,
     screening_criteria: null,
-    interview_evaluation_criteria: null,
+    interview_questions: [],
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',
     screening_timezone: 'Asia/Kolkata',
@@ -143,7 +167,7 @@ export const MOCK_JOBS = [
     experience_min: 2,
     experience_max: 4,
     screening_criteria: null,
-    interview_evaluation_criteria: null,
+    interview_questions: [],
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',
     screening_timezone: 'Asia/Kolkata',

@@ -3,7 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Loader2, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { Job } from '@/types/api'
+import type { Job, InterviewQuestion } from '@/types/api'
+import { InterviewQuestionsEditor } from '@/components/InterviewQuestionsEditor'
 
 interface Props {
   job: Job
@@ -21,8 +22,8 @@ export function EditJobModal({ job, open, onClose }: Props) {
   const [minExp, setMinExp] = useState(job.experience_min != null ? String(job.experience_min) : '')
   const [maxExp, setMaxExp] = useState(job.experience_max != null ? String(job.experience_max) : '')
   const [screeningCriteria, setScreeningCriteria] = useState(job.screening_criteria ?? '')
-  const [interviewCriteria, setInterviewCriteria] = useState(
-    job.interview_evaluation_criteria ?? '',
+  const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>(
+    job.interview_questions ?? [],
   )
   const [submitError, setSubmitError] = useState<string | null>(null)
 
@@ -95,11 +96,14 @@ export function EditJobModal({ job, open, onClose }: Props) {
     if (newMax !== job.experience_max) payload.experience_max = newMax ?? null
 
     const origScreening = job.screening_criteria ?? ''
-    const origInterview = job.interview_evaluation_criteria ?? ''
     if (screeningCriteria.trim() !== origScreening)
       payload.screening_criteria = screeningCriteria.trim() || null
-    if (interviewCriteria.trim() !== origInterview)
-      payload.interview_evaluation_criteria = interviewCriteria.trim() || null
+
+    const origQuestions = JSON.stringify(job.interview_questions ?? [])
+    const nextQuestions = interviewQuestions.filter((q) => q.question.trim())
+    if (origQuestions !== JSON.stringify(nextQuestions)) {
+      payload.interview_questions = nextQuestions
+    }
 
     if (Object.keys(payload).length === 0) {
       toast('No changes to save')
@@ -255,19 +259,12 @@ export function EditJobModal({ job, open, onClose }: Props) {
             />
           </div>
 
-          {/* Interview Evaluation Criteria */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Interview Evaluation Criteria
-            </label>
-            <textarea
-              rows={3}
-              value={interviewCriteria}
-              onChange={(e) => setInterviewCriteria(e.target.value)}
-              placeholder="e.g. Assess problem-solving, system design, communication..."
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-            />
-          </div>
+          {/* Interview Questions */}
+          <InterviewQuestionsEditor
+            questions={interviewQuestions}
+            onChange={setInterviewQuestions}
+            disabled={mutation.isPending}
+          />
         </div>
 
         {/* Footer */}

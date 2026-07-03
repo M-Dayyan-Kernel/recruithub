@@ -22,7 +22,7 @@ class Job(Base):
     experience_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     experience_max: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     screening_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    interview_evaluation_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    interview_questions: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     screening_call_from: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     screening_call_to: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     screening_timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Kolkata", server_default="Asia/Kolkata")

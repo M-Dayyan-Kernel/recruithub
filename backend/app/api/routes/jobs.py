@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.models.models import Job
-from app.schemas.schemas import JobCreate, JobUpdate, JobResponse, JobParseResponse
+from app.schemas.schemas import JobCreate, JobUpdate, JobResponse, JobParseResponse, InterviewQuestion
 from app.services.document_extractor import ALLOWED_EXTENSIONS, extract_text_from_bytes
 from app.services.jd_parser import parse_job_description
 
@@ -109,7 +109,9 @@ async def parse_jd(file: UploadFile = File(...)):
         experience_min=parsed.get("experience_min"),
         experience_max=parsed.get("experience_max"),
         screening_criteria=parsed.get("screening_criteria"),
-        interview_evaluation_criteria=parsed.get("interview_evaluation_criteria"),
+        interview_questions=[
+            InterviewQuestion(**q) for q in (parsed.get("interview_questions") or [])
+        ],
     )
 
 

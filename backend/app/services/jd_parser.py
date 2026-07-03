@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid
 
 from openai import AsyncOpenAI
 
@@ -15,10 +16,13 @@ Return ONLY valid JSON with exactly these fields:
 - experience_min: number or null (minimum years of experience required, if stated)
 - experience_max: number or null (maximum years of experience required, if stated)
 - screening_criteria: string or null (concise bullet-style criteria for phone screening, inferred from must-haves if not explicit)
-- interview_evaluation_criteria: string or null (concise criteria for technical interview evaluation, inferred from role requirements if not explicit)
+- interview_questions: array of objects, each with { "id": "<uuid string>", "question": "<interview question text>", "score": <positive integer> }
+  Generate 4-6 role-relevant technical/behavioural interview questions.
+  Point weights (score field) must sum to approximately 100 across all questions.
+  Each question must have a unique id (UUID string).
 If experience is given as a single number (e.g. "5+ years"), set experience_min to that number and experience_max to null.
 required_skills must be a flat array of individual skill strings (e.g. ["Python", "React", "PostgreSQL"]).
-Use null for fields that cannot be determined from the document."""
+Use null for fields that cannot be determined from the document. Use empty array for interview_questions if none can be inferred."""
 
 MIN_JD_LENGTH = 50
 
@@ -29,8 +33,32 @@ _EMPTY_JD: dict = {
     "experience_min": None,
     "experience_max": None,
     "screening_criteria": None,
-    "interview_evaluation_criteria": None,
+    "interview_questions": [],
 }
+
+
+def _normalize_parsed_questions(raw_questions: list | None) -> list[dict]:
+    if not raw_questions:
+        return []
+    normalized = []
+    for item in raw_questions:
+        if not isinstance(item, dict):
+            continue
+        question = (item.get("question") or "").strip()
+        if not question:
+            continue
+        try:
+            score = int(item.get("score") or 0)
+        except (TypeError, ValueError):
+            score = 0
+        if score < 1:
+            score = 10
+        normalized.append({
+            "id": item.get("id") or str(uuid.uuid4()),
+            "question": question,
+            "score": score,
+        })
+    return normalized
 
 
 async def parse_job_description(raw_text: str) -> dict:
@@ -61,9 +89,11 @@ async def parse_job_description(raw_text: str) -> dict:
 
     content = response.choices[0].message.content
     parsed = json.loads(content)
+    parsed["interview_questions"] = _normalize_parsed_questions(parsed.get("interview_questions"))
     logger.info(
-        "Parsed job description: title=%r, skills=%d",
+        "Parsed job description: title=%r, skills=%d, interview_questions=%d",
         parsed.get("title"),
         len(parsed.get("required_skills") or []),
+        len(parsed.get("interview_questions") or []),
     )
     return parsed

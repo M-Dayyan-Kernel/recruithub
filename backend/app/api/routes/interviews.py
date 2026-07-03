@@ -452,6 +452,11 @@ async def get_interview_report(candidate_id: uuid.UUID, db: AsyncSession = Depen
     report_dict["candidate_name"] = candidate.name if candidate else None
     report_dict["job_title"] = job.title if job else None
 
+    raw = report.raw_report or {}
+    if raw.get("assessment_mode") == "rubric":
+        report_dict["question_scores"] = raw.get("question_scores")
+        report_dict["rubric_total"] = raw.get("rubric_total")
+
     return InterviewReportResponse.model_validate(report_dict)
 
 
