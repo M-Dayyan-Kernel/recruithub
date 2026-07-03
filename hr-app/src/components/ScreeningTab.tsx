@@ -260,42 +260,54 @@ export function ScreeningTab({ jobId }: Props) {
     [rows],
   )
 
+  const settingsCard = (
+    <ScreeningSettingsCard
+      job={job}
+      eligibleCandidateIds={eligibleForBulkCall}
+      onCallsTriggered={() => {
+        queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
+      }}
+    />
+  )
+
   if (isLoading) {
     return (
-      <div className="space-y-4 animate-pulse">
-        <div className="h-32 rounded-xl bg-slate-200" />
-        <div className="h-64 rounded-xl bg-slate-200" />
+      <div>
+        {settingsCard}
+        <div className="h-64 animate-pulse rounded-xl bg-slate-200" />
       </div>
     )
   }
 
   if (isError) {
-    return <BackendError onRetry={refetch} />
+    return (
+      <div>
+        {settingsCard}
+        <BackendError onRetry={refetch} />
+      </div>
+    )
   }
 
   if (approvedShortlist.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
-          <Mic className="h-6 w-6 text-slate-400" />
+      <div>
+        {settingsCard}
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
+            <Mic className="h-6 w-6 text-slate-400" />
+          </div>
+          <p className="mb-1 font-semibold text-slate-700">No approved candidates to screen</p>
+          <p className="max-w-xs text-sm text-slate-400">
+            Approve candidates on the AI Shortlist tab to queue them for voice screening.
+          </p>
         </div>
-        <p className="mb-1 font-semibold text-slate-700">No approved candidates to screen</p>
-        <p className="max-w-xs text-sm text-slate-400">
-          Approve candidates on the AI Shortlist tab to queue them for voice screening.
-        </p>
       </div>
     )
   }
 
   return (
     <div>
-      <ScreeningSettingsCard
-        job={job}
-        eligibleCandidateIds={eligibleForBulkCall}
-        onCallsTriggered={() => {
-          queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
-        }}
-      />
+      {settingsCard}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         {(Object.keys(TAB_LABELS) as ScreeningTabId[]).map((tab) => (

@@ -171,8 +171,17 @@ export function ScreeningSettingsCard({ job, eligibleCandidateIds, onCallsTrigge
           {/* Actions */}
           <div className="flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-slate-600">
-              <span className="font-semibold text-slate-800">{eligibleCount}</span>
-              {eligibleCount === 1 ? ' candidate' : ' candidates'} ready in Pending / Flagged
+              {eligibleCount === 0 ? (
+                <>
+                  No candidates ready — approve resumes on{' '}
+                  <span className="font-medium text-slate-700">AI Shortlist</span> first
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold text-slate-800">{eligibleCount}</span>
+                  {eligibleCount === 1 ? ' candidate' : ' candidates'} ready in Pending / Flagged
+                </>
+              )}
             </p>
             <div className="flex flex-wrap gap-2">
               <button
