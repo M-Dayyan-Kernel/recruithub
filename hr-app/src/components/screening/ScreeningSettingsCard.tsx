@@ -78,7 +78,7 @@ export function ScreeningSettingsCard({ job, eligibleCandidateIds, onCallsTrigge
       if (total > 0) {
         if (!force && data.queued > 0) {
           toast.success(
-            `Scheduled ${data.queued} call${data.queued !== 1 ? 's' : ''} for ${fromTime}–${toTime} ${timezone}`,
+            `Saved call window — ${data.queued} call${data.queued !== 1 ? 's' : ''} queued for ${fromTime} (${timezone})`,
           )
         } else {
           toast.success(
@@ -94,7 +94,7 @@ export function ScreeningSettingsCard({ job, eligibleCandidateIds, onCallsTrigge
     onError: (err: Error) => toast.error(err.message || 'Failed to start screening calls'),
   })
 
-  const startButtonLabel = withinWindow ? 'Start Calling Now' : `Schedule for ${fromTime}`
+  const startButtonLabel = withinWindow ? 'Start Calling Now' : 'Save'
 
   return (
     <>
@@ -177,7 +177,8 @@ export function ScreeningSettingsCard({ job, eligibleCandidateIds, onCallsTrigge
 
           {!withinWindow && (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              Outside the call window. Calls will queue until {fromTime} ({timezone}). Use{' '}
+              Outside the call window. <span className="font-semibold">Save</span> persists your
+              window and queues calls until {fromTime} ({timezone}). Use{' '}
               <span className="font-semibold">Call now anyway</span> to override.
             </p>
           )}
@@ -198,14 +199,16 @@ export function ScreeningSettingsCard({ job, eligibleCandidateIds, onCallsTrigge
               )}
             </p>
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending}
-                className={btnSecondary}
-              >
-                {saveMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : 'Save window'}
-              </button>
+              {withinWindow && (
+                <button
+                  type="button"
+                  onClick={() => saveMutation.mutate()}
+                  disabled={saveMutation.isPending}
+                  className={btnSecondary}
+                >
+                  {saveMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : 'Save window'}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => startMutation.mutate(false)}
