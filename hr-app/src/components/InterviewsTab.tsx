@@ -9,6 +9,9 @@ import {
   AlertCircle,
   FileText,
   ClipboardList,
+  CheckCircle2,
+  Link2,
+  Clock,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
@@ -23,24 +26,52 @@ type InterviewStatus = 'not_sent' | 'link_sent' | 'in_progress' | 'completed' | 
 
 const INTERVIEW_STATUS_CONFIG: Record<
   InterviewStatus,
-  { label: string; className: string }
+  { label: string; className: string; dotClassName: string }
 > = {
-  not_sent: { label: 'Not Sent', className: 'bg-slate-100 text-slate-500' },
-  link_sent: { label: 'Link Sent', className: 'bg-blue-100 text-blue-700' },
-  in_progress: { label: 'In Progress', className: 'bg-amber-100 text-amber-700' },
-  completed: { label: 'Completed', className: 'bg-emerald-100 text-emerald-700' },
-  report_ready: { label: 'Report Ready', className: 'bg-indigo-100 text-indigo-700' },
+  not_sent: {
+    label: 'Not Sent',
+    className: 'bg-slate-50 text-slate-600 border-slate-200',
+    dotClassName: 'bg-slate-400',
+  },
+  link_sent: {
+    label: 'Link Sent',
+    className: 'bg-blue-50 text-blue-700 border-blue-200',
+    dotClassName: 'bg-blue-500',
+  },
+  in_progress: {
+    label: 'In Progress',
+    className: 'bg-amber-50 text-amber-700 border-amber-200',
+    dotClassName: 'bg-amber-500',
+  },
+  completed: {
+    label: 'Completed',
+    className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    dotClassName: 'bg-emerald-500',
+  },
+  report_ready: {
+    label: 'Report Ready',
+    className: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+    dotClassName: 'bg-indigo-500',
+  },
 }
 
 function InterviewStatusChip({ status }: { status: InterviewStatus }) {
   const cfg = INTERVIEW_STATUS_CONFIG[status]
   return (
     <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${cfg.className}`}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${cfg.className}`}
     >
+      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${cfg.dotClassName}`} />
       {cfg.label}
     </span>
   )
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return 'C'
+  if (parts.length === 1) return parts[0][0] ?? 'C'
+  return `${parts[0][0] ?? ''}${parts[parts.length - 1][0] ?? ''}`
 }
 
 // ---------------------------------------------------------------------------
@@ -61,14 +92,29 @@ function CopyableUrl({ url }: { url: string }) {
   }
 
   return (
-    <div className="mt-3 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-      <span className="flex-1 text-xs text-slate-600 font-mono truncate">{url}</span>
+    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/80 p-2 pl-3">
+      <Link2 size={14} className="shrink-0 text-slate-400" />
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-600">{url}</span>
       <button
         onClick={handleCopy}
-        className="shrink-0 p-1 rounded hover:bg-slate-200 transition-colors text-slate-500 hover:text-slate-700"
+        className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+          copied
+            ? 'bg-emerald-100 text-emerald-700'
+            : 'bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100'
+        }`}
         title="Copy link"
       >
-        {copied ? <Check size={13} className="text-emerald-600" /> : <Copy size={13} />}
+        {copied ? (
+          <>
+            <Check size={12} />
+            Copied
+          </>
+        ) : (
+          <>
+            <Copy size={12} />
+            Copy
+          </>
+        )}
       </button>
     </div>
   )
@@ -124,77 +170,110 @@ function CandidateInterviewCard({
     },
   })
 
+  const statusHint =
+    interviewStatus === 'not_sent'
+      ? 'Ready to send AI interview link'
+      : interviewStatus === 'link_sent'
+        ? 'Waiting for candidate to start'
+        : interviewStatus === 'in_progress'
+          ? 'Candidate is taking the interview'
+          : interviewStatus === 'completed'
+            ? 'Interview finished — report generating'
+            : 'Interview report is available'
+
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-      {/* Header row */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-semibold text-sm shrink-0 uppercase">
-            {(candidateName[0] ?? 'C')}
+    <div
+      className={`rounded-xl border bg-white p-5 shadow-sm transition-shadow hover:shadow-md ${
+        interviewStatus === 'report_ready'
+          ? 'border-indigo-200 ring-1 ring-indigo-50'
+          : 'border-slate-200'
+      }`}
+    >
+      {/* Identity + primary action */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-50 to-indigo-100 text-sm font-semibold uppercase text-indigo-600 ring-2 ring-white">
+            {getInitials(candidateName)}
           </div>
           <div className="min-w-0">
-            <p className="font-semibold text-slate-800 truncate">{candidateName}</p>
+            <p className="truncate font-semibold text-slate-800">{candidateName}</p>
+            <p className="mt-0.5 text-xs text-slate-500">{statusHint}</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap shrink-0">
-          {/* Pass badge */}
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
-            Pass
-          </span>
+        {interviewStatus === 'not_sent' && (
+          <button
+            onClick={() => sendMutation.mutate()}
+            disabled={sendMutation.isPending}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {sendMutation.isPending ? (
+              <>
+                <Loader2 size={13} className="animate-spin" />
+                Sending…
+              </>
+            ) : (
+              <>
+                <Send size={13} />
+                Send Link
+              </>
+            )}
+          </button>
+        )}
 
-          {/* Interview status chip */}
-          <InterviewStatusChip status={interviewStatus} />
-
-          {/* Action buttons */}
-          {interviewStatus === 'not_sent' && (
-            <button
-              onClick={() => sendMutation.mutate()}
-              disabled={sendMutation.isPending}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {sendMutation.isPending ? (
-                <>
-                  <Loader2 size={12} className="animate-spin" />
-                  Sending…
-                </>
-              ) : (
-                <>
-                  <Send size={12} />
-                  Send Interview Link
-                </>
-              )}
-            </button>
-          )}
-
-          {interviewStatus === 'report_ready' && (
-            <Link
-              to={`/jobs/${jobId}/candidates/${candidateId}/report`}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              <FileText size={12} />
-              View Report
-            </Link>
-          )}
-        </div>
+        {interviewStatus === 'report_ready' && (
+          <Link
+            to={`/jobs/${jobId}/candidates/${candidateId}/report`}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700"
+          >
+            <FileText size={13} />
+            View Report
+          </Link>
+        )}
       </div>
 
-      {/* Copyable URL after sending */}
+      {/* Status badges */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+          <CheckCircle2 size={12} />
+          Screening passed
+        </span>
+        <InterviewStatusChip status={interviewStatus} />
+      </div>
+
+      {/* Interview link panel */}
       {session?.interview_url && (
-        <div className="mt-3">
-          <p className="text-xs text-slate-500 mb-1">Interview link (share with candidate):</p>
+        <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+          <p className="mb-2 text-xs font-medium text-slate-600">Interview link</p>
           <CopyableUrl url={session.interview_url} />
-          {session.email_sent_at && (
-            <p className="text-xs text-slate-400 mt-1.5">
-              Email sent at {new Date(session.email_sent_at).toLocaleString()}
-            </p>
+          {(session.email_sent_at || session.started_at || session.completed_at) && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+              {session.email_sent_at && (
+                <span className="inline-flex items-center gap-1">
+                  <Send size={11} />
+                  Sent {new Date(session.email_sent_at).toLocaleString()}
+                </span>
+              )}
+              {session.started_at && (
+                <span className="inline-flex items-center gap-1">
+                  <Clock size={11} />
+                  Started {new Date(session.started_at).toLocaleString()}
+                </span>
+              )}
+              {session.completed_at && (
+                <span className="inline-flex items-center gap-1">
+                  <Check size={11} />
+                  Completed {new Date(session.completed_at).toLocaleString()}
+                </span>
+              )}
+            </div>
           )}
         </div>
       )}
 
       {/* Error */}
       {sendError && (
-        <div className="mt-3 flex items-center gap-2 text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-600">
           <AlertCircle size={13} className="shrink-0" />
           {sendError}
         </div>
@@ -303,11 +382,21 @@ export function InterviewsTab({ job, jobId }: Props) {
         {[1, 2].map((i) => (
           <div
             key={i}
-            className="bg-white border border-slate-200 rounded-xl p-5 animate-pulse"
+            className="animate-pulse rounded-xl border border-slate-200 bg-white p-5"
           >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-slate-200 shrink-0" />
-              <div className="h-4 bg-slate-200 rounded w-36" />
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 shrink-0 rounded-full bg-slate-200" />
+                <div className="space-y-2">
+                  <div className="h-4 w-36 rounded bg-slate-200" />
+                  <div className="h-3 w-48 rounded bg-slate-100" />
+                </div>
+              </div>
+              <div className="h-8 w-24 rounded-lg bg-slate-200" />
+            </div>
+            <div className="mt-3 flex gap-2">
+              <div className="h-6 w-28 rounded-full bg-slate-100" />
+              <div className="h-6 w-24 rounded-full bg-slate-100" />
             </div>
           </div>
         ))}
