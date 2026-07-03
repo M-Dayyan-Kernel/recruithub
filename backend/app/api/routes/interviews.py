@@ -13,9 +13,9 @@ Endpoints for LiveKit interview session management:
 import uuid
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
@@ -31,6 +31,7 @@ from app.schemas.schemas import (
     InterviewSessionResponse,
     InterviewStartResponse,
     InterviewReportResponse,
+    InterviewPipelineResponse,
 )
 
 router = APIRouter()
@@ -506,3 +507,38 @@ async def list_job_interviews(
         enriched.append(r)
 
     return enriched
+
+
+# ---------------------------------------------------------------------------
+# GET /api/jobs/{job_id}/interviews/pipeline
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/jobs/{job_id}/interviews/pipeline",
+    response_model=InterviewPipelineResponse,
+)
+async def get_interview_pipeline(
+    job_id: uuid.UUID,
+    tab: Optional[Literal["pending", "scheduled", "ongoing", "completed"]] = Query(
+        default=None,
+        description="Filter candidates to a single pipeline tab. Counts always reflect all tabs.",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    HR view: screening-passed candidates grouped into interview pipeline tabs.
+
+    Tabs:
+      - pending: no interview session yet
+      - scheduled: link sent, session status pending
+      - ongoing: session in_progress
+      - completed: session completed (has_report indicates report availability)
+    """
+    from app.services.interview_pipeline_service import get_interview_pipeline as build_pipeline
+
+    try:
+        return await build_pipeline(db, job_id, tab=tab)
+    except ValueError as exc:
+        if str(exc) == "Job not found":
+            raise HTTPException(status_code=404, detail="Job not found") from exc
+        raise

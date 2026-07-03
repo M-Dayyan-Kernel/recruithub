@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, time
-from typing import Optional, List
+from typing import Literal, Optional, List
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
@@ -351,6 +351,26 @@ class InterviewStartResponse(BaseModel):
     room_name: str
     token: str
     livekit_url: str
+
+
+class InterviewPipelineCounts(BaseModel):
+    pending: int
+    scheduled: int
+    ongoing: int
+    completed: int
+
+
+class InterviewPipelineCandidate(BaseModel):
+    candidate_id: uuid.UUID
+    candidate_name: Optional[str] = None
+    tab: Literal["pending", "scheduled", "ongoing", "completed"]
+    has_report: bool
+    session: Optional[InterviewSessionResponse] = None
+
+
+class InterviewPipelineResponse(BaseModel):
+    counts: InterviewPipelineCounts
+    candidates: List[InterviewPipelineCandidate]
 
 
 # ---------------------------------------------------------------------------

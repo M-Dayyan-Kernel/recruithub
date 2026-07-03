@@ -161,6 +161,28 @@ export interface InterviewSession {
   created_at: string
 }
 
+export type InterviewPipelineTab = 'pending' | 'scheduled' | 'ongoing' | 'completed'
+
+export interface InterviewPipelineCounts {
+  pending: number
+  scheduled: number
+  ongoing: number
+  completed: number
+}
+
+export interface InterviewPipelineCandidate {
+  candidate_id: string
+  candidate_name?: string | null
+  tab: InterviewPipelineTab
+  has_report: boolean
+  session?: InterviewSession | null
+}
+
+export interface InterviewPipelineResponse {
+  counts: InterviewPipelineCounts
+  candidates: InterviewPipelineCandidate[]
+}
+
 export interface InterviewReport {
   id: string
   candidate_id: string
