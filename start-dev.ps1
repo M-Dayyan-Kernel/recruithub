@@ -26,15 +26,15 @@ function Stop-PortListeners([int]$Port) {
     }
 }
 
-function Stop-CeleryWorkers() {
-    $workers = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+function Stop-CeleryProcesses() {
+    $processes = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object {
             $_.Name -match 'python(\.exe)?' -and
             $_.CommandLine -like '*celery*app.core.celery_app*'
         }
-    foreach ($worker in $workers) {
-        Write-Host "  Stopping Celery worker PID $($worker.ProcessId)" -ForegroundColor DarkYellow
-        Stop-Process -Id $worker.ProcessId -Force -ErrorAction SilentlyContinue
+    foreach ($proc in $processes) {
+        Write-Host "  Stopping Celery PID $($proc.ProcessId)" -ForegroundColor DarkYellow
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -113,7 +113,7 @@ Write-Step "Stopping existing dev servers (if any)"
 Stop-PortListeners 8000
 Stop-PortListeners 5173
 Stop-PortListeners 5174
-Stop-CeleryWorkers
+Stop-CeleryProcesses
 Stop-InterviewAgents
 Start-Sleep -Seconds 2
 
@@ -123,7 +123,8 @@ $hrAppDir = Join-Path $Root "hr-app"
 $candidateAppDir = Join-Path $Root "candidate-app"
 
 $apiCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
-$celeryCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; celery -A app.core.celery_app.celery_app worker --loglevel=info --pool=solo"
+$celeryWorkerCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; celery -A app.core.celery_app.celery_app worker --loglevel=info --pool=solo"
+$celeryBeatCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; celery -A app.core.celery_app.celery_app beat --loglevel=info"
 $agentCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; python interview_agent.py dev"
 $hrCmd = "Set-Location '$hrAppDir'; `$env:VITE_API_URL='$ViteApiUrl'; npm run dev"
 $candidateCmd = "Set-Location '$candidateAppDir'; `$env:VITE_API_URL='$ViteApiUrl'; npm run dev"
@@ -131,8 +132,11 @@ $candidateCmd = "Set-Location '$candidateAppDir'; `$env:VITE_API_URL='$ViteApiUr
 Write-Step "Starting API server (port 8000)"
 Start-ServiceWindow "AI Recruitment - API" $apiCmd
 
-Write-Step "Starting Celery worker"
-Start-ServiceWindow "AI Recruitment - Celery" $celeryCmd
+Write-Step "Starting Celery worker (Windows: no --beat on worker)"
+Start-ServiceWindow "AI Recruitment - Celery Worker" $celeryWorkerCmd
+
+Write-Step "Starting Celery beat (dispatches scheduled screening calls)"
+Start-ServiceWindow "AI Recruitment - Celery Beat" $celeryBeatCmd
 
 Write-Step "Starting LiveKit AI interview agent"
 Start-ServiceWindow "AI Recruitment - Interview Agent" $agentCmd
@@ -149,6 +153,8 @@ Write-Host "  HR App:         http://localhost:5173"
 Write-Host "  Candidate App:  http://localhost:5174"
 Write-Host "  API:            http://localhost:8000"
 Write-Host "  API docs:       http://localhost:8000/docs"
+Write-Host "  Celery worker:  separate terminal (must show 'celery@... ready')"
+Write-Host "  Celery beat:    separate terminal (must show 'beat: Starting...')"
 Write-Host "  Interview agent: must show 'registered worker' in its terminal"
 Write-Host ""
 Write-Host "Close each terminal window to stop that service."

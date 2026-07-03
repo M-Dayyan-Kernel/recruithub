@@ -1,100 +1,79 @@
 /**
- * jobs.spec.ts — E2E tests for JobsPage and CreateJobModal
+ * jobs.spec.ts — E2E tests for sidebar jobs navigation and CreateJobPage
  *
  * Mocks: GET /api/jobs, POST /api/jobs
- *
- * NOTE: Uses MOCK_JOBS_SAFE throughout because JobsPage.tsx has a known bug:
- * it calls `job.required_skills.length` without a null check, which crashes
- * the page when `required_skills` is null. Bug documented in PLAYWRIGHT-RESULTS.md.
  */
 
 import { test, expect } from '@playwright/test'
-import { MOCK_JOBS_SAFE, JOB_IDS, mockGetJobsSafe, mockPostJob } from './fixtures'
+import {
+  MOCK_JOBS_SAFE,
+  JOB_IDS,
+  mockGetJobsSafe,
+  mockPostJob,
+  mockGetJob,
+  mockGetCandidates,
+  mockGetShortlist,
+  mockGetShortlistStatus,
+  mockGetScreening,
+} from './fixtures'
 
-// ---------------------------------------------------------------------------
-// 1. Jobs list page renders with table rows
-// ---------------------------------------------------------------------------
-
-test('jobs list page renders with job rows', async ({ page }) => {
+async function mockLayoutWithJobs(page: import('@playwright/test').Page) {
   await mockGetJobsSafe(page)
+}
 
-  await page.goto('/jobs')
+function createJobLink(page: import('@playwright/test').Page) {
+  return page.getByRole('link', { name: 'Create Job' })
+}
+
+// ---------------------------------------------------------------------------
+// 1. Sidebar lists all jobs
+// ---------------------------------------------------------------------------
+
+test('sidebar lists all jobs', async ({ page }) => {
+  await mockLayoutWithJobs(page)
+
+  await page.goto('/')
   await page.waitForLoadState('networkidle')
 
-  // Page heading — use first() since both page h1 and topbar h1 say "Jobs"
-  await expect(page.getByRole('heading', { name: 'Jobs' }).first()).toBeVisible()
-
-  // All three job titles in the table
   await expect(page.getByText('Senior Frontend Engineer').first()).toBeVisible()
   await expect(page.getByText('Backend Python Engineer').first()).toBeVisible()
   await expect(page.getByText('Product Designer').first()).toBeVisible()
-
-  // Skills shown as chip text in the title column (first() — may appear multiple times)
-  await expect(page.getByText('React').first()).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
-// 2. Job status badges render with correct colours
+// 2. Expanding a job shows phase links
 // ---------------------------------------------------------------------------
 
-test('job status badges render correctly for all statuses', async ({ page }) => {
-  const jobs = [
-    { ...MOCK_JOBS_SAFE[0], status: 'active' },
-    { ...MOCK_JOBS_SAFE[1], status: 'open' },
-    { ...MOCK_JOBS_SAFE[2], status: 'paused' },
-    {
-      ...MOCK_JOBS_SAFE[0],
-      id: 'aaaaaaaa-0000-0000-0000-000000000099',
-      title: 'Closed Role',
-      status: 'closed',
-    },
-    {
-      ...MOCK_JOBS_SAFE[0],
-      id: 'aaaaaaaa-0000-0000-0000-000000000098',
-      title: 'Draft Role',
-      status: 'draft',
-    },
-  ]
+test('expanding a job shows AI Shortlist, Screening, and Interviews links', async ({ page }) => {
+  await mockLayoutWithJobs(page)
 
-  await page.route('**/api/jobs', route => {
-    if (route.request().method() === 'GET') {
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(jobs) })
-    } else {
-      route.continue()
-    }
-  })
-
-  await page.goto('/jobs')
+  await page.goto('/')
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByText('Active').first()).toBeVisible()
-  await expect(page.getByText('Open').first()).toBeVisible()
-  await expect(page.getByText('Paused').first()).toBeVisible()
-  await expect(page.getByText('Closed').first()).toBeVisible()
-  await expect(page.getByText('Draft').first()).toBeVisible()
+  await page.getByRole('button', { name: 'Senior Frontend Engineer' }).click()
+
+  await expect(page.getByRole('link', { name: 'AI Shortlist' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Screening' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Interviews' })).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
-// 3. Create Job modal opens when button is clicked
+// 3. Create Job link navigates to create page
 // ---------------------------------------------------------------------------
 
-test('Create New Job button opens modal', async ({ page }) => {
-  await mockGetJobsSafe(page)
+test('Create Job link in sidebar navigates to create page', async ({ page }) => {
+  await mockLayoutWithJobs(page)
 
-  await page.goto('/jobs')
+  await page.goto('/')
   await page.waitForLoadState('networkidle')
 
-  // The Create New Job button in the header
-  const createBtn = page.getByRole('button', { name: 'Create New Job' })
-  await expect(createBtn).toBeVisible()
+  await expect(createJobLink(page)).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Create New Job' })).not.toBeVisible()
 
-  // Modal should not be visible yet
-  await expect(page.locator('h2').filter({ hasText: 'Create New Job' })).not.toBeVisible()
+  await createJobLink(page).click()
 
-  await createBtn.click()
-
-  // Modal header should appear
-  await expect(page.locator('h2').filter({ hasText: 'Create New Job' })).toBeVisible()
+  await expect(page).toHaveURL('/jobs/new')
+  await expect(page.getByRole('heading', { name: 'Create New Job' })).toBeVisible()
   await expect(page.locator('input[placeholder*="Senior Frontend"]')).toBeVisible()
 })
 
@@ -103,91 +82,80 @@ test('Create New Job button opens modal', async ({ page }) => {
 // ---------------------------------------------------------------------------
 
 test('Create Job form shows validation errors on empty submit', async ({ page }) => {
-  await mockGetJobsSafe(page)
+  await mockLayoutWithJobs(page)
 
-  await page.goto('/jobs')
+  await page.goto('/jobs/new')
   await page.waitForLoadState('networkidle')
 
-  await page.getByRole('button', { name: 'Create New Job' }).click()
-  await expect(page.locator('h2').filter({ hasText: 'Create New Job' })).toBeVisible()
-
-  // Submit without filling anything
+  await expect(page.getByRole('heading', { name: 'Create New Job' })).toBeVisible()
   await page.getByRole('button', { name: 'Create Job' }).click()
 
-  // Validation messages should appear
   await expect(page.getByText('Job title is required')).toBeVisible()
   await expect(page.getByText('Description is required')).toBeVisible()
-
-  // Modal must remain open
-  await expect(page.locator('h2').filter({ hasText: 'Create New Job' })).toBeVisible()
+  await expect(page).toHaveURL('/jobs/new')
 })
 
 // ---------------------------------------------------------------------------
-// 5. Create Job success flow — modal closes and toast shown
+// 5. Create Job success flow — navigates to new job AI Shortlist page
 // ---------------------------------------------------------------------------
 
-test('Create Job success flow closes modal and shows toast', async ({ page }) => {
-  await mockGetJobsSafe(page)
+test('Create Job success navigates to new job AI Shortlist page', async ({ page }) => {
+  const newJobId = 'aaaaaaaa-0000-0000-0000-000000999999'
+  await mockLayoutWithJobs(page)
   await mockPostJob(page, {
     ...MOCK_JOBS_SAFE[0],
-    id: 'aaaaaaaa-0000-0000-0000-000000999999',
+    id: newJobId,
     title: 'New Test Role',
   })
+  await mockGetJob(page, newJobId, {
+    ...MOCK_JOBS_SAFE[0],
+    id: newJobId,
+    title: 'New Test Role',
+  })
+  await mockGetCandidates(page, newJobId, [])
+  await mockGetShortlist(page, newJobId, [])
+  await mockGetShortlistStatus(page, newJobId)
+  await mockGetScreening(page, newJobId, [])
 
-  await page.goto('/jobs')
+  await page.goto('/jobs/new')
   await page.waitForLoadState('networkidle')
 
-  await page.getByRole('button', { name: 'Create New Job' }).click()
-  await expect(page.locator('h2').filter({ hasText: 'Create New Job' })).toBeVisible()
-
-  // Fill the required fields
   await page.locator('input[placeholder*="Senior Frontend"]').fill('New Test Role')
   await page.locator('textarea').first().fill('This is a test job description.')
-
-  // Submit
   await page.getByRole('button', { name: 'Create Job' }).click()
 
-  // Success toast
   await expect(page.getByText('Job created successfully')).toBeVisible({ timeout: 5000 })
-
-  // Modal should close
-  await expect(page.locator('h2').filter({ hasText: 'Create New Job' })).not.toBeVisible({ timeout: 5000 })
+  await expect(page).toHaveURL(`/jobs/${newJobId}`)
+  await expect(page.getByRole('heading', { name: 'New Test Role' })).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
-// 6. Create Job API error — 422 shows error toast and inline message
+// 6. Create Job API error — 422 shows error and stays on create page
 // ---------------------------------------------------------------------------
 
 test('Create Job shows error on 422 API error', async ({ page }) => {
-  await mockGetJobsSafe(page)
+  await mockLayoutWithJobs(page)
   await mockPostJob(page, 422)
 
-  await page.goto('/jobs')
+  await page.goto('/jobs/new')
   await page.waitForLoadState('networkidle')
 
-  await page.getByRole('button', { name: 'Create New Job' }).click()
-  await expect(page.locator('h2').filter({ hasText: 'Create New Job' })).toBeVisible()
-
-  // Fill required fields
   await page.locator('input[placeholder*="Senior Frontend"]').fill('Bad Job')
   await page.locator('textarea').first().fill('This should fail.')
-
   await page.getByRole('button', { name: 'Create Job' }).click()
 
-  // Error should surface — either as toast or inline banner (first() handles strict mode when both appear)
   await expect(
-    page.locator('text=Failed to create job').or(page.locator('text=Validation error')).first()
+    page.locator('text=Failed to create job').or(page.locator('text=Validation error')).first(),
   ).toBeVisible({ timeout: 5000 })
-
-  // Modal must remain open so HR can fix the issue
-  await expect(page.locator('h2').filter({ hasText: 'Create New Job' })).toBeVisible()
+  await expect(page).toHaveURL('/jobs/new')
+  await expect(page.getByRole('heading', { name: 'Create New Job' })).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
-// 7. Empty state when no jobs exist — shows CTA button
+// 7. Empty state when no jobs exist
 // ---------------------------------------------------------------------------
 
-test('empty state shows Create Job CTA when no jobs exist', async ({ page }) => {
+test('empty state shows no jobs message in sidebar', async ({ page }) => {
   await page.route('**/api/jobs', route => {
     if (route.request().method() === 'GET') {
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
@@ -196,13 +164,33 @@ test('empty state shows Create Job CTA when no jobs exist', async ({ page }) => 
     }
   })
 
-  await page.goto('/jobs')
+  await page.goto('/')
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByText('No jobs yet')).toBeVisible()
-  await expect(page.getByText('Create your first job to get started.')).toBeVisible()
+  await expect(page.getByRole('navigation').getByText('No jobs yet')).toBeVisible()
+  await createJobLink(page).click()
+  await expect(page).toHaveURL('/jobs/new')
+  await expect(page.getByRole('heading', { name: 'Create New Job' })).toBeVisible()
+})
 
-  // Empty-state Create Job button should open the modal
-  await page.getByRole('button', { name: 'Create Job' }).click()
-  await expect(page.locator('h2').filter({ hasText: 'Create New Job' })).toBeVisible()
+// ---------------------------------------------------------------------------
+// 8. AI Shortlist link navigates to job page
+// ---------------------------------------------------------------------------
+
+test('AI Shortlist link navigates to job shortlist page', async ({ page }) => {
+  await mockLayoutWithJobs(page)
+  await mockGetJob(page, JOB_IDS.frontend, MOCK_JOBS_SAFE[0])
+  await mockGetCandidates(page, JOB_IDS.frontend, [])
+  await mockGetShortlist(page, JOB_IDS.frontend, [])
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
+
+  await page.goto('/')
+  await page.waitForLoadState('networkidle')
+
+  await page.getByRole('button', { name: 'Senior Frontend Engineer' }).click()
+  await page.getByRole('link', { name: 'AI Shortlist' }).click()
+
+  await expect(page).toHaveURL(`/jobs/${JOB_IDS.frontend}`)
+  await expect(page.locator('header').getByText('AI Shortlist')).toBeVisible()
 })

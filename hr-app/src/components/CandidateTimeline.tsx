@@ -7,6 +7,7 @@ import type {
   ScreeningCall,
   InterviewReport,
 } from '@/types/api'
+import { SCREENING_ACTIVE_POLL_MS } from '@/components/screening/screeningRows'
 
 // ---------------------------------------------------------------------------
 // Stage status type
@@ -143,7 +144,7 @@ export function CandidateTimeline({ candidateId, jobId }: Props) {
       const call = data?.find((sc) => sc.candidate_id === candidateId)
       if (!call) return false
       return ['pending', 'initiated', 'in_progress'].includes(call.call_status)
-        ? 8000
+        ? SCREENING_ACTIVE_POLL_MS
         : false
     },
   })
@@ -180,7 +181,7 @@ export function CandidateTimeline({ candidateId, jobId }: Props) {
     ? 'success'
     : parseStatus === 'parse_failed'
     ? 'fail'
-    : ['parsing', 'parsed', 'embedding_done'].includes(parseStatus)
+    : ['parsing', 'parsed'].includes(parseStatus)
     ? 'in_progress'
     : 'pending'
 
@@ -191,9 +192,11 @@ export function CandidateTimeline({ candidateId, jobId }: Props) {
       ? 'Parsing failed — re-upload resume'
       : parseStatus === 'parsing'
       ? 'Parsing in progress…'
-      : parseStatus === 'embedding_done'
+      : parseStatus === 'parsed'
       ? 'Generating embeddings…'
       : parseStatus === 'pending_parse'
+      ? 'Waiting for a parse slot'
+      : parseStatus === 'parse_queued'
       ? 'Queued for parsing'
       : 'Waiting to parse'
 
@@ -229,7 +232,11 @@ export function CandidateTimeline({ candidateId, jobId }: Props) {
 
   const assessmentDetail = report
     ? [
-        report.overall_score != null ? `Score: ${report.overall_score}/100` : null,
+        report.overall_score != null
+          ? report.rubric_total != null
+            ? `Score: ${report.overall_score}/${report.rubric_total}`
+            : `Score: ${report.overall_score}/100`
+          : null,
         report.final_recommendation
           ? `Recommendation: ${report.final_recommendation.replace(/_/g, ' ')}`
           : null,

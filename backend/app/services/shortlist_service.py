@@ -7,6 +7,7 @@ from tests. Uses AsyncSession passed by the caller (NullPool for Celery,
 regular pool for FastAPI).
 """
 
+import asyncio
 import json
 import logging
 import math
@@ -41,10 +42,22 @@ def _build_jd_text(job: Job) -> str:
     parts = [job.title, job.description]
     if job.required_skills:
         parts.append("Required skills: " + ", ".join(job.required_skills))
-    if job.screening_criteria:
-        parts.append(job.screening_criteria)
-    if job.interview_evaluation_criteria:
-        parts.append(job.interview_evaluation_criteria)
+    if job.screening_questions:
+        q_lines = [
+            (q.get("question") or "").strip()
+            for q in job.screening_questions
+            if isinstance(q, dict) and (q.get("question") or "").strip()
+        ]
+        if q_lines:
+            parts.append("Screening questions: " + "; ".join(q_lines))
+    if job.interview_questions:
+        q_lines = [
+            (q.get("question") or "").strip()
+            for q in job.interview_questions
+            if isinstance(q, dict) and (q.get("question") or "").strip()
+        ]
+        if q_lines:
+            parts.append("Interview questions: " + "; ".join(q_lines))
     return "\n\n".join(p for p in parts if p)
 
 
@@ -71,7 +84,7 @@ def _build_jd_summary(job: Job) -> dict:
         "required_skills": job.required_skills or [],
         "experience_min": job.experience_min,
         "experience_max": job.experience_max,
-        "screening_criteria": job.screening_criteria,
+        "screening_questions": job.screening_questions or [],
     }
 
 
@@ -146,95 +159,92 @@ async def _gpt4o_assess(
     return match_score, recommendation, strengths, gaps, reason
 
 
-# ---------------------------------------------------------------------------
-# Main service entry point (Task 4.5)
-# ---------------------------------------------------------------------------
+def _cosine_similarity_for_candidate(
+    candidate: Candidate,
+    jd_embedding: list[float],
+) -> float:
+    """Cosine similarity between JD and candidate resume embedding (0.0 if unavailable)."""
+    if not jd_embedding or candidate.resume_embedding is None:
+        logger.info(
+            "shortlist_candidates: no embedding for candidate %s (resume_embedding=%r) — skipping cosine, using GPT-4o only",
+            candidate.id,
+            type(candidate.resume_embedding).__name__,
+        )
+        return 0.0
+    try:
+        return _cosine_similarity(jd_embedding, list(candidate.resume_embedding))
+    except Exception as exc:
+        logger.warning("Cosine similarity failed for candidate %s: %s", candidate.id, exc)
+        return 0.0
 
-async def shortlist_candidates(
-    job_id: uuid.UUID, db: AsyncSession
-) -> list[ShortlistResult]:
-    """
-    Run AI shortlisting for all ready candidates in a job.
 
-    Steps:
-    1. Load job + all candidates with parse_status = 'ready'
-    2. Build JD text → generate JD embedding
-    3. For each candidate: cosine similarity + GPT-4o assessment
-    4. Upsert ShortlistResult records
-    5. Return list of upserted records
-
-    Raises:
-        ValueError: if job not found
-        openai.*: if OpenAI API fails (let caller handle retries)
-    """
-    from openai import AsyncOpenAI  # local import — avoids circular at task discovery time
-
-    # --- Load job ---
-    job_result = await db.execute(select(Job).where(Job.id == job_id))
-    job = job_result.scalar_one_or_none()
-    if not job:
-        raise ValueError(f"Job {job_id} not found")
-
-    # --- Load all ready candidates ---
-    candidates_result = await db.execute(
-        select(Candidate).where(
-            Candidate.job_id == job_id,
-            Candidate.parse_status == "ready",
+async def _upsert_shortlist_result(
+    db: AsyncSession,
+    job_id: uuid.UUID,
+    candidate: Candidate,
+    match_score: float,
+    recommendation: str,
+    strengths: list[str],
+    gaps: list[str],
+    reason: str,
+) -> ShortlistResult:
+    existing_result = await db.execute(
+        select(ShortlistResult).where(
+            ShortlistResult.job_id == job_id,
+            ShortlistResult.candidate_id == candidate.id,
         )
     )
-    candidates = candidates_result.scalars().all()
+    existing = existing_result.scalar_one_or_none()
 
-    if not candidates:
-        logger.info("shortlist_candidates: no ready candidates for job %s — checking all statuses for debug", job_id)
-        # Debug: log all candidate statuses for this job
-        all_result = await db.execute(select(Candidate).where(Candidate.job_id == job_id))
-        all_candidates = all_result.scalars().all()
-        for c in all_candidates:
-            logger.info("  candidate %s has parse_status=%r", c.id, c.parse_status)
-        return []
+    if existing:
+        existing.match_score = match_score
+        existing.recommendation = recommendation
+        existing.strengths = strengths
+        existing.gaps = gaps
+        existing.reason = reason
+        record = existing
+        logger.debug("Updated existing ShortlistResult for candidate %s", candidate.id)
+    else:
+        record = ShortlistResult(
+            job_id=job_id,
+            candidate_id=candidate.id,
+            match_score=match_score,
+            recommendation=recommendation,
+            strengths=strengths,
+            gaps=gaps,
+            reason=reason,
+            hr_decision="pending",
+        )
+        db.add(record)
+        logger.debug("Created new ShortlistResult for candidate %s", candidate.id)
 
-    logger.info(
-        "shortlist_candidates: scoring %d ready candidates for job %s",
-        len(candidates),
-        job_id,
-    )
+    return record
 
-    # --- Build JD embedding (best-effort — used for cosine similarity hint) ---
-    jd_embedding: list[float] = []
-    try:
-        jd_text = _build_jd_text(job)
-        jd_embedding = await generate_embedding(jd_text)
-    except Exception as exc:
-        logger.warning("shortlist_candidates: failed to build JD embedding — will skip cosine similarity: %s", exc)
 
-    jd_summary = _build_jd_summary(job)
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+async def _score_and_persist_candidate(
+    candidate: Candidate,
+    job_id: uuid.UUID,
+    jd_embedding: list[float],
+    jd_summary: dict,
+    client,
+    semaphore: asyncio.Semaphore,
+    db: AsyncSession,
+    db_lock: asyncio.Lock,
+) -> ShortlistResult:
+    """Score one candidate (GPT under semaphore) and upsert ShortlistResult."""
+    import openai  # local import — avoids circular at task discovery time
 
-    upserted_records: list[ShortlistResult] = []
+    similarity = _cosine_similarity_for_candidate(candidate, jd_embedding)
+    candidate_summary = _build_candidate_summary(candidate)
 
-    for candidate in candidates:
-        # --- Cosine similarity (optional — skip if embedding unavailable) ---
-        similarity = 0.0
-        if jd_embedding and candidate.resume_embedding is not None:
-            try:
-                similarity = _cosine_similarity(jd_embedding, list(candidate.resume_embedding))
-            except Exception as exc:
-                logger.warning("Cosine similarity failed for candidate %s: %s", candidate.id, exc)
-        else:
-            logger.info(
-                "shortlist_candidates: no embedding for candidate %s (resume_embedding=%r) — skipping cosine, using GPT-4o only",
-                candidate.id,
-                type(candidate.resume_embedding).__name__,
-            )
-
-        # --- GPT-4o structured assessment ---
-        candidate_summary = _build_candidate_summary(candidate)
+    async with semaphore:
         try:
             match_score, recommendation, strengths, gaps, reason = await _gpt4o_assess(
                 client, jd_summary, candidate_summary, similarity
             )
+        except (openai.RateLimitError, openai.APIConnectionError):
+            raise
         except Exception as exc:
-            # Log and use cosine-only fallback — don't drop the candidate
             logger.error(
                 "GPT-4o assessment failed for candidate %s (job %s): %s",
                 candidate.id,
@@ -251,44 +261,131 @@ async def shortlist_candidates(
             gaps = []
             reason = "AI assessment unavailable — cosine similarity score used as fallback."
 
-        # --- Upsert ShortlistResult ---
-        existing_result = await db.execute(
-            select(ShortlistResult).where(
-                ShortlistResult.job_id == job_id,
-                ShortlistResult.candidate_id == candidate.id,
-            )
+    async with db_lock:
+        record = await _upsert_shortlist_result(
+            db,
+            job_id,
+            candidate,
+            match_score,
+            recommendation,
+            strengths,
+            gaps,
+            reason,
         )
-        existing = existing_result.scalar_one_or_none()
-
-        if existing:
-            # Re-scoring: update AI fields but preserve HR decision/feedback
-            existing.match_score = match_score
-            existing.recommendation = recommendation
-            existing.strengths = strengths
-            existing.gaps = gaps
-            existing.reason = reason
-            record = existing
-            logger.debug("Updated existing ShortlistResult for candidate %s", candidate.id)
-        else:
-            record = ShortlistResult(
-                job_id=job_id,
-                candidate_id=candidate.id,
-                match_score=match_score,
-                recommendation=recommendation,
-                strengths=strengths,
-                gaps=gaps,
-                reason=reason,
-                hr_decision="pending",
-            )
-            db.add(record)
-            logger.debug("Created new ShortlistResult for candidate %s", candidate.id)
-
-        upserted_records.append(record)
-
-    # Flush all upserts in one commit
-    await db.commit()
-    for record in upserted_records:
+        await db.commit()
         await db.refresh(record)
+
+    return record
+
+
+# ---------------------------------------------------------------------------
+# Main service entry point (Task 4.5)
+# ---------------------------------------------------------------------------
+
+async def shortlist_candidates(
+    job_id: uuid.UUID,
+    db: AsyncSession,
+    candidate_ids: list[uuid.UUID] | None = None,
+) -> list[ShortlistResult]:
+    """
+    Run AI shortlisting for all ready candidates in a job.
+
+    Steps:
+    1. Load job + all candidates with parse_status = 'ready'
+    2. Build JD text → generate JD embedding
+    3. Score candidates in parallel (up to MAX_CONCURRENT_SHORTLISTS GPT calls)
+    4. Upsert ShortlistResult records as each candidate completes
+    5. Return list of upserted records
+
+    Raises:
+        ValueError: if job not found
+        openai.*: if OpenAI API fails (let caller handle retries)
+    """
+    from openai import AsyncOpenAI  # local import — avoids circular at task discovery time
+
+    # --- Load job ---
+    job_result = await db.execute(select(Job).where(Job.id == job_id))
+    job = job_result.scalar_one_or_none()
+    if not job:
+        raise ValueError(f"Job {job_id} not found")
+
+    # --- Load ready candidates (optionally filtered to a subset) ---
+    stmt = select(Candidate).where(
+        Candidate.job_id == job_id,
+        Candidate.parse_status == "ready",
+    )
+    if candidate_ids:
+        stmt = stmt.where(Candidate.id.in_(candidate_ids))
+    candidates_result = await db.execute(stmt)
+    candidates = candidates_result.scalars().all()
+
+    if not candidates:
+        logger.info("shortlist_candidates: no ready candidates for job %s — checking all statuses for debug", job_id)
+        # Debug: log all candidate statuses for this job
+        all_result = await db.execute(select(Candidate).where(Candidate.job_id == job_id))
+        all_candidates = all_result.scalars().all()
+        for c in all_candidates:
+            logger.info("  candidate %s has parse_status=%r", c.id, c.parse_status)
+        return []
+
+    candidate_id_set = [c.id for c in candidates]
+    existing_shortlist = await db.execute(
+        select(ShortlistResult).where(
+            ShortlistResult.job_id == job_id,
+            ShortlistResult.candidate_id.in_(candidate_id_set),
+        )
+    )
+    already_scored = {r.candidate_id: r for r in existing_shortlist.scalars().all()}
+    candidates_to_score = [c for c in candidates if c.id not in already_scored]
+    upserted_from_prior = list(already_scored.values())
+
+    if not candidates_to_score:
+        logger.info(
+            "shortlist_candidates: all %d candidates already scored for job %s",
+            len(candidates),
+            job_id,
+        )
+        return upserted_from_prior
+
+    logger.info(
+        "shortlist_candidates: scoring %d ready candidates for job %s (max_concurrent=%d, %d already scored)",
+        len(candidates_to_score),
+        job_id,
+        settings.MAX_CONCURRENT_SHORTLISTS,
+        len(already_scored),
+    )
+
+    # --- Build JD embedding (best-effort — used for cosine similarity hint) ---
+    jd_embedding: list[float] = []
+    try:
+        jd_text = _build_jd_text(job)
+        jd_embedding = await generate_embedding(jd_text)
+    except Exception as exc:
+        logger.warning("shortlist_candidates: failed to build JD embedding — will skip cosine similarity: %s", exc)
+
+    jd_summary = _build_jd_summary(job)
+    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+
+    semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_SHORTLISTS)
+    db_lock = asyncio.Lock()
+
+    upserted_records: list[ShortlistResult] = list(upserted_from_prior)
+    newly_scored = await asyncio.gather(
+        *[
+            _score_and_persist_candidate(
+                candidate,
+                job_id,
+                jd_embedding,
+                jd_summary,
+                client,
+                semaphore,
+                db,
+                db_lock,
+            )
+            for candidate in candidates_to_score
+        ]
+    )
+    upserted_records.extend(newly_scored)
 
     logger.info(
         "shortlist_candidates: completed %d shortlist records for job %s",

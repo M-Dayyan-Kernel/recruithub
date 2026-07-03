@@ -1,45 +1,48 @@
 /**
- * job-detail.spec.ts — E2E tests for JobDetailPage
+ * job-detail.spec.ts — E2E tests for JobShortlistPage (under JobLayout)
  *
- * Mocks: GET /api/jobs/:id, GET /api/jobs/:id/candidates,
- *        GET /api/jobs/:id/shortlist, GET /api/jobs/:id/screening,
- *        GET /api/jobs/:id/interviews
+ * Mocks: GET /api/jobs/:id, GET /api/jobs/:id/candidates, GET /api/jobs/:id/shortlist/status
  */
 
 import { test, expect } from '@playwright/test'
 import {
   MOCK_JOBS,
-  MOCK_CANDIDATES,
-  MOCK_SHORTLIST,
-  MOCK_SCREENING,
   JOB_IDS,
   CANDIDATE_IDS,
+  MOCK_CANDIDATES,
+  MOCK_SHORTLIST,
+  SHORTLIST_IDS,
+  mockGetJobs,
   mockGetJob,
   mockGetCandidates,
   mockGetShortlist,
+  mockGetShortlistStatus,
+  mockPostShortlist,
+  mockPatchShortlistDecision,
   mockGetScreening,
-  mockCandidateReportCheck,
+  mockGetSettings,
+  mockPostScreeningTrigger,
 } from './fixtures'
 
-const FRONTEND_JOB = MOCK_JOBS[0]  // active, has required_skills
+const FRONTEND_JOB = MOCK_JOBS[0]
 const FRONTEND_URL = `/jobs/${JOB_IDS.frontend}`
 
-// Helper: set up all the standard mocks for the Frontend job detail page
-async function mockFrontendJobDetail(page: import('@playwright/test').Page) {
-  // Job detail
-  await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
-  // Candidates tab (default)
-  await mockGetCandidates(page, JOB_IDS.frontend, MOCK_CANDIDATES.filter(c => c.job_id === JOB_IDS.frontend))
-  // Other tabs
-  await mockGetShortlist(page, JOB_IDS.frontend, MOCK_SHORTLIST)
-  await mockGetScreening(page, JOB_IDS.frontend, MOCK_SCREENING)
-  // InterviewsTab checks report existence per passed candidate — Alice passed screening
-  await mockCandidateReportCheck(page, CANDIDATE_IDS.alice, false)
-}
+const WORKFLOW_TABS = [
+  'Upload',
+  'Parsing',
+  'Parsed Resumes',
+  'AI Shortlisting',
+  'AI Shortlisted',
+] as const
 
-// ---------------------------------------------------------------------------
-// 1. Job detail page loads — title, skills, experience shown
-// ---------------------------------------------------------------------------
+async function mockFrontendJobDetail(page: import('@playwright/test').Page) {
+  await mockGetJobs(page)
+  await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
+  await mockGetCandidates(page, JOB_IDS.frontend, [])
+  await mockGetShortlist(page, JOB_IDS.frontend, [])
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
+}
 
 test('job detail page loads with title, skills, and experience range', async ({ page }) => {
   await mockFrontendJobDetail(page)
@@ -47,131 +50,60 @@ test('job detail page loads with title, skills, and experience range', async ({ 
   await page.goto(FRONTEND_URL)
   await page.waitForLoadState('networkidle')
 
-  // Job title in header card
   await expect(page.getByRole('heading', { name: 'Senior Frontend Engineer' })).toBeVisible()
-
-  // Experience range
   await expect(page.getByText('3–7 years experience required')).toBeVisible()
-
-  // Skill chips — exact: true avoids matching description text containing these words
   await expect(page.getByText('React', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('TypeScript', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('GraphQL', { exact: true }).first()).toBeVisible()
-
-  // Status badge
   await expect(page.getByText('Active').first()).toBeVisible()
 })
 
-// ---------------------------------------------------------------------------
-// 2. Candidates tab is the default view — grid renders
-// ---------------------------------------------------------------------------
-
-test('Candidates tab is default and renders candidate cards', async ({ page }) => {
+test('AI Shortlisted tab is default on job detail load', async ({ page }) => {
   await mockFrontendJobDetail(page)
 
   await page.goto(FRONTEND_URL)
   await page.waitForLoadState('networkidle')
 
-  // Candidates tab should be active by default
-  await expect(page.getByRole('button', { name: /Candidates/i })).toBeVisible()
-
-  // Candidate names should be visible somewhere on the page
-  await expect(page.getByText('Alice Sharma')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'AI Shortlisted', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'AI Shortlisted' })).toBeVisible()
+  await expect(page.getByText('No candidates have been scored yet.')).toBeVisible()
 })
 
-// ---------------------------------------------------------------------------
-// 3. Candidate cards show parse_status badges
-// ---------------------------------------------------------------------------
-
-test('candidate cards display parse status badges correctly', async ({ page }) => {
+test('Upload tab shows upload UI', async ({ page }) => {
   await mockFrontendJobDetail(page)
 
   await page.goto(FRONTEND_URL)
   await page.waitForLoadState('networkidle')
 
-  // The CandidatesTab renders badges based on parse_status
-  // "ready" → shows as Ready or similar
-  // "parsing" → shows as Parsing
-  // "parse_failed" → shows as Failed or similar
-  // We search broadly since the exact badge text depends on the component
-
-  // Alice is "ready" — should appear without error badge
-  await expect(page.getByText('Alice Sharma')).toBeVisible()
-
-  // Check that the page renders all 3 candidates without crashing
-  await expect(page.getByText('Bob Martinez')).toBeVisible()
-  await expect(page.getByText('Charlie Nguyen')).toBeVisible()
+  await page.getByRole('button', { name: 'Upload', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Upload Resumes' })).toBeVisible()
+  await expect(page.getByText('No resumes in queue.')).toBeVisible()
 })
 
-// ---------------------------------------------------------------------------
-// 4. Shortlist tab renders results with score badges
-// ---------------------------------------------------------------------------
-
-test('Shortlist tab renders shortlist results with scores', async ({ page }) => {
+test('each workflow tab shows its empty state', async ({ page }) => {
   await mockFrontendJobDetail(page)
 
   await page.goto(FRONTEND_URL)
   await page.waitForLoadState('networkidle')
 
-  // Click Shortlist tab — exact: true avoids matching "Run AI Shortlist" button
-  await page.getByRole('button', { name: 'Shortlist', exact: true }).click()
+  const emptyStates: Record<(typeof WORKFLOW_TABS)[number], string> = {
+    Upload: 'No resumes in queue.',
+    Parsing: 'No resumes are currently being parsed.',
+    'Parsed Resumes': 'No parsed resumes available.',
+    'AI Shortlisting': 'No resumes are currently being shortlisted.',
+    'AI Shortlisted': 'No candidates have been scored yet.',
+  }
 
-  // Wait for shortlist content to load
-  await page.waitForLoadState('networkidle')
-
-  // Alice's shortlist entry — score and name visible
-  await expect(page.getByText('Alice Sharma').first()).toBeVisible()
-  // Score 87.5 should appear somewhere (possibly formatted as "88" or "87.5")
-  await expect(page.getByText(/87|88/).first()).toBeVisible()
+  for (const tab of WORKFLOW_TABS) {
+    await page.getByRole('button', { name: tab, exact: true }).click()
+    await expect(page.getByText(emptyStates[tab])).toBeVisible()
+  }
 })
-
-// ---------------------------------------------------------------------------
-// 5. Screening tab renders call results
-// ---------------------------------------------------------------------------
-
-test('Screening tab renders screening call results', async ({ page }) => {
-  await mockFrontendJobDetail(page)
-
-  await page.goto(FRONTEND_URL)
-  await page.waitForLoadState('networkidle')
-
-  // Switch to Screening tab
-  await page.getByRole('button', { name: 'Screening' }).click()
-  await page.waitForLoadState('networkidle')
-
-  // Both screening candidates should appear
-  await expect(page.getByText('Alice Sharma').first()).toBeVisible()
-  await expect(page.getByText('Bob Martinez').first()).toBeVisible()
-})
-
-// ---------------------------------------------------------------------------
-// 6. Interviews tab renders interview sessions
-// ---------------------------------------------------------------------------
-
-test('Interviews tab renders passed-screening candidates as interview candidates', async ({ page }) => {
-  await mockFrontendJobDetail(page)
-
-  await page.goto(FRONTEND_URL)
-  await page.waitForLoadState('networkidle')
-
-  await page.getByRole('button', { name: 'Interviews' }).click()
-  await page.waitForLoadState('networkidle')
-
-  // Alice passed screening (result=pass, call_status=completed) — she should appear
-  // in the Interviews tab with a "Not Sent" status and a Send Interview Link button
-  await expect(page.getByText('Alice Sharma').first()).toBeVisible()
-  // Bob failed screening — should NOT appear
-  await expect(page.getByText('Bob Martinez')).not.toBeVisible()
-})
-
-// ---------------------------------------------------------------------------
-// 7. 404 job — renders "Job not found" state
-// ---------------------------------------------------------------------------
 
 test('404 job renders Job not found state', async ({ page }) => {
   const nonExistentId = 'xxxxxxxx-dead-beef-0000-000000000000'
 
-  // Return 404 for this job
+  await mockGetJobs(page)
   await page.route(`**/api/jobs/${nonExistentId}`, route => {
     if (route.request().method() !== 'GET') return route.continue()
     route.fulfill({
@@ -185,68 +117,235 @@ test('404 job renders Job not found state', async ({ page }) => {
   await page.waitForLoadState('networkidle')
 
   await expect(page.getByText('Job not found')).toBeVisible()
-  await expect(page.getByRole('link', { name: /Back to Jobs/i }).first()).toBeVisible()
+  await expect(page.getByRole('link', { name: /Back to Dashboard/i }).first()).toBeVisible()
 })
 
-// ---------------------------------------------------------------------------
-// 8. Job detail page with null required_skills renders cleanly
-// ---------------------------------------------------------------------------
-
 test('job with null required_skills renders without skill chips or crash', async ({ page }) => {
-  const backendJob = MOCK_JOBS[1] // has null required_skills
+  const backendJob = MOCK_JOBS[1]
+  await mockGetJobs(page)
   await mockGetJob(page, JOB_IDS.backend, backendJob)
-  await mockGetCandidates(page, JOB_IDS.backend, MOCK_CANDIDATES.filter(c => c.job_id === JOB_IDS.backend))
-  await mockGetShortlist(page, JOB_IDS.backend, [])
+  await mockGetCandidates(page, JOB_IDS.backend, [])
+  await mockGetShortlistStatus(page, JOB_IDS.backend)
   await mockGetScreening(page, JOB_IDS.backend, [])
 
   await page.goto(`/jobs/${JOB_IDS.backend}`)
   await page.waitForLoadState('networkidle')
 
   await expect(page.getByRole('heading', { name: 'Backend Python Engineer' })).toBeVisible()
-
-  // No error boundary or crash indicator
   await expect(page.locator('text=Something went wrong')).not.toBeVisible()
 })
 
-// ---------------------------------------------------------------------------
-// 9. Tab count badge on Candidates tab reflects candidate count
-// ---------------------------------------------------------------------------
+test('send parsed resume to AI shortlisting shows progress then scored results', async ({ page }) => {
+  const alice = MOCK_CANDIDATES.find((c) => c.id === CANDIDATE_IDS.alice)!
+  const aliceShortlist = MOCK_SHORTLIST.find((r) => r.candidate_id === CANDIDATE_IDS.alice)!
 
-test('Candidates tab shows candidate count badge', async ({ page }) => {
-  await mockFrontendJobDetail(page)
+  let shortlistResults: typeof MOCK_SHORTLIST = []
+  let statusState = {
+    in_progress: true,
+    candidate_ids: [CANDIDATE_IDS.alice],
+    completed: 0,
+    total: 1,
+    failed: 0,
+  }
 
-  await page.goto(FRONTEND_URL)
-  await page.waitForLoadState('networkidle')
-
-  // There are 3 candidates for the frontend job — badge should show 3
-  const candidatesTab = page.getByRole('button', { name: /Candidates/i })
-  await expect(candidatesTab).toContainText('3')
-})
-
-// ---------------------------------------------------------------------------
-// 10. Back navigation link returns to /jobs
-// ---------------------------------------------------------------------------
-
-test('Back to Jobs link navigates to /jobs', async ({ page }) => {
+  await mockGetJobs(page)
   await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
-  await mockGetCandidates(page, JOB_IDS.frontend, [])
-  await mockGetShortlist(page, JOB_IDS.frontend, [])
+  await mockGetCandidates(page, JOB_IDS.frontend, [alice])
+  await mockPostShortlist(page, JOB_IDS.frontend)
+  await mockGetShortlistStatus(page, JOB_IDS.frontend, statusState)
+  await mockGetShortlist(page, JOB_IDS.frontend, shortlistResults)
   await mockGetScreening(page, JOB_IDS.frontend, [])
 
-  // Also mock jobs list for the /jobs landing
-  await page.route('**/api/jobs', route => {
-    if (route.request().method() === 'GET') {
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MOCK_JOBS) })
-    } else {
-      route.continue()
+  await page.route(`**/api/jobs/${JOB_IDS.frontend}/shortlist/status`, (route) => {
+    if (route.request().method() !== 'GET') return route.continue()
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(statusState),
+    })
+  })
+
+  await page.route(`**/api/jobs/${JOB_IDS.frontend}/shortlist`, (route) => {
+    if (route.request().url().includes('/shortlist/status')) return route.continue()
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { candidate_ids?: string[] } | null
+      const ids = body?.candidate_ids ?? []
+      route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'shortlisting_started',
+          job_id: JOB_IDS.frontend,
+          candidate_ids: ids,
+        }),
+      })
+      return
     }
+    if (route.request().method() !== 'GET') return route.continue()
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(shortlistResults),
+    })
   })
 
   await page.goto(FRONTEND_URL)
   await page.waitForLoadState('networkidle')
 
-  await page.getByRole('link', { name: /Back to Jobs/i }).click()
+  await page.getByRole('button', { name: 'Parsed Resumes', exact: true }).click()
+  await expect(page.getByText('Alice Sharma')).toBeVisible()
 
-  await expect(page).toHaveURL('/jobs')
-  await expect(page.getByRole('heading', { name: 'Jobs' }).first()).toBeVisible()
+  await page.getByRole('checkbox', { name: 'Select Alice Sharma' }).check()
+  await expect(page.getByRole('button', { name: 'Send to AI Shortlisting' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Send to AI Shortlisting' }).click()
+
+  await expect(page.getByRole('heading', { name: 'AI Shortlisting' })).toBeVisible()
+  await expect(page.getByText('Alice Sharma')).toBeVisible()
+  await expect(page.getByText('Scoring…')).toBeVisible()
+
+  shortlistResults = [aliceShortlist]
+  statusState = {
+    in_progress: false,
+    candidate_ids: [CANDIDATE_IDS.alice],
+    completed: 1,
+    total: 1,
+    failed: 0,
+  }
+
+  await expect(page.getByText('All candidates scored — opening AI Shortlisted…')).toBeVisible({
+    timeout: 10000,
+  })
+  await expect(page.getByRole('heading', { name: 'AI Shortlisted' })).toBeVisible({ timeout: 10000 })
+  await expect(page.getByRole('option', { name: /Alice Sharma/i })).toBeVisible()
+  await expect(page.getByText(/8[78]%/).first()).toBeVisible()
+})
+
+test('AI Shortlisted tab supports split-pane approve', async ({ page }) => {
+  const aliceShortlist = MOCK_SHORTLIST.find((r) => r.candidate_id === CANDIDATE_IDS.alice)!
+  const patched: Array<{ id: string; hr_decision: string }> = []
+
+  await mockGetJobs(page)
+  await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
+  await mockGetCandidates(page, JOB_IDS.frontend, [])
+  await mockGetShortlist(page, JOB_IDS.frontend, [aliceShortlist])
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
+  await mockPatchShortlistDecision(page, (id, hrDecision) => {
+    patched.push({ id, hr_decision: hrDecision })
+  })
+
+  await page.goto(FRONTEND_URL)
+  await page.waitForLoadState('networkidle')
+
+  await page.getByRole('button', { name: 'AI Shortlisted', exact: true }).click()
+  await expect(page.getByRole('listbox', { name: 'Shortlisted candidates' })).toBeVisible()
+  await expect(page.getByRole('option', { name: /Alice Sharma/i })).toBeVisible()
+  await expect(page.getByText('Required skill match')).toBeVisible()
+  await expect(page.getByText('Matched').first()).toBeVisible()
+
+  await page.getByRole('button', { name: 'Approve', exact: true }).click()
+
+  await expect(page.getByText('Approved').first()).toBeVisible({ timeout: 5000 })
+  expect(patched).toHaveLength(1)
+  expect(patched[0].id).toBe(SHORTLIST_IDS.alice)
+  expect(patched[0].hr_decision).toBe('approved')
+})
+
+test('Delete Job button is visible on AI Shortlist route', async ({ page }) => {
+  await mockFrontendJobDetail(page)
+
+  await page.goto(FRONTEND_URL)
+  await page.waitForLoadState('networkidle')
+
+  await expect(page.getByRole('button', { name: 'Delete Job' })).toBeVisible()
+})
+
+test('Delete Job button is hidden on Screening route', async ({ page }) => {
+  await mockGetJobs(page)
+  await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
+  await mockGetCandidates(page, JOB_IDS.frontend, [])
+  await mockGetShortlist(page, JOB_IDS.frontend, [])
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
+  await mockGetSettings(page)
+
+  await page.goto(`/jobs/${JOB_IDS.frontend}/screening`)
+  await page.waitForLoadState('networkidle')
+
+  await expect(page.getByRole('button', { name: 'Delete Job' })).not.toBeVisible()
+})
+
+test('Screening page shows settings card and tabs', async ({ page }) => {
+  const approvedShortlist = MOCK_SHORTLIST.map((s) =>
+    s.candidate_id === CANDIDATE_IDS.alice ? { ...s, hr_decision: 'approved' } : s,
+  )
+
+  await mockGetJobs(page)
+  await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
+  await mockGetCandidates(page, JOB_IDS.frontend, MOCK_CANDIDATES.filter((c) => c.job_id === JOB_IDS.frontend))
+  await mockGetShortlist(page, JOB_IDS.frontend, approvedShortlist)
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
+  await mockGetSettings(page)
+  await mockPostScreeningTrigger(page, JOB_IDS.frontend)
+
+  await page.goto(`/jobs/${JOB_IDS.frontend}/screening`)
+  await page.waitForLoadState('networkidle')
+
+  await expect(page.getByText('Screening Call Settings')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Pending' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Completed' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Flagged' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Start Calling Now' })).toBeVisible()
+})
+
+test('Screening Call Now triggers force screening', async ({ page }) => {
+  const approvedShortlist = MOCK_SHORTLIST.map((s) =>
+    s.candidate_id === CANDIDATE_IDS.alice ? { ...s, hr_decision: 'approved' } : s,
+  )
+  let triggerBody: { force?: boolean; candidate_ids?: string[] } | null = null
+
+  await mockGetJobs(page)
+  await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
+  await mockGetCandidates(page, JOB_IDS.frontend, MOCK_CANDIDATES.filter((c) => c.job_id === JOB_IDS.frontend))
+  await mockGetShortlist(page, JOB_IDS.frontend, approvedShortlist)
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
+  await mockGetSettings(page)
+  await mockPostScreeningTrigger(page, JOB_IDS.frontend, (body) => {
+    triggerBody = body as { force?: boolean; candidate_ids?: string[] }
+  })
+
+  await page.goto(`/jobs/${JOB_IDS.frontend}/screening`)
+  await page.waitForLoadState('networkidle')
+
+  await page.getByRole('button', { name: 'Call Now' }).first().click()
+  await expect(page.getByText('Calling Alice Sharma')).toBeVisible({ timeout: 5000 })
+  expect(triggerBody?.force).toBe(true)
+  expect(triggerBody?.candidate_ids).toContain(CANDIDATE_IDS.alice)
+})
+
+test('deleting a job navigates to dashboard', async ({ page }) => {
+  let deleted = false
+
+  await mockGetJobs(page)
+  await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB, {
+    onDelete: () => {
+      deleted = true
+    },
+  })
+  await mockGetCandidates(page, JOB_IDS.frontend, [])
+  await mockGetShortlist(page, JOB_IDS.frontend, [])
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
+
+  await page.goto(FRONTEND_URL)
+  await page.waitForLoadState('networkidle')
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: 'Delete Job' }).click()
+
+  await expect(page.getByText('Job deleted')).toBeVisible({ timeout: 5000 })
+  await expect(page).toHaveURL('/')
+  expect(deleted).toBe(true)
 })

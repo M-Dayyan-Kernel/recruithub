@@ -1,7 +1,7 @@
 import { useState, useRef, type DragEvent, type ChangeEvent } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Upload, Link2, Loader2, AlertCircle, CheckCircle, XCircle, Sparkles, Search, Trash2 } from 'lucide-react'
+import { Upload, Loader2, AlertCircle, CheckCircle, XCircle, Sparkles, Search, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Candidate } from '@/types/api'
 import { CandidateDetailModal } from '@/components/CandidateDetailModal'
@@ -15,10 +15,10 @@ const statusConfig: Record<
   Candidate['parse_status'],
   { label: string; className: string; spinner?: boolean }
 > = {
-  pending_parse: { label: 'Queued', className: 'bg-slate-100 text-slate-500' },
+  pending_parse: { label: 'Waiting', className: 'bg-amber-100 text-amber-700' },
+  parse_queued: { label: 'Queued', className: 'bg-slate-100 text-slate-500' },
   parsing: { label: 'Parsing...', className: 'bg-blue-100 text-blue-700', spinner: true },
   parsed: { label: 'Parsed', className: 'bg-amber-100 text-amber-700', spinner: true },
-  embedding_done: { label: 'Processing', className: 'bg-indigo-100 text-indigo-700', spinner: true },
   ready: { label: 'Ready', className: 'bg-emerald-100 text-emerald-700' },
   parse_failed: { label: 'Failed', className: 'bg-rose-100 text-rose-700' },
 }
@@ -72,9 +72,9 @@ function CandidateCard({
   const isClickable = candidate.parse_status === 'ready'
   const isProcessing =
     candidate.parse_status === 'pending_parse' ||
+    candidate.parse_status === 'parse_queued' ||
     candidate.parse_status === 'parsing' ||
-    candidate.parse_status === 'parsed' ||
-    candidate.parse_status === 'embedding_done'
+    candidate.parse_status === 'parsed'
 
   const displayName =
     candidate.parsed_data?.name ??
@@ -130,10 +130,6 @@ function UploadZone({ jobId }: UploadZoneProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [uploadCount, setUploadCount] = useState(0)
   const [fileError, setFileError] = useState<string | null>(null)
-  const [driveUrl, setDriveUrl] = useState('')
-  const [driveLoading, setDriveLoading] = useState(false)
-  const [driveError, setDriveError] = useState<string | null>(null)
-  const [driveNotConfigured, setDriveNotConfigured] = useState(false)
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -182,31 +178,6 @@ function UploadZone({ jobId }: UploadZoneProps) {
   const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     void handleFiles(e.target.files)
     e.target.value = ''
-  }
-
-  const handleDriveImport = async () => {
-    if (!driveUrl.trim()) {
-      setDriveError('Please enter a Google Drive URL')
-      return
-    }
-    setDriveError(null)
-    setDriveNotConfigured(false)
-    setDriveLoading(true)
-    try {
-      await api.post(`/api/jobs/${jobId}/resumes/drive`, { drive_url: driveUrl.trim() })
-      setDriveUrl('')
-      queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
-    } catch (err) {
-      const message = (err as Error).message ?? ''
-      const status = (err as { response?: { status?: number } }).response?.status
-      if (message.includes('google_drive_not_configured') || status === 503) {
-        setDriveNotConfigured(true)
-      } else {
-        setDriveError(message || 'Drive import failed. Please try again.')
-      }
-    } finally {
-      setDriveLoading(false)
-    }
   }
 
   return (
@@ -259,55 +230,6 @@ function UploadZone({ jobId }: UploadZoneProps) {
           <p className="text-sm text-amber-700">{fileError}</p>
         </div>
       )}
-
-      {/* Google Drive import */}
-      <div>
-        <div className="flex gap-2">
-          <input
-            type="url"
-            value={driveUrl}
-            onChange={e => {
-              setDriveUrl(e.target.value)
-              setDriveError(null)
-              setDriveNotConfigured(false)
-            }}
-            placeholder="Paste Google Drive folder/file URL…"
-            disabled={driveLoading}
-            className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50 ${
-              driveError ? 'border-rose-400' : 'border-slate-200'
-            }`}
-          />
-          <button
-            onClick={() => void handleDriveImport()}
-            disabled={!driveUrl.trim() || driveLoading}
-            className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-sm font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
-          >
-            {driveLoading ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Link2 size={14} />
-            )}
-            Import
-          </button>
-        </div>
-
-        {driveError && (
-          <p className="mt-1.5 text-xs text-rose-600 flex items-center gap-1">
-            <AlertCircle size={11} />
-            {driveError}
-          </p>
-        )}
-
-        {/* Drive 503 fallback — friendly inline message, NOT a crash */}
-        {driveNotConfigured && (
-          <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3.5 py-2.5">
-            <AlertCircle size={14} className="text-amber-500 mt-0.5 shrink-0" />
-            <p className="text-sm text-amber-700">
-              Google Drive integration isn't set up yet. Please upload files directly instead.
-            </p>
-          </div>
-        )}
-      </div>
     </div>
   )
 }
@@ -409,7 +331,7 @@ export function CandidatesTab({ jobId, onShortlistTriggered }: Props) {
     queryFn: () => api.get(`/api/jobs/${jobId}/candidates`) as unknown as Promise<Candidate[]>,
     refetchInterval: (query) => {
       const hasPending = ((query.state.data ?? []) as Candidate[]).some((c) =>
-        ['pending_parse', 'parsing', 'parsed', 'embedding_done'].includes(c.parse_status),
+        ['pending_parse', 'parse_queued', 'parsing', 'parsed'].includes(c.parse_status),
       )
       if (!hasPending) return false
       const elapsed = Date.now() - pollStartTime
@@ -487,7 +409,8 @@ export function CandidatesTab({ jobId, onShortlistTriggered }: Props) {
               <option value="all">All Statuses</option>
               <option value="ready">Ready</option>
               <option value="parsing">Parsing</option>
-              <option value="pending_parse">Queued</option>
+              <option value="pending_parse">Waiting</option>
+              <option value="parse_queued">Queued</option>
               <option value="parse_failed">Failed</option>
             </select>
           </div>

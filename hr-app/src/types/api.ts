@@ -1,3 +1,29 @@
+export interface ScreeningQuestion {
+  id: string
+  question: string
+}
+
+export interface InterviewQuestion {
+  id: string
+  question: string
+  score: number
+}
+
+export interface InterviewQuestionScore extends InterviewQuestion {
+  earned_score?: number | null
+  notes?: string | null
+}
+
+export interface ParsedJobDescription {
+  title: string
+  description: string
+  required_skills: string[]
+  experience_min?: number | null
+  experience_max?: number | null
+  screening_questions?: ScreeningQuestion[]
+  interview_questions?: InterviewQuestion[]
+}
+
 export interface Job {
   id: string
   title: string
@@ -5,8 +31,12 @@ export interface Job {
   required_skills: string[] | null
   experience_min?: number
   experience_max?: number
-  screening_criteria?: string
-  interview_evaluation_criteria?: string
+  screening_questions?: ScreeningQuestion[]
+  interview_questions?: InterviewQuestion[]
+  interview_total_score?: number
+  screening_call_from?: string | null
+  screening_call_to?: string | null
+  screening_timezone?: string
   status: 'open' | 'closed' | 'paused' | 'active' | 'draft'
   created_at: string
   updated_at: string
@@ -98,6 +128,20 @@ export interface ScreeningCall {
   created_at: string
 }
 
+export interface SystemSettings {
+  allowed_phone_regions: string[]
+  enforce_phone_geography: boolean
+  screening_max_retries: number
+  screening_retry_delay_seconds: number
+  updated_at: string
+}
+
+export interface ScreeningTriggerResponse {
+  initiated: number
+  queued: number
+  skipped: Array<{ id?: string; name?: string; reason: string }>
+}
+
 // ---------------------------------------------------------------------------
 // Interview
 // ---------------------------------------------------------------------------
@@ -127,6 +171,8 @@ export interface InterviewReport {
   experience_score?: number
   role_alignment_score?: number
   overall_score?: number
+  rubric_total?: number | null
+  question_scores?: InterviewQuestionScore[]
   strengths?: string[]
   weaknesses?: string[]
   jd_fit?: string
@@ -138,6 +184,14 @@ export interface InterviewReport {
   created_at: string
 }
 
+export interface ShortlistStatusResponse {
+  in_progress: boolean
+  candidate_ids: string[]
+  completed: number
+  total: number
+  failed: number
+}
+
 export interface Candidate {
   id: string
   job_id: string
@@ -145,12 +199,13 @@ export interface Candidate {
   email?: string | null
   phone?: string | null
   resume_file_path?: string | null
+  original_filename?: string | null
   parsed_data?: ParsedData | null
   parse_status:
     | 'pending_parse'
+    | 'parse_queued'
     | 'parsing'
     | 'parsed'
-    | 'embedding_done'
     | 'ready'
     | 'parse_failed'
   created_at: string

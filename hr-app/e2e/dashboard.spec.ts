@@ -108,8 +108,8 @@ test('empty state shows when no jobs exist', async ({ page }) => {
   await page.waitForLoadState('networkidle')
 
   // Empty state messaging in the jobs overview section
-  await expect(page.getByText('No jobs yet')).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Go to Jobs' })).toBeVisible()
+  await expect(page.getByRole('main').getByText('No jobs yet')).toBeVisible()
+  await expect(page.getByText('Click + next to Jobs in the sidebar to create your first job.')).toBeVisible()
 
   // No table data rows should render
   await expect(page.locator('tbody tr')).toHaveCount(0)

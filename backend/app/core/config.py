@@ -18,11 +18,11 @@ class Settings(BaseSettings):
     CANDIDATE_APP_URL: str = "http://localhost:5174"
 
     UPLOAD_DIR: str = "uploads/resumes"
-
-    GOOGLE_DRIVE_API_KEY: str = ""
-    # Service-account JSON string for Drive API access.
-    # Set the full JSON contents (not a path) as the env var value.
-    GOOGLE_DRIVE_CREDENTIALS_JSON: str = ""
+    MAX_CONCURRENT_PARSES: int = 10
+    MAX_CONCURRENT_SHORTLISTS: int = 10
+    MAX_ZIP_FILE_SIZE: int = 100 * 1024 * 1024  # 100 MB
+    MAX_RESUMES_PER_ZIP: int = 200
+    MAX_ZIP_UNCOMPRESSED_BYTES: int = 500 * 1024 * 1024  # 500 MB
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

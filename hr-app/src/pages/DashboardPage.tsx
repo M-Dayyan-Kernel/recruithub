@@ -300,12 +300,6 @@ export default function DashboardPage() {
           <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <h2 className="font-semibold text-slate-800">Jobs Overview</h2>
-              <Link
-                to="/jobs"
-                className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5 transition-colors"
-              >
-                All jobs <ChevronRight size={13} />
-              </Link>
             </div>
 
             {jobList.length === 0 ? (
@@ -315,14 +309,8 @@ export default function DashboardPage() {
                 </div>
                 <p className="text-slate-600 font-medium mb-1">No jobs yet</p>
                 <p className="text-slate-400 text-sm mb-4">
-                  Create your first job to get started.
+                  Click + next to Jobs in the sidebar to create your first job.
                 </p>
-                <Link
-                  to="/jobs"
-                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
-                >
-                  Go to Jobs
-                </Link>
               </div>
             ) : (
               <div className="overflow-x-auto">

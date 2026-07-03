@@ -155,7 +155,7 @@ export default function ReportPage() {
     <div className="p-6 max-w-5xl mx-auto">
       {/* Back link */}
       <Link
-        to={jobId ? `/jobs/${jobId}` : '/jobs'}
+        to={jobId ? `/jobs/${jobId}` : '/'}
         className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-5 transition-colors"
       >
         <ArrowLeft size={14} />
@@ -215,24 +215,52 @@ export default function ReportPage() {
             <p className="text-6xl font-extrabold text-slate-900">
               {report.overall_score != null ? report.overall_score : '—'}
               {report.overall_score != null && (
-                <span className="text-2xl font-normal text-slate-400">/100</span>
+                <span className="text-2xl font-normal text-slate-400">
+                  {report.rubric_total != null ? `/${report.rubric_total}` : '/100'}
+                </span>
               )}
             </p>
           </div>
 
-          {/* Score grid */}
-          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-            <h2 className="text-base font-semibold text-slate-800 mb-4">Score Breakdown</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {SCORE_LABELS.map(({ key, label }) => (
-                <ScoreCard
-                  key={key}
-                  label={label}
-                  score={report[key] as number | undefined}
-                />
-              ))}
+          {/* Rubric question scores or legacy dimension breakdown */}
+          {report.question_scores && report.question_scores.length > 0 ? (
+            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+              <h2 className="text-base font-semibold text-slate-800 mb-4">Question Scores</h2>
+              <div className="space-y-3">
+                {report.question_scores.map((qs, i) => (
+                  <div
+                    key={qs.id || i}
+                    className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-sm font-medium text-slate-800">
+                        Q{i + 1}. {qs.question}
+                      </p>
+                      <span className="shrink-0 text-sm font-semibold text-indigo-700">
+                        {qs.earned_score != null ? qs.earned_score : '—'}/{qs.score}
+                      </span>
+                    </div>
+                    {qs.notes && (
+                      <p className="mt-1.5 text-xs text-slate-500 leading-relaxed">{qs.notes}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+              <h2 className="text-base font-semibold text-slate-800 mb-4">Score Breakdown</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {SCORE_LABELS.map(({ key, label }) => (
+                  <ScoreCard
+                    key={key}
+                    label={label}
+                    score={report[key] as number | undefined}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Strengths + Weaknesses */}
           {((report.strengths?.length ?? 0) > 0 || (report.weaknesses?.length ?? 0) > 0) && (

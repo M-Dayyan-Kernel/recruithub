@@ -2,54 +2,86 @@
 Phone Validation Service — Sprint 5
 
 Validates and normalises phone numbers to E.164 format for Vapi outbound calls.
-Focuses on Indian numbers (91 country code) but accepts any 10+ digit number.
+When geography enforcement is enabled, only allowed regions (default +91 India) pass.
 """
+
+from __future__ import annotations
 
 import re
 
+from app.services.settings_service import get_system_settings
 
-def validate_phone(phone: str) -> tuple[bool, str]:
+
+def _strip_digits(phone: str) -> str:
+    return re.sub(r"[^\d]", "", phone)
+
+
+def _normalize_indian(digits: str) -> tuple[bool, str]:
+    if digits.startswith("91") and len(digits) == 12:
+        return True, f"+{digits}"
+    if len(digits) == 10:
+        return True, f"+91{digits}"
+    return False, ""
+
+
+def validate_phone_sync(
+    phone: str,
+    *,
+    enforce_geography: bool,
+    allowed_regions: list[str],
+) -> tuple[bool, str, str | None]:
     """
-    Validate and normalise a phone number to E.164 format.
+    Validate and normalise a phone number.
+
+    Returns (is_valid, normalized_e164, reject_reason).
+    """
+    if not phone:
+        return False, "", "No phone number on file"
+
+    digits = _strip_digits(phone)
+    if len(digits) < 10:
+        return False, "", "Invalid phone number"
+
+    if enforce_geography and "IN" in allowed_regions:
+        ok, normalized = _normalize_indian(digits)
+        if not ok:
+            return False, "", "Phone number not in allowed region (+91 only)"
+        return True, normalized, None
+
+    # Geography not enforced — accept 10+ digit numbers with + prefix
+    stripped = phone.strip()
+    if stripped.startswith("+"):
+        return True, f"+{digits}", None
+    if len(digits) == 10:
+        return True, f"+91{digits}", None
+    if len(digits) >= 10:
+        return True, f"+{digits}", None
+
+    return False, "", "Invalid phone number"
+
+
+async def validate_phone(phone: str) -> tuple[bool, str]:
+    """
+    Validate and normalise a phone number using current system settings.
 
     Returns:
         (True, "+919876543210")  — valid number, normalised
         (False, "")              — invalid number
-
-    Rules:
-    - Strip +, spaces, dashes, parentheses
-    - Must have 10+ digits after stripping
-    - Indian numbers:
-        - 12 digits starting with 91 → already includes country code → "+91XXXXXXXXXX"
-        - 10 digits → prepend +91 → "+91XXXXXXXXXX"
-    - Other numbers: prepend "+" if not already present
     """
-    if not phone:
-        return False, ""
+    settings = await get_system_settings()
+    is_valid, normalized, _reason = validate_phone_sync(
+        phone,
+        enforce_geography=settings.enforce_phone_geography,
+        allowed_regions=settings.allowed_phone_regions,
+    )
+    return is_valid, normalized
 
-    # Strip all non-digit characters (except leading + which we handle separately)
-    digits = re.sub(r"[^\d]", "", phone)
 
-    if len(digits) < 10:
-        return False, ""
-
-    # Indian number: starts with 91 and is exactly 12 digits
-    if digits.startswith("91") and len(digits) == 12:
-        return True, f"+{digits}"
-
-    # Indian number: exactly 10 digits (bare mobile number)
-    if len(digits) == 10:
-        return True, f"+91{digits}"
-
-    # Any other number with 10+ digits — prepend + if needed
-    # (handles non-Indian numbers like +1-555-123-4567 → stripped to 11 digits)
-    if len(digits) >= 10:
-        # If original phone had a leading +, trust the country code is included
-        stripped = phone.strip()
-        if stripped.startswith("+"):
-            return True, f"+{digits}"
-        else:
-            # No leading +: ambiguous — still accept but return as-is with +
-            return True, f"+{digits}"
-
-    return False, ""
+async def validate_phone_with_reason(phone: str) -> tuple[bool, str, str | None]:
+    """Like validate_phone but includes human-readable reject reason."""
+    settings = await get_system_settings()
+    return validate_phone_sync(
+        phone,
+        enforce_geography=settings.enforce_phone_geography,
+        allowed_regions=settings.allowed_phone_regions,
+    )

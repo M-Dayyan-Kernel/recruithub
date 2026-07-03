@@ -9,10 +9,14 @@ import {
   AlertCircle,
   FileText,
   ClipboardList,
+  CheckCircle2,
+  Link2,
+  Clock,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { ScreeningCall, InterviewSession, Candidate } from '@/types/api'
+import type { ScreeningCall, InterviewSession, Candidate, Job } from '@/types/api'
+import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
 
 // ---------------------------------------------------------------------------
 // Interview status chip
@@ -20,26 +24,99 @@ import type { ScreeningCall, InterviewSession, Candidate } from '@/types/api'
 
 type InterviewStatus = 'not_sent' | 'link_sent' | 'in_progress' | 'completed' | 'report_ready'
 
+type InterviewTabId = 'pending' | 'scheduled' | 'ongoing' | 'completed'
+
+const TAB_LABELS: Record<InterviewTabId, string> = {
+  pending: 'Pending',
+  scheduled: 'Scheduled',
+  ongoing: 'Ongoing',
+  completed: 'Completed',
+}
+
+const TAB_EMPTY_MESSAGES: Record<InterviewTabId, string> = {
+  pending: 'No candidates waiting for an interview link.',
+  scheduled: 'No candidates with a sent link awaiting start.',
+  ongoing: 'No interviews in progress right now.',
+  completed: 'No completed interviews yet.',
+}
+
+function resolveInterviewStatus(
+  hasReport: boolean,
+  session: InterviewSession | null | undefined,
+): InterviewStatus {
+  if (hasReport) return 'report_ready'
+  if (!session) return 'not_sent'
+  if (session.status === 'completed') return 'completed'
+  if (session.status === 'in_progress') return 'in_progress'
+  return 'link_sent'
+}
+
+function statusToTab(status: InterviewStatus): InterviewTabId {
+  if (status === 'not_sent') return 'pending'
+  if (status === 'link_sent') return 'scheduled'
+  if (status === 'in_progress') return 'ongoing'
+  return 'completed'
+}
+
+function activeTabClass(tab: InterviewTabId, isActive: boolean): string {
+  if (!isActive) return 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
+  const active: Record<InterviewTabId, string> = {
+    pending: 'bg-emerald-600 text-white',
+    scheduled: 'bg-blue-600 text-white',
+    ongoing: 'bg-amber-500 text-white',
+    completed: 'bg-indigo-600 text-white',
+  }
+  return active[tab]
+}
+
 const INTERVIEW_STATUS_CONFIG: Record<
   InterviewStatus,
-  { label: string; className: string }
+  { label: string; className: string; dotClassName: string }
 > = {
-  not_sent: { label: 'Not Sent', className: 'bg-slate-100 text-slate-500' },
-  link_sent: { label: 'Link Sent', className: 'bg-blue-100 text-blue-700' },
-  in_progress: { label: 'In Progress', className: 'bg-amber-100 text-amber-700' },
-  completed: { label: 'Completed', className: 'bg-emerald-100 text-emerald-700' },
-  report_ready: { label: 'Report Ready', className: 'bg-indigo-100 text-indigo-700' },
+  not_sent: {
+    label: 'Not Sent',
+    className: 'bg-slate-50 text-slate-600 border-slate-200',
+    dotClassName: 'bg-slate-400',
+  },
+  link_sent: {
+    label: 'Link Sent',
+    className: 'bg-blue-50 text-blue-700 border-blue-200',
+    dotClassName: 'bg-blue-500',
+  },
+  in_progress: {
+    label: 'In Progress',
+    className: 'bg-amber-50 text-amber-700 border-amber-200',
+    dotClassName: 'bg-amber-500',
+  },
+  completed: {
+    label: 'Completed',
+    className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    dotClassName: 'bg-emerald-500',
+  },
+  report_ready: {
+    label: 'Report Ready',
+    className: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+    dotClassName: 'bg-indigo-500',
+  },
 }
 
 function InterviewStatusChip({ status }: { status: InterviewStatus }) {
   const cfg = INTERVIEW_STATUS_CONFIG[status]
   return (
     <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${cfg.className}`}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${cfg.className}`}
     >
+      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${cfg.dotClassName}`} />
       {cfg.label}
     </span>
   )
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return 'C'
+  if (parts.length === 1) return parts[0][0] ?? 'C'
+  return `${parts[0][0] ?? ''}${parts[parts.length - 1][0] ?? ''}`
 }
 
 // ---------------------------------------------------------------------------
@@ -60,14 +137,29 @@ function CopyableUrl({ url }: { url: string }) {
   }
 
   return (
-    <div className="mt-3 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-      <span className="flex-1 text-xs text-slate-600 font-mono truncate">{url}</span>
+    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/80 p-2 pl-3">
+      <Link2 size={14} className="shrink-0 text-slate-400" />
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-600">{url}</span>
       <button
         onClick={handleCopy}
-        className="shrink-0 p-1 rounded hover:bg-slate-200 transition-colors text-slate-500 hover:text-slate-700"
+        className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+          copied
+            ? 'bg-emerald-100 text-emerald-700'
+            : 'bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100'
+        }`}
         title="Copy link"
       >
-        {copied ? <Check size={13} className="text-emerald-600" /> : <Copy size={13} />}
+        {copied ? (
+          <>
+            <Check size={12} />
+            Copied
+          </>
+        ) : (
+          <>
+            <Copy size={12} />
+            Copy
+          </>
+        )}
       </button>
     </div>
   )
@@ -101,13 +193,10 @@ function CandidateInterviewCard({
   const session = localSession ?? initialSession
 
   // Determine interview status
-  const interviewStatus = useMemo((): InterviewStatus => {
-    if (hasReport) return 'report_ready'
-    if (!session) return 'not_sent'
-    if (session.status === 'completed') return 'completed'
-    if (session.status === 'in_progress') return 'in_progress'
-    return 'link_sent'
-  }, [session, hasReport])
+  const interviewStatus = useMemo(
+    (): InterviewStatus => resolveInterviewStatus(hasReport, session),
+    [session, hasReport],
+  )
 
   const sendMutation = useMutation<InterviewSession, Error>({
     mutationFn: () =>
@@ -123,77 +212,110 @@ function CandidateInterviewCard({
     },
   })
 
+  const statusHint =
+    interviewStatus === 'not_sent'
+      ? 'Ready to send AI interview link'
+      : interviewStatus === 'link_sent'
+        ? 'Waiting for candidate to start'
+        : interviewStatus === 'in_progress'
+          ? 'Candidate is taking the interview'
+          : interviewStatus === 'completed'
+            ? 'Interview finished — report generating'
+            : 'Interview report is available'
+
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-      {/* Header row */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-semibold text-sm shrink-0 uppercase">
-            {(candidateName[0] ?? 'C')}
+    <div
+      className={`rounded-xl border bg-white p-5 shadow-sm transition-shadow hover:shadow-md ${
+        interviewStatus === 'report_ready'
+          ? 'border-indigo-200 ring-1 ring-indigo-50'
+          : 'border-slate-200'
+      }`}
+    >
+      {/* Identity + primary action */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-50 to-indigo-100 text-sm font-semibold uppercase text-indigo-600 ring-2 ring-white">
+            {getInitials(candidateName)}
           </div>
           <div className="min-w-0">
-            <p className="font-semibold text-slate-800 truncate">{candidateName}</p>
+            <p className="truncate font-semibold text-slate-800">{candidateName}</p>
+            <p className="mt-0.5 text-xs text-slate-500">{statusHint}</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap shrink-0">
-          {/* Pass badge */}
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
-            Pass
-          </span>
+        {interviewStatus === 'not_sent' && (
+          <button
+            onClick={() => sendMutation.mutate()}
+            disabled={sendMutation.isPending}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {sendMutation.isPending ? (
+              <>
+                <Loader2 size={13} className="animate-spin" />
+                Sending…
+              </>
+            ) : (
+              <>
+                <Send size={13} />
+                Send Link
+              </>
+            )}
+          </button>
+        )}
 
-          {/* Interview status chip */}
-          <InterviewStatusChip status={interviewStatus} />
-
-          {/* Action buttons */}
-          {interviewStatus === 'not_sent' && (
-            <button
-              onClick={() => sendMutation.mutate()}
-              disabled={sendMutation.isPending}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {sendMutation.isPending ? (
-                <>
-                  <Loader2 size={12} className="animate-spin" />
-                  Sending…
-                </>
-              ) : (
-                <>
-                  <Send size={12} />
-                  Send Interview Link
-                </>
-              )}
-            </button>
-          )}
-
-          {interviewStatus === 'report_ready' && (
-            <Link
-              to={`/jobs/${jobId}/candidates/${candidateId}/report`}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              <FileText size={12} />
-              View Report
-            </Link>
-          )}
-        </div>
+        {interviewStatus === 'report_ready' && (
+          <Link
+            to={`/jobs/${jobId}/candidates/${candidateId}/report`}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700"
+          >
+            <FileText size={13} />
+            View Report
+          </Link>
+        )}
       </div>
 
-      {/* Copyable URL after sending */}
+      {/* Status badges */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+          <CheckCircle2 size={12} />
+          Screening passed
+        </span>
+        <InterviewStatusChip status={interviewStatus} />
+      </div>
+
+      {/* Interview link panel */}
       {session?.interview_url && (
-        <div className="mt-3">
-          <p className="text-xs text-slate-500 mb-1">Interview link (share with candidate):</p>
+        <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+          <p className="mb-2 text-xs font-medium text-slate-600">Interview link</p>
           <CopyableUrl url={session.interview_url} />
-          {session.email_sent_at && (
-            <p className="text-xs text-slate-400 mt-1.5">
-              Email sent at {new Date(session.email_sent_at).toLocaleString()}
-            </p>
+          {(session.email_sent_at || session.started_at || session.completed_at) && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+              {session.email_sent_at && (
+                <span className="inline-flex items-center gap-1">
+                  <Send size={11} />
+                  Sent {new Date(session.email_sent_at).toLocaleString()}
+                </span>
+              )}
+              {session.started_at && (
+                <span className="inline-flex items-center gap-1">
+                  <Clock size={11} />
+                  Started {new Date(session.started_at).toLocaleString()}
+                </span>
+              )}
+              {session.completed_at && (
+                <span className="inline-flex items-center gap-1">
+                  <Check size={11} />
+                  Completed {new Date(session.completed_at).toLocaleString()}
+                </span>
+              )}
+            </div>
           )}
         </div>
       )}
 
       {/* Error */}
       {sendError && (
-        <div className="mt-3 flex items-center gap-2 text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-600">
           <AlertCircle size={13} className="shrink-0" />
           {sendError}
         </div>
@@ -207,10 +329,13 @@ function CandidateInterviewCard({
 // ---------------------------------------------------------------------------
 
 interface Props {
+  job: Job
   jobId: string
 }
 
-export function InterviewsTab({ jobId }: Props) {
+export function InterviewsTab({ job, jobId }: Props) {
+  const [activeTab, setActiveTab] = useState<InterviewTabId>('pending')
+
   // Fetch existing interview sessions from backend
   const {
     data: interviewSessions,
@@ -293,18 +418,75 @@ export function InterviewsTab({ jobId }: Props) {
 
   const reportExistsMap = reportChecks.data ?? {}
 
+  const tabBuckets = useMemo(() => {
+    const buckets: Record<InterviewTabId, ScreeningCall[]> = {
+      pending: [],
+      scheduled: [],
+      ongoing: [],
+      completed: [],
+    }
+    for (const sc of passedCandidates) {
+      const status = resolveInterviewStatus(
+        reportExistsMap[sc.candidate_id] ?? false,
+        sessionsMap[sc.candidate_id] ?? null,
+      )
+      buckets[statusToTab(status)].push(sc)
+    }
+    return buckets
+  }, [passedCandidates, reportExistsMap, sessionsMap])
+
+  const tabCounts = useMemo(
+    () => ({
+      pending: tabBuckets.pending.length,
+      scheduled: tabBuckets.scheduled.length,
+      ongoing: tabBuckets.ongoing.length,
+      completed: tabBuckets.completed.length,
+    }),
+    [tabBuckets],
+  )
+
+  const filteredCandidates = tabBuckets[activeTab]
+
+  const tabBar = (
+    <div className="mb-4 flex flex-wrap items-center gap-2">
+      {(Object.keys(TAB_LABELS) as InterviewTabId[]).map((tab) => (
+        <button
+          key={tab}
+          type="button"
+          onClick={() => setActiveTab(tab)}
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${activeTabClass(tab, activeTab === tab)}`}
+        >
+          {TAB_LABELS[tab]}
+          <span className="ml-1.5 text-xs opacity-80">({tabCounts[tab]})</span>
+        </button>
+      ))}
+    </div>
+  )
+
   // ── Loading ───────────────────────────────────────────────────────────────
   if (screeningLoading || sessionsLoading) {
     return (
       <div className="space-y-4">
+        <InterviewRubricPanel job={job} />
+        {tabBar}
         {[1, 2].map((i) => (
           <div
             key={i}
-            className="bg-white border border-slate-200 rounded-xl p-5 animate-pulse"
+            className="animate-pulse rounded-xl border border-slate-200 bg-white p-5"
           >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-slate-200 shrink-0" />
-              <div className="h-4 bg-slate-200 rounded w-36" />
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 shrink-0 rounded-full bg-slate-200" />
+                <div className="space-y-2">
+                  <div className="h-4 w-36 rounded bg-slate-200" />
+                  <div className="h-3 w-48 rounded bg-slate-100" />
+                </div>
+              </div>
+              <div className="h-8 w-24 rounded-lg bg-slate-200" />
+            </div>
+            <div className="mt-3 flex gap-2">
+              <div className="h-6 w-28 rounded-full bg-slate-100" />
+              <div className="h-6 w-24 rounded-full bg-slate-100" />
             </div>
           </div>
         ))}
@@ -315,15 +497,18 @@ export function InterviewsTab({ jobId }: Props) {
   // ── Empty state ───────────────────────────────────────────────────────────
   if (passedCandidates.length === 0) {
     return (
-      <div className="py-20 flex flex-col items-center justify-center text-center">
-        <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mb-4">
-          <ClipboardList className="w-6 h-6 text-slate-400" />
+      <div>
+        <InterviewRubricPanel job={job} />
+        <div className="py-16 flex flex-col items-center justify-center text-center">
+          <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mb-4">
+            <ClipboardList className="w-6 h-6 text-slate-400" />
+          </div>
+          <p className="text-slate-700 font-semibold mb-1">No candidates ready for interview</p>
+          <p className="text-slate-400 text-sm max-w-xs">
+            Once a candidate passes voice screening, they will appear below. You can set up the
+            interview rubric above anytime.
+          </p>
         </div>
-        <p className="text-slate-700 font-semibold mb-1">No candidates ready for interview</p>
-        <p className="text-slate-400 text-sm max-w-xs">
-          No candidates have passed voice screening yet. Once screening is complete with a Pass
-          result, candidates will appear here.
-        </p>
       </div>
     )
   }
@@ -331,25 +516,27 @@ export function InterviewsTab({ jobId }: Props) {
   // ── Normal view ───────────────────────────────────────────────────────────
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
-        <p className="text-sm text-slate-500">
-          {passedCandidates.length} candidate{passedCandidates.length !== 1 ? 's' : ''} ready
-          for interview
-        </p>
-      </div>
+      <InterviewRubricPanel job={job} />
+      {tabBar}
 
-      <div className="space-y-4">
-        {passedCandidates.map((sc) => (
-          <CandidateInterviewCard
-            key={sc.candidate_id}
-            candidateId={sc.candidate_id}
-            candidateName={getCandidateName(sc.candidate_id)}
-            jobId={jobId}
-            hasReport={reportExistsMap[sc.candidate_id] ?? false}
-            initialSession={sessionsMap[sc.candidate_id] ?? null}
-          />
-        ))}
-      </div>
+      {filteredCandidates.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center">
+          <p className="text-sm text-slate-500">{TAB_EMPTY_MESSAGES[activeTab]}</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredCandidates.map((sc) => (
+            <CandidateInterviewCard
+              key={sc.candidate_id}
+              candidateId={sc.candidate_id}
+              candidateName={getCandidateName(sc.candidate_id)}
+              jobId={jobId}
+              hasReport={reportExistsMap[sc.candidate_id] ?? false}
+              initialSession={sessionsMap[sc.candidate_id] ?? null}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

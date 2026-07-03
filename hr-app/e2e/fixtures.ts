@@ -43,18 +43,44 @@ export const REPORT_IDS = {
 }
 
 // ---------------------------------------------------------------------------
-// Mock jobs
+// Sample interview rubric
+// ---------------------------------------------------------------------------
+
+export const MOCK_INTERVIEW_QUESTIONS = [
+  {
+    id: 'q1111111-0000-0000-0000-000000000001',
+    question: 'Explain React reconciliation and the virtual DOM.',
+    score: 30,
+  },
+  {
+    id: 'q1111111-0000-0000-0000-000000000002',
+    question: 'How would you design a scalable frontend architecture?',
+    score: 40,
+  },
+  {
+    id: 'q1111111-0000-0000-0000-000000000003',
+    question: 'Describe a challenging project and your role.',
+    score: 30,
+  },
+]
+
+export const MOCK_SCREENING_QUESTIONS = [
+  {
+    id: 'screening-default-availability',
+    question: 'When are you available to start a new role? Are you currently looking actively?',
+  },
+  {
+    id: 'screening-custom-notice',
+    question: 'Must be available to join within 30 days — what is your notice period?',
+  },
+]
+
 // ---------------------------------------------------------------------------
 
 /**
  * MOCK_JOBS_SAFE — all jobs have required_skills as string[] (not null).
- * Use this for tests that exercise JobsPage or DashboardPage to avoid the
- * known bug: `job.required_skills.length` crashes when required_skills is null.
- *
- * BUG DOCUMENTED: JobsPage.tsx and JobDetailPage.tsx call `.length` on
- * `required_skills` without a null check. The INTERFACE.md spec allows
- * `required_skills: null`. Tests that exercise these pages must use safe data.
- * The specific null-skills test in job-detail.spec.ts is marked test.fixme().
+ * Use this for tests that exercise sidebar jobs nav or DashboardPage to avoid
+ * issues when `required_skills` is null in mock data.
  */
 export const MOCK_JOBS_SAFE = [
   {
@@ -64,8 +90,12 @@ export const MOCK_JOBS_SAFE = [
     required_skills: ['React', 'TypeScript', 'GraphQL'],
     experience_min: 3,
     experience_max: 7,
-    screening_criteria: 'Must be available to join within 30 days.',
-    interview_evaluation_criteria: 'Assess system design and React patterns.',
+    screening_questions: MOCK_SCREENING_QUESTIONS,
+    interview_questions: MOCK_INTERVIEW_QUESTIONS,
+    interview_total_score: 100,
+    screening_call_from: '09:00:00',
+    screening_call_to: '18:00:00',
+    screening_timezone: 'Asia/Kolkata',
     status: 'active',
     created_at: '2026-06-01T10:00:00.000Z',
     updated_at: '2026-06-01T10:00:00.000Z',
@@ -77,8 +107,11 @@ export const MOCK_JOBS_SAFE = [
     required_skills: [],  // empty array instead of null — avoids .length crash bug
     experience_min: 2,
     experience_max: 5,
-    screening_criteria: null,
-    interview_evaluation_criteria: null,
+    screening_questions: [],
+    interview_questions: [],
+    screening_call_from: '09:00:00',
+    screening_call_to: '18:00:00',
+    screening_timezone: 'Asia/Kolkata',
     status: 'open',
     created_at: '2026-06-02T10:00:00.000Z',
     updated_at: '2026-06-02T10:00:00.000Z',
@@ -90,8 +123,11 @@ export const MOCK_JOBS_SAFE = [
     required_skills: ['Figma', 'User Research'],
     experience_min: 2,
     experience_max: 4,
-    screening_criteria: null,
-    interview_evaluation_criteria: null,
+    screening_questions: [],
+    interview_questions: [],
+    screening_call_from: '09:00:00',
+    screening_call_to: '18:00:00',
+    screening_timezone: 'Asia/Kolkata',
     status: 'paused',
     created_at: '2026-06-03T10:00:00.000Z',
     updated_at: '2026-06-03T10:00:00.000Z',
@@ -106,8 +142,12 @@ export const MOCK_JOBS = [
     required_skills: ['React', 'TypeScript', 'GraphQL'],
     experience_min: 3,
     experience_max: 7,
-    screening_criteria: 'Must be available to join within 30 days.',
-    interview_evaluation_criteria: 'Assess system design and React patterns.',
+    screening_questions: MOCK_SCREENING_QUESTIONS,
+    interview_questions: MOCK_INTERVIEW_QUESTIONS,
+    interview_total_score: 100,
+    screening_call_from: '09:00:00',
+    screening_call_to: '18:00:00',
+    screening_timezone: 'Asia/Kolkata',
     status: 'active',
     created_at: '2026-06-01T10:00:00.000Z',
     updated_at: '2026-06-01T10:00:00.000Z',
@@ -119,8 +159,11 @@ export const MOCK_JOBS = [
     required_skills: null, // intentionally null — must not crash UI
     experience_min: 2,
     experience_max: 5,
-    screening_criteria: null,
-    interview_evaluation_criteria: null,
+    screening_questions: [],
+    interview_questions: [],
+    screening_call_from: '09:00:00',
+    screening_call_to: '18:00:00',
+    screening_timezone: 'Asia/Kolkata',
     status: 'open',
     created_at: '2026-06-02T10:00:00.000Z',
     updated_at: '2026-06-02T10:00:00.000Z',
@@ -132,8 +175,11 @@ export const MOCK_JOBS = [
     required_skills: ['Figma', 'User Research'],
     experience_min: 2,
     experience_max: 4,
-    screening_criteria: null,
-    interview_evaluation_criteria: null,
+    screening_questions: [],
+    interview_questions: [],
+    screening_call_from: '09:00:00',
+    screening_call_to: '18:00:00',
+    screening_timezone: 'Asia/Kolkata',
     status: 'paused',
     created_at: '2026-06-03T10:00:00.000Z',
     updated_at: '2026-06-03T10:00:00.000Z',
@@ -265,6 +311,7 @@ export const MOCK_SCREENING = [
     job_id: JOB_IDS.frontend,
     vapi_call_id: 'vapi-call-001',
     call_status: 'completed',
+    call_outcome: 'completed',
     availability: 'Immediately',
     employment_status: 'Employed',
     relevant_experience: '5 years React, 3 years TypeScript',
@@ -369,10 +416,21 @@ export async function mockGetJobs(page: Page, jobs = MOCK_JOBS) {
   })
 }
 
-/** Mock GET /api/jobs/:id → return a single job (or 404) */
-export async function mockGetJob(page: Page, jobId: string, job: object | null = null) {
+/** Mock GET /api/jobs/:id → return a single job (or 404). Optionally handle DELETE on the same route. */
+export async function mockGetJob(
+  page: Page,
+  jobId: string,
+  job: object | null = null,
+  options?: { onDelete?: () => void },
+) {
   await page.route(`**/api/jobs/${jobId}`, (route: Route) => {
-    if (route.request().method() !== 'GET') return route.continue()
+    const method = route.request().method()
+    if (method === 'DELETE') {
+      options?.onDelete?.()
+      route.fulfill({ status: 204, body: '' })
+      return
+    }
+    if (method !== 'GET') return route.continue()
     if (job === null) {
       route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'Job not found' }) })
     } else {
@@ -381,11 +439,73 @@ export async function mockGetJob(page: Page, jobId: string, job: object | null =
   })
 }
 
-/** Mock GET /api/jobs/:id/candidates */
-export async function mockGetCandidates(page: Page, jobId: string, candidates = MOCK_CANDIDATES.filter(c => c.job_id === jobId)) {
-  await page.route(`**/api/jobs/${jobId}/candidates`, (route: Route) => {
+/** Mock DELETE /api/jobs/:id */
+export async function mockDeleteJob(page: Page, jobId: string, onDelete?: () => void) {
+  await page.route(`**/api/jobs/${jobId}`, (route: Route) => {
+    if (route.request().method() !== 'DELETE') return route.continue()
+    onDelete?.()
+    route.fulfill({ status: 204, body: '' })
+  })
+}
+
+/** Mock GET /api/jobs/:id/candidates (supports parse_status and has_shortlist_result query params) */
+export async function mockGetCandidates(
+  page: Page,
+  jobId: string,
+  candidates = MOCK_CANDIDATES.filter(c => c.job_id === jobId),
+  shortlistedIds: string[] = [],
+) {
+  await page.route(`**/api/jobs/${jobId}/candidates**`, (route: Route) => {
     if (route.request().method() !== 'GET') return route.continue()
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(candidates) })
+    const url = new URL(route.request().url())
+    let result = [...candidates]
+    const parseStatus = url.searchParams.get('parse_status')
+    if (parseStatus) {
+      const statuses = parseStatus.split(',').map(s => s.trim())
+      result = result.filter(c => statuses.includes(c.parse_status))
+    }
+    const hasShortlist = url.searchParams.get('has_shortlist_result')
+    if (hasShortlist === 'true') {
+      result = result.filter(c => shortlistedIds.includes(c.id))
+    } else if (hasShortlist === 'false') {
+      result = result.filter(c => !shortlistedIds.includes(c.id))
+    }
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(result) })
+  })
+}
+
+/** Mock POST /api/jobs/:id/shortlist */
+export async function mockPostShortlist(
+  page: Page,
+  jobId: string,
+  onPost?: (candidateIds: string[]) => void,
+) {
+  await page.route(`**/api/jobs/${jobId}/shortlist`, (route: Route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    const body = route.request().postDataJSON() as { candidate_ids?: string[] } | null
+    const ids = body?.candidate_ids ?? []
+    onPost?.(ids)
+    route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'shortlisting_started',
+        job_id: jobId,
+        candidate_ids: ids,
+      }),
+    })
+  })
+}
+
+/** Mock GET /api/jobs/:id/shortlist/status */
+export async function mockGetShortlistStatus(
+  page: Page,
+  jobId: string,
+  status = { in_progress: false, candidate_ids: [] as string[], completed: 0, total: 0, failed: 0 },
+) {
+  await page.route(`**/api/jobs/${jobId}/shortlist/status`, (route: Route) => {
+    if (route.request().method() !== 'GET') return route.continue()
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(status) })
   })
 }
 
@@ -393,7 +513,100 @@ export async function mockGetCandidates(page: Page, jobId: string, candidates = 
 export async function mockGetShortlist(page: Page, jobId: string, results = MOCK_SHORTLIST) {
   await page.route(`**/api/jobs/${jobId}/shortlist`, (route: Route) => {
     if (route.request().method() !== 'GET') return route.continue()
+    if (route.request().url().includes('/shortlist/status')) return route.continue()
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(results) })
+  })
+}
+
+/** Mock PATCH /api/shortlist/:id/decision */
+export async function mockPatchShortlistDecision(
+  page: Page,
+  onPatch?: (shortlistId: string, hrDecision: string) => void,
+) {
+  await page.route('**/api/shortlist/*/decision', (route: Route) => {
+    if (route.request().method() !== 'PATCH') return route.continue()
+    const url = route.request().url()
+    const match = url.match(/\/api\/shortlist\/([^/]+)\/decision/)
+    const shortlistId = match?.[1] ?? ''
+    const body = route.request().postDataJSON() as { hr_decision?: string } | null
+    const hrDecision = body?.hr_decision ?? 'approved'
+    onPatch?.(shortlistId, hrDecision)
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: shortlistId,
+        hr_decision: hrDecision,
+      }),
+    })
+  })
+}
+
+/** Mock GET /api/settings */
+export const MOCK_SETTINGS = {
+  allowed_phone_regions: ['IN'],
+  enforce_phone_geography: true,
+  screening_max_retries: 3,
+  screening_retry_delay_seconds: 1800,
+  updated_at: '2026-06-01T10:00:00.000Z',
+}
+
+export async function mockGetSettings(page: Page, settings = MOCK_SETTINGS) {
+  await page.route('**/api/settings', (route: Route) => {
+    const method = route.request().method()
+    if (method === 'GET') {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(settings) })
+      return
+    }
+    if (method === 'PATCH') {
+      const body = route.request().postDataJSON() as object
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...settings, ...body }),
+      })
+      return
+    }
+    route.continue()
+  })
+}
+
+export async function mockPatchSettings(page: Page, onPatch?: (body: object) => void) {
+  await page.route('**/api/settings', (route: Route) => {
+    const method = route.request().method()
+    if (method === 'GET') {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MOCK_SETTINGS) })
+      return
+    }
+    if (method === 'PATCH') {
+      const body = route.request().postDataJSON() as object
+      onPatch?.(body)
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...MOCK_SETTINGS, ...body }),
+      })
+      return
+    }
+    route.continue()
+  })
+}
+
+/** Mock POST /api/jobs/:id/screening/trigger */
+export async function mockPostScreeningTrigger(
+  page: Page,
+  jobId: string,
+  onPost?: (body: object) => void,
+) {
+  await page.route(`**/api/jobs/${jobId}/screening/trigger`, (route: Route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    const body = route.request().postDataJSON() as object
+    onPost?.(body)
+    route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ initiated: 1, queued: 0, skipped: [] }),
+    })
   })
 }
 
@@ -449,12 +662,22 @@ export async function mockPostJob(page: Page, response: object | 422 = MOCK_JOBS
   })
 }
 
+/** Mock all per-job sub-endpoints used by job pages (candidates, shortlist, screening) */
+export async function mockJobSubroutes(page: Page, jobId: string) {
+  await mockGetSettings(page)
+  await mockGetCandidates(page, jobId, MOCK_CANDIDATES.filter(c => c.job_id === jobId))
+  await mockGetShortlist(page, jobId, MOCK_SHORTLIST.filter(s => s.job_id === jobId))
+  await mockGetShortlistStatus(page, jobId)
+  await mockGetScreening(page, jobId, MOCK_SCREENING.filter(s => s.job_id === jobId))
+}
+
 /**
  * Helper: mock all per-job sub-endpoints for all SAFE mock jobs
  * (candidates + screening) so Dashboard doesn't break on parallel queries.
  * Uses MOCK_JOBS_SAFE to avoid the null required_skills bug.
  */
 export async function mockAllJobSubEndpoints(page: Page, jobs = MOCK_JOBS_SAFE) {
+  await mockGetSettings(page)
   for (const job of jobs) {
     await mockGetCandidates(page, job.id, MOCK_CANDIDATES.filter(c => c.job_id === job.id))
     await mockGetScreening(page, job.id,  MOCK_SCREENING.filter(s => s.job_id === job.id))
