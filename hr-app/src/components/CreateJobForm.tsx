@@ -463,12 +463,14 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
             questions={screeningQuestions}
             onChange={setScreeningQuestions}
             disabled={isBusy}
+            scrollable
           />
 
           <InterviewQuestionsEditor
             questions={interviewQuestions}
             onChange={setInterviewQuestions}
             disabled={isBusy}
+            scrollable
           />
         </FormSection>
       </div>

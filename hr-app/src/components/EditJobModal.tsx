@@ -261,12 +261,14 @@ export function EditJobModal({ job, open, onClose }: Props) {
             questions={screeningQuestions}
             onChange={setScreeningQuestions}
             disabled={mutation.isPending}
+            scrollable
           />
 
           <InterviewQuestionsEditor
             questions={interviewQuestions}
             onChange={setInterviewQuestions}
             disabled={mutation.isPending}
+            scrollable
           />
         </div>
 

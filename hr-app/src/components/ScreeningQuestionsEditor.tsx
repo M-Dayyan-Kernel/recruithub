@@ -6,6 +6,9 @@ interface Props {
   onChange: (questions: ScreeningQuestion[]) => void
   disabled?: boolean
   embedded?: boolean
+  /** Cap visible rows; extra questions scroll inside the list */
+  scrollable?: boolean
+  hideHeader?: boolean
 }
 
 const fieldClass =
@@ -23,6 +26,8 @@ export function ScreeningQuestionsEditor({
   onChange,
   disabled,
   embedded,
+  scrollable,
+  hideHeader,
 }: Props) {
   const updateQuestion = (id: string, patch: Partial<ScreeningQuestion>) => {
     onChange(questions.map((q) => (q.id === id ? { ...q, ...patch } : q)))
@@ -47,10 +52,18 @@ export function ScreeningQuestionsEditor({
             </p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-slate-200">
+          <div
+            className={`overflow-hidden rounded-lg border border-slate-200 ${
+              scrollable ? 'max-h-[15.5rem] overflow-y-auto' : ''
+            }`}
+          >
             <table className="w-full">
               <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/80 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <tr
+                  className={`border-b border-slate-100 bg-slate-50/80 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400 ${
+                    scrollable ? 'sticky top-0 z-10 backdrop-blur-sm' : ''
+                  }`}
+                >
                   <th className="w-9 px-2 py-1.5">#</th>
                   <th className="px-2 py-1.5">Question</th>
                   <th className="w-8 px-1 py-1.5" />
@@ -97,23 +110,25 @@ export function ScreeningQuestionsEditor({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-slate-700">Screening questions</p>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Topics the AI voice agent will cover during phone screening.
-          </p>
+      {!hideHeader && (
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-slate-700">Screening questions</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Topics the AI voice agent will cover during phone screening.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={addQuestion}
+            disabled={disabled}
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:border-indigo-200 hover:text-indigo-700 disabled:opacity-50"
+          >
+            <Plus size={12} />
+            Add question
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={addQuestion}
-          disabled={disabled}
-          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:border-indigo-200 hover:text-indigo-700 disabled:opacity-50"
-        >
-          <Plus size={12} />
-          Add question
-        </button>
-      </div>
+      )}
 
       {questions.length === 0 ? (
         <div className="flex flex-col items-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-6 text-center">
@@ -121,7 +136,11 @@ export function ScreeningQuestionsEditor({
           <p className="text-xs text-slate-500">No questions yet</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div
+          className={
+            scrollable ? 'max-h-[15.5rem] space-y-2 overflow-y-auto pr-0.5' : 'space-y-2'
+          }
+        >
           {questions.map((q, index) => (
             <div
               key={q.id}
