@@ -270,10 +270,37 @@ export function ScreeningTab({ jobId }: Props) {
     />
   )
 
+  const showSettingsCard = activeTab === 'pending' || activeTab === 'flagged'
+
+  const tabBar = (
+    <div className="mb-4 flex flex-wrap items-center gap-2">
+      {(Object.keys(TAB_LABELS) as ScreeningTabId[]).map((tab) => (
+        <button
+          key={tab}
+          type="button"
+          onClick={() => setActiveTab(tab)}
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === tab
+              ? tab === 'pending'
+                ? 'bg-emerald-600 text-white'
+                : tab === 'completed'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-amber-500 text-white'
+              : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          {TAB_LABELS[tab]}
+          <span className="ml-1.5 text-xs opacity-80">({tabCounts[tab]})</span>
+        </button>
+      ))}
+    </div>
+  )
+
   if (isLoading) {
     return (
       <div>
-        {settingsCard}
+        {tabBar}
+        {showSettingsCard && settingsCard}
         <div className="h-64 animate-pulse rounded-xl bg-slate-200" />
       </div>
     )
@@ -282,7 +309,8 @@ export function ScreeningTab({ jobId }: Props) {
   if (isError) {
     return (
       <div>
-        {settingsCard}
+        {tabBar}
+        {showSettingsCard && settingsCard}
         <BackendError onRetry={refetch} />
       </div>
     )
@@ -291,7 +319,8 @@ export function ScreeningTab({ jobId }: Props) {
   if (approvedShortlist.length === 0) {
     return (
       <div>
-        {settingsCard}
+        {tabBar}
+        {showSettingsCard && settingsCard}
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
             <Mic className="h-6 w-6 text-slate-400" />
@@ -307,29 +336,8 @@ export function ScreeningTab({ jobId }: Props) {
 
   return (
     <div>
-      {settingsCard}
-
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {(Object.keys(TAB_LABELS) as ScreeningTabId[]).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === tab
-                ? tab === 'pending'
-                  ? 'bg-emerald-600 text-white'
-                  : tab === 'completed'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-amber-500 text-white'
-                : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            {TAB_LABELS[tab]}
-            <span className="ml-1.5 text-xs opacity-80">({tabCounts[tab]})</span>
-          </button>
-        ))}
-      </div>
+      {tabBar}
+      {showSettingsCard && settingsCard}
 
       <div className={activeTab === 'completed' ? '' : WORKFLOW_CARD_CLASS}>
         {activeTab === 'completed' ? (
