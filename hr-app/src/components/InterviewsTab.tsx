@@ -24,6 +24,51 @@ import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
 
 type InterviewStatus = 'not_sent' | 'link_sent' | 'in_progress' | 'completed' | 'report_ready'
 
+type InterviewTabId = 'pending' | 'scheduled' | 'ongoing' | 'completed'
+
+const TAB_LABELS: Record<InterviewTabId, string> = {
+  pending: 'Pending',
+  scheduled: 'Scheduled',
+  ongoing: 'Ongoing',
+  completed: 'Completed',
+}
+
+const TAB_EMPTY_MESSAGES: Record<InterviewTabId, string> = {
+  pending: 'No candidates waiting for an interview link.',
+  scheduled: 'No candidates with a sent link awaiting start.',
+  ongoing: 'No interviews in progress right now.',
+  completed: 'No completed interviews yet.',
+}
+
+function resolveInterviewStatus(
+  hasReport: boolean,
+  session: InterviewSession | null | undefined,
+): InterviewStatus {
+  if (hasReport) return 'report_ready'
+  if (!session) return 'not_sent'
+  if (session.status === 'completed') return 'completed'
+  if (session.status === 'in_progress') return 'in_progress'
+  return 'link_sent'
+}
+
+function statusToTab(status: InterviewStatus): InterviewTabId {
+  if (status === 'not_sent') return 'pending'
+  if (status === 'link_sent') return 'scheduled'
+  if (status === 'in_progress') return 'ongoing'
+  return 'completed'
+}
+
+function activeTabClass(tab: InterviewTabId, isActive: boolean): string {
+  if (!isActive) return 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
+  const active: Record<InterviewTabId, string> = {
+    pending: 'bg-emerald-600 text-white',
+    scheduled: 'bg-blue-600 text-white',
+    ongoing: 'bg-amber-500 text-white',
+    completed: 'bg-indigo-600 text-white',
+  }
+  return active[tab]
+}
+
 const INTERVIEW_STATUS_CONFIG: Record<
   InterviewStatus,
   { label: string; className: string; dotClassName: string }
@@ -148,13 +193,10 @@ function CandidateInterviewCard({
   const session = localSession ?? initialSession
 
   // Determine interview status
-  const interviewStatus = useMemo((): InterviewStatus => {
-    if (hasReport) return 'report_ready'
-    if (!session) return 'not_sent'
-    if (session.status === 'completed') return 'completed'
-    if (session.status === 'in_progress') return 'in_progress'
-    return 'link_sent'
-  }, [session, hasReport])
+  const interviewStatus = useMemo(
+    (): InterviewStatus => resolveInterviewStatus(hasReport, session),
+    [session, hasReport],
+  )
 
   const sendMutation = useMutation<InterviewSession, Error>({
     mutationFn: () =>
@@ -292,6 +334,8 @@ interface Props {
 }
 
 export function InterviewsTab({ job, jobId }: Props) {
+  const [activeTab, setActiveTab] = useState<InterviewTabId>('pending')
+
   // Fetch existing interview sessions from backend
   const {
     data: interviewSessions,
@@ -374,11 +418,57 @@ export function InterviewsTab({ job, jobId }: Props) {
 
   const reportExistsMap = reportChecks.data ?? {}
 
+  const tabBuckets = useMemo(() => {
+    const buckets: Record<InterviewTabId, ScreeningCall[]> = {
+      pending: [],
+      scheduled: [],
+      ongoing: [],
+      completed: [],
+    }
+    for (const sc of passedCandidates) {
+      const status = resolveInterviewStatus(
+        reportExistsMap[sc.candidate_id] ?? false,
+        sessionsMap[sc.candidate_id] ?? null,
+      )
+      buckets[statusToTab(status)].push(sc)
+    }
+    return buckets
+  }, [passedCandidates, reportExistsMap, sessionsMap])
+
+  const tabCounts = useMemo(
+    () => ({
+      pending: tabBuckets.pending.length,
+      scheduled: tabBuckets.scheduled.length,
+      ongoing: tabBuckets.ongoing.length,
+      completed: tabBuckets.completed.length,
+    }),
+    [tabBuckets],
+  )
+
+  const filteredCandidates = tabBuckets[activeTab]
+
+  const tabBar = (
+    <div className="mb-4 flex flex-wrap items-center gap-2">
+      {(Object.keys(TAB_LABELS) as InterviewTabId[]).map((tab) => (
+        <button
+          key={tab}
+          type="button"
+          onClick={() => setActiveTab(tab)}
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${activeTabClass(tab, activeTab === tab)}`}
+        >
+          {TAB_LABELS[tab]}
+          <span className="ml-1.5 text-xs opacity-80">({tabCounts[tab]})</span>
+        </button>
+      ))}
+    </div>
+  )
+
   // ── Loading ───────────────────────────────────────────────────────────────
   if (screeningLoading || sessionsLoading) {
     return (
       <div className="space-y-4">
         <InterviewRubricPanel job={job} />
+        {tabBar}
         {[1, 2].map((i) => (
           <div
             key={i}
@@ -427,26 +517,26 @@ export function InterviewsTab({ job, jobId }: Props) {
   return (
     <div>
       <InterviewRubricPanel job={job} />
+      {tabBar}
 
-      <div className="flex items-center justify-between mb-5">
-        <p className="text-sm text-slate-500">
-          {passedCandidates.length} candidate{passedCandidates.length !== 1 ? 's' : ''} ready
-          for interview
-        </p>
-      </div>
-
-      <div className="space-y-4">
-        {passedCandidates.map((sc) => (
-          <CandidateInterviewCard
-            key={sc.candidate_id}
-            candidateId={sc.candidate_id}
-            candidateName={getCandidateName(sc.candidate_id)}
-            jobId={jobId}
-            hasReport={reportExistsMap[sc.candidate_id] ?? false}
-            initialSession={sessionsMap[sc.candidate_id] ?? null}
-          />
-        ))}
-      </div>
+      {filteredCandidates.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center">
+          <p className="text-sm text-slate-500">{TAB_EMPTY_MESSAGES[activeTab]}</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredCandidates.map((sc) => (
+            <CandidateInterviewCard
+              key={sc.candidate_id}
+              candidateId={sc.candidate_id}
+              candidateName={getCandidateName(sc.candidate_id)}
+              jobId={jobId}
+              hasReport={reportExistsMap[sc.candidate_id] ?? false}
+              initialSession={sessionsMap[sc.candidate_id] ?? null}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
