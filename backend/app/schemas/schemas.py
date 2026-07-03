@@ -53,6 +53,16 @@ class JobResponse(BaseModel):
     updated_at: datetime
 
 
+class JobParseResponse(BaseModel):
+    title: str
+    description: str
+    required_skills: List[str] = []
+    experience_min: Optional[int] = None
+    experience_max: Optional[int] = None
+    screening_criteria: Optional[str] = None
+    interview_evaluation_criteria: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # System settings schemas
 # ---------------------------------------------------------------------------

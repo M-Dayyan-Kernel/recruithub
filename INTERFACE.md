@@ -73,6 +73,31 @@ Partial update a job (any subset of fields).
 
 ---
 
+#### `POST /api/jobs/parse-jd`
+Upload a job description document (PDF or DOCX) and extract structured fields via AI.
+
+**Request:** `multipart/form-data` with field `file` (PDF or DOCX, max 20 MB)
+
+**Response `200`:**
+```json
+{
+  "title": "string",
+  "description": "string",
+  "required_skills": ["string"],
+  "experience_min": 0,
+  "experience_max": 5,
+  "screening_criteria": "string | null",
+  "interview_evaluation_criteria": "string | null"
+}
+```
+
+**Errors:**
+- `413` — file exceeds 20 MB
+- `422` — unsupported file type, unreadable document, or no extractable content
+- `500` — AI parsing failure
+
+---
+
 #### `DELETE /api/jobs/{job_id}`
 Delete a job and all related records (candidates, shortlist results, screening calls, interview sessions).
 

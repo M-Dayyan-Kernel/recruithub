@@ -1,3 +1,13 @@
+export interface ParsedJobDescription {
+  title: string
+  description: string
+  required_skills: string[]
+  experience_min?: number | null
+  experience_max?: number | null
+  screening_criteria?: string | null
+  interview_evaluation_criteria?: string | null
+}
+
 export interface Job {
   id: string
   title: string
