@@ -89,10 +89,13 @@ export function ScreeningSettingsCard({ job, eligibleCandidateIds, onCallsTrigge
     <>
       <div className="mb-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">Screening Call Settings</h3>
-            <p className="text-xs text-slate-500">Call window, criteria, and bulk dial</p>
+        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Screening call settings
+            </p>
+            <h3 className="mt-0.5 truncate text-base font-semibold text-slate-900">{job.title}</h3>
+            <p className="mt-1 text-xs text-slate-500">Call window, criteria, and bulk dial</p>
           </div>
           <span
             className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
