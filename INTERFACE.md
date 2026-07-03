@@ -32,7 +32,9 @@ Create a new job posting.
   "required_skills": ["string"],
   "experience_min": 0,
   "experience_max": 5,
-  "screening_criteria": "string | null",
+  "screening_questions": [
+    { "id": "uuid", "question": "string" }
+  ],
   "interview_questions": [
     { "id": "uuid", "question": "string", "score": 25 }
   ],
@@ -88,7 +90,9 @@ Upload a job description document (PDF or DOCX) and extract structured fields vi
   "required_skills": ["string"],
   "experience_min": 0,
   "experience_max": 5,
-  "screening_criteria": "string | null",
+  "screening_questions": [
+    { "id": "uuid", "question": "string" }
+  ],
   "interview_questions": [
     { "id": "uuid", "question": "string", "score": 25 }
   ]
@@ -538,7 +542,7 @@ interface Job {
   required_skills: string[] | null;
   experience_min: number;
   experience_max: number;
-  screening_criteria: string | null;
+  screening_questions: Array<{ id: string; question: string }>;
   interview_questions: Array<{ id: string; question: string; score: number }>;
   interview_total_score: number;        // computed: sum of question scores
   screening_call_from: string | null;   // "HH:MM:SS" local job timezone

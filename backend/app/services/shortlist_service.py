@@ -42,8 +42,14 @@ def _build_jd_text(job: Job) -> str:
     parts = [job.title, job.description]
     if job.required_skills:
         parts.append("Required skills: " + ", ".join(job.required_skills))
-    if job.screening_criteria:
-        parts.append(job.screening_criteria)
+    if job.screening_questions:
+        q_lines = [
+            (q.get("question") or "").strip()
+            for q in job.screening_questions
+            if isinstance(q, dict) and (q.get("question") or "").strip()
+        ]
+        if q_lines:
+            parts.append("Screening questions: " + "; ".join(q_lines))
     if job.interview_questions:
         q_lines = [
             (q.get("question") or "").strip()
@@ -78,7 +84,7 @@ def _build_jd_summary(job: Job) -> dict:
         "required_skills": job.required_skills or [],
         "experience_min": job.experience_min,
         "experience_max": job.experience_max,
-        "screening_criteria": job.screening_criteria,
+        "screening_questions": job.screening_questions or [],
     }
 
 

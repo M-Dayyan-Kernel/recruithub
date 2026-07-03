@@ -21,7 +21,7 @@ class Job(Base):
     required_skills: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String), nullable=True)
     experience_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     experience_max: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    screening_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    screening_questions: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     interview_questions: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     screening_call_from: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     screening_call_to: Mapped[Optional[time]] = mapped_column(Time, nullable=True)

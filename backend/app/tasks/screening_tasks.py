@@ -611,7 +611,7 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
     """Async inner: parse payload, classify outcome, run GPT-4o extraction, update DB."""
     import openai
 
-    from app.models.models import ScreeningCall
+    from app.models.models import ScreeningCall, Job
     from app.core.config import settings
 
     _, transcript, ended_reason = _extract_vapi_end_fields(payload)
@@ -651,7 +651,17 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
         if screening_call.result in ("pass", "fail"):
             return
         try:
-            extracted = await _extract_screening_fields(transcript, settings.OPENAI_API_KEY)
+            job_result = await session.execute(
+                select(Job).where(Job.id == screening_call.job_id)
+            )
+            job = job_result.scalars().first()
+
+            extracted = await _extract_screening_fields(
+                transcript,
+                settings.OPENAI_API_KEY,
+                job_title=job.title if job else None,
+                screening_questions=job.screening_questions if job else None,
+            )
 
             screening_call.availability = extracted.get("availability")
             screening_call.employment_status = extracted.get("employment_status")
@@ -793,33 +803,50 @@ Return ONLY valid JSON with these exact fields:
 }
 
 Classifier rules for 'result':
-- "pass": candidate shows strong fit signals — willing to proceed, reasonable CTC expectations,
-  relevant experience clearly stated, good availability, notice period acceptable.
-- "fail": candidate shows clear disqualifiers — explicitly not willing to proceed, CTC demands
-  extremely out of range (>2x stated), completely irrelevant experience, unavailable for foreseeable future.
-- "needs_review": ambiguous signals, incomplete information, call cut short, or mixed signals.
+- When employer screening questions are provided in the user message, verify answers cover those topics.
+- "pass": candidate answers screening questions satisfactorily AND shows strong standard fit signals — willing to proceed, reasonable CTC expectations, relevant experience, acceptable availability and notice period.
+- "fail": candidate gives clear disqualifying answers to screening questions OR shows clear disqualifiers — not willing to proceed, CTC extremely out of range (>2x stated), irrelevant experience, unavailable for foreseeable future.
+- "needs_review": ambiguous signals, incomplete information, call cut short, mixed signals, or questions not fully answered.
 
 Be conservative — when in doubt, use "needs_review" rather than "fail".
 """
 
 
-async def _extract_screening_fields(transcript: str, api_key: str) -> dict:
+async def _extract_screening_fields(
+    transcript: str,
+    api_key: str,
+    *,
+    job_title: str | None = None,
+    screening_questions: list | None = None,
+) -> dict:
     """Call GPT-4o to extract structured screening fields from transcript."""
     import openai
 
+    from app.services.screening_defaults import format_screening_questions_for_prompt, merge_screening_questions
+
     client = openai.AsyncOpenAI(api_key=api_key)
 
-    # Truncate very long transcripts to avoid context limits
     truncated_transcript = transcript[:12000]
+
+    context_parts: list[str] = []
+    if job_title:
+        context_parts.append(f"Role: {job_title}")
+    questions_text = format_screening_questions_for_prompt(
+        merge_screening_questions(screening_questions, None, job_title or ""),
+        job_title or "",
+    )
+    if questions_text.strip():
+        context_parts.append(
+            f"Employer screening questions (evaluate pass/fail based on how well these were answered):\n{questions_text}"
+        )
+    context_parts.append(f"Screening call transcript:\n\n{truncated_transcript}")
+    user_content = "\n\n".join(context_parts)
 
     response = await client.chat.completions.create(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": f"Here is the screening call transcript:\n\n{truncated_transcript}",
-            },
+            {"role": "user", "content": user_content},
         ],
         response_format={"type": "json_object"},
         temperature=0,

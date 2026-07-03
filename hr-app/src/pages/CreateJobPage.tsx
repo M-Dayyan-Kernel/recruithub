@@ -16,7 +16,7 @@ export default function CreateJobPage() {
       </Link>
 
       <p className="mb-8 text-sm leading-relaxed text-slate-500">
-        Upload a job description to auto-fill details, then review screening criteria and
+        Upload a job description to auto-fill details, then review screening and
         interview questions before publishing.
       </p>
 

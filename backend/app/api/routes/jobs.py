@@ -9,9 +9,10 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.models.models import Job
-from app.schemas.schemas import JobCreate, JobUpdate, JobResponse, JobParseResponse, InterviewQuestion
+from app.schemas.schemas import JobCreate, JobUpdate, JobResponse, JobParseResponse, InterviewQuestion, ScreeningQuestion
 from app.services.document_extractor import ALLOWED_EXTENSIONS, extract_text_from_bytes
 from app.services.jd_parser import parse_job_description
+from app.services.screening_defaults import get_default_screening_questions
 
 router = APIRouter()
 
@@ -30,7 +31,10 @@ def _is_allowed_jd_file(file: UploadFile) -> bool:
 
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(payload: JobCreate, db: AsyncSession = Depends(get_db)):
-    job = Job(**payload.model_dump())
+    data = payload.model_dump()
+    if not data.get("screening_questions"):
+        data["screening_questions"] = get_default_screening_questions(data.get("title") or "")
+    job = Job(**data)
     db.add(job)
     await db.commit()
     await db.refresh(job)
@@ -108,7 +112,9 @@ async def parse_jd(file: UploadFile = File(...)):
         required_skills=parsed.get("required_skills") or [],
         experience_min=parsed.get("experience_min"),
         experience_max=parsed.get("experience_max"),
-        screening_criteria=parsed.get("screening_criteria"),
+        screening_questions=[
+            ScreeningQuestion(**q) for q in (parsed.get("screening_questions") or [])
+        ],
         interview_questions=[
             InterviewQuestion(**q) for q in (parsed.get("interview_questions") or [])
         ],

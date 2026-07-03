@@ -1,3 +1,8 @@
+export interface ScreeningQuestion {
+  id: string
+  question: string
+}
+
 export interface InterviewQuestion {
   id: string
   question: string
@@ -15,7 +20,7 @@ export interface ParsedJobDescription {
   required_skills: string[]
   experience_min?: number | null
   experience_max?: number | null
-  screening_criteria?: string | null
+  screening_questions?: ScreeningQuestion[]
   interview_questions?: InterviewQuestion[]
 }
 
@@ -26,7 +31,7 @@ export interface Job {
   required_skills: string[] | null
   experience_min?: number
   experience_max?: number
-  screening_criteria?: string
+  screening_questions?: ScreeningQuestion[]
   interview_questions?: InterviewQuestion[]
   interview_total_score?: number
   screening_call_from?: string | null

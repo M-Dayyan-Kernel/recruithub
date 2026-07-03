@@ -64,8 +64,17 @@ export const MOCK_INTERVIEW_QUESTIONS = [
   },
 ]
 
-// ---------------------------------------------------------------------------
-// Mock jobs
+export const MOCK_SCREENING_QUESTIONS = [
+  {
+    id: 'screening-default-availability',
+    question: 'When are you available to start a new role? Are you currently looking actively?',
+  },
+  {
+    id: 'screening-custom-notice',
+    question: 'Must be available to join within 30 days — what is your notice period?',
+  },
+]
+
 // ---------------------------------------------------------------------------
 
 /**
@@ -81,7 +90,7 @@ export const MOCK_JOBS_SAFE = [
     required_skills: ['React', 'TypeScript', 'GraphQL'],
     experience_min: 3,
     experience_max: 7,
-    screening_criteria: 'Must be available to join within 30 days.',
+    screening_questions: MOCK_SCREENING_QUESTIONS,
     interview_questions: MOCK_INTERVIEW_QUESTIONS,
     interview_total_score: 100,
     screening_call_from: '09:00:00',
@@ -98,7 +107,7 @@ export const MOCK_JOBS_SAFE = [
     required_skills: [],  // empty array instead of null — avoids .length crash bug
     experience_min: 2,
     experience_max: 5,
-    screening_criteria: null,
+    screening_questions: [],
     interview_questions: [],
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',
@@ -114,7 +123,7 @@ export const MOCK_JOBS_SAFE = [
     required_skills: ['Figma', 'User Research'],
     experience_min: 2,
     experience_max: 4,
-    screening_criteria: null,
+    screening_questions: [],
     interview_questions: [],
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',
@@ -133,7 +142,7 @@ export const MOCK_JOBS = [
     required_skills: ['React', 'TypeScript', 'GraphQL'],
     experience_min: 3,
     experience_max: 7,
-    screening_criteria: 'Must be available to join within 30 days.',
+    screening_questions: MOCK_SCREENING_QUESTIONS,
     interview_questions: MOCK_INTERVIEW_QUESTIONS,
     interview_total_score: 100,
     screening_call_from: '09:00:00',
@@ -150,7 +159,7 @@ export const MOCK_JOBS = [
     required_skills: null, // intentionally null — must not crash UI
     experience_min: 2,
     experience_max: 5,
-    screening_criteria: null,
+    screening_questions: [],
     interview_questions: [],
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',
@@ -166,7 +175,7 @@ export const MOCK_JOBS = [
     required_skills: ['Figma', 'User Research'],
     experience_min: 2,
     experience_max: 4,
-    screening_criteria: null,
+    screening_questions: [],
     interview_questions: [],
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',

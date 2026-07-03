@@ -12,8 +12,10 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { Job, ParsedJobDescription, InterviewQuestion } from '@/types/api'
+import type { Job, ParsedJobDescription, InterviewQuestion, ScreeningQuestion } from '@/types/api'
 import { InterviewQuestionsEditor } from '@/components/InterviewQuestionsEditor'
+import { ScreeningQuestionsEditor } from '@/components/ScreeningQuestionsEditor'
+import { getDefaultScreeningQuestions } from '@/lib/screeningDefaults'
 
 interface CreateJobPayload {
   title: string
@@ -21,7 +23,7 @@ interface CreateJobPayload {
   required_skills: string[]
   experience_min?: number
   experience_max?: number
-  screening_criteria?: string
+  screening_questions?: ScreeningQuestion[]
   interview_questions?: InterviewQuestion[]
 }
 
@@ -99,7 +101,9 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
   const [skillInput, setSkillInput] = useState('')
   const [minExp, setMinExp] = useState('')
   const [maxExp, setMaxExp] = useState('')
-  const [screeningCriteria, setScreeningCriteria] = useState('')
+  const [screeningQuestions, setScreeningQuestions] = useState<ScreeningQuestion[]>(() =>
+    getDefaultScreeningQuestions(),
+  )
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([])
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -128,7 +132,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
       if (parsed.required_skills?.length) setSkills(parsed.required_skills)
       setMinExp(parsed.experience_min != null ? String(parsed.experience_min) : '')
       setMaxExp(parsed.experience_max != null ? String(parsed.experience_max) : '')
-      if (parsed.screening_criteria) setScreeningCriteria(parsed.screening_criteria)
+      if (parsed.screening_questions?.length) setScreeningQuestions(parsed.screening_questions)
       if (parsed.interview_questions?.length) setInterviewQuestions(parsed.interview_questions)
 
       toast.success('Fields extracted — review before creating')
@@ -220,7 +224,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
       required_skills: finalSkills,
       experience_min: minExp ? Number(minExp) : undefined,
       experience_max: maxExp ? Number(maxExp) : undefined,
-      screening_criteria: screeningCriteria.trim() || undefined,
+      screening_questions: screeningQuestions.filter((q) => q.question.trim()),
       interview_questions: interviewQuestions.filter((q) => q.question.trim()),
     })
   }
@@ -455,17 +459,11 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
           title="Evaluation"
           description="How candidates are screened and scored in interviews."
         >
-          <div>
-            <FieldLabel htmlFor="screening-criteria">Screening criteria</FieldLabel>
-            <textarea
-              id="screening-criteria"
-              rows={3}
-              value={screeningCriteria}
-              onChange={(e) => setScreeningCriteria(e.target.value)}
-              placeholder="Must-haves for the phone screen, e.g. availability, years of experience…"
-              className={`${inputClass} resize-none`}
-            />
-          </div>
+          <ScreeningQuestionsEditor
+            questions={screeningQuestions}
+            onChange={setScreeningQuestions}
+            disabled={isBusy}
+          />
 
           <InterviewQuestionsEditor
             questions={interviewQuestions}

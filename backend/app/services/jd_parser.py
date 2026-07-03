@@ -5,6 +5,7 @@ import uuid
 from openai import AsyncOpenAI
 
 from app.core.config import settings
+from app.services.screening_defaults import merge_screening_questions
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +16,10 @@ Return ONLY valid JSON with exactly these fields:
 - required_skills: array of strings (individual technical skills, tools, languages, frameworks mentioned)
 - experience_min: number or null (minimum years of experience required, if stated)
 - experience_max: number or null (maximum years of experience required, if stated)
-- screening_criteria: string or null (concise bullet-style criteria for phone screening, inferred from must-haves if not explicit)
+- screening_questions: array of objects, each with { "id": "<uuid string>", "question": "<screening question text>" }
+  Generate 2-5 ADDITIONAL role-specific phone screening questions beyond standard HR topics (availability, CTC, notice period).
+  Do NOT repeat standard HR screening topics — focus on must-haves from the JD (skills, certifications, domain experience, work authorization, etc.).
+  Each question must have a unique id (UUID string).
 - interview_questions: array of objects, each with { "id": "<uuid string>", "question": "<interview question text>", "score": <positive integer> }
   Generate 4-6 role-relevant technical/behavioural interview questions.
   Point weights (score field) must sum to approximately 100 across all questions.
@@ -32,9 +36,26 @@ _EMPTY_JD: dict = {
     "required_skills": [],
     "experience_min": None,
     "experience_max": None,
-    "screening_criteria": None,
+    "screening_questions": [],
     "interview_questions": [],
 }
+
+
+def _normalize_parsed_screening_questions(raw_questions: list | None) -> list[dict]:
+    if not raw_questions:
+        return []
+    normalized = []
+    for item in raw_questions:
+        if not isinstance(item, dict):
+            continue
+        question = (item.get("question") or "").strip()
+        if not question:
+            continue
+        normalized.append({
+            "id": item.get("id") or str(uuid.uuid4()),
+            "question": question,
+        })
+    return normalized
 
 
 def _normalize_parsed_questions(raw_questions: list | None) -> list[dict]:
@@ -90,10 +111,14 @@ async def parse_job_description(raw_text: str) -> dict:
     content = response.choices[0].message.content
     parsed = json.loads(content)
     parsed["interview_questions"] = _normalize_parsed_questions(parsed.get("interview_questions"))
+    job_title = (parsed.get("title") or "").strip()
+    additional_screening = _normalize_parsed_screening_questions(parsed.get("screening_questions"))
+    parsed["screening_questions"] = merge_screening_questions(None, additional_screening, job_title)
     logger.info(
-        "Parsed job description: title=%r, skills=%d, interview_questions=%d",
+        "Parsed job description: title=%r, skills=%d, screening_questions=%d, interview_questions=%d",
         parsed.get("title"),
         len(parsed.get("required_skills") or []),
+        len(parsed.get("screening_questions") or []),
         len(parsed.get("interview_questions") or []),
     )
     return parsed

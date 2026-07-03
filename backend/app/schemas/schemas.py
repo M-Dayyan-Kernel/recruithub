@@ -15,6 +15,32 @@ class InterviewQuestion(BaseModel):
     score: int = Field(gt=0)
 
 
+class ScreeningQuestion(BaseModel):
+    id: str
+    question: str
+
+
+def _normalize_screening_questions(questions: Optional[List]) -> List[dict]:
+    """Assign UUIDs to questions missing ids; validate non-empty text."""
+    if not questions:
+        return []
+    normalized: List[dict] = []
+    for item in questions:
+        if isinstance(item, ScreeningQuestion):
+            q = item
+        elif isinstance(item, dict):
+            q = ScreeningQuestion(
+                id=item.get("id") or str(uuid.uuid4()),
+                question=(item.get("question") or "").strip(),
+            )
+        else:
+            continue
+        if not q.question:
+            raise ValueError("Each screening question must have non-empty question text")
+        normalized.append(q.model_dump())
+    return normalized
+
+
 def _normalize_interview_questions(questions: Optional[List]) -> List[dict]:
     """Assign UUIDs to questions missing ids; validate non-empty text and score >= 1."""
     if not questions:
@@ -45,16 +71,19 @@ class JobCreate(BaseModel):
     required_skills: Optional[List[str]] = None
     experience_min: int = 0
     experience_max: int = 0
-    screening_criteria: Optional[str] = None
+    screening_questions: List[ScreeningQuestion] = []
     interview_questions: List[InterviewQuestion] = []
     status: str = "active"
 
     @model_validator(mode="before")
     @classmethod
     def normalize_questions(cls, data):
-        if isinstance(data, dict) and "interview_questions" in data:
+        if isinstance(data, dict):
             data = dict(data)
-            data["interview_questions"] = _normalize_interview_questions(data.get("interview_questions"))
+            if "interview_questions" in data:
+                data["interview_questions"] = _normalize_interview_questions(data.get("interview_questions"))
+            if "screening_questions" in data:
+                data["screening_questions"] = _normalize_screening_questions(data.get("screening_questions"))
         return data
 
 
@@ -64,7 +93,7 @@ class JobUpdate(BaseModel):
     required_skills: Optional[List[str]] = None
     experience_min: Optional[int] = None
     experience_max: Optional[int] = None
-    screening_criteria: Optional[str] = None
+    screening_questions: Optional[List[ScreeningQuestion]] = None
     interview_questions: Optional[List[InterviewQuestion]] = None
     screening_call_from: Optional[time] = None
     screening_call_to: Optional[time] = None
@@ -74,9 +103,12 @@ class JobUpdate(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_questions(cls, data):
-        if isinstance(data, dict) and data.get("interview_questions") is not None:
+        if isinstance(data, dict):
             data = dict(data)
-            data["interview_questions"] = _normalize_interview_questions(data.get("interview_questions"))
+            if data.get("interview_questions") is not None:
+                data["interview_questions"] = _normalize_interview_questions(data.get("interview_questions"))
+            if data.get("screening_questions") is not None:
+                data["screening_questions"] = _normalize_screening_questions(data.get("screening_questions"))
         return data
 
 
@@ -89,7 +121,7 @@ class JobResponse(BaseModel):
     required_skills: Optional[List[str]] = None
     experience_min: int
     experience_max: int
-    screening_criteria: Optional[str] = None
+    screening_questions: List[ScreeningQuestion] = []
     interview_questions: List[InterviewQuestion] = []
     screening_call_from: Optional[time] = None
     screening_call_to: Optional[time] = None
@@ -98,7 +130,7 @@ class JobResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    @field_validator("interview_questions", mode="before")
+    @field_validator("screening_questions", "interview_questions", mode="before")
     @classmethod
     def coerce_questions(cls, value):
         if value is None:
@@ -117,7 +149,7 @@ class JobParseResponse(BaseModel):
     required_skills: List[str] = []
     experience_min: Optional[int] = None
     experience_max: Optional[int] = None
-    screening_criteria: Optional[str] = None
+    screening_questions: List[ScreeningQuestion] = []
     interview_questions: List[InterviewQuestion] = []
 
 

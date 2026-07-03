@@ -3,8 +3,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Loader2, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { Job, InterviewQuestion } from '@/types/api'
+import type { Job, InterviewQuestion, ScreeningQuestion } from '@/types/api'
 import { InterviewQuestionsEditor } from '@/components/InterviewQuestionsEditor'
+import { ScreeningQuestionsEditor } from '@/components/ScreeningQuestionsEditor'
+import { getDefaultScreeningQuestions } from '@/lib/screeningDefaults'
 
 interface Props {
   job: Job
@@ -21,7 +23,11 @@ export function EditJobModal({ job, open, onClose }: Props) {
   const [skillInput, setSkillInput] = useState('')
   const [minExp, setMinExp] = useState(job.experience_min != null ? String(job.experience_min) : '')
   const [maxExp, setMaxExp] = useState(job.experience_max != null ? String(job.experience_max) : '')
-  const [screeningCriteria, setScreeningCriteria] = useState(job.screening_criteria ?? '')
+  const [screeningQuestions, setScreeningQuestions] = useState<ScreeningQuestion[]>(
+    job.screening_questions?.length
+      ? job.screening_questions
+      : getDefaultScreeningQuestions(job.title),
+  )
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>(
     job.interview_questions ?? [],
   )
@@ -95,9 +101,15 @@ export function EditJobModal({ job, open, onClose }: Props) {
     if (newMin !== job.experience_min) payload.experience_min = newMin ?? null
     if (newMax !== job.experience_max) payload.experience_max = newMax ?? null
 
-    const origScreening = job.screening_criteria ?? ''
-    if (screeningCriteria.trim() !== origScreening)
-      payload.screening_criteria = screeningCriteria.trim() || null
+    const origScreening = JSON.stringify(
+      job.screening_questions?.length
+        ? job.screening_questions
+        : getDefaultScreeningQuestions(job.title),
+    )
+    const nextScreening = screeningQuestions.filter((q) => q.question.trim())
+    if (origScreening !== JSON.stringify(nextScreening)) {
+      payload.screening_questions = nextScreening
+    }
 
     const origQuestions = JSON.stringify(job.interview_questions ?? [])
     const nextQuestions = interviewQuestions.filter((q) => q.question.trim())
@@ -245,21 +257,12 @@ export function EditJobModal({ job, open, onClose }: Props) {
             </div>
           </div>
 
-          {/* Screening Criteria */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Screening Criteria
-            </label>
-            <textarea
-              rows={3}
-              value={screeningCriteria}
-              onChange={(e) => setScreeningCriteria(e.target.value)}
-              placeholder="e.g. Must have 3+ years Python, Must be available in 2 weeks..."
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-            />
-          </div>
+          <ScreeningQuestionsEditor
+            questions={screeningQuestions}
+            onChange={setScreeningQuestions}
+            disabled={mutation.isPending}
+          />
 
-          {/* Interview Questions */}
           <InterviewQuestionsEditor
             questions={interviewQuestions}
             onChange={setInterviewQuestions}

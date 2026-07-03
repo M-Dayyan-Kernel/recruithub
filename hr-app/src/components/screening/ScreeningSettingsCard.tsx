@@ -32,7 +32,18 @@ export function ScreeningSettingsCard({ job, eligibleCandidateIds, onCallsTrigge
 
   const timezone = job.screening_timezone || 'Asia/Kolkata'
   const withinWindow = isWithinCallWindow(fromTime, toTime, timezone)
-  const hasCriteria = Boolean(job.screening_criteria?.trim())
+  const screeningQuestions =
+    job.screening_questions?.length
+      ? job.screening_questions
+      : []
+  const questionCount = screeningQuestions.length
+  const previewText =
+    questionCount > 0
+      ? screeningQuestions
+          .slice(0, 2)
+          .map((q) => q.question)
+          .join(' · ')
+      : 'Default HR screening questions apply.'
   const eligibleCount = eligibleCandidateIds.length
 
   const saveMutation = useMutation({
@@ -144,11 +155,14 @@ export function ScreeningSettingsCard({ job, eligibleCandidateIds, onCallsTrigge
             </div>
 
             <div className="flex flex-col rounded-lg border border-slate-100 bg-slate-50/60 p-3">
-              <p className="mb-2 text-xs font-medium text-slate-600">Screening criteria</p>
+              <p className="mb-2 text-xs font-medium text-slate-600">
+                Screening questions
+                {questionCount > 0 && (
+                  <span className="ml-1.5 font-normal text-slate-400">({questionCount})</span>
+                )}
+              </p>
               <p className="mb-2 line-clamp-2 flex-1 text-xs leading-relaxed text-slate-600">
-                {hasCriteria
-                  ? job.screening_criteria
-                  : 'No custom criteria — AI uses default screening questions.'}
+                {previewText}
               </p>
               <button
                 type="button"
@@ -156,7 +170,7 @@ export function ScreeningSettingsCard({ job, eligibleCandidateIds, onCallsTrigge
                 className={`${btnSecondary} w-fit`}
               >
                 <Settings2 size={14} />
-                {hasCriteria ? 'Edit criteria' : 'Set up criteria'}
+                {questionCount > 0 ? 'Edit questions' : 'Set up questions'}
               </button>
             </div>
           </div>

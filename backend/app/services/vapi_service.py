@@ -21,24 +21,34 @@ logger = logging.getLogger(__name__)
 VAPI_API_BASE = "https://api.vapi.ai"
 
 
-def _build_screening_prompt(candidate_name: str, job_title: str, job_description: str) -> str:
+from app.services.screening_defaults import format_screening_questions_for_prompt, merge_screening_questions
+
+
+def _build_screening_prompt(
+    candidate_name: str,
+    job_title: str,
+    job_description: str,
+    screening_questions: list | None = None,
+    required_skills: list | None = None,
+) -> str:
     """Build the system prompt for the AI screening call."""
+    skills_line = ""
+    if required_skills:
+        skills_line = f"\nKey skills for this role: {', '.join(required_skills)}\n"
+
+    questions = merge_screening_questions(screening_questions, None, job_title)
+    questions_block = format_screening_questions_for_prompt(questions, job_title)
+
     return f"""You are a professional HR screening assistant calling on behalf of a hiring company.
 You are conducting a brief phone screening for the role of: {job_title}.
+Candidate name: {candidate_name}
 
 Job context: {job_description[:500] if job_description else "Not provided"}
-
+{skills_line}
 Your goal is to have a natural, friendly conversation to assess the candidate's fit.
-Ask the following questions one at a time, in a conversational tone:
+Ask the following screening questions one at a time, in a conversational tone (skip any already answered):
 
-1. **Availability**: When are you available to start a new role? Are you currently looking actively?
-2. **Employment status**: Are you currently employed? What is your current role and company?
-3. **Relevant experience**: Can you briefly describe your most relevant experience for this {job_title} role?
-4. **Current CTC**: What is your current compensation package (annual CTC)?
-5. **Expected CTC**: What are your salary expectations for this role?
-6. **Notice period**: What is your notice period at your current company?
-7. **Location preference**: Are you open to working from [location]? Do you prefer remote, hybrid, or on-site?
-8. **Willingness to proceed**: Based on what you've heard, are you interested in moving forward with this opportunity?
+{questions_block}
 
 Guidelines:
 - Be friendly, professional, and concise.
@@ -46,7 +56,7 @@ Guidelines:
 - If the candidate seems confused, rephrase the question simply.
 - Do not make promises about the outcome of the screening.
 - Keep the total call under 10 minutes.
-- End gracefully after covering all questions or if the candidate is not interested.
+- End gracefully after covering all screening questions, or if the candidate is not interested.
 """
 
 
@@ -134,6 +144,8 @@ async def initiate_screening_call(
         candidate_name=candidate.name,
         job_title=job.title,
         job_description=job.description or "",
+        screening_questions=job.screening_questions,
+        required_skills=job.required_skills,
     )
 
     payload = {

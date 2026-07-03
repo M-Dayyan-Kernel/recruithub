@@ -74,12 +74,13 @@ def _build_interview_structure(job) -> str:
         rubric = _format_rubric_block(valid)
         return f"""INTERVIEW STRUCTURE (follow this order):
 1. You have already greeted the candidate — move straight to asking for a brief self-introduction
-2. Ask each rubric question below IN ORDER. Probe with follow-ups until you are satisfied, then move to the next question.
-3. Ask about their interest in this role at Webknot
-4. Let them ask one or two questions
-5. Close warmly — thank them, say the hiring team will follow up
+2. Ask EACH rubric question below IN ORDER — use the exact intent of each question. Probe with follow-ups until you have enough depth, then move on.
+3. Do not skip any rubric question. Do not reveal point values to the candidate.
+4. Ask about their interest in this role at Webknot
+5. Let them ask one or two questions
+6. Close warmly — thank them, say the hiring team will follow up
 
-RUBRIC QUESTIONS (ask in order):
+RUBRIC QUESTIONS (mandatory — ask in order):
 {rubric}"""
     return f"""INTERVIEW STRUCTURE (follow this order):
 1. You have already greeted the candidate — move straight to asking for a brief self-introduction
@@ -131,6 +132,7 @@ async def _load_session_data(session_id: str) -> tuple[str, str, str]:
         exp_years = parsed.get("total_experience_years", "unknown")
         current_role = parsed.get("current_role", "unknown")
         current_company = parsed.get("current_company", "unknown")
+        required_skills = ", ".join(job.required_skills or []) or "not specified"
         interview_structure = _build_interview_structure(job)
 
         prompt = f"""You are a professional AI interviewer conducting a structured technical interview on behalf of Webknot Technologies. Speak naturally — this is a voice conversation.
@@ -140,6 +142,7 @@ CURRENT ROLE: {current_role} at {current_company}
 EXPERIENCE: {exp_years} years
 SKILLS: {skills}
 ROLE: {job.title}
+REQUIRED SKILLS: {required_skills}
 JOB: {(job.description or '')[:400]}
 
 {interview_structure}
