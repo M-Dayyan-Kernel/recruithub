@@ -24,8 +24,38 @@ class GmailNotConfiguredError(RuntimeError):
     """Raised when Gmail OAuth token is missing and interactive auth is not available."""
 
 
+def _backend_dir() -> Path:
+    return Path(__file__).resolve().parent.parent.parent
+
+
 def _resolve_path(path_str: str) -> Path:
-    return Path(path_str).expanduser().resolve()
+    """Resolve a Gmail OAuth file path (credentials.json / token.json).
+
+    Relative paths are searched under cwd, backend/, then repo root so files
+  placed next to quickstart-style layouts still work when uvicorn runs from backend/.
+    """
+    path = Path(path_str).expanduser()
+    if path.is_absolute():
+        return path.resolve()
+
+    backend_dir = _backend_dir()
+    search_roots = [Path.cwd(), backend_dir, backend_dir.parent]
+
+    for root in search_roots:
+        candidate = (root / path).resolve()
+        if candidate.exists():
+            return candidate
+
+    # If the sibling OAuth file exists, keep both files in the same directory.
+    path_name = path.name
+    creds_name = Path(settings.GMAIL_CREDENTIALS_PATH).name
+    token_name = Path(settings.GMAIL_TOKEN_PATH).name
+    sibling_name = token_name if path_name == creds_name else creds_name
+    for root in search_roots:
+        if (root / sibling_name).exists():
+            return (root / path).resolve()
+
+    return (backend_dir / path).resolve()
 
 
 def load_credentials() -> Credentials:
@@ -77,7 +107,7 @@ def _send_mime_message(to_email: str, subject: str, mime_message: MIMEText) -> s
     mime_message["subject"] = subject
 
     creds = load_credentials()
-    service = build("gmail", "v1", credentials=creds)
+    service = build("gmail", "v1", credentials=creds, cache_discovery=False)
     raw = base64.urlsafe_b64encode(mime_message.as_bytes()).decode("utf-8")
     result = service.users().messages().send(userId="me", body={"raw": raw}).execute()
     return str(result.get("id", ""))

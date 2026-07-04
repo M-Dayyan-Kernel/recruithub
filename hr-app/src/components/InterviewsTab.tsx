@@ -43,7 +43,7 @@ const TAB_LABELS: Record<InterviewTabId, string> = {
 
 const TAB_EMPTY_MESSAGES: Record<InterviewTabId, string> = {
   pending: 'No candidates waiting for an interview link.',
-  scheduled: 'No scheduled interviews awaiting link delivery or start.',
+  scheduled: 'No interviews scheduled for a future slot.',
   ongoing: 'No interviews in progress right now.',
   completed: 'No completed interviews yet.',
 }
@@ -57,8 +57,8 @@ function resolveInterviewStatus(
   if (session.status === 'in_progress') return 'in_progress'
   if (
     session.scheduled_interview_at &&
-    !session.email_sent_at &&
-    new Date(session.scheduled_interview_at) > new Date()
+    new Date(session.scheduled_interview_at) > new Date() &&
+    session.status === 'pending'
   ) {
     return 'scheduled'
   }
@@ -255,7 +255,7 @@ function CandidateInterviewCard({
     interviewStatus === 'not_sent'
       ? 'Ready to send AI interview link'
       : interviewStatus === 'scheduled'
-        ? 'Interview link will be emailed at the scheduled time'
+        ? 'Candidate notified — please attend at the scheduled time'
         : interviewStatus === 'link_sent'
           ? 'Waiting for candidate to start'
           : interviewStatus === 'in_progress'
@@ -263,6 +263,11 @@ function CandidateInterviewCard({
             : hasReport
               ? 'Interview report is available'
               : 'Interview finished — report generating'
+
+  const isFutureScheduled = Boolean(
+    session?.scheduled_interview_at &&
+      new Date(session.scheduled_interview_at) > new Date(),
+  )
 
   return (
     <div
@@ -336,8 +341,8 @@ function CandidateInterviewCard({
         <InterviewStatusChip status={interviewStatus} />
       </div>
 
-      {/* Scheduled slot (link not yet emailed) */}
-      {session?.scheduled_interview_at && !session.email_sent_at && (
+      {/* Scheduled slot — candidate notified immediately with link */}
+      {isFutureScheduled && session?.scheduled_interview_at && (
         <div className="mt-4 rounded-lg border border-violet-100 bg-violet-50/50 p-3">
           <p className="text-xs font-medium text-violet-800">Scheduled for</p>
           <p className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-violet-900">
@@ -345,13 +350,26 @@ function CandidateInterviewCard({
             {formatScheduledAt(session.scheduled_interview_at, jobTimezone)}
           </p>
           <p className="mt-1 text-xs text-violet-700">
-            The interview invitation email sends automatically at this time.
+            {session.email_sent_at
+              ? 'The candidate was emailed with the interview link and asked to attend at this time.'
+              : 'Notification email could not be sent — share the interview link manually below.'}
           </p>
+          {session.interview_url && (
+            <div className="mt-3 border-t border-violet-100 pt-3">
+              <p className="mb-2 text-xs font-medium text-violet-900">Interview link</p>
+              <CopyableUrl url={session.interview_url} />
+              {session.email_sent_at && (
+                <p className="mt-2 text-xs text-violet-600">
+                  Notified {new Date(session.email_sent_at).toLocaleString()}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Interview link panel */}
-      {session?.interview_url && session.email_sent_at && (
+      {/* Interview link panel (immediate send, no future slot) */}
+      {session?.interview_url && session.email_sent_at && !isFutureScheduled && (
         <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50/50 p-3">
           <p className="mb-2 text-xs font-medium text-slate-600">Interview link</p>
           <CopyableUrl url={session.interview_url} />

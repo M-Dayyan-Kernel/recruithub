@@ -1,5 +1,5 @@
 """
-Interview scheduling helpers — parse HR-selected slot and send deferred invitations.
+Interview scheduling helpers — parse HR-selected slot and notify candidates by email.
 """
 
 from __future__ import annotations
@@ -9,11 +9,10 @@ import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models.models import Candidate, InterviewSession, Job
+from app.models.models import Candidate, InterviewSession
 from app.schemas.schemas import InterviewScheduleRequest
 
 logger = logging.getLogger(__name__)
@@ -44,6 +43,19 @@ def parse_scheduled_at(body: InterviewScheduleRequest) -> datetime:
     return naive.replace(tzinfo=tz).astimezone(timezone.utc)
 
 
+def format_scheduled_at_label(
+    scheduled_at: datetime,
+    timezone_name: str = "Asia/Kolkata",
+) -> str:
+    """Human-readable slot label for emails and UI."""
+    try:
+        tz = ZoneInfo(timezone_name)
+    except Exception:
+        tz = ZoneInfo("Asia/Kolkata")
+    local_dt = scheduled_at.astimezone(tz)
+    return local_dt.strftime("%A, %d %B %Y at %I:%M %p").lstrip("0").replace(" 0", " ")
+
+
 async def send_interview_invitation_email(
     session: InterviewSession,
     candidate: Candidate,
@@ -68,24 +80,41 @@ async def send_interview_invitation_email(
     return sent
 
 
-async def dispatch_due_scheduled_interview_emails(db: AsyncSession) -> int:
-    """Send interview links for sessions whose scheduled slot has arrived."""
-    now = datetime.now(timezone.utc)
-    result = await db.execute(
-        select(InterviewSession, Candidate, Job)
-        .join(Candidate, InterviewSession.candidate_id == Candidate.id)
-        .join(Job, InterviewSession.job_id == Job.id)
-        .where(
-            InterviewSession.status == "pending",
-            InterviewSession.email_sent_at.is_(None),
-            InterviewSession.scheduled_interview_at.isnot(None),
-            InterviewSession.scheduled_interview_at <= now,
-        )
+async def send_scheduled_interview_notification_email(
+    session: InterviewSession,
+    candidate: Candidate,
+    job_title: str,
+    *,
+    timezone_name: str,
+) -> bool:
+    from app.services.email_service import send_scheduled_interview_notification
+
+    if not session.scheduled_interview_at:
+        return await send_interview_invitation_email(session, candidate, job_title)
+
+    interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{session.unique_token}"
+    scheduled_label = format_scheduled_at_label(
+        session.scheduled_interview_at,
+        timezone_name,
     )
-    sent_count = 0
-    for session, candidate, job in result.all():
-        if await send_interview_invitation_email(session, candidate, job.title):
-            sent_count += 1
-    if sent_count:
-        await db.commit()
-    return sent_count
+    sent = send_scheduled_interview_notification(
+        candidate_name=candidate.name,
+        candidate_email=candidate.email,
+        job_title=job_title,
+        interview_url=interview_url,
+        scheduled_at_label=scheduled_label,
+    )
+    if sent:
+        session.email_sent_at = datetime.now(timezone.utc)
+        logger.info(
+            "Scheduled interview notification sent to %s (session=%s, slot=%s)",
+            candidate.email,
+            session.id,
+            scheduled_label,
+        )
+    return sent
+
+
+async def dispatch_due_scheduled_interview_emails(db: AsyncSession) -> int:
+    """Legacy hook — scheduled slots are notified immediately when HR books them."""
+    return 0

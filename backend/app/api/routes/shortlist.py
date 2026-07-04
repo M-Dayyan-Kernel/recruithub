@@ -367,6 +367,11 @@ async def update_decision(
             job_title = job.title if job else "the position"
             from app.services.email_service import send_rejection_email
 
+            logger.info(
+                "Sending rejection email to %s for shortlist=%s",
+                candidate_email,
+                shortlist_id,
+            )
             if not send_rejection_email(
                 _resolve_candidate_name(candidate),
                 candidate_email,
@@ -383,6 +388,11 @@ async def update_decision(
                 shortlist_id,
                 record.candidate_id,
             )
+    elif payload.hr_decision == "rejected" and previous_decision == "rejected":
+        logger.debug(
+            "Skipping rejection email for shortlist=%s (already rejected)",
+            shortlist_id,
+        )
 
     if payload.hr_decision == "approved":
         from app.services.call_window_service import is_within_call_window

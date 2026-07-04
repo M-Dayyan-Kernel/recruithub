@@ -58,7 +58,7 @@ export function ScheduleInterviewModal({
         timezone,
       }) as unknown as Promise<InterviewSession>,
     onSuccess: () => {
-      toast.success(`Interview scheduled for ${candidateName}`)
+      toast.success(`Interview scheduled — ${candidateName} was notified by email`)
       onSuccess()
       onClose()
     },
@@ -87,8 +87,8 @@ export function ScheduleInterviewModal({
 
         <div className="space-y-4 px-5 py-4">
           <p className="text-xs text-slate-600">
-            Pick when the candidate should receive the interview link. They will appear under
-            Interviews → Scheduled.
+            The candidate receives an email right away with the interview link and the date and
+            time they should attend.
           </p>
 
           <div className="grid grid-cols-2 gap-3">

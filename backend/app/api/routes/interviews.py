@@ -121,13 +121,13 @@ async def schedule_interview(
     """
     Create an interview session for a specific date/time.
 
-    The invitation email is sent immediately if the slot is now/past;
-  otherwise Celery beat sends it when the scheduled time arrives.
+    The candidate is emailed immediately with the interview link and the
+    scheduled slot (not deferred until the slot arrives).
     """
     from app.models.models import Job
     from app.services.interview_schedule_service import (
         parse_scheduled_at,
-        send_interview_invitation_email,
+        send_scheduled_interview_notification_email,
     )
 
     try:
@@ -194,8 +194,12 @@ async def schedule_interview(
 
     interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{unique_token}"
 
-    if scheduled_at <= now:
-        await send_interview_invitation_email(interview_session, candidate, job_title)
+    await send_scheduled_interview_notification_email(
+        interview_session,
+        candidate,
+        job_title,
+        timezone_name=body.timezone or "Asia/Kolkata",
+    )
 
     await db.commit()
     await db.refresh(interview_session)

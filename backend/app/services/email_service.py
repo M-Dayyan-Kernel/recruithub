@@ -97,7 +97,7 @@ def send_interview_link(
     job_title: str,
     interview_url: str,
 ) -> bool:
-    """Send an interview invitation email via Gmail."""
+    """Send an immediate interview invitation (join at your convenience)."""
     sent = gmail_service.send_html_email(
         to_email=candidate_email,
         subject=f"[Interview Invitation] {job_title}",
@@ -108,6 +108,88 @@ def send_interview_link(
             "Interview invitation sent to %s (job=%s)",
             candidate_email,
             job_title,
+        )
+    return sent
+
+
+def _build_scheduled_interview_email_html(
+    candidate_name: str,
+    job_title: str,
+    interview_url: str,
+    scheduled_at_label: str,
+) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interview Scheduled</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; background-color: #f4f4f7; margin: 0; padding: 0; }}
+    .container {{ max-width: 560px; margin: 40px auto; background: #ffffff; border-radius: 8px;
+                  padding: 40px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }}
+    h1 {{ font-size: 22px; color: #1a1a2e; margin-bottom: 8px; }}
+    p {{ font-size: 15px; color: #444; line-height: 1.6; }}
+    .slot {{ background: #f5f3ff; border-left: 4px solid #7c3aed; padding: 16px; border-radius: 4px;
+             margin: 20px 0; font-size: 15px; color: #4c1d95; }}
+    .btn {{ display: inline-block; margin: 24px 0; padding: 14px 32px;
+            background-color: #4f46e5; color: #ffffff; text-decoration: none;
+            border-radius: 6px; font-size: 15px; font-weight: bold; }}
+    .footer {{ font-size: 12px; color: #999; margin-top: 32px; text-align: center; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Your interview is scheduled</h1>
+    <p>Hi <strong>{candidate_name}</strong>,</p>
+    <p>
+      You have been scheduled for an AI-powered video interview for the
+      <strong>{job_title}</strong> role.
+    </p>
+    <div class="slot">
+      <strong>Please attend at:</strong><br />
+      {scheduled_at_label}
+    </div>
+    <p>
+      Use the link below to join the interview at the scheduled time. We recommend
+      opening it a few minutes early to check your camera and microphone.
+    </p>
+    <a href="{interview_url}" class="btn">Open interview link</a>
+    <p>Or copy and paste this link into your browser:</p>
+    <p style="word-break: break-all; font-size: 13px; color: #666;">{interview_url}</p>
+    <div class="footer">
+      <p>If you have any questions, please reply to this email.</p>
+      <p>Good luck!</p>
+    </div>
+  </div>
+</body>
+</html>"""
+
+
+def send_scheduled_interview_notification(
+    candidate_name: str,
+    candidate_email: str,
+    job_title: str,
+    interview_url: str,
+    scheduled_at_label: str,
+) -> bool:
+    """Notify candidate of a future interview slot with the join link."""
+    sent = gmail_service.send_html_email(
+        to_email=candidate_email,
+        subject=f"[Interview Scheduled] {job_title} — {scheduled_at_label}",
+        html_body=_build_scheduled_interview_email_html(
+            candidate_name,
+            job_title,
+            interview_url,
+            scheduled_at_label,
+        ),
+    )
+    if sent:
+        logger.info(
+            "Scheduled interview notification sent to %s (job=%s, slot=%s)",
+            candidate_email,
+            job_title,
+            scheduled_at_label,
         )
     return sent
 
