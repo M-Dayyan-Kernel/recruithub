@@ -76,6 +76,23 @@ async def _candidate_has_shortlist_result(
     return result.scalar_one_or_none() is not None
 
 
+def _resolve_candidate_email(candidate: Candidate | None) -> str | None:
+    if not candidate:
+        return None
+    parsed = candidate.parsed_data or {}
+    raw_email = parsed.get("email") or candidate.email
+    if not raw_email or str(raw_email).endswith("@upload.pending"):
+        return None
+    return str(raw_email)
+
+
+def _resolve_candidate_name(candidate: Candidate | None) -> str:
+    if not candidate:
+        return "Candidate"
+    parsed = candidate.parsed_data or {}
+    return parsed.get("name") or candidate.name or "Candidate"
+
+
 async def _resolve_eligible_candidate_ids(
     job_id: uuid.UUID,
     db: AsyncSession,
@@ -337,9 +354,35 @@ async def update_decision(
         )
 
     record = await _get_shortlist_or_404(shortlist_id, db)
+    previous_decision = record.hr_decision
     record.hr_decision = payload.hr_decision
     await db.commit()
     await db.refresh(record)
+
+    if payload.hr_decision == "rejected" and previous_decision != "rejected":
+        candidate = await db.get(Candidate, record.candidate_id)
+        candidate_email = _resolve_candidate_email(candidate)
+        if candidate_email:
+            job = await db.get(Job, record.job_id)
+            job_title = job.title if job else "the position"
+            from app.services.email_service import send_rejection_email
+
+            if not send_rejection_email(
+                _resolve_candidate_name(candidate),
+                candidate_email,
+                job_title,
+            ):
+                logger.warning(
+                    "Rejection decision saved but email failed for shortlist=%s candidate=%s",
+                    shortlist_id,
+                    record.candidate_id,
+                )
+        else:
+            logger.warning(
+                "Rejection decision saved but no valid email for shortlist=%s candidate=%s",
+                shortlist_id,
+                record.candidate_id,
+            )
 
     if payload.hr_decision == "approved":
         from app.services.call_window_service import is_within_call_window

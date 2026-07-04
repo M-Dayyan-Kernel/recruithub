@@ -305,6 +305,8 @@ Set HR decision on a shortlist entry.
 - `404` — shortlist result not found
 - `422` — invalid `hr_decision` value
 
+> **Email:** On the first transition to `hr_decision = "rejected"`, a rejection email is sent via Gmail to the candidate (if a valid email is on file). Re-clicking Reject does not resend. Email failure does not roll back the decision.
+
 > **Nova UI:** The **AI Shortlisted** tab uses this endpoint for per-card **Approve** / **Reject** buttons on each scored candidate card.
 
 ---
@@ -423,7 +425,7 @@ Create an interview session and send the interview link to the candidate via ema
 - `404` — candidate not found
 - `409` — active interview session already exists for this candidate
 
-> **Nova gotcha:** `email_sent_at` is set if email succeeded; `null` if Resend delivery failed. Session is still created either way — show the `interview_url` as fallback.
+> **Nova gotcha:** `email_sent_at` is set if email succeeded; `null` if Gmail delivery failed. Session is still created either way — show the `interview_url` as fallback.
 
 ---
 

@@ -1,23 +1,17 @@
 """
-Email Service — Sprint 6
+Email Service — interview invitations and rejection notices via Gmail API.
 
-Sends interview invitation emails via the Resend API.
-
-Functions:
-  - send_interview_link: Sends a formatted HTML email with the interview link.
-    Returns True on success, False on any failure (never raises — caller handles fallback).
+Functions return True on success, False on failure (never raise).
 """
 
 import logging
 
-from app.core.config import settings
+from app.services import gmail_service
 
 logger = logging.getLogger(__name__)
 
-SENDER_EMAIL = "onboarding@resend.dev"
 
-
-def _build_email_html(candidate_name: str, job_title: str, interview_url: str) -> str:
+def _build_interview_email_html(candidate_name: str, job_title: str, interview_url: str) -> str:
     """Build a clean HTML email body for the interview invitation."""
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -43,14 +37,14 @@ def _build_email_html(candidate_name: str, job_title: str, interview_url: str) -
 </head>
 <body>
   <div class="container">
-    <h1>You've been invited to interview! 🎉</h1>
+    <h1>You've been invited to interview!</h1>
     <p>Hi <strong>{candidate_name}</strong>,</p>
     <p>
       Congratulations — you've been shortlisted for the <strong>{job_title}</strong> role.
       We'd like to invite you to complete an AI-powered video interview at your convenience.
     </p>
 
-    <a href="{interview_url}" class="btn">Start My Interview →</a>
+    <a href="{interview_url}" class="btn">Start My Interview</a>
 
     <p>Or copy and paste this link into your browser:</p>
     <p style="word-break: break-all; font-size: 13px; color: #666;">{interview_url}</p>
@@ -68,9 +62,31 @@ def _build_email_html(candidate_name: str, job_title: str, interview_url: str) -
 
     <div class="footer">
       <p>If you have any questions, please reply to this email.</p>
-      <p>Good luck! 🚀</p>
+      <p>Good luck!</p>
     </div>
   </div>
+</body>
+</html>"""
+
+
+def _build_rejection_email_html(candidate_name: str, job_title: str) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Application Update</title>
+</head>
+<body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+  <p>Hi <strong>{candidate_name}</strong>,</p>
+  <p>
+    Thank you for your interest in the <strong>{job_title}</strong> position and for taking
+    the time to apply.
+  </p>
+  <p>
+    After careful review, we will not be moving forward with your application at this time.
+    We encourage you to apply for future openings that match your experience.
+  </p>
+  <p>We wish you the best in your job search.</p>
 </body>
 </html>"""
 
@@ -81,37 +97,36 @@ def send_interview_link(
     job_title: str,
     interview_url: str,
 ) -> bool:
-    """
-    Send an interview invitation email via Resend.
-
-    Returns True on success, False on any error.
-    Never raises — the caller decides what to do on failure.
-    """
-    import resend
-
-    resend.api_key = settings.RESEND_API_KEY
-
-    try:
-        params: resend.Emails.SendParams = {
-            "from": SENDER_EMAIL,
-            "to": [candidate_email],
-            "subject": f"[Interview Invitation] {job_title}",
-            "html": _build_email_html(candidate_name, job_title, interview_url),
-        }
-        response = resend.Emails.send(params)
+    """Send an interview invitation email via Gmail."""
+    sent = gmail_service.send_html_email(
+        to_email=candidate_email,
+        subject=f"[Interview Invitation] {job_title}",
+        html_body=_build_interview_email_html(candidate_name, job_title, interview_url),
+    )
+    if sent:
         logger.info(
-            "Interview invitation sent to %s (job=%s, resend_id=%s)",
+            "Interview invitation sent to %s (job=%s)",
             candidate_email,
             job_title,
-            response.get("id"),
         )
-        return True
+    return sent
 
-    except Exception as exc:
-        logger.error(
-            "Failed to send interview invitation to %s for job %s: %s",
+
+def send_rejection_email(
+    candidate_name: str,
+    candidate_email: str,
+    job_title: str,
+) -> bool:
+    """Send a polite application rejection email via Gmail."""
+    sent = gmail_service.send_html_email(
+        to_email=candidate_email,
+        subject=f"Update on your application — {job_title}",
+        html_body=_build_rejection_email_html(candidate_name, job_title),
+    )
+    if sent:
+        logger.info(
+            "Rejection email sent to %s (job=%s)",
             candidate_email,
             job_title,
-            exc,
         )
-        return False
+    return sent

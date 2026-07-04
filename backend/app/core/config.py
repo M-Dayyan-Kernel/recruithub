@@ -14,8 +14,10 @@ class Settings(BaseSettings):
     LIVEKIT_API_KEY: str = ""
     LIVEKIT_API_SECRET: str = ""
     LIVEKIT_URL: str = ""
-    RESEND_API_KEY: str = ""
     CANDIDATE_APP_URL: str = "http://localhost:5174"
+
+    GMAIL_CREDENTIALS_PATH: str = "credentials.json"
+    GMAIL_TOKEN_PATH: str = "token.json"
 
     UPLOAD_DIR: str = "uploads/resumes"
     MAX_CONCURRENT_PARSES: int = 10
