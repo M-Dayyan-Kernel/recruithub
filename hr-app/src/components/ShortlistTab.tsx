@@ -14,7 +14,8 @@ import {
 import { api } from '@/lib/api'
 import type { ShortlistResultWithCandidate, HrDecision } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
-import { ShortlistSplitView, SplitViewSkeleton } from '@/components/shortlist/ShortlistSplitView'
+import { ShortlistTable } from '@/components/shortlist/ShortlistTable'
+import { ShortlistTableSkeleton } from '@/components/shortlist/ShortlistTableSkeleton'
 
 // ---------------------------------------------------------------------------
 // Score badge
@@ -519,7 +520,6 @@ interface Props {
   /** Called when the user clicks "Go to Candidates tab" in the empty state */
   onSwitchToCandidates: () => void
   mode?: 'default' | 'aiShortlisted'
-  requiredSkills?: string[]
 }
 
 export function ShortlistTab({
@@ -528,7 +528,6 @@ export function ShortlistTab({
   onShortlistComplete,
   onSwitchToCandidates,
   mode = 'default',
-  requiredSkills = [],
 }: Props) {
   const isAiShortlistedMode = mode === 'aiShortlisted'
   const [search, setSearch] = useState('')
@@ -645,7 +644,7 @@ export function ShortlistTab({
       <div className={isAiShortlistedMode ? 'space-y-6' : 'space-y-4'}>
         {isAiShortlistedMode && aiShortlistedHeader}
         {isAiShortlistedMode ? (
-          <SplitViewSkeleton />
+          <ShortlistTableSkeleton />
         ) : (
           [1, 2, 3].map((i) => <ShortlistCardSkeleton key={i} />)
         )}
@@ -803,11 +802,7 @@ export function ShortlistTab({
             </p>
           </div>
         ) : (
-          <ShortlistSplitView
-            results={filteredScored}
-            jobId={jobId}
-            requiredSkills={requiredSkills}
-          />
+          <ShortlistTable results={filteredScored} jobId={jobId} />
         )}
       </div>
     )
