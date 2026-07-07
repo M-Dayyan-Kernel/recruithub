@@ -1,5 +1,4 @@
-import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { useMemo, useState } from 'react'
 import { AlertCircle } from 'lucide-react'
 import type { ShortlistResultWithCandidate } from '@/types/api'
 import {
@@ -8,20 +7,24 @@ import {
   ScoreBadge,
 } from '@/components/shortlist/shortlistBadges'
 import { DECISION_CONFIG } from '@/components/shortlist/shortlistDecisionConfig'
+import { ShortlistReportModal } from '@/components/shortlist/ShortlistReportModal'
 import { useShortlistDecision } from '@/hooks/useShortlistDecision'
 import { WORKFLOW_CARD_CLASS, WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
 
 interface Props {
   results: ShortlistResultWithCandidate[]
   jobId: string
+  requiredSkills?: string[]
 }
 
 function ShortlistTableRow({
   result,
   jobId,
+  onOpenReport,
 }: {
   result: ShortlistResultWithCandidate
   jobId: string
+  onOpenReport: (result: ShortlistResultWithCandidate) => void
 }) {
   const decisionMutation = useShortlistDecision(jobId, result.id)
   const displayName = result.candidate_name ?? 'Candidate'
@@ -46,12 +49,13 @@ function ShortlistTableRow({
       </td>
       <td className="px-6 py-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Link
-            to={`/jobs/${jobId}/shortlist/${result.id}`}
+          <button
+            type="button"
+            onClick={() => onOpenReport(result)}
             className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-indigo-300 hover:text-indigo-600"
           >
             Report
-          </Link>
+          </button>
           {(['approved', 'rejected'] as const).map((decision) => {
             const cfg = DECISION_CONFIG[decision]
             const isActive = result.hr_decision === decision
@@ -81,45 +85,62 @@ function ShortlistTableRow({
   )
 }
 
-export function ShortlistTable({ results, jobId }: Props) {
+export function ShortlistTable({ results, jobId, requiredSkills = [] }: Props) {
+  const [reportResult, setReportResult] = useState<ShortlistResultWithCandidate | null>(null)
+
   const sortedResults = useMemo(
     () => [...results].sort((a, b) => b.match_score - a.match_score),
     [results],
   )
 
   return (
-    <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>
-      <div className="overflow-x-auto">
-        <table className={`${WORKFLOW_TABLE_CLASS} h-full`}>
-          <thead className="bg-slate-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Name
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Email
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Match Score
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                AI Recommendation
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                HR Status
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200 bg-white">
-            {sortedResults.map((result) => (
-              <ShortlistTableRow key={result.id} result={result} jobId={jobId} />
-            ))}
-          </tbody>
-        </table>
+    <>
+      <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>
+        <div className="overflow-x-auto">
+          <table className={`${WORKFLOW_TABLE_CLASS} h-full`}>
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Name
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Email
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Match Score
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  AI Recommendation
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  HR Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 bg-white">
+              {sortedResults.map((result) => (
+                <ShortlistTableRow
+                  key={result.id}
+                  result={result}
+                  jobId={jobId}
+                  onOpenReport={setReportResult}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+
+      {reportResult && (
+        <ShortlistReportModal
+          result={reportResult}
+          requiredSkills={requiredSkills}
+          onClose={() => setReportResult(null)}
+        />
+      )}
+    </>
   )
 }

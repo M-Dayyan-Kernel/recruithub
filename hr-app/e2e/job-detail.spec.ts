@@ -239,7 +239,7 @@ test('AI Shortlisted tab supports table approve', async ({ page }) => {
 
   await page.getByRole('button', { name: 'AI Shortlisted', exact: true }).click()
   await expect(page.getByRole('cell', { name: 'Alice Sharma' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Report' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Report' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Approve', exact: true }).click()
 
@@ -249,7 +249,7 @@ test('AI Shortlisted tab supports table approve', async ({ page }) => {
   expect(patched[0].hr_decision).toBe('approved')
 })
 
-test('AI Shortlisted report link opens shortlist report page', async ({ page }) => {
+test('AI Shortlisted report button opens report modal on same screen', async ({ page }) => {
   const aliceShortlist = MOCK_SHORTLIST.find((r) => r.candidate_id === CANDIDATE_IDS.alice)!
 
   await mockGetJobs(page)
@@ -262,17 +262,18 @@ test('AI Shortlisted report link opens shortlist report page', async ({ page }) 
   await page.goto(FRONTEND_URL)
   await page.waitForLoadState('networkidle')
 
-  await page.getByRole('link', { name: 'Report' }).click()
+  await page.getByRole('button', { name: 'Report' }).click()
 
-  await expect(page).toHaveURL(
-    `/jobs/${JOB_IDS.frontend}/shortlist/${SHORTLIST_IDS.alice}`,
-  )
-  await expect(page.getByRole('heading', { name: 'Alice Sharma' })).toBeVisible()
-  await expect(page.getByText('Required skill match')).toBeVisible()
-  await expect(page.getByText('AI Assessment')).toBeVisible()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('heading', { name: 'Alice Sharma' })).toBeVisible()
+  await expect(dialog.getByText('Required skill match')).toBeVisible()
+  await expect(dialog.getByText('AI Assessment')).toBeVisible()
 
-  await page.getByRole('link', { name: /Back to Job/i }).click()
+  await dialog.getByRole('button', { name: 'Close report' }).click()
+  await expect(dialog).not.toBeVisible()
   await expect(page).toHaveURL(FRONTEND_URL)
+  await expect(page.getByRole('cell', { name: 'Alice Sharma' })).toBeVisible()
 })
 
 test('Delete Job button is visible on AI Shortlist route', async ({ page }) => {

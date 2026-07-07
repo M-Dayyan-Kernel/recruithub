@@ -22,7 +22,7 @@ type Tab = (typeof TABS)[number]
 const WORKFLOW_SECTION_CLASS = 'space-y-3'
 
 export default function JobShortlistPage() {
-  const { jobId } = useOutletContext<JobOutletContext>()
+  const { job, jobId } = useOutletContext<JobOutletContext>()
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<Tab>('AI Shortlisted')
   const [shortlistTriggered, setShortlistTriggered] = useState(false)
@@ -78,6 +78,7 @@ export default function JobShortlistPage() {
         <div className={WORKFLOW_SECTION_CLASS}>
           <ShortlistTab
             jobId={jobId}
+            requiredSkills={job.required_skills ?? []}
             shortlistTriggered={shortlistTriggered}
             onShortlistComplete={handleShortlistComplete}
             onSwitchToCandidates={() => setActiveTab('Parsed Resumes')}

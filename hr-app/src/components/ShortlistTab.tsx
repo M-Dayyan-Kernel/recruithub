@@ -520,6 +520,7 @@ interface Props {
   /** Called when the user clicks "Go to Candidates tab" in the empty state */
   onSwitchToCandidates: () => void
   mode?: 'default' | 'aiShortlisted'
+  requiredSkills?: string[]
 }
 
 export function ShortlistTab({
@@ -528,6 +529,7 @@ export function ShortlistTab({
   onShortlistComplete,
   onSwitchToCandidates,
   mode = 'default',
+  requiredSkills = [],
 }: Props) {
   const isAiShortlistedMode = mode === 'aiShortlisted'
   const [search, setSearch] = useState('')
@@ -802,7 +804,11 @@ export function ShortlistTab({
             </p>
           </div>
         ) : (
-          <ShortlistTable results={filteredScored} jobId={jobId} />
+          <ShortlistTable
+            results={filteredScored}
+            jobId={jobId}
+            requiredSkills={requiredSkills}
+          />
         )}
       </div>
     )
