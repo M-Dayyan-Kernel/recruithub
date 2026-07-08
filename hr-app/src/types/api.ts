@@ -125,6 +125,8 @@ export interface ScreeningCall {
   ended_reason?: string | null
   call_outcome?: 'completed' | 'no_answer' | 'voicemail' | 'declined' | 'dropped' | 'failed' | null
   retry_count?: number
+  interview_queued_at?: string | null
+  has_interview_session?: boolean
   created_at: string
 }
 
@@ -158,7 +160,30 @@ export interface InterviewSession {
   email_sent_at?: string
   started_at?: string
   completed_at?: string
+  scheduled_interview_at?: string | null
   created_at: string
+}
+
+export type InterviewPipelineTab = 'pending' | 'scheduled' | 'ongoing' | 'completed'
+
+export interface InterviewPipelineCounts {
+  pending: number
+  scheduled: number
+  ongoing: number
+  completed: number
+}
+
+export interface InterviewPipelineCandidate {
+  candidate_id: string
+  candidate_name?: string | null
+  tab: InterviewPipelineTab
+  has_report: boolean
+  session?: InterviewSession | null
+}
+
+export interface InterviewPipelineResponse {
+  counts: InterviewPipelineCounts
+  candidates: InterviewPipelineCandidate[]
 }
 
 export interface InterviewReport {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -21,6 +21,10 @@ import {
   type ScreeningRow,
   type ScreeningTabId,
 } from '@/components/screening/screeningRows'
+import {
+  formatTimeForInput,
+  isWithinCallWindow,
+} from '@/components/screening/screeningUtils'
 import {
   WORKFLOW_CARD_CLASS,
   WORKFLOW_TABLE_CLASS,
@@ -151,6 +155,7 @@ export function ScreeningTab({ jobId }: Props) {
   const { job } = useOutletContext<JobOutletContext>()
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<ScreeningTabId>('pending')
+  const autoTriggeredRef = useRef<Set<string>>(new Set())
 
   const {
     data: screeningCalls,
@@ -248,6 +253,48 @@ export function ScreeningTab({ jobId }: Props) {
       window.clearInterval(timer)
     }
   }, [activeCallIds, jobId, queryClient])
+
+  const neverCalledPendingIds = useMemo(
+    () =>
+      rows
+        .filter((r) => r.tab === 'pending' && r.canCallNow && !r.latestCall && r.phone)
+        .map((r) => r.candidateId),
+    [rows],
+  )
+
+  useEffect(() => {
+    if (!job || neverCalledPendingIds.length === 0 || isLoading) return
+
+    const from = formatTimeForInput(job.screening_call_from, '09:00')
+    const to = formatTimeForInput(job.screening_call_to, '18:00')
+    const timezone = job.screening_timezone || 'Asia/Kolkata'
+    if (!isWithinCallWindow(from, to, timezone)) return
+
+    const toTrigger = neverCalledPendingIds.filter((id) => !autoTriggeredRef.current.has(id))
+    if (toTrigger.length === 0) return
+
+    toTrigger.forEach((id) => autoTriggeredRef.current.add(id))
+
+    let cancelled = false
+    void (async () => {
+      try {
+        await api.post(`/api/jobs/${jobId}/screening/trigger`, {
+          candidate_ids: toTrigger,
+          force: false,
+        })
+        if (cancelled) return
+        queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
+      } catch {
+        if (!cancelled) {
+          toTrigger.forEach((id) => autoTriggeredRef.current.delete(id))
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [neverCalledPendingIds, isLoading, job, jobId, queryClient])
 
   const tabCounts = useMemo(() => countByTab(rows), [rows])
   const filteredRows = rows.filter((r) => r.tab === activeTab)

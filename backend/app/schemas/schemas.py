@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, time
-from typing import Optional, List
+from typing import Literal, Optional, List
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
@@ -313,6 +313,8 @@ class ScreeningCallResponse(BaseModel):
     ended_reason: Optional[str] = None
     call_outcome: Optional[str] = None
     retry_count: int = 0
+    interview_queued_at: Optional[datetime] = None
+    has_interview_session: bool = False
     created_at: datetime
 
 
@@ -337,6 +339,7 @@ class InterviewSessionResponse(BaseModel):
     email_sent_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    scheduled_interview_at: Optional[datetime] = None
     created_at: datetime
     egress_id: Optional[str] = None  # LiveKit egress recording ID
     expires_at: Optional[datetime] = None  # Link expiry timestamp
@@ -346,11 +349,38 @@ class InterviewSessionResponse(BaseModel):
     job_title: Optional[str] = None
 
 
+class InterviewScheduleRequest(BaseModel):
+    """Schedule an AI interview for a specific date and time (job timezone)."""
+    scheduled_date: str = Field(description="YYYY-MM-DD")
+    scheduled_time: str = Field(description="HH:MM (24h)")
+    timezone: str = Field(default="Asia/Kolkata", description="IANA timezone")
+
+
 class InterviewStartResponse(BaseModel):
     """Returned when a candidate starts their interview — contains the LiveKit token."""
     room_name: str
     token: str
     livekit_url: str
+
+
+class InterviewPipelineCounts(BaseModel):
+    pending: int
+    scheduled: int
+    ongoing: int
+    completed: int
+
+
+class InterviewPipelineCandidate(BaseModel):
+    candidate_id: uuid.UUID
+    candidate_name: Optional[str] = None
+    tab: Literal["pending", "scheduled", "ongoing", "completed"]
+    has_report: bool
+    session: Optional[InterviewSessionResponse] = None
+
+
+class InterviewPipelineResponse(BaseModel):
+    counts: InterviewPipelineCounts
+    candidates: List[InterviewPipelineCandidate]
 
 
 # ---------------------------------------------------------------------------

@@ -216,11 +216,11 @@ test('send parsed resume to AI shortlisting shows progress then scored results',
     timeout: 10000,
   })
   await expect(page.getByRole('heading', { name: 'AI Shortlisted' })).toBeVisible({ timeout: 10000 })
-  await expect(page.getByRole('option', { name: /Alice Sharma/i })).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'Alice Sharma' })).toBeVisible()
   await expect(page.getByText(/8[78]%/).first()).toBeVisible()
 })
 
-test('AI Shortlisted tab supports split-pane approve', async ({ page }) => {
+test('AI Shortlisted tab supports table approve', async ({ page }) => {
   const aliceShortlist = MOCK_SHORTLIST.find((r) => r.candidate_id === CANDIDATE_IDS.alice)!
   const patched: Array<{ id: string; hr_decision: string }> = []
 
@@ -238,10 +238,8 @@ test('AI Shortlisted tab supports split-pane approve', async ({ page }) => {
   await page.waitForLoadState('networkidle')
 
   await page.getByRole('button', { name: 'AI Shortlisted', exact: true }).click()
-  await expect(page.getByRole('listbox', { name: 'Shortlisted candidates' })).toBeVisible()
-  await expect(page.getByRole('option', { name: /Alice Sharma/i })).toBeVisible()
-  await expect(page.getByText('Required skill match')).toBeVisible()
-  await expect(page.getByText('Matched').first()).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'Alice Sharma' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Report' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Approve', exact: true }).click()
 
@@ -249,6 +247,33 @@ test('AI Shortlisted tab supports split-pane approve', async ({ page }) => {
   expect(patched).toHaveLength(1)
   expect(patched[0].id).toBe(SHORTLIST_IDS.alice)
   expect(patched[0].hr_decision).toBe('approved')
+})
+
+test('AI Shortlisted report button opens report modal on same screen', async ({ page }) => {
+  const aliceShortlist = MOCK_SHORTLIST.find((r) => r.candidate_id === CANDIDATE_IDS.alice)!
+
+  await mockGetJobs(page)
+  await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
+  await mockGetCandidates(page, JOB_IDS.frontend, [])
+  await mockGetShortlist(page, JOB_IDS.frontend, [aliceShortlist])
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
+
+  await page.goto(FRONTEND_URL)
+  await page.waitForLoadState('networkidle')
+
+  await page.getByRole('button', { name: 'Report' }).click()
+
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('heading', { name: 'Alice Sharma' })).toBeVisible()
+  await expect(dialog.getByText('Required skill match')).toBeVisible()
+  await expect(dialog.getByText('AI Assessment')).toBeVisible()
+
+  await dialog.getByRole('button', { name: 'Close report' }).click()
+  await expect(dialog).not.toBeVisible()
+  await expect(page).toHaveURL(FRONTEND_URL)
+  await expect(page.getByRole('cell', { name: 'Alice Sharma' })).toBeVisible()
 })
 
 test('Delete Job button is visible on AI Shortlist route', async ({ page }) => {

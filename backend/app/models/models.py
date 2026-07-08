@@ -105,6 +105,7 @@ class ScreeningCall(Base):
     retry_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     call_outcome: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     # call_outcome values: "completed" | "no_answer" | "voicemail" | "declined" | "dropped" | "failed"
+    interview_queued_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
@@ -140,6 +141,7 @@ class InterviewSession(Base):
     transcript: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     egress_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # LiveKit egress recording ID
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)  # Link expiry (7 days from send)
+    scheduled_interview_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships

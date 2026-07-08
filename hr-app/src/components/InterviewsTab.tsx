@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Loader2,
   Send,
@@ -12,17 +12,25 @@ import {
   CheckCircle2,
   Link2,
   Clock,
+  CalendarClock,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { ScreeningCall, InterviewSession, Candidate, Job } from '@/types/api'
+import type { InterviewSession, Job, InterviewPipelineResponse } from '@/types/api'
 import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
+import { ScheduleInterviewModal } from '@/components/screening/ScheduleInterviewModal'
 
 // ---------------------------------------------------------------------------
 // Interview status chip
 // ---------------------------------------------------------------------------
 
-type InterviewStatus = 'not_sent' | 'link_sent' | 'in_progress' | 'completed' | 'report_ready'
+type InterviewStatus =
+  | 'not_sent'
+  | 'scheduled'
+  | 'link_sent'
+  | 'in_progress'
+  | 'completed'
+  | 'report_ready'
 
 type InterviewTabId = 'pending' | 'scheduled' | 'ongoing' | 'completed'
 
@@ -35,7 +43,7 @@ const TAB_LABELS: Record<InterviewTabId, string> = {
 
 const TAB_EMPTY_MESSAGES: Record<InterviewTabId, string> = {
   pending: 'No candidates waiting for an interview link.',
-  scheduled: 'No candidates with a sent link awaiting start.',
+  scheduled: 'No interviews scheduled for a future slot.',
   ongoing: 'No interviews in progress right now.',
   completed: 'No completed interviews yet.',
 }
@@ -44,18 +52,32 @@ function resolveInterviewStatus(
   hasReport: boolean,
   session: InterviewSession | null | undefined,
 ): InterviewStatus {
-  if (hasReport) return 'report_ready'
-  if (!session) return 'not_sent'
-  if (session.status === 'completed') return 'completed'
+  if (!session) return hasReport ? 'completed' : 'not_sent'
+  if (hasReport || session.status === 'completed') return 'completed'
   if (session.status === 'in_progress') return 'in_progress'
+  if (
+    session.scheduled_interview_at &&
+    new Date(session.scheduled_interview_at) > new Date() &&
+    session.status === 'pending'
+  ) {
+    return 'scheduled'
+  }
   return 'link_sent'
 }
 
-function statusToTab(status: InterviewStatus): InterviewTabId {
-  if (status === 'not_sent') return 'pending'
-  if (status === 'link_sent') return 'scheduled'
-  if (status === 'in_progress') return 'ongoing'
-  return 'completed'
+function formatScheduledAt(iso: string, timezone?: string): string {
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: timezone || undefined,
+    }).format(new Date(iso))
+  } catch {
+    return new Date(iso).toLocaleString()
+  }
 }
 
 function activeTabClass(tab: InterviewTabId, isActive: boolean): string {
@@ -77,6 +99,11 @@ const INTERVIEW_STATUS_CONFIG: Record<
     label: 'Not Sent',
     className: 'bg-slate-50 text-slate-600 border-slate-200',
     dotClassName: 'bg-slate-400',
+  },
+  scheduled: {
+    label: 'Scheduled',
+    className: 'bg-violet-50 text-violet-700 border-violet-200',
+    dotClassName: 'bg-violet-500',
   },
   link_sent: {
     label: 'Link Sent',
@@ -170,24 +197,30 @@ function CopyableUrl({ url }: { url: string }) {
 // ---------------------------------------------------------------------------
 
 interface CandidateInterviewCardProps {
+  job: Job
   candidateId: string
   candidateName: string
   jobId: string
+  jobTimezone?: string
   hasReport: boolean
   /** Session pre-loaded from backend (source of truth) */
   initialSession?: InterviewSession | null
 }
 
 function CandidateInterviewCard({
+  job,
   candidateId,
   candidateName,
   jobId,
+  jobTimezone,
   hasReport,
   initialSession = null,
 }: CandidateInterviewCardProps) {
+  const queryClient = useQueryClient()
   // localSession is set after a successful send — takes precedence over initialSession
   const [localSession, setLocalSession] = useState<InterviewSession | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
 
   // Fetched session is source of truth; override with freshly-sent session
   const session = localSession ?? initialSession
@@ -198,12 +231,18 @@ function CandidateInterviewCard({
     [session, hasReport],
   )
 
+  const invalidatePipeline = () => {
+    queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
+    queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
+  }
+
   const sendMutation = useMutation<InterviewSession, Error>({
     mutationFn: () =>
       api.post(`/api/candidates/${candidateId}/interview/send`) as Promise<InterviewSession>,
     onSuccess: (data) => {
       setLocalSession(data)
       setSendError(null)
+      invalidatePipeline()
       toast.success(`Interview link sent to ${candidateName}!`)
     },
     onError: (err) => {
@@ -215,18 +254,25 @@ function CandidateInterviewCard({
   const statusHint =
     interviewStatus === 'not_sent'
       ? 'Ready to send AI interview link'
-      : interviewStatus === 'link_sent'
-        ? 'Waiting for candidate to start'
-        : interviewStatus === 'in_progress'
-          ? 'Candidate is taking the interview'
-          : interviewStatus === 'completed'
-            ? 'Interview finished — report generating'
-            : 'Interview report is available'
+      : interviewStatus === 'scheduled'
+        ? 'Candidate notified — please attend at the scheduled time'
+        : interviewStatus === 'link_sent'
+          ? 'Waiting for candidate to start'
+          : interviewStatus === 'in_progress'
+            ? 'Candidate is taking the interview'
+            : hasReport
+              ? 'Interview report is available'
+              : 'Interview finished — report generating'
+
+  const isFutureScheduled = Boolean(
+    session?.scheduled_interview_at &&
+      new Date(session.scheduled_interview_at) > new Date(),
+  )
 
   return (
     <div
       className={`rounded-xl border bg-white p-5 shadow-sm transition-shadow hover:shadow-md ${
-        interviewStatus === 'report_ready'
+        interviewStatus === 'completed' && hasReport
           ? 'border-indigo-200 ring-1 ring-indigo-50'
           : 'border-slate-200'
       }`}
@@ -244,26 +290,38 @@ function CandidateInterviewCard({
         </div>
 
         {interviewStatus === 'not_sent' && (
-          <button
-            onClick={() => sendMutation.mutate()}
-            disabled={sendMutation.isPending}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {sendMutation.isPending ? (
-              <>
-                <Loader2 size={13} className="animate-spin" />
-                Sending…
-              </>
-            ) : (
-              <>
-                <Send size={13} />
-                Send Link
-              </>
-            )}
-          </button>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => sendMutation.mutate()}
+              disabled={sendMutation.isPending}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {sendMutation.isPending ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  Sending…
+                </>
+              ) : (
+                <>
+                  <Send size={13} />
+                  Send link
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setScheduleOpen(true)}
+              disabled={sendMutation.isPending}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <CalendarClock size={13} />
+              Schedule
+            </button>
+          </div>
         )}
 
-        {interviewStatus === 'report_ready' && (
+        {hasReport && (
           <Link
             to={`/jobs/${jobId}/candidates/${candidateId}/report`}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700"
@@ -283,8 +341,35 @@ function CandidateInterviewCard({
         <InterviewStatusChip status={interviewStatus} />
       </div>
 
-      {/* Interview link panel */}
-      {session?.interview_url && (
+      {/* Scheduled slot — candidate notified immediately with link */}
+      {isFutureScheduled && session?.scheduled_interview_at && (
+        <div className="mt-4 rounded-lg border border-violet-100 bg-violet-50/50 p-3">
+          <p className="text-xs font-medium text-violet-800">Scheduled for</p>
+          <p className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-violet-900">
+            <CalendarClock size={14} className="shrink-0" />
+            {formatScheduledAt(session.scheduled_interview_at, jobTimezone)}
+          </p>
+          <p className="mt-1 text-xs text-violet-700">
+            {session.email_sent_at
+              ? 'The candidate was emailed with the interview link and asked to attend at this time.'
+              : 'Notification email could not be sent — share the interview link manually below.'}
+          </p>
+          {session.interview_url && (
+            <div className="mt-3 border-t border-violet-100 pt-3">
+              <p className="mb-2 text-xs font-medium text-violet-900">Interview link</p>
+              <CopyableUrl url={session.interview_url} />
+              {session.email_sent_at && (
+                <p className="mt-2 text-xs text-violet-600">
+                  Notified {new Date(session.email_sent_at).toLocaleString()}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Interview link panel (immediate send, no future slot) */}
+      {session?.interview_url && session.email_sent_at && !isFutureScheduled && (
         <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50/50 p-3">
           <p className="mb-2 text-xs font-medium text-slate-600">Interview link</p>
           <CopyableUrl url={session.interview_url} />
@@ -320,6 +405,15 @@ function CandidateInterviewCard({
           {sendError}
         </div>
       )}
+
+      <ScheduleInterviewModal
+        job={job}
+        candidateId={candidateId}
+        candidateName={candidateName}
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        onSuccess={invalidatePipeline}
+      />
     </div>
   )
 }
@@ -336,116 +430,33 @@ interface Props {
 export function InterviewsTab({ job, jobId }: Props) {
   const [activeTab, setActiveTab] = useState<InterviewTabId>('pending')
 
-  // Fetch existing interview sessions from backend
   const {
-    data: interviewSessions,
-    isLoading: sessionsLoading,
-  } = useQuery<InterviewSession[]>({
-    queryKey: ['interviews', jobId],
+    data: pipeline,
+    isLoading,
+  } = useQuery<InterviewPipelineResponse>({
+    queryKey: ['interviews-pipeline', jobId, activeTab],
     queryFn: () =>
-      api.get(`/api/jobs/${jobId}/interviews`) as unknown as Promise<InterviewSession[]>,
+      api.get(
+        `/api/jobs/${jobId}/interviews/pipeline?tab=${activeTab}`,
+      ) as unknown as Promise<InterviewPipelineResponse>,
     enabled: !!jobId,
     refetchInterval: 15000,
   })
 
-  // Fetch screening calls to find passed candidates
-  const {
-    data: screeningCalls,
-    isLoading: screeningLoading,
-  } = useQuery<ScreeningCall[]>({
-    queryKey: ['screening', jobId],
-    queryFn: () => api.get(`/api/jobs/${jobId}/screening`) as unknown as Promise<ScreeningCall[]>,
-    enabled: !!jobId,
-    refetchInterval: 15000,
-  })
-
-  // Fetch candidates to get names
-  const { data: candidates } = useQuery<Candidate[]>({
-    queryKey: ['candidates', jobId],
-    queryFn: () =>
-      api.get(`/api/jobs/${jobId}/candidates`) as unknown as Promise<Candidate[]>,
-    enabled: !!jobId,
-  })
-
-  // Candidates who passed screening
-  const passedCandidates = useMemo(() => {
-    if (!screeningCalls) return []
-    return screeningCalls.filter(
-      (sc) => sc.call_status === 'completed' && sc.result === 'pass',
-    )
-  }, [screeningCalls])
-
-  // Build sessions map: candidateId → InterviewSession
-  const sessionsMap = useMemo(() => {
-    const map: Record<string, InterviewSession> = {}
-    interviewSessions?.forEach((s) => { map[s.candidate_id] = s })
-    return map
-  }, [interviewSessions])
-
-  // Build candidate name map
-  const candidatesMap = useMemo(() => {
-    const map: Record<string, Candidate> = {}
-    candidates?.forEach((c) => { map[c.id] = c })
-    return map
-  }, [candidates])
-
-  const getCandidateName = (candidateId: string): string => {
-    const c = candidatesMap[candidateId]
-    if (!c) return 'Candidate'
-    return c.parsed_data?.name ?? c.name ?? 'Candidate'
+  const tabCounts = pipeline?.counts ?? {
+    pending: 0,
+    scheduled: 0,
+    ongoing: 0,
+    completed: 0,
   }
 
-  // Check reports per candidate — use individual queries
-  const reportChecks = useQuery<Record<string, boolean>>({
-    queryKey: ['interview-reports-check', jobId, passedCandidates.map((c) => c.candidate_id).join(',')],
-    queryFn: async () => {
-      const result: Record<string, boolean> = {}
-      await Promise.all(
-        passedCandidates.map(async (sc) => {
-          try {
-            await api.get(`/api/candidates/${sc.candidate_id}/report`)
-            result[sc.candidate_id] = true
-          } catch {
-            result[sc.candidate_id] = false
-          }
-        }),
-      )
-      return result
-    },
-    enabled: passedCandidates.length > 0,
-    refetchInterval: 15000,
-  })
+  const pipelineCandidates = pipeline?.candidates ?? []
 
-  const reportExistsMap = reportChecks.data ?? {}
-
-  const tabBuckets = useMemo(() => {
-    const buckets: Record<InterviewTabId, ScreeningCall[]> = {
-      pending: [],
-      scheduled: [],
-      ongoing: [],
-      completed: [],
-    }
-    for (const sc of passedCandidates) {
-      const status = resolveInterviewStatus(
-        reportExistsMap[sc.candidate_id] ?? false,
-        sessionsMap[sc.candidate_id] ?? null,
-      )
-      buckets[statusToTab(status)].push(sc)
-    }
-    return buckets
-  }, [passedCandidates, reportExistsMap, sessionsMap])
-
-  const tabCounts = useMemo(
-    () => ({
-      pending: tabBuckets.pending.length,
-      scheduled: tabBuckets.scheduled.length,
-      ongoing: tabBuckets.ongoing.length,
-      completed: tabBuckets.completed.length,
-    }),
-    [tabBuckets],
-  )
-
-  const filteredCandidates = tabBuckets[activeTab]
+  const totalEligible =
+    tabCounts.pending +
+    tabCounts.scheduled +
+    tabCounts.ongoing +
+    tabCounts.completed
 
   const tabBar = (
     <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -464,7 +475,7 @@ export function InterviewsTab({ job, jobId }: Props) {
   )
 
   // ── Loading ───────────────────────────────────────────────────────────────
-  if (screeningLoading || sessionsLoading) {
+  if (isLoading) {
     return (
       <div className="space-y-4">
         <InterviewRubricPanel job={job} />
@@ -495,7 +506,7 @@ export function InterviewsTab({ job, jobId }: Props) {
   }
 
   // ── Empty state ───────────────────────────────────────────────────────────
-  if (passedCandidates.length === 0) {
+  if (totalEligible === 0) {
     return (
       <div>
         <InterviewRubricPanel job={job} />
@@ -519,20 +530,22 @@ export function InterviewsTab({ job, jobId }: Props) {
       <InterviewRubricPanel job={job} />
       {tabBar}
 
-      {filteredCandidates.length === 0 ? (
+      {pipelineCandidates.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center">
           <p className="text-sm text-slate-500">{TAB_EMPTY_MESSAGES[activeTab]}</p>
         </div>
       ) : (
         <div className="space-y-4">
-          {filteredCandidates.map((sc) => (
+          {pipelineCandidates.map((row) => (
             <CandidateInterviewCard
-              key={sc.candidate_id}
-              candidateId={sc.candidate_id}
-              candidateName={getCandidateName(sc.candidate_id)}
+              key={row.candidate_id}
+              job={job}
+              candidateId={row.candidate_id}
+              candidateName={row.candidate_name ?? 'Candidate'}
               jobId={jobId}
-              hasReport={reportExistsMap[sc.candidate_id] ?? false}
-              initialSession={sessionsMap[sc.candidate_id] ?? null}
+              jobTimezone={job.screening_timezone}
+              hasReport={row.has_report}
+              initialSession={row.session ?? null}
             />
           ))}
         </div>

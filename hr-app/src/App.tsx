@@ -9,6 +9,7 @@ import JobScreeningPage from '@/pages/JobScreeningPage'
 import JobInterviewsPage from '@/pages/JobInterviewsPage'
 import SettingsPage from '@/pages/SettingsPage'
 import ReportPage from '@/pages/ReportPage'
+import ShortlistReportPage from '@/pages/ShortlistReportPage'
 import NotFoundPage from '@/pages/NotFoundPage'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="interviews" element={<JobInterviewsPage />} />
           </Route>
           <Route path="jobs/:jobId/candidates/:candidateId/report" element={<ReportPage />} />
+          <Route path="jobs/:jobId/shortlist/:shortlistId" element={<ShortlistReportPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>

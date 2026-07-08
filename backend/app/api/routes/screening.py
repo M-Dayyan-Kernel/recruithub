@@ -15,55 +15,39 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
-from app.models.models import Candidate, Job, ScreeningCall, ShortlistResult
+from app.models.models import Candidate, InterviewSession, Job, ScreeningCall
 from app.schemas.schemas import (
     ScreeningCallResponse,
     ScreeningResultUpdate,
     ScreeningTriggerRequest,
     ScreeningTriggerResponse,
 )
-from app.services.phone_validation import validate_phone_with_reason
 from app.services.celery_health import CELERY_UNAVAILABLE_MSG, celery_workers_available
-from app.services.screening_dispatch_service import enqueue_screening_call
+from app.services.screening_trigger_service import dispatch_screening_for_candidates
 
 router = APIRouter()
 
 LIVE_CALL_STATUSES = ("initiated", "in_progress")
 
 
-async def _candidate_has_live_call(
-    db: AsyncSession,
-    job_id: uuid.UUID,
-    candidate_id: uuid.UUID,
-) -> bool:
-    result = await db.execute(
-        select(ScreeningCall.id).where(
-            ScreeningCall.job_id == job_id,
-            ScreeningCall.candidate_id == candidate_id,
-            ScreeningCall.call_status.in_(LIVE_CALL_STATUSES),
-        )
-    )
-    return result.scalar_one_or_none() is not None
+def _screening_call_response(
+    call: ScreeningCall,
+    *,
+    has_interview_session: bool = False,
+) -> ScreeningCallResponse:
+    response = ScreeningCallResponse.model_validate(call)
+    response.has_interview_session = has_interview_session
+    return response
 
 
-async def _find_scheduled_pending_call(
+async def _candidate_ids_with_interview_sessions(
     db: AsyncSession,
     job_id: uuid.UUID,
-    candidate_id: uuid.UUID,
-) -> ScreeningCall | None:
-    """Return a queued retry waiting for Celery (pending, no Vapi id yet)."""
+) -> set[uuid.UUID]:
     result = await db.execute(
-        select(ScreeningCall)
-        .where(
-            ScreeningCall.job_id == job_id,
-            ScreeningCall.candidate_id == candidate_id,
-            ScreeningCall.call_status == "pending",
-            ScreeningCall.vapi_call_id.is_(None),
-        )
-        .order_by(ScreeningCall.created_at.desc())
-        .limit(1)
+        select(InterviewSession.candidate_id).where(InterviewSession.job_id == job_id)
     )
-    return result.scalars().first()
+    return set(result.scalars().all())
 
 
 # ---------------------------------------------------------------------------
@@ -103,90 +87,21 @@ async def trigger_screening(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    initiated = 0
-    queued = 0
+    parsed_ids: list[uuid.UUID] = []
     skipped: List[dict] = []
-    dispatch_queue: List[tuple[uuid.UUID, bool]] = []
-
     for raw_id in body.candidate_ids:
         try:
-            cand_uuid = uuid.UUID(str(raw_id))
+            parsed_ids.append(uuid.UUID(str(raw_id)))
         except (ValueError, AttributeError):
             skipped.append({"id": str(raw_id), "reason": "Invalid UUID format"})
-            continue
 
-        cand_result = await db.execute(
-            select(Candidate).where(
-                Candidate.id == cand_uuid,
-                Candidate.job_id == job_id,
-            )
-        )
-        candidate = cand_result.scalars().first()
-        if not candidate:
-            skipped.append({"id": str(cand_uuid), "reason": "Candidate not found in this job"})
-            continue
-
-        shortlist_result = await db.execute(
-            select(ShortlistResult).where(
-                ShortlistResult.candidate_id == cand_uuid,
-                ShortlistResult.job_id == job_id,
-            )
-        )
-        shortlist = shortlist_result.scalars().first()
-        if not shortlist or shortlist.hr_decision != "approved":
-            decision = shortlist.hr_decision if shortlist else "not_shortlisted"
-            skipped.append({
-                "name": candidate.name,
-                "reason": f"Candidate is not HR-approved (current decision: {decision})",
-            })
-            continue
-
-        if await _candidate_has_live_call(db, job_id, cand_uuid):
-            skipped.append({
-                "name": candidate.name,
-                "reason": "A screening call is already in progress for this candidate",
-            })
-            continue
-
-        scheduled = await _find_scheduled_pending_call(db, job_id, cand_uuid)
-        if scheduled:
-            dispatch_queue.append((scheduled.id, body.force))
-            continue
-
-        if not candidate.phone:
-            skipped.append({"name": candidate.name, "reason": "No phone number on file"})
-            continue
-
-        is_valid, normalized_phone, reject_reason = await validate_phone_with_reason(
-            candidate.phone
-        )
-        if not is_valid:
-            skipped.append({
-                "name": candidate.name,
-                "reason": reject_reason or f"Invalid phone number: {candidate.phone}",
-            })
-            continue
-
-        candidate.phone = normalized_phone
-
-        screening_call_id = uuid.uuid4()
-        screening_call = ScreeningCall(
-            id=screening_call_id,
-            candidate_id=cand_uuid,
-            job_id=job_id,
-            call_status="pending",
-        )
-        db.add(screening_call)
-        dispatch_queue.append((screening_call_id, body.force))
-
-    await db.commit()
-
-    for sc_id, force in dispatch_queue:
-        immediate = enqueue_screening_call(sc_id, job, force=force)
-        if immediate:
-            initiated += 1
-        else:
-            queued += 1
+    initiated, queued, dispatch_skipped = await dispatch_screening_for_candidates(
+        db,
+        job,
+        parsed_ids,
+        force=body.force,
+    )
+    skipped.extend(dispatch_skipped)
 
     return ScreeningTriggerResponse(
         initiated=initiated,
@@ -373,7 +288,14 @@ async def get_screening_results(
                 )
                 calls = list(result.scalars().all())
 
-    return calls
+    interview_candidate_ids = await _candidate_ids_with_interview_sessions(db, job_id)
+    return [
+        _screening_call_response(
+            call,
+            has_interview_session=call.candidate_id in interview_candidate_ids,
+        )
+        for call in calls
+    ]
 
 
 @router.post(
@@ -401,7 +323,13 @@ async def refresh_screening_call(
         )
         screening_call = result.scalars().one()
 
-    return screening_call
+    interview_candidate_ids = await _candidate_ids_with_interview_sessions(
+        db, screening_call.job_id
+    )
+    return _screening_call_response(
+        screening_call,
+        has_interview_session=screening_call.candidate_id in interview_candidate_ids,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -442,6 +370,15 @@ async def update_screening_result(
         )
 
     screening_call.result = payload.result
+    if payload.result != "pass":
+        screening_call.interview_queued_at = None
     await db.commit()
     await db.refresh(screening_call)
-    return screening_call
+
+    interview_candidate_ids = await _candidate_ids_with_interview_sessions(
+        db, screening_call.job_id
+    )
+    return _screening_call_response(
+        screening_call,
+        has_interview_session=screening_call.candidate_id in interview_candidate_ids,
+    )

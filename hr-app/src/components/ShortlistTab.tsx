@@ -10,11 +10,13 @@ import {
   ChevronUp,
   Search,
   Trash2,
+  XCircle,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ShortlistResultWithCandidate, HrDecision } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
-import { ShortlistSplitView, SplitViewSkeleton } from '@/components/shortlist/ShortlistSplitView'
+import { ShortlistTable } from '@/components/shortlist/ShortlistTable'
+import { ShortlistTableSkeleton } from '@/components/shortlist/ShortlistTableSkeleton'
 
 // ---------------------------------------------------------------------------
 // Score badge
@@ -165,6 +167,65 @@ const REASON_TRUNCATE_LENGTH = 160
 const SHORTLIST_EMPTY_STATE_CLASS = 'flex min-h-[360px] flex-col items-center justify-center px-6 text-center'
 const SHORTLIST_SEARCH_CLASS =
   'h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-700 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100'
+
+function BulkActionButtons({
+  approveLabel,
+  rejectLabel,
+  approvingAll,
+  rejectingAll,
+  onApproveAll,
+  onRejectAll,
+}: {
+  approveLabel: string
+  rejectLabel: string
+  approvingAll: boolean
+  rejectingAll: boolean
+  onApproveAll: () => void
+  onRejectAll: () => void
+}) {
+  const disabled = approvingAll || rejectingAll
+
+  return (
+    <div className="inline-grid w-full min-w-[17rem] grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-slate-200 shadow-sm sm:w-auto">
+      <button
+        type="button"
+        onClick={onApproveAll}
+        disabled={disabled}
+        className="inline-flex h-10 items-center justify-center gap-1.5 bg-white px-3 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {approvingAll ? (
+          <>
+            <Loader2 size={14} className="animate-spin shrink-0" />
+            <span className="truncate">Approving…</span>
+          </>
+        ) : (
+          <>
+            <CheckCircle size={14} className="shrink-0" />
+            <span className="truncate">{approveLabel}</span>
+          </>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={onRejectAll}
+        disabled={disabled}
+        className="inline-flex h-10 items-center justify-center gap-1.5 border-l border-slate-200 bg-white px-3 text-sm font-medium text-rose-700 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {rejectingAll ? (
+          <>
+            <Loader2 size={14} className="animate-spin shrink-0" />
+            <span className="truncate">Rejecting…</span>
+          </>
+        ) : (
+          <>
+            <XCircle size={14} className="shrink-0" />
+            <span className="truncate">{rejectLabel}</span>
+          </>
+        )}
+      </button>
+    </div>
+  )
+}
 
 type DecisionActionsMode = 'none' | 'approveReject' | 'full'
 
@@ -645,7 +706,7 @@ export function ShortlistTab({
       <div className={isAiShortlistedMode ? 'space-y-6' : 'space-y-4'}>
         {isAiShortlistedMode && aiShortlistedHeader}
         {isAiShortlistedMode ? (
-          <SplitViewSkeleton />
+          <ShortlistTableSkeleton />
         ) : (
           [1, 2, 3].map((i) => <ShortlistCardSkeleton key={i} />)
         )}
@@ -751,44 +812,30 @@ export function ShortlistTab({
             </select>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
-            <div className="text-sm font-medium text-slate-600 whitespace-nowrap">
-              {recommendationFilter === 'all'
-                ? `Total Scored Candidates: ${scoredResults.length}`
-                : `Showing ${filteredScored.length} of ${scoredResults.length}`}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => void handleApproveAll()}
-                disabled={approvingAll || rejectingAll}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {approvingAll ? (
-                  <>
-                    <Loader2 size={11} className="animate-spin" />
-                    Approving…
-                  </>
-                ) : (
-                  'Approve All Passed'
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleRejectAll()}
-                disabled={approvingAll || rejectingAll}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 text-white text-xs font-medium rounded-lg hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {rejectingAll ? (
-                  <>
-                    <Loader2 size={11} className="animate-spin" />
-                    Rejecting…
-                  </>
-                ) : (
-                  'Reject All Failed'
-                )}
-              </button>
-            </div>
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:items-end">
+            <p className="text-sm text-slate-500 sm:text-right">
+              {recommendationFilter === 'all' ? (
+                <>
+                  <span className="font-semibold text-slate-800">{scoredResults.length}</span>
+                  {' '}scored candidate{scoredResults.length !== 1 ? 's' : ''}
+                </>
+              ) : (
+                <>
+                  Showing{' '}
+                  <span className="font-semibold text-slate-800">{filteredScored.length}</span>
+                  {' '}of{' '}
+                  <span className="font-semibold text-slate-800">{scoredResults.length}</span>
+                </>
+              )}
+            </p>
+            <BulkActionButtons
+              approveLabel="Approve passed"
+              rejectLabel="Reject failed"
+              approvingAll={approvingAll}
+              rejectingAll={rejectingAll}
+              onApproveAll={() => void handleApproveAll()}
+              onRejectAll={() => void handleRejectAll()}
+            />
           </div>
         </div>
 
@@ -803,7 +850,7 @@ export function ShortlistTab({
             </p>
           </div>
         ) : (
-          <ShortlistSplitView
+          <ShortlistTable
             results={filteredScored}
             jobId={jobId}
             requiredSkills={requiredSkills}
@@ -820,30 +867,14 @@ export function ShortlistTab({
         <p className="text-sm text-slate-500">
           {results.length} candidate{results.length !== 1 ? 's' : ''} scored · sorted by match score
         </p>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => void handleApproveAll()}
-            disabled={approvingAll || rejectingAll}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {approvingAll ? (
-              <><Loader2 size={11} className="animate-spin" /> Approving…</>
-            ) : (
-              'Approve All Shortlisted'
-            )}
-          </button>
-          <button
-            onClick={() => void handleRejectAll()}
-            disabled={approvingAll || rejectingAll}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 text-white text-xs font-medium rounded-lg hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {rejectingAll ? (
-              <><Loader2 size={11} className="animate-spin" /> Rejecting…</>
-            ) : (
-              'Reject All Rejected'
-            )}
-          </button>
-        </div>
+        <BulkActionButtons
+          approveLabel="Approve shortlisted"
+          rejectLabel="Reject failed"
+          approvingAll={approvingAll}
+          rejectingAll={rejectingAll}
+          onApproveAll={() => void handleApproveAll()}
+          onRejectAll={() => void handleRejectAll()}
+        />
       </div>
       {results.map((result) => (
         <ShortlistCard key={result.id} result={result} jobId={jobId} />

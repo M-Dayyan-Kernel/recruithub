@@ -20,7 +20,9 @@ dependencies = [
     "python-dotenv==1.0.1",
     "python-multipart==0.0.9",
     "redis==5.0.7",
-    "resend>=0.8.0",
+    "google-api-python-client>=2.130.0",
+    "google-auth-oauthlib>=1.2.0",
+    "google-auth>=2.29.0",
     "sqlalchemy[asyncio]==2.0.31",
     "uvicorn[standard]==0.30.1",
 ]

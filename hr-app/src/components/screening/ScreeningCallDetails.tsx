@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useOutletContext } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import {
   Briefcase,
   Calendar,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
   DollarSign,
@@ -11,6 +13,7 @@ import {
   Loader2,
   Mic,
   Phone,
+  Send,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
@@ -18,6 +21,8 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ScreeningCall, ScreeningResult } from '@/types/api'
+import type { JobOutletContext } from '@/components/JobLayout'
+import { ScheduleInterviewModal } from '@/components/screening/ScheduleInterviewModal'
 
 function formatCallDate(iso: string): string {
   try {
@@ -160,56 +165,136 @@ function StatChip({ label, value }: { label: string; value?: string | null }) {
   )
 }
 
-function HrDecisionBar({ call, jobId }: { call: ScreeningCall; jobId: string }) {
+function ScreeningActionBar({
+  call,
+  jobId,
+  candidateName,
+}: {
+  call: ScreeningCall
+  jobId: string
+  candidateName?: string
+}) {
+  const { job } = useOutletContext<JobOutletContext>()
   const queryClient = useQueryClient()
-  const mutation = useMutation({
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  const isApproved = call.result === 'pass'
+  const isQueued = Boolean(call.interview_queued_at)
+  const hasSession = Boolean(call.has_interview_session)
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
+    queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
+  }
+
+  const decisionMutation = useMutation({
     mutationFn: (result: ScreeningResult) =>
       api.patch(`/api/screening/${call.id}/result`, { result }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
+      invalidate()
       toast.success('Decision saved')
     },
     onError: () => toast.error('Failed to update decision'),
   })
 
+  const queueMutation = useMutation({
+    mutationFn: () =>
+      api.post(`/api/candidates/${call.candidate_id}/interview/queue`),
+    onSuccess: () => {
+      invalidate()
+      toast.success('Candidate queued for interview')
+    },
+    onError: (err: Error) => toast.error(err.message || 'Failed to queue for interview'),
+  })
+
+  const busy = decisionMutation.isPending || queueMutation.isPending
+
   return (
-    <div
-      className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div>
-        <p className="text-xs font-semibold text-slate-800">HR decision</p>
-        <p className="text-[11px] text-slate-500">Confirm or override the AI screening result</p>
-      </div>
-      <div className="flex gap-2">
+    <>
+      <div
+        className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"
+        onClick={(e) => e.stopPropagation()}
+      >
+      <p className="text-[11px] font-medium text-slate-600">HR actions</p>
+      <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => mutation.mutate('pass')}
-          disabled={mutation.isPending}
-          className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold sm:flex-none ${
+          onClick={() => decisionMutation.mutate('pass')}
+          disabled={busy}
+          className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${
             call.result === 'pass'
               ? 'bg-emerald-600 text-white shadow-sm'
               : 'border border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50'
           }`}
         >
-          {mutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <ThumbsUp size={13} />}
+          {decisionMutation.isPending ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : (
+            <ThumbsUp size={13} />
+          )}
           Approve
         </button>
         <button
           type="button"
-          onClick={() => mutation.mutate('fail')}
-          disabled={mutation.isPending}
-          className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold sm:flex-none ${
+          onClick={() => decisionMutation.mutate('fail')}
+          disabled={busy}
+          className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${
             call.result === 'fail'
               ? 'bg-rose-600 text-white shadow-sm'
               : 'border border-slate-200 bg-white text-slate-700 hover:border-rose-300 hover:bg-rose-50'
           }`}
         >
-          {mutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <ThumbsDown size={13} />}
+          {decisionMutation.isPending ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : (
+            <ThumbsDown size={13} />
+          )}
           Reject
         </button>
+        <button
+          type="button"
+          onClick={() => queueMutation.mutate()}
+          disabled={busy || !isApproved || isQueued || hasSession}
+          className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${
+            isQueued
+              ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+              : 'border border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50'
+          }`}
+        >
+          {queueMutation.isPending ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : (
+            <CalendarClock size={13} />
+          )}
+          {isQueued ? 'Queued' : 'Queue interview'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setScheduleOpen(true)}
+          disabled={busy || !isApproved || hasSession}
+          className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${
+            hasSession
+              ? 'border border-indigo-200 bg-indigo-50 text-indigo-700'
+              : 'border border-indigo-200 bg-indigo-600 text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50'
+          }`}
+        >
+          <Send size={13} />
+          {hasSession ? 'Scheduled' : 'Schedule'}
+        </button>
       </div>
-    </div>
+      {!isApproved && (
+        <p className="text-[10px] text-slate-500">Approve to enable interview actions.</p>
+      )}
+      </div>
+
+      <ScheduleInterviewModal
+        job={job}
+        candidateId={call.candidate_id}
+        candidateName={candidateName ?? 'Candidate'}
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        onSuccess={invalidate}
+      />
+    </>
   )
 }
 
@@ -309,55 +394,60 @@ export function ScreeningCallDetails({
   }
 
   const collapsedCard = (
-    <div
-      {...toggleProps}
-      className={`flex gap-3 px-3.5 py-2.5 ${
-        isCollapsible ? 'cursor-pointer select-none hover:bg-slate-50/80' : ''
-      }`}
-      aria-expanded={false}
-    >
-      {candidateName && (
-        <div
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ${result.avatarBg} ${result.avatarText}`}
-        >
-          {initials(candidateName)}
-        </div>
-      )}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {candidateName && (
-                <span className="truncate text-sm font-semibold text-slate-900">{candidateName}</span>
-              )}
-              <span
-                className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${result.badge}`}
-              >
-                <ResultIcon size={10} />
-                {result.label}
-              </span>
-              {willingness && (
-                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${willingness.tone}`}>
-                  {willingness.label}
-                </span>
-              )}
-            </div>
-            {(call.summary || call.relevant_experience) && (
-              <p className="mt-1 line-clamp-2 text-xs leading-snug text-slate-600">
-                {call.summary?.trim() || call.relevant_experience?.trim()}
-              </p>
-            )}
-            {collapsedHighlights.length > 0 && (
-              <p className="mt-1 line-clamp-1 text-[11px] text-slate-500">
-                {collapsedHighlights.join(' · ')}
-              </p>
-            )}
-            <p className="mt-1 truncate text-[11px] text-slate-400">{collapsedMeta}</p>
+    <div>
+      <div
+        {...toggleProps}
+        className={`flex gap-3 px-3.5 py-2.5 ${
+          isCollapsible ? 'cursor-pointer select-none hover:bg-slate-50/80' : ''
+        }`}
+        aria-expanded={false}
+      >
+        {candidateName && (
+          <div
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ${result.avatarBg} ${result.avatarText}`}
+          >
+            {initials(candidateName)}
           </div>
-          {isCollapsible && (
-            <ChevronDown size={16} className="mt-0.5 shrink-0 text-slate-400" />
-          )}
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {candidateName && (
+                  <span className="truncate text-sm font-semibold text-slate-900">{candidateName}</span>
+                )}
+                <span
+                  className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${result.badge}`}
+                >
+                  <ResultIcon size={10} />
+                  {result.label}
+                </span>
+                {willingness && (
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${willingness.tone}`}>
+                    {willingness.label}
+                  </span>
+                )}
+              </div>
+              {(call.summary || call.relevant_experience) && (
+                <p className="mt-1 line-clamp-2 text-xs leading-snug text-slate-600">
+                  {call.summary?.trim() || call.relevant_experience?.trim()}
+                </p>
+              )}
+              {collapsedHighlights.length > 0 && (
+                <p className="mt-1 line-clamp-1 text-[11px] text-slate-500">
+                  {collapsedHighlights.join(' · ')}
+                </p>
+              )}
+              <p className="mt-1 truncate text-[11px] text-slate-400">{collapsedMeta}</p>
+            </div>
+            {isCollapsible && (
+              <ChevronDown size={16} className="mt-0.5 shrink-0 text-slate-400" />
+            )}
+          </div>
         </div>
+      </div>
+      <div className="px-3.5 pb-2.5">
+        <ScreeningActionBar call={call} jobId={jobId} candidateName={candidateName} />
       </div>
     </div>
   )
@@ -552,7 +642,7 @@ export function ScreeningCallDetails({
             </div>
           )}
 
-          <HrDecisionBar call={call} jobId={jobId} />
+          <ScreeningActionBar call={call} jobId={jobId} candidateName={candidateName} />
 
           {call.transcript && (
             <section onClick={(e) => e.stopPropagation()}>

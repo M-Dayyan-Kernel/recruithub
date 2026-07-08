@@ -933,3 +933,27 @@ async def _async_dispatch_pending() -> None:
 
         if dispatched:
             logger.info("dispatch_pending_screening_calls: dispatched %d pending calls", dispatched)
+
+        from app.services.screening_trigger_service import (
+            auto_dispatch_unqueued_approved_for_job,
+        )
+
+        jobs_result = await session.execute(select(Job))
+        auto_initiated = 0
+        auto_queued = 0
+        for job in jobs_result.scalars().all():
+            if not is_within_call_window(job):
+                continue
+            initiated, queued = await auto_dispatch_unqueued_approved_for_job(
+                session, job
+            )
+            auto_initiated += initiated
+            auto_queued += queued
+
+        if auto_initiated or auto_queued:
+            logger.info(
+                "dispatch_pending_screening_calls: auto-dispatched new approvals "
+                "initiated=%d queued=%d",
+                auto_initiated,
+                auto_queued,
+            )

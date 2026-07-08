@@ -13,3 +13,5 @@ venv/
 env/
 *.egg-info/
 .git/
+token.json
+credentials.json
