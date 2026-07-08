@@ -78,6 +78,7 @@ export default function JobShortlistPage() {
         <div className={WORKFLOW_SECTION_CLASS}>
           <ShortlistTab
             jobId={jobId}
+            jobTitle={job.title}
             requiredSkills={job.required_skills ?? []}
             shortlistTriggered={shortlistTriggered}
             onShortlistComplete={handleShortlistComplete}

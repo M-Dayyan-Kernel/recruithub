@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { X } from 'lucide-react'
 import type { ShortlistResultWithCandidate } from '@/types/api'
 import { ShortlistReportContent } from '@/components/shortlist/ShortlistReportContent'
+import { ShortlistReportActions } from '@/components/shortlist/ShortlistReportActions'
 import {
   HrDecisionBadge,
   RecommendationBadge,
@@ -11,10 +12,16 @@ import {
 interface Props {
   result: ShortlistResultWithCandidate
   requiredSkills: string[]
+  jobTitle?: string
   onClose: () => void
 }
 
-export function ShortlistReportModal({ result, requiredSkills, onClose }: Props) {
+export function ShortlistReportModal({
+  result,
+  requiredSkills,
+  jobTitle,
+  onClose,
+}: Props) {
   const displayName = result.candidate_name ?? 'Candidate'
   const displayEmail = result.candidate_email
 
@@ -40,7 +47,7 @@ export function ShortlistReportModal({ result, requiredSkills, onClose }: Props)
         className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-xl bg-white shadow-xl"
       >
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-6 py-4">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h2 id="shortlist-report-title" className="truncate text-lg font-semibold text-slate-900">
               {displayName}
             </h2>
@@ -51,6 +58,14 @@ export function ShortlistReportModal({ result, requiredSkills, onClose }: Props)
               )}
               <ScoreBadge score={result.match_score} />
               <RecommendationBadge rec={result.recommendation} />
+            </div>
+            <div className="mt-3">
+              <ShortlistReportActions
+                result={result}
+                requiredSkills={requiredSkills}
+                jobTitle={jobTitle}
+                layout="compact"
+              />
             </div>
           </div>
           <button

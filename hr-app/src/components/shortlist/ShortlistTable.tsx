@@ -15,6 +15,7 @@ interface Props {
   results: ShortlistResultWithCandidate[]
   jobId: string
   requiredSkills?: string[]
+  jobTitle?: string
 }
 
 function ShortlistTableRow({
@@ -85,7 +86,7 @@ function ShortlistTableRow({
   )
 }
 
-export function ShortlistTable({ results, jobId, requiredSkills = [] }: Props) {
+export function ShortlistTable({ results, jobId, requiredSkills = [], jobTitle }: Props) {
   const [reportResult, setReportResult] = useState<ShortlistResultWithCandidate | null>(null)
 
   const sortedResults = useMemo(
@@ -138,6 +139,7 @@ export function ShortlistTable({ results, jobId, requiredSkills = [] }: Props) {
         <ShortlistReportModal
           result={reportResult}
           requiredSkills={requiredSkills}
+          jobTitle={jobTitle}
           onClose={() => setReportResult(null)}
         />
       )}

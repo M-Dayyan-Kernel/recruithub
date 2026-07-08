@@ -11,12 +11,21 @@ import {
   Search,
   Trash2,
   XCircle,
+  Download,
+  FileText,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ShortlistResultWithCandidate, HrDecision } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
 import { ShortlistTable } from '@/components/shortlist/ShortlistTable'
 import { ShortlistTableSkeleton } from '@/components/shortlist/ShortlistTableSkeleton'
+import {
+  buildShortlistCsv,
+  downloadTextFile,
+  exportTimestamp,
+  slugifyFilename,
+} from '@/lib/shortlistReportExport'
+import { downloadAllShortlistReportsPdf } from '@/lib/shortlistReportPdf'
 
 // ---------------------------------------------------------------------------
 // Score badge
@@ -581,6 +590,7 @@ interface Props {
   onSwitchToCandidates: () => void
   mode?: 'default' | 'aiShortlisted'
   requiredSkills?: string[]
+  jobTitle?: string
 }
 
 export function ShortlistTab({
@@ -590,6 +600,7 @@ export function ShortlistTab({
   onSwitchToCandidates,
   mode = 'default',
   requiredSkills = [],
+  jobTitle,
 }: Props) {
   const isAiShortlistedMode = mode === 'aiShortlisted'
   const [search, setSearch] = useState('')
@@ -696,6 +707,42 @@ export function ShortlistTab({
     } finally {
       queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
       setRejectingAll(false)
+    }
+  }
+
+  const aiShortlistedCandidates = scoredResults.filter(
+    (result) => result.recommendation === 'shortlisted',
+  )
+  const exportBaseName = slugifyFilename(jobTitle ?? 'job')
+
+  const handleExportShortlistedCsv = () => {
+    if (aiShortlistedCandidates.length === 0) {
+      toast('No AI-shortlisted candidates to export.')
+      return
+    }
+    const csv = buildShortlistCsv(aiShortlistedCandidates, requiredSkills)
+    downloadTextFile(
+      `${exportBaseName}-ai-shortlisted-${exportTimestamp()}.csv`,
+      csv,
+      'text/csv;charset=utf-8',
+    )
+    toast.success(
+      `Exported ${aiShortlistedCandidates.length} candidate${aiShortlistedCandidates.length !== 1 ? 's' : ''} as CSV`,
+    )
+  }
+
+  const handleExportShortlistedReports = () => {
+    if (aiShortlistedCandidates.length === 0) {
+      toast('No AI-shortlisted candidates to export.')
+      return
+    }
+    try {
+      downloadAllShortlistReportsPdf(aiShortlistedCandidates, requiredSkills, { jobTitle })
+      toast.success(
+        `Downloaded PDF with ${aiShortlistedCandidates.length} report${aiShortlistedCandidates.length !== 1 ? 's' : ''}`,
+      )
+    } catch {
+      toast.error('Failed to generate PDF export')
     }
   }
 
@@ -836,6 +883,26 @@ export function ShortlistTab({
               onApproveAll={() => void handleApproveAll()}
               onRejectAll={() => void handleRejectAll()}
             />
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <button
+                type="button"
+                onClick={handleExportShortlistedCsv}
+                disabled={aiShortlistedCandidates.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Download size={14} />
+                Export CSV ({aiShortlistedCandidates.length})
+              </button>
+              <button
+                type="button"
+                onClick={handleExportShortlistedReports}
+                disabled={aiShortlistedCandidates.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <FileText size={14} />
+                Export all PDFs
+              </button>
+            </div>
           </div>
         </div>
 
@@ -854,6 +921,7 @@ export function ShortlistTab({
             results={filteredScored}
             jobId={jobId}
             requiredSkills={requiredSkills}
+            jobTitle={jobTitle}
           />
         )}
       </div>

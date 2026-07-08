@@ -61,10 +61,10 @@ function UploadZone({ jobId }: { jobId: string }) {
     try {
       const formData = new FormData()
       valid.forEach((file) => formData.append('files', file))
-      const result = await api.post<{
-        created: number
-        skipped_oversized?: string[]
-      }>(`/api/jobs/${jobId}/resumes`, formData)
+      const result = (await api.post(
+        `/api/jobs/${jobId}/resumes`,
+        formData,
+      )) as { created: number; skipped_oversized?: string[] }
       invalidate()
       if (result.created > 0) {
         toast.success(`${result.created} resume(s) uploaded`)

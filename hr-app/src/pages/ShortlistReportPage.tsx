@@ -4,6 +4,7 @@ import { ArrowLeft, AlertCircle } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Job, ShortlistResultWithCandidate } from '@/types/api'
 import { ShortlistReportContent } from '@/components/shortlist/ShortlistReportContent'
+import { ShortlistReportActions } from '@/components/shortlist/ShortlistReportActions'
 import {
   HrDecisionBadge,
   RecommendationBadge,
@@ -106,6 +107,15 @@ export default function ShortlistReportPage() {
                 <RecommendationBadge rec={result.recommendation} />
               </div>
             </div>
+            {jobId && (
+              <div className="mt-4 border-t border-slate-100 pt-4">
+                <ShortlistReportActions
+                  result={result}
+                  requiredSkills={job?.required_skills ?? []}
+                  jobTitle={job?.title}
+                />
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
