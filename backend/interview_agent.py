@@ -51,6 +51,48 @@ except ImportError:
     logger.warning("livekit-plugins-ai-coustics not installed — noise cancellation disabled")
 
 AGENT_NAME = "interview-agent"
+MAX_FOLLOW_UPS_PER_TOPIC = 2
+THIN_ANSWER_WORD_LIMIT = 25
+
+
+def _is_thin_answer(text: str) -> bool:
+    """Heuristic: short, vague, or lacking concrete detail."""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return True
+
+    words = cleaned.split()
+    if len(words) < THIN_ANSWER_WORD_LIMIT:
+        return True
+
+    lower = cleaned.lower()
+    vague_markers = (
+        "i think", "kind of", "basically", "not sure", "maybe",
+        "i guess", "something like", "sort of", "i don't remember",
+    )
+    if any(marker in lower for marker in vague_markers) and len(words) < 60:
+        return True
+
+    concrete_markers = (
+        "for example", "we built", "i led", "i designed", "result",
+        "because", "trade-off", "tradeoff", "latency", "users",
+        "team", "shipped", "implemented", "reduced", "improved",
+    )
+    if not any(marker in lower for marker in concrete_markers) and len(words) < 50:
+        return True
+
+    return False
+
+
+def _adaptive_followup_rules() -> str:
+    return f"""ADAPTIVE FOLLOW-UP RULES (critical):
+- After every substantive answer, pause and assess depth before changing topic.
+- A thin answer is: very short, generic, buzzword-heavy, or missing examples and specifics.
+- When thin: ask 1 short follow-up grounded in THEIR words — e.g. "Can you walk me through a specific example?", "What was your role in that?", "What trade-offs did you consider?"
+- When adequate (concrete example, clear reasoning, specific details): acknowledge briefly and advance.
+- Never ask more than {MAX_FOLLOW_UPS_PER_TOPIC} follow-ups on the same topic — then move on even if still shallow.
+- Follow-ups must reference what they just said; do not introduce unrelated new topics.
+- Do not reveal rubric scores, expected answers, or hiring decisions."""
 
 
 def _format_rubric_block(questions: list) -> str:
@@ -74,21 +116,23 @@ def _build_interview_structure(job) -> str:
         rubric = _format_rubric_block(valid)
         return f"""INTERVIEW STRUCTURE (follow this order):
 1. You have already greeted the candidate — move straight to asking for a brief self-introduction
-2. Ask EACH rubric question below IN ORDER — use the exact intent of each question. Probe with follow-ups until you have enough depth, then move on.
-3. Do not skip any rubric question. Do not reveal point values to the candidate.
-4. Ask about their interest in this role at Webknot
-5. Let them ask one or two questions
-6. Close warmly — thank them, say the hiring team will follow up
+2. Ask EACH rubric question below IN ORDER — use the exact intent of each question.
+3. After each rubric answer, apply ADAPTIVE FOLLOW-UP RULES before the next rubric question.
+4. Do not skip any rubric question. Do not reveal point values to the candidate.
+5. Ask about their interest in this role at Webknot
+6. Let them ask one or two questions
+7. Close warmly — thank them, say the hiring team will follow up
 
 RUBRIC QUESTIONS (mandatory — ask in order):
 {rubric}"""
     return f"""INTERVIEW STRUCTURE (follow this order):
 1. You have already greeted the candidate — move straight to asking for a brief self-introduction
-2. Ask 2-3 technical questions relevant to {job.title} and their skills — ask follow-ups based on answers
-3. One behavioural question (challenging project, conflict resolution, or leadership)
-4. Ask about their interest in this role at Webknot
-5. Let them ask one or two questions
-6. Close warmly — thank them, say the hiring team will follow up"""
+2. Ask 2-3 technical questions relevant to {job.title} and their skills
+3. After each answer, apply ADAPTIVE FOLLOW-UP RULES before moving on
+4. One behavioural question (challenging project, conflict resolution, or leadership)
+5. Ask about their interest in this role at Webknot
+6. Let them ask one or two questions
+7. Close warmly — thank them, say the hiring team will follow up"""
 
 
 # ---------------------------------------------------------------------------
@@ -147,10 +191,12 @@ JOB: {(job.description or '')[:400]}
 
 {interview_structure}
 
+{_adaptive_followup_rules()}
+
 VOICE RULES:
 - Speak in short, natural sentences — this is voice, not text
 - No bullet points, no markdown, no lists
-- Listen and ask follow-ups based on what they say
+- Listen fully, then respond — probe thin answers before advancing
 - Be warm, encouraging, and professional
 - Keep total interview to 10-15 minutes
 - Do NOT reveal scores or make hiring decisions on the call"""
@@ -165,8 +211,11 @@ VOICE RULES:
 
 
 def _default_prompt() -> str:
-    return """You are a professional AI interviewer at Webknot Technologies conducting a voice interview.
+    return f"""You are a professional AI interviewer at Webknot Technologies conducting a voice interview.
 Cover: background, technical skills, a behavioural question, and role interest. Be warm and encouraging.
+
+{_adaptive_followup_rules()}
+
 Speak in short natural sentences — no markdown or bullet points."""
 
 
@@ -220,13 +269,55 @@ async def interview_session(ctx: JobContext):
 
     openai_key = os.environ.get("OPENAI_API_KEY", "")
 
-    # Create agent with instructions
+    # Create agent with instructions + per-turn follow-up coaching
     class InterviewAgent(Agent):
         def __init__(self):
             super().__init__(
                 instructions=system_prompt,
                 llm=lk_openai.LLM(model="gpt-4o", api_key=openai_key),
             )
+            self._follow_ups_this_topic = 0
+
+        async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
+            text = (getattr(new_message, "text_content", None) or "").strip()
+            if not text:
+                return
+
+            created_at = getattr(new_message, "created_at", None)
+            ts = (created_at - 0.001) if isinstance(created_at, (int, float)) else None
+
+            if _is_thin_answer(text) and self._follow_ups_this_topic < MAX_FOLLOW_UPS_PER_TOPIC:
+                self._follow_ups_this_topic += 1
+                turn_ctx.add_message(
+                    role="assistant",
+                    content=(
+                        "[Turn guidance] The candidate's last answer was thin or vague. "
+                        "Ask ONE short probing follow-up grounded in what they just said "
+                        "(specific example, their role, metrics, or trade-offs). "
+                        "Do not repeat the original question verbatim."
+                    ),
+                    created_at=ts,
+                )
+            elif _is_thin_answer(text):
+                self._follow_ups_this_topic = 0
+                turn_ctx.add_message(
+                    role="assistant",
+                    content=(
+                        "[Turn guidance] You have already probed this topic enough. "
+                        "Acknowledge briefly and move to the next interview question."
+                    ),
+                    created_at=ts,
+                )
+            else:
+                self._follow_ups_this_topic = 0
+                turn_ctx.add_message(
+                    role="assistant",
+                    content=(
+                        "[Turn guidance] The candidate gave a substantive answer. "
+                        "Acknowledge briefly, then advance to the next topic or rubric question."
+                    ),
+                    created_at=ts,
+                )
 
     # ---------------------------------------------------------------------------
     # Noise cancellation — build AudioInputOptions with ai_coustics enhancer.
@@ -307,6 +398,8 @@ async def interview_session(ctx: JobContext):
                         for p in content
                     )
             if text.strip():
+                if text.strip().startswith('[Turn guidance]'):
+                    return
                 label = 'AI' if str(role) == 'assistant' else 'Candidate'
                 transcript_lines.append(f'{label}: {text.strip()}')
                 logger.debug('Transcript captured: [%s] %s', label, text.strip()[:80])
