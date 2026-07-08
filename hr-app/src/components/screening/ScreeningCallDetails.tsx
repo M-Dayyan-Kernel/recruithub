@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChevronDown,
   DollarSign,
+  Download,
   FileText,
   Loader2,
   Mic,
@@ -23,6 +24,7 @@ import { api } from '@/lib/api'
 import type { ScreeningCall, ScreeningResult } from '@/types/api'
 import type { JobOutletContext } from '@/components/JobLayout'
 import { ScheduleInterviewModal } from '@/components/screening/ScheduleInterviewModal'
+import { downloadScreeningReportPdf } from '@/lib/screeningReportPdf'
 
 function formatCallDate(iso: string): string {
   try {
@@ -169,14 +171,19 @@ function ScreeningActionBar({
   call,
   jobId,
   candidateName,
+  phone,
+  attemptNumber,
 }: {
   call: ScreeningCall
   jobId: string
   candidateName?: string
+  phone?: string | null
+  attemptNumber?: number
 }) {
   const { job } = useOutletContext<JobOutletContext>()
   const queryClient = useQueryClient()
   const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
   const isApproved = call.result === 'pass'
   const isQueued = Boolean(call.interview_queued_at)
   const hasSession = Boolean(call.has_interview_session)
@@ -206,7 +213,24 @@ function ScreeningActionBar({
     onError: (err: Error) => toast.error(err.message || 'Failed to queue for interview'),
   })
 
-  const busy = decisionMutation.isPending || queueMutation.isPending
+  const busy = decisionMutation.isPending || queueMutation.isPending || downloadingPdf
+
+  const handleDownloadPdf = () => {
+    setDownloadingPdf(true)
+    try {
+      downloadScreeningReportPdf(call, {
+        candidateName,
+        phone,
+        jobTitle: job.title,
+        attemptNumber,
+      })
+      toast.success('Screening report downloaded')
+    } catch {
+      toast.error('Failed to generate PDF')
+    } finally {
+      setDownloadingPdf(false)
+    }
+  }
 
   return (
     <>
@@ -216,6 +240,19 @@ function ScreeningActionBar({
       >
       <p className="text-[11px] font-medium text-slate-600">HR actions</p>
       <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={handleDownloadPdf}
+          disabled={busy}
+          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {downloadingPdf ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : (
+            <Download size={13} />
+          )}
+          Download PDF
+        </button>
         <button
           type="button"
           onClick={() => decisionMutation.mutate('pass')}
@@ -447,7 +484,13 @@ export function ScreeningCallDetails({
         </div>
       </div>
       <div className="px-3.5 pb-2.5">
-        <ScreeningActionBar call={call} jobId={jobId} candidateName={candidateName} />
+        <ScreeningActionBar
+          call={call}
+          jobId={jobId}
+          candidateName={candidateName}
+          phone={phone}
+          attemptNumber={attemptNumber}
+        />
       </div>
     </div>
   )
@@ -642,7 +685,13 @@ export function ScreeningCallDetails({
             </div>
           )}
 
-          <ScreeningActionBar call={call} jobId={jobId} candidateName={candidateName} />
+          <ScreeningActionBar
+          call={call}
+          jobId={jobId}
+          candidateName={candidateName}
+          phone={phone}
+          attemptNumber={attemptNumber}
+        />
 
           {call.transcript && (
             <section onClick={(e) => e.stopPropagation()}>
