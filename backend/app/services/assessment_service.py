@@ -74,7 +74,7 @@ Return ONLY valid JSON with exactly these fields:
 
 {{
   "question_scores": [
-    {{ "id": "<rubric question id>", "earned_score": <integer 0 to that question's score>, "notes": "<1-2 sentence justification>" }}
+    {{ "id": "<rubric question id>", "earned_score": <integer 0 to that question's score>, "notes": "<1-2 sentence justification>", "candidate_answer": "<what the candidate actually said in response — quote or faithful paraphrase from the transcript; empty string if not addressed>" }}
   ],
   "overall_score": <integer — sum of all earned_score values>,
   "strengths": ["..."],
@@ -123,6 +123,7 @@ def _build_needs_review_report(rubric: list[dict] | None = None) -> dict:
                 "score": int(q.get("score") or 0),
                 "earned_score": None,
                 "notes": "Not assessable — transcript too short.",
+                "candidate_answer": "",
             }
             for q in rubric
         ]
@@ -167,6 +168,7 @@ def _merge_rubric_scores(rubric: list[dict], gpt_scores: list[dict]) -> list[dic
             "score": max_score,
             "earned_score": earned,
             "notes": gpt.get("notes") or "",
+            "candidate_answer": (gpt.get("candidate_answer") or "").strip(),
         })
     return merged, total_earned
 

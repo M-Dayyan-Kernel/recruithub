@@ -393,6 +393,7 @@ class InterviewQuestionScore(BaseModel):
     score: int
     earned_score: Optional[int] = None
     notes: Optional[str] = None
+    candidate_answer: Optional[str] = None
 
 
 class InterviewReportResponse(BaseModel):
@@ -421,3 +422,4 @@ class InterviewReportResponse(BaseModel):
     job_title: Optional[str] = None
     question_scores: Optional[List[InterviewQuestionScore]] = None
     rubric_total: Optional[int] = None
+    transcript: Optional[str] = None

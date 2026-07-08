@@ -612,6 +612,12 @@ async def get_interview_report(candidate_id: uuid.UUID, db: AsyncSession = Depen
         report_dict["question_scores"] = raw.get("question_scores")
         report_dict["rubric_total"] = raw.get("rubric_total")
 
+    session_result = await db.execute(
+        select(InterviewSession).where(InterviewSession.id == report.interview_session_id)
+    )
+    session = session_result.scalars().first()
+    report_dict["transcript"] = session.transcript if session else None
+
     return InterviewReportResponse.model_validate(report_dict)
 
 

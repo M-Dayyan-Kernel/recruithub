@@ -1,8 +1,13 @@
 import { useParams, Link } from 'react-router-dom'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, AlertCircle } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { ArrowLeft, AlertCircle, Download, Loader2, MessageSquareText } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { InterviewReport } from '@/types/api'
+import { downloadInterviewReportPdf } from '@/lib/interviewReportPdf'
+import TranscriptChat from '@/components/TranscriptChat'
+import { parseTranscript } from '@/lib/transcript'
 
 // ---------------------------------------------------------------------------
 // Recommendation badge
@@ -120,6 +125,7 @@ function ReportSkeleton() {
 
 export default function ReportPage() {
   const { jobId, candidateId } = useParams<{ jobId: string; candidateId: string }>()
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
 
   // ── Report ────────────────────────────────────────────────────────────────
   const {
@@ -150,6 +156,11 @@ export default function ReportPage() {
     { key: 'experience_score', label: 'Experience' },
     { key: 'role_alignment_score', label: 'Role Alignment' },
   ]
+
+  const transcriptTurns = useMemo(
+    () => (report?.transcript ? parseTranscript(report.transcript) : []),
+    [report?.transcript],
+  )
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -205,7 +216,32 @@ export default function ReportPage() {
                   <p className="text-sm text-slate-400 mb-1">Interview Assessment</p>
                 )}
               </div>
-              <RecommendationBadge rec={report.final_recommendation} />
+              <div className="flex flex-col items-end gap-3">
+                <RecommendationBadge rec={report.final_recommendation} />
+                <button
+                  type="button"
+                  disabled={downloadingPdf}
+                  onClick={() => {
+                    setDownloadingPdf(true)
+                    try {
+                      downloadInterviewReportPdf(report)
+                      toast.success('Interview report downloaded')
+                    } catch {
+                      toast.error('Failed to generate PDF')
+                    } finally {
+                      setDownloadingPdf(false)
+                    }
+                  }}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {downloadingPdf ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Download size={16} />
+                  )}
+                  Download PDF
+                </button>
+              </div>
             </div>
           </div>
 
@@ -241,7 +277,20 @@ export default function ReportPage() {
                       </span>
                     </div>
                     {qs.notes && (
-                      <p className="mt-1.5 text-xs text-slate-500 leading-relaxed">{qs.notes}</p>
+                      <p className="mt-1.5 text-xs text-slate-500 leading-relaxed">
+                        <span className="font-semibold text-slate-600">Assessor notes: </span>
+                        {qs.notes}
+                      </p>
+                    )}
+                    {qs.candidate_answer?.trim() && (
+                      <div className="mt-2 rounded-md border border-slate-200 bg-white px-3 py-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          Candidate answer
+                        </p>
+                        <p className="mt-1 text-xs leading-relaxed text-slate-700 whitespace-pre-wrap">
+                          {qs.candidate_answer}
+                        </p>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -317,8 +366,24 @@ export default function ReportPage() {
             </div>
           )}
 
-          {/* Transcript Summary */}
-          {report.transcript_summary && (
+          {/* Complete transcript */}
+          {report.transcript && (
+            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="inline-flex items-center gap-2 text-base font-semibold text-slate-800">
+                  <MessageSquareText size={18} className="text-indigo-500" />
+                  Complete Interview Transcript
+                </h2>
+                <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500">
+                  {transcriptTurns.length} messages
+                </span>
+              </div>
+              <TranscriptChat transcript={report.transcript} maxHeightClass="max-h-[32rem]" />
+            </div>
+          )}
+
+          {/* Transcript Summary (fallback when full transcript unavailable) */}
+          {!report.transcript && report.transcript_summary && (
             <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
               <h2 className="text-base font-semibold text-slate-800 mb-3">Transcript Summary</h2>
               <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">

@@ -12,6 +12,7 @@ export interface InterviewQuestion {
 export interface InterviewQuestionScore extends InterviewQuestion {
   earned_score?: number | null
   notes?: string | null
+  candidate_answer?: string | null
 }
 
 export interface ParsedJobDescription {
@@ -204,6 +205,7 @@ export interface InterviewReport {
   final_recommendation?: string
   summary?: string
   transcript_summary?: string
+  transcript?: string | null
   candidate_name?: string | null
   job_title?: string | null
   created_at: string
