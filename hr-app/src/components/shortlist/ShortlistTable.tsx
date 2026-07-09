@@ -22,6 +22,9 @@ interface Props {
 
 const CHECKBOX_CLASS =
   'h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500'
+const TH_CLASS =
+  'px-6 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-500'
+const TD_CLASS = 'px-6 py-3 text-center'
 
 function ShortlistTableRow({
   result,
@@ -41,7 +44,7 @@ function ShortlistTableRow({
 
   return (
     <tr className={`hover:bg-slate-50/60 ${selected ? 'bg-indigo-50/40' : ''}`}>
-      <td className="w-10 px-4 py-3">
+      <td className="w-10 px-4 py-3 text-center">
         <input
           type="checkbox"
           aria-label={`Select ${displayName}`}
@@ -50,22 +53,22 @@ function ShortlistTableRow({
           className={CHECKBOX_CLASS}
         />
       </td>
-      <td className="px-6 py-3 text-sm font-medium text-slate-800">{displayName}</td>
-      <td className="px-6 py-3">
+      <td className={`${TD_CLASS} text-sm font-medium text-slate-800`}>{displayName}</td>
+      <td className={TD_CLASS}>
         <ScoreBadge score={result.match_score} />
       </td>
-      <td className="px-6 py-3">
+      <td className={TD_CLASS}>
         <RecommendationBadge rec={result.recommendation} />
       </td>
-      <td className="px-6 py-3">
+      <td className={TD_CLASS}>
         {result.hr_decision === 'pending' ? (
           <span className="text-xs text-slate-400">Pending</span>
         ) : (
           <HrDecisionBadge decision={result.hr_decision} />
         )}
       </td>
-      <td className="px-6 py-3">
-        <div className="flex flex-wrap items-center gap-2">
+      <td className={TD_CLASS}>
+        <div className="flex flex-wrap items-center justify-center gap-2">
           <button
             type="button"
             onClick={() => onOpenReport(result)}
@@ -92,7 +95,7 @@ function ShortlistTableRow({
           })}
         </div>
         {decisionMutation.isError && (
-          <p className="mt-1 flex items-center gap-1 text-xs text-rose-600">
+          <p className="mt-1 flex items-center justify-center gap-1 text-xs text-rose-600">
             <AlertCircle size={11} />
             Failed to update
           </p>
@@ -257,7 +260,7 @@ export function ShortlistTable({ results, jobId, requiredSkills = [], jobTitle }
           <table className={`${WORKFLOW_TABLE_CLASS} h-full`}>
             <thead className="bg-slate-50">
               <tr>
-                <th scope="col" className="w-10 px-4 py-3 text-left">
+                <th scope="col" className="w-10 px-4 py-3 text-center">
                   <input
                     type="checkbox"
                     aria-label="Select all candidates"
@@ -270,21 +273,11 @@ export function ShortlistTable({ results, jobId, requiredSkills = [], jobTitle }
                     className={CHECKBOX_CLASS}
                   />
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Match Score
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  AI Recommendation
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  HR Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Actions
-                </th>
+                <th className={TH_CLASS}>Name</th>
+                <th className={TH_CLASS}>Match Score</th>
+                <th className={TH_CLASS}>AI Recommendation</th>
+                <th className={TH_CLASS}>HR Status</th>
+                <th className={TH_CLASS}>Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
