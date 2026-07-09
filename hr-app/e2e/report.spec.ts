@@ -294,9 +294,7 @@ test('rubric report renders point coverage checklist', async ({ page }) => {
   await page.waitForLoadState('networkidle')
 
   await expect(page.getByText('Question Scores')).toBeVisible()
-  await expect(page.getByText('Expected answer').first()).toBeVisible()
-  await expect(page.getByText('Candidate said').first()).toBeVisible()
   await expect(page.getByText('Explains useState and useEffect')).toBeVisible()
   await expect(page.getByText('Discusses performance considerations')).toBeVisible()
-  await expect(page.getByText('2/3 points covered')).toBeVisible()
+  await expect(page.getByText('2/3 covered')).toBeVisible()
 })

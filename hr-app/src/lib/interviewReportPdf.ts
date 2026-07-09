@@ -88,7 +88,7 @@ function drawPointCoverageList(
   doc.setFontSize(9)
 
   for (const item of items) {
-    const prefix = item.covered ? '[OK] ' : '[X]  '
+    const prefix = item.covered ? '✓ ' : '✗ '
     const lines = doc.splitTextToSize(prefix + item.point, CONTENT_WIDTH - 10)
     y = ensureSpace(doc, y, lines.length * 5 + 3)
     doc.setTextColor(...(item.covered ? COLORS.emerald : COLORS.rose))
@@ -98,19 +98,6 @@ function drawPointCoverageList(
   return y + 2
 }
 
-function drawNeutralBulletList(doc: jsPDF, items: string[], y: number): number {
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.setTextColor(...COLORS.dark)
-
-  for (const item of items) {
-    const lines = doc.splitTextToSize(`- ${item}`, CONTENT_WIDTH - 10)
-    y = ensureSpace(doc, y, lines.length * 5 + 3)
-    doc.text(lines, PAGE_MARGIN + 4, y)
-    y += lines.length * 5 + 2
-  }
-  return y + 2
-}
 
 function drawBulletList(
   doc: jsPDF,
@@ -283,32 +270,19 @@ function drawQuestionCard(
   const innerWidth = CONTENT_WIDTH - pad * 2
 
   const hasCoverage = (qs.point_coverage?.length ?? 0) > 0
-  const hasCandidatePoints = (qs.candidate_points?.length ?? 0) > 0
-  const hasAnswer = Boolean(qs.candidate_answer?.trim()) && !hasCandidatePoints
-  const hasNotes = Boolean(qs.notes?.trim())
+  const hasAnswer = Boolean(qs.candidate_answer?.trim()) && !hasCoverage
 
   let contentHeight = 9
   contentHeight += measureWrappedText(doc, qs.question, innerWidth, 10) + 4
 
   if (hasCoverage) {
-    contentHeight += 5
     for (const item of qs.point_coverage!) {
-      contentHeight += measureWrappedText(doc, `[${item.covered ? 'OK' : 'X'}] ${item.point}`, innerWidth - 4, 9) + 2
+      contentHeight += measureWrappedText(doc, `${item.covered ? '✓' : '✗'} ${item.point}`, innerWidth - 4, 9) + 2
     }
-    contentHeight += 4
-  }
-  if (hasCandidatePoints) {
-    contentHeight += 5
-    for (const point of qs.candidate_points!) {
-      contentHeight += measureWrappedText(doc, `- ${point}`, innerWidth - 4, 9) + 2
-    }
-    contentHeight += 4
+    contentHeight += 2
   }
   if (hasAnswer) {
-    contentHeight += 5 + measureWrappedText(doc, qs.candidate_answer!.trim(), innerWidth - 4, 9) + 4
-  }
-  if (hasNotes) {
-    contentHeight += 5 + measureWrappedText(doc, qs.notes!.trim(), innerWidth - 4, 9) + 2
+    contentHeight += measureWrappedText(doc, qs.candidate_answer!.trim(), innerWidth - 4, 9) + 4
   }
 
   const cardHeight = contentHeight + pad
@@ -336,42 +310,12 @@ function drawQuestionCard(
   y += 4
 
   if (hasCoverage) {
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8)
-    doc.setTextColor(...COLORS.slate)
-    doc.text('EXPECTED ANSWER', innerX, y)
-    y += 5
     y = drawPointCoverageList(doc, qs.point_coverage!, y)
     y += 2
   }
 
-  if (hasCandidatePoints) {
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8)
-    doc.setTextColor(...COLORS.slate)
-    doc.text('CANDIDATE SAID', innerX, y)
-    y += 5
-    y = drawNeutralBulletList(doc, qs.candidate_points!, y)
-    y += 2
-  }
-
   if (hasAnswer) {
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8)
-    doc.setTextColor(...COLORS.slate)
-    doc.text('CANDIDATE ANSWER', innerX, y)
-    y += 5
-    y = drawWrappedText(doc, qs.candidate_answer!.trim(), innerX + 2, y, innerWidth - 4, 9)
-    y += 4
-  }
-
-  if (hasNotes) {
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8)
-    doc.setTextColor(...COLORS.slate)
-    doc.text('ASSESSOR NOTES', innerX, y)
-    y += 5
-    y = drawWrappedText(doc, qs.notes!.trim(), innerX + 2, y, innerWidth - 4, 9)
+    y = drawWrappedText(doc, qs.candidate_answer!.trim(), innerX, y, innerWidth - 4, 9)
   }
 
   return cardTop + cardHeight + 6
