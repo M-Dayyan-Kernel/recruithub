@@ -62,21 +62,33 @@ If certain dimensions weren't assessable from the transcript, score conservative
 
 def _rubric_assessment_prompt(rubric: list[dict]) -> str:
     rubric_json = json.dumps(rubric, indent=2)
+    has_expected = any(q.get("expected_points") for q in rubric)
+    if has_expected:
+        scoring_rules = """- For each question with expected_points, return point_coverage with one entry per expected point (same text, covered true/false)
+- Use semantic matching: paraphrases and synonyms count as covered
+- candidate_points: 3-8 concise bullets summarizing what the candidate said for that question (from transcript)
+- Do NOT return earned_score — scoring is computed from point_coverage"""
+        question_shape = """{{ "id": "<rubric question id>", "candidate_points": ["..."], "point_coverage": [{{ "point": "<exact expected point text>", "covered": <true|false> }}], "notes": "<optional 1-line summary>", "candidate_answer": "<brief combined answer if helpful>" }}"""
+    else:
+        scoring_rules = """- earned_score must be an integer from 0 to the question's score (inclusive)
+- overall_score MUST equal the sum of earned_score across all questions"""
+        question_shape = """{{ "id": "<rubric question id>", "earned_score": <integer 0 to that question's score>, "notes": "<1-2 sentence justification>", "candidate_answer": "<what the candidate actually said in response — quote or faithful paraphrase from the transcript; empty string if not addressed>" }}"""
+
     return f"""You are an expert technical interviewer grading an interview transcript against a fixed rubric.
 
 You will be given:
 1. An interview transcript
 2. The job description and candidate profile
-3. A rubric of interview questions, each with an id, question text, and point weight (score)
+3. A rubric of interview questions, each with an id, question text, point weight (score), and optional expected_points (answer key bullets)
 
-For EACH rubric question, score how well the candidate answered it.
+For EACH rubric question, evaluate the candidate's response.
 Return ONLY valid JSON with exactly these fields:
 
 {{
   "question_scores": [
-    {{ "id": "<rubric question id>", "earned_score": <integer 0 to that question's score>, "notes": "<1-2 sentence justification>", "candidate_answer": "<what the candidate actually said in response — quote or faithful paraphrase from the transcript; empty string if not addressed>" }}
+    {question_shape}
   ],
-  "overall_score": <integer — sum of all earned_score values>,
+  "overall_score": <integer — sum of earned scores; use 0 as placeholder if using point_coverage>,
   "strengths": ["..."],
   "weaknesses": ["..."],
   "jd_fit": "<2-3 sentences>",
@@ -85,13 +97,12 @@ Return ONLY valid JSON with exactly these fields:
   "transcript_summary": "<2-3 sentence factual summary>"
 }}
 
-Rubric (score each question 0 up to its score weight):
+Rubric:
 {rubric_json}
 
 Rules:
-- earned_score must be an integer from 0 to the question's score (inclusive)
-- overall_score MUST equal the sum of earned_score across all questions
-- If a question was not clearly addressed, score 0 and explain in notes
+{scoring_rules}
+- If a question was not clearly addressed, mark all expected points as not covered and use empty candidate_points
 - Be objective and cite evidence from the transcript
 """
 
@@ -117,17 +128,112 @@ def _build_needs_review_report(rubric: list[dict] | None = None) -> dict:
         report["assessment_mode"] = "rubric"
         report["rubric_total"] = sum(int(q.get("score") or 0) for q in rubric)
         report["question_scores"] = [
-            {
-                "id": q.get("id", ""),
-                "question": q.get("question", ""),
-                "score": int(q.get("score") or 0),
-                "earned_score": None,
-                "notes": "Not assessable — transcript too short.",
-                "candidate_answer": "",
-            }
+            _empty_question_score_entry(q)
             for q in rubric
         ]
     return report
+
+
+def _empty_question_score_entry(q: dict) -> dict:
+    expected = _coerce_expected_points(q.get("expected_points"))
+    entry = {
+        "id": q.get("id", ""),
+        "question": q.get("question", ""),
+        "score": int(q.get("score") or 0),
+        "earned_score": 0 if expected else None,
+        "notes": "Not assessable — transcript too short.",
+        "candidate_answer": "",
+        "expected_points": expected or None,
+        "candidate_points": [],
+        "point_coverage": (
+            [{"point": p, "covered": False} for p in expected] if expected else None
+        ),
+    }
+    return entry
+
+
+def _coerce_expected_points(raw) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return [str(p).strip() for p in raw if str(p).strip()]
+
+
+def rubric_has_expected_points(rubric: list | None) -> bool:
+    if not rubric:
+        return False
+    for item in rubric:
+        if isinstance(item, dict) and _coerce_expected_points(item.get("expected_points")):
+            return True
+    return False
+
+
+def question_scores_need_coverage_refresh(
+    question_scores: list | None,
+    rubric: list | None,
+) -> bool:
+    """True when rubric has expected_points but stored scores lack point_coverage."""
+    if not rubric_has_expected_points(rubric):
+        return False
+    if not question_scores:
+        return True
+
+    rubric_ids_with_expected = {
+        str(q.get("id"))
+        for q in (rubric or [])
+        if isinstance(q, dict) and _coerce_expected_points(q.get("expected_points"))
+    }
+    if not rubric_ids_with_expected:
+        return False
+
+    scores_by_id = {
+        str(qs.get("id")): qs
+        for qs in question_scores
+        if isinstance(qs, dict) and qs.get("id")
+    }
+    for qid in rubric_ids_with_expected:
+        qs = scores_by_id.get(qid)
+        if not qs or not qs.get("point_coverage"):
+            return True
+    return False
+
+
+def _normalize_point_coverage(
+    expected_points: list[str],
+    gpt_coverage: list | None,
+) -> list[dict]:
+    if not expected_points:
+        return []
+    coverage_by_point: dict[str, bool] = {}
+    if isinstance(gpt_coverage, list):
+        for item in gpt_coverage:
+            if not isinstance(item, dict):
+                continue
+            point = str(item.get("point") or "").strip()
+            if point:
+                coverage_by_point[point.lower()] = bool(item.get("covered"))
+
+    normalized = []
+    for point in expected_points:
+        key = point.lower()
+        covered = coverage_by_point.get(key, False)
+        if not covered and isinstance(gpt_coverage, list):
+            for item in gpt_coverage:
+                if not isinstance(item, dict):
+                    continue
+                gpt_point = str(item.get("point") or "").strip().lower()
+                if gpt_point and (gpt_point in key or key in gpt_point):
+                    covered = bool(item.get("covered"))
+                    break
+        normalized.append({"point": point, "covered": covered})
+    return normalized
+
+
+def _coverage_earned_score(max_score: int, point_coverage: list[dict]) -> int:
+    if not point_coverage:
+        return 0
+    covered = sum(1 for p in point_coverage if p.get("covered"))
+    total = len(point_coverage) or 1
+    return round(max_score * covered / total)
 
 
 def _normalize_rubric_questions(raw: list | None) -> list[dict]:
@@ -144,11 +250,12 @@ def _normalize_rubric_questions(raw: list | None) -> list[dict]:
             "id": str(item.get("id") or ""),
             "question": question,
             "score": int(item.get("score") or 0),
+            "expected_points": _coerce_expected_points(item.get("expected_points")) or None,
         })
     return [q for q in normalized if q["score"] > 0]
 
 
-def _merge_rubric_scores(rubric: list[dict], gpt_scores: list[dict]) -> list[dict]:
+def _merge_rubric_scores(rubric: list[dict], gpt_scores: list[dict]) -> tuple[list[dict], int]:
     by_id = {str(s.get("id")): s for s in gpt_scores if isinstance(s, dict)}
     merged = []
     total_earned = 0
@@ -156,11 +263,29 @@ def _merge_rubric_scores(rubric: list[dict], gpt_scores: list[dict]) -> list[dic
         qid = str(q.get("id") or "")
         gpt = by_id.get(qid, {})
         max_score = int(q.get("score") or 0)
-        try:
-            earned = int(gpt.get("earned_score", 0))
-        except (TypeError, ValueError):
-            earned = 0
-        earned = max(0, min(earned, max_score))
+        expected_points = _coerce_expected_points(q.get("expected_points"))
+
+        raw_candidate_points = gpt.get("candidate_points")
+        candidate_points = (
+            [str(p).strip() for p in raw_candidate_points if str(p).strip()]
+            if isinstance(raw_candidate_points, list)
+            else []
+        )
+
+        if expected_points:
+            point_coverage = _normalize_point_coverage(
+                expected_points,
+                gpt.get("point_coverage"),
+            )
+            earned = _coverage_earned_score(max_score, point_coverage)
+        else:
+            point_coverage = None
+            try:
+                earned = int(gpt.get("earned_score", 0))
+            except (TypeError, ValueError):
+                earned = 0
+            earned = max(0, min(earned, max_score))
+
         total_earned += earned
         merged.append({
             "id": qid,
@@ -169,6 +294,9 @@ def _merge_rubric_scores(rubric: list[dict], gpt_scores: list[dict]) -> list[dic
             "earned_score": earned,
             "notes": gpt.get("notes") or "",
             "candidate_answer": (gpt.get("candidate_answer") or "").strip(),
+            "expected_points": expected_points or None,
+            "candidate_points": candidate_points or None,
+            "point_coverage": point_coverage,
         })
     return merged, total_earned
 
@@ -185,7 +313,7 @@ async def _run_gpt_assessment(system_prompt: str, user_content: str) -> dict:
         ],
         response_format={"type": "json_object"},
         temperature=0,
-        max_tokens=2000,
+        max_tokens=3500,
     )
     return json.loads(response.choices[0].message.content)
 

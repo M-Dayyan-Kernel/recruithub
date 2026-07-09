@@ -9,10 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validat
 # Job schemas
 # ---------------------------------------------------------------------------
 
-class InterviewQuestion(BaseModel):
+class InterviewQuestionPublic(BaseModel):
     id: str
     question: str
     score: int = Field(gt=0)
+
+
+class InterviewQuestion(InterviewQuestionPublic):
+    expected_points: Optional[List[str]] = None
 
 
 class ScreeningQuestion(BaseModel):
@@ -47,13 +51,19 @@ def _normalize_interview_questions(questions: Optional[List]) -> List[dict]:
         return []
     normalized: List[dict] = []
     for item in questions:
+        expected_points: Optional[List[str]] = None
         if isinstance(item, InterviewQuestion):
             q = item
+            expected_points = q.expected_points
         elif isinstance(item, dict):
+            raw_points = item.get("expected_points")
+            if isinstance(raw_points, list):
+                expected_points = [str(p).strip() for p in raw_points if str(p).strip()]
             q = InterviewQuestion(
                 id=item.get("id") or str(uuid.uuid4()),
                 question=(item.get("question") or "").strip(),
                 score=int(item.get("score") or 0),
+                expected_points=expected_points or None,
             )
         else:
             continue
@@ -61,8 +71,32 @@ def _normalize_interview_questions(questions: Optional[List]) -> List[dict]:
             raise ValueError("Each interview question must have non-empty question text")
         if q.score < 1:
             raise ValueError("Each interview question must have score >= 1")
-        normalized.append(q.model_dump())
+        dumped = q.model_dump()
+        normalized.append(dumped)
     return normalized
+
+
+def _strip_expected_points_from_questions(questions: Optional[List]) -> List[dict]:
+    """Return interview questions without expected_points for public API responses."""
+    if not questions:
+        return []
+    result: List[dict] = []
+    for item in questions:
+        if isinstance(item, InterviewQuestionPublic):
+            result.append(item.model_dump())
+        elif isinstance(item, InterviewQuestion):
+            result.append(InterviewQuestionPublic(**item.model_dump()).model_dump())
+        elif isinstance(item, dict):
+            result.append(
+                InterviewQuestionPublic(
+                    id=str(item.get("id") or ""),
+                    question=(item.get("question") or "").strip(),
+                    score=int(item.get("score") or 0),
+                ).model_dump()
+            )
+        else:
+            continue
+    return result
 
 
 class JobCreate(BaseModel):
@@ -122,7 +156,7 @@ class JobResponse(BaseModel):
     experience_min: int
     experience_max: int
     screening_questions: List[ScreeningQuestion] = []
-    interview_questions: List[InterviewQuestion] = []
+    interview_questions: List[InterviewQuestionPublic] = []
     screening_call_from: Optional[time] = None
     screening_call_to: Optional[time] = None
     screening_timezone: str = "Asia/Kolkata"
@@ -130,12 +164,19 @@ class JobResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    @field_validator("screening_questions", "interview_questions", mode="before")
+    @field_validator("screening_questions", mode="before")
     @classmethod
-    def coerce_questions(cls, value):
+    def coerce_screening_questions(cls, value):
         if value is None:
             return []
         return value
+
+    @field_validator("interview_questions", mode="before")
+    @classmethod
+    def coerce_interview_questions(cls, value):
+        if value is None:
+            return []
+        return _strip_expected_points_from_questions(value)
 
     @computed_field
     @property
@@ -150,7 +191,7 @@ class JobParseResponse(BaseModel):
     experience_min: Optional[int] = None
     experience_max: Optional[int] = None
     screening_questions: List[ScreeningQuestion] = []
-    interview_questions: List[InterviewQuestion] = []
+    interview_questions: List[InterviewQuestionPublic] = []
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +428,11 @@ class InterviewPipelineResponse(BaseModel):
 # InterviewReport schemas
 # ---------------------------------------------------------------------------
 
+class PointCoverage(BaseModel):
+    point: str
+    covered: bool
+
+
 class InterviewQuestionScore(BaseModel):
     id: str
     question: str
@@ -394,6 +440,9 @@ class InterviewQuestionScore(BaseModel):
     earned_score: Optional[int] = None
     notes: Optional[str] = None
     candidate_answer: Optional[str] = None
+    expected_points: Optional[List[str]] = None
+    candidate_points: Optional[List[str]] = None
+    point_coverage: Optional[List[PointCoverage]] = None
 
 
 class InterviewReportResponse(BaseModel):

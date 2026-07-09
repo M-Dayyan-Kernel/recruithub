@@ -618,6 +618,29 @@ async def get_interview_report(candidate_id: uuid.UUID, db: AsyncSession = Depen
     session = session_result.scalars().first()
     report_dict["transcript"] = session.transcript if session else None
 
+    if job and candidate and session:
+        from app.services.report_refresh_service import ensure_report_has_coverage
+
+        refreshed = await ensure_report_has_coverage(
+            db,
+            report,
+            job,
+            candidate,
+            session.transcript or "",
+        )
+        if refreshed:
+            report_dict = {
+                col.key: getattr(report, col.key)
+                for col in report.__table__.columns
+            }
+            report_dict["candidate_name"] = candidate.name if candidate else None
+            report_dict["job_title"] = job.title if job else None
+            raw = report.raw_report or {}
+            if raw.get("assessment_mode") == "rubric":
+                report_dict["question_scores"] = raw.get("question_scores")
+                report_dict["rubric_total"] = raw.get("rubric_total")
+            report_dict["transcript"] = session.transcript if session else None
+
     return InterviewReportResponse.model_validate(report_dict)
 
 

@@ -9,10 +9,11 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.models.models import Job
-from app.schemas.schemas import JobCreate, JobUpdate, JobResponse, JobParseResponse, InterviewQuestion, ScreeningQuestion
+from app.schemas.schemas import JobCreate, JobUpdate, JobResponse, JobParseResponse, InterviewQuestionPublic, ScreeningQuestion
 from app.services.document_extractor import ALLOWED_EXTENSIONS, extract_text_from_bytes
 from app.services.jd_parser import parse_job_description
 from app.services.screening_defaults import get_default_screening_questions
+from app.services.expected_answer_service import enrich_interview_questions
 
 router = APIRouter()
 
@@ -34,6 +35,19 @@ async def create_job(payload: JobCreate, db: AsyncSession = Depends(get_db)):
     data = payload.model_dump()
     if not data.get("screening_questions"):
         data["screening_questions"] = get_default_screening_questions(data.get("title") or "")
+    if data.get("interview_questions"):
+        context_job = Job(
+            title=data["title"],
+            description=data["description"],
+            required_skills=data.get("required_skills"),
+            experience_min=data.get("experience_min", 0),
+            experience_max=data.get("experience_max", 0),
+        )
+        data["interview_questions"] = await enrich_interview_questions(
+            data["interview_questions"],
+            existing=None,
+            job=context_job,
+        )
     job = Job(**data)
     db.add(job)
     await db.commit()
@@ -116,7 +130,7 @@ async def parse_jd(file: UploadFile = File(...)):
             ScreeningQuestion(**q) for q in (parsed.get("screening_questions") or [])
         ],
         interview_questions=[
-            InterviewQuestion(**q) for q in (parsed.get("interview_questions") or [])
+            InterviewQuestionPublic(**q) for q in (parsed.get("interview_questions") or [])
         ],
     )
 
@@ -136,7 +150,14 @@ async def update_job(job_id: uuid.UUID, payload: JobUpdate, db: AsyncSession = D
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+    if "interview_questions" in updates and updates["interview_questions"] is not None:
+        updates["interview_questions"] = await enrich_interview_questions(
+            updates["interview_questions"],
+            existing=job.interview_questions,
+            job=job,
+        )
+    for field, value in updates.items():
         setattr(job, field, value)
     await db.commit()
     await db.refresh(job)

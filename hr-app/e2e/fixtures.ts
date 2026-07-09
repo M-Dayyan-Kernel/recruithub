@@ -396,6 +396,52 @@ export const MOCK_REPORT = {
   job_title: 'Senior Frontend Engineer',
 }
 
+export const MOCK_RUBRIC_REPORT = {
+  ...MOCK_REPORT,
+  technical_fit_score: null,
+  communication_score: null,
+  problem_solving_score: null,
+  experience_score: null,
+  role_alignment_score: null,
+  overall_score: 15,
+  rubric_total: 20,
+  question_scores: [
+    {
+      id: 'q1',
+      question: 'Describe your experience with React state management',
+      score: 10,
+      earned_score: 7,
+      notes: 'Solid hooks knowledge; limited Redux depth.',
+      expected_points: [
+        'Explains useState and useEffect',
+        'Mentions context or Redux for global state',
+        'Discusses performance considerations',
+      ],
+      candidate_points: [
+        'Uses hooks daily in production',
+        'Built a shared context for auth state',
+      ],
+      point_coverage: [
+        { point: 'Explains useState and useEffect', covered: true },
+        { point: 'Mentions context or Redux for global state', covered: true },
+        { point: 'Discusses performance considerations', covered: false },
+      ],
+    },
+    {
+      id: 'q2',
+      question: 'How do you approach TypeScript in a large codebase?',
+      score: 10,
+      earned_score: 8,
+      candidate_points: ['Strict mode enabled', 'Shared types package across apps'],
+      point_coverage: [
+        { point: 'Uses strict TypeScript configuration', covered: true },
+        { point: 'Defines shared domain types', covered: true },
+        { point: 'Mentions migration strategy from JavaScript', covered: false },
+      ],
+    },
+  ],
+}
+
 // ---------------------------------------------------------------------------
 // Route mock helpers
 // ---------------------------------------------------------------------------

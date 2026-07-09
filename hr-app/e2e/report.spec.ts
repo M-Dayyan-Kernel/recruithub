@@ -15,6 +15,7 @@
 import { test, expect } from '@playwright/test'
 import {
   MOCK_REPORT,
+  MOCK_RUBRIC_REPORT,
   JOB_IDS,
   CANDIDATE_IDS,
   mockGetReport,
@@ -280,4 +281,22 @@ test('Back to Job link navigates to correct job detail page', async ({ page }) =
   await page.getByRole('link', { name: /Back to Job/i }).click()
 
   await expect(page).toHaveURL(`/jobs/${JOB_IDS.frontend}`)
+})
+
+// ---------------------------------------------------------------------------
+// 11. Rubric report shows expected-answer checklist and candidate bullets
+// ---------------------------------------------------------------------------
+
+test('rubric report renders point coverage checklist', async ({ page }) => {
+  await mockGetReport(page, CANDIDATE_IDS.alice, MOCK_RUBRIC_REPORT)
+
+  await page.goto(REPORT_URL)
+  await page.waitForLoadState('networkidle')
+
+  await expect(page.getByText('Question Scores')).toBeVisible()
+  await expect(page.getByText('Expected answer').first()).toBeVisible()
+  await expect(page.getByText('Candidate said').first()).toBeVisible()
+  await expect(page.getByText('Explains useState and useEffect')).toBeVisible()
+  await expect(page.getByText('Discusses performance considerations')).toBeVisible()
+  await expect(page.getByText('2/3 points covered')).toBeVisible()
 })

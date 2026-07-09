@@ -9,10 +9,18 @@ export interface InterviewQuestion {
   score: number
 }
 
+export interface PointCoverage {
+  point: string
+  covered: boolean
+}
+
 export interface InterviewQuestionScore extends InterviewQuestion {
   earned_score?: number | null
   notes?: string | null
   candidate_answer?: string | null
+  expected_points?: string[] | null
+  candidate_points?: string[] | null
+  point_coverage?: PointCoverage[] | null
 }
 
 export interface ParsedJobDescription {

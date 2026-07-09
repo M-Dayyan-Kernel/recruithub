@@ -79,6 +79,39 @@ function drawWrappedText(
   return y + lines.length * 5
 }
 
+function drawPointCoverageList(
+  doc: jsPDF,
+  items: { point: string; covered: boolean }[],
+  y: number,
+): number {
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+
+  for (const item of items) {
+    const prefix = item.covered ? '[OK] ' : '[X]  '
+    const lines = doc.splitTextToSize(prefix + item.point, CONTENT_WIDTH - 10)
+    y = ensureSpace(doc, y, lines.length * 5 + 3)
+    doc.setTextColor(...(item.covered ? COLORS.emerald : COLORS.rose))
+    doc.text(lines, PAGE_MARGIN + 4, y)
+    y += lines.length * 5 + 2
+  }
+  return y + 2
+}
+
+function drawNeutralBulletList(doc: jsPDF, items: string[], y: number): number {
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(...COLORS.dark)
+
+  for (const item of items) {
+    const lines = doc.splitTextToSize(`- ${item}`, CONTENT_WIDTH - 10)
+    y = ensureSpace(doc, y, lines.length * 5 + 3)
+    doc.text(lines, PAGE_MARGIN + 4, y)
+    y += lines.length * 5 + 2
+  }
+  return y + 2
+}
+
 function drawBulletList(
   doc: jsPDF,
   items: string[],
@@ -180,17 +213,45 @@ function drawQuestionScoresSummary(
   questions: InterviewQuestionScore[],
   y: number,
 ): number {
-  const body = questions.map((qs, i) => [
-    `Q${i + 1}`,
-    qs.question,
-    qs.earned_score != null ? String(qs.earned_score) : '—',
-    String(qs.score),
-  ])
+  const hasCoverage = questions.some((qs) => (qs.point_coverage?.length ?? 0) > 0)
+  const body = questions.map((qs, i) => {
+    const covered = qs.point_coverage?.filter((p) => p.covered).length
+    const total = qs.point_coverage?.length
+    const row: string[] = [
+      `Q${i + 1}`,
+      qs.question,
+      qs.earned_score != null ? String(qs.earned_score) : '—',
+      String(qs.score),
+    ]
+    if (hasCoverage) {
+      row.push(covered != null && total != null ? `${covered}/${total}` : '—')
+    }
+    return row
+  })
+
+  const head = hasCoverage
+    ? [['#', 'Question', 'Earned', 'Max', 'Covered']]
+    : [['#', 'Question', 'Earned', 'Max']]
+
+  const columnStyles: Record<number, { cellWidth: number; halign?: 'center' | 'left'; fontStyle?: 'bold'; overflow?: 'linebreak' }> = hasCoverage
+    ? {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 110, overflow: 'linebreak' },
+        2: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
+        3: { cellWidth: 18, halign: 'center' },
+        4: { cellWidth: 22, halign: 'center' },
+      }
+    : {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 128, overflow: 'linebreak' },
+        2: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
+        3: { cellWidth: 18, halign: 'center' },
+      }
 
   autoTable(doc, {
     startY: y,
     margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-    head: [['#', 'Question', 'Earned', 'Max']],
+    head,
     body,
     styles: {
       fontSize: 8.5,
@@ -205,12 +266,7 @@ function drawQuestionScoresSummary(
       textColor: [255, 255, 255],
       fontStyle: 'bold',
     },
-    columnStyles: {
-      0: { cellWidth: 10, halign: 'center' },
-      1: { cellWidth: 128 },
-      2: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
-      3: { cellWidth: 18, halign: 'center' },
-    },
+    columnStyles,
   })
 
   return (doc as JsPDFWithAutoTable).lastAutoTable.finalY + 10
@@ -226,12 +282,28 @@ function drawQuestionCard(
   const innerX = PAGE_MARGIN + pad
   const innerWidth = CONTENT_WIDTH - pad * 2
 
+  const hasCoverage = (qs.point_coverage?.length ?? 0) > 0
+  const hasCandidatePoints = (qs.candidate_points?.length ?? 0) > 0
+  const hasAnswer = Boolean(qs.candidate_answer?.trim()) && !hasCandidatePoints
+  const hasNotes = Boolean(qs.notes?.trim())
+
   let contentHeight = 9
   contentHeight += measureWrappedText(doc, qs.question, innerWidth, 10) + 4
 
-  const hasAnswer = Boolean(qs.candidate_answer?.trim())
-  const hasNotes = Boolean(qs.notes?.trim())
-
+  if (hasCoverage) {
+    contentHeight += 5
+    for (const item of qs.point_coverage!) {
+      contentHeight += measureWrappedText(doc, `[${item.covered ? 'OK' : 'X'}] ${item.point}`, innerWidth - 4, 9) + 2
+    }
+    contentHeight += 4
+  }
+  if (hasCandidatePoints) {
+    contentHeight += 5
+    for (const point of qs.candidate_points!) {
+      contentHeight += measureWrappedText(doc, `- ${point}`, innerWidth - 4, 9) + 2
+    }
+    contentHeight += 4
+  }
   if (hasAnswer) {
     contentHeight += 5 + measureWrappedText(doc, qs.candidate_answer!.trim(), innerWidth - 4, 9) + 4
   }
@@ -262,6 +334,26 @@ function drawQuestionCard(
 
   y = drawWrappedText(doc, qs.question, innerX, y, innerWidth, 10, COLORS.dark)
   y += 4
+
+  if (hasCoverage) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor(...COLORS.slate)
+    doc.text('EXPECTED ANSWER', innerX, y)
+    y += 5
+    y = drawPointCoverageList(doc, qs.point_coverage!, y)
+    y += 2
+  }
+
+  if (hasCandidatePoints) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor(...COLORS.slate)
+    doc.text('CANDIDATE SAID', innerX, y)
+    y += 5
+    y = drawNeutralBulletList(doc, qs.candidate_points!, y)
+    y += 2
+  }
 
   if (hasAnswer) {
     doc.setFont('helvetica', 'bold')

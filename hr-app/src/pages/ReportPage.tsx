@@ -2,12 +2,100 @@ import { useParams, Link } from 'react-router-dom'
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { ArrowLeft, AlertCircle, Download, Loader2, MessageSquareText } from 'lucide-react'
+import { ArrowLeft, AlertCircle, Check, Download, Loader2, MessageSquareText, X } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { InterviewReport } from '@/types/api'
+import type { InterviewReport, InterviewQuestionScore } from '@/types/api'
 import { downloadInterviewReportPdf } from '@/lib/interviewReportPdf'
 import TranscriptChat from '@/components/TranscriptChat'
 import { parseTranscript } from '@/lib/transcript'
+
+// ---------------------------------------------------------------------------
+// Rubric question card
+// ---------------------------------------------------------------------------
+
+function coveredCount(qs: InterviewQuestionScore): number | null {
+  if (!qs.point_coverage?.length) return null
+  return qs.point_coverage.filter((p) => p.covered).length
+}
+
+function QuestionScoreCard({ qs, index }: { qs: InterviewQuestionScore; index: number }) {
+  const covered = coveredCount(qs)
+  const totalExpected = qs.point_coverage?.length ?? qs.expected_points?.length ?? null
+  const hasCoverage = (qs.point_coverage?.length ?? 0) > 0
+  const hasCandidatePoints = (qs.candidate_points?.length ?? 0) > 0
+  const showLegacyAnswer =
+    Boolean(qs.candidate_answer?.trim()) && !hasCandidatePoints && !hasCoverage
+
+  return (
+    <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm font-medium text-slate-800">
+          Q{index + 1}. {qs.question}
+        </p>
+        <div className="shrink-0 text-right">
+          <span className="text-sm font-semibold text-indigo-700">
+            {qs.earned_score != null ? qs.earned_score : '—'}/{qs.score}
+          </span>
+          {covered != null && totalExpected != null && (
+            <p className="mt-0.5 text-[10px] text-slate-400">
+              {covered}/{totalExpected} points covered
+            </p>
+          )}
+        </div>
+      </div>
+
+      {hasCoverage ? (
+        <div className="mt-3 rounded-md border border-slate-200 bg-white px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            Expected answer
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {qs.point_coverage!.map((item, i) => (
+              <li key={i} className="flex items-start gap-2 text-xs leading-relaxed">
+                {item.covered ? (
+                  <Check size={14} className="mt-0.5 shrink-0 text-emerald-600" aria-hidden />
+                ) : (
+                  <X size={14} className="mt-0.5 shrink-0 text-rose-500" aria-hidden />
+                )}
+                <span className={item.covered ? 'text-slate-700' : 'text-slate-500'}>
+                  {item.point}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (qs.expected_points?.length ?? 0) > 0 ? (
+        <p className="mt-2 text-xs text-amber-600">
+          Answer checklist is being prepared — reload this page in a moment.
+        </p>
+      ) : null}
+
+      {hasCandidatePoints && (
+        <div className="mt-2 rounded-md border border-slate-200 bg-white px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            Candidate said
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-4 text-xs leading-relaxed text-slate-700">
+            {qs.candidate_points!.map((point, i) => (
+              <li key={i}>{point}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {showLegacyAnswer && (
+        <div className="mt-2 rounded-md border border-slate-200 bg-white px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            Candidate answer
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-700 whitespace-pre-wrap">
+            {qs.candidate_answer}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Recommendation badge
@@ -264,35 +352,7 @@ export default function ReportPage() {
               <h2 className="text-base font-semibold text-slate-800 mb-4">Question Scores</h2>
               <div className="space-y-3">
                 {report.question_scores.map((qs, i) => (
-                  <div
-                    key={qs.id || i}
-                    className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="text-sm font-medium text-slate-800">
-                        Q{i + 1}. {qs.question}
-                      </p>
-                      <span className="shrink-0 text-sm font-semibold text-indigo-700">
-                        {qs.earned_score != null ? qs.earned_score : '—'}/{qs.score}
-                      </span>
-                    </div>
-                    {qs.notes && (
-                      <p className="mt-1.5 text-xs text-slate-500 leading-relaxed">
-                        <span className="font-semibold text-slate-600">Assessor notes: </span>
-                        {qs.notes}
-                      </p>
-                    )}
-                    {qs.candidate_answer?.trim() && (
-                      <div className="mt-2 rounded-md border border-slate-200 bg-white px-3 py-2">
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                          Candidate answer
-                        </p>
-                        <p className="mt-1 text-xs leading-relaxed text-slate-700 whitespace-pre-wrap">
-                          {qs.candidate_answer}
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                  <QuestionScoreCard key={qs.id || i} qs={qs} index={i} />
                 ))}
               </div>
             </div>
