@@ -36,6 +36,8 @@ from livekit.agents import (
 )
 from livekit.plugins import openai as lk_openai
 
+from app.services.interview_question_constraints import ORAL_ONLY_PROMPT_RULES
+
 logger = logging.getLogger("interview-agent")
 logging.basicConfig(level=logging.INFO)
 
@@ -92,7 +94,8 @@ def _adaptive_followup_rules() -> str:
 - When adequate (concrete example, clear reasoning, specific details): acknowledge briefly and advance.
 - Never ask more than {MAX_FOLLOW_UPS_PER_TOPIC} follow-ups on the same topic — then move on even if still shallow.
 - Follow-ups must reference what they just said; do not introduce unrelated new topics.
-- Do not reveal rubric scores, expected answers, or hiring decisions."""
+- Do not reveal rubric scores, expected answers, or hiring decisions.
+- This is voice-only: never ask the candidate to write code, type syntax, open an IDE, share their screen, or do a live coding exercise. Probe understanding through explanation and examples from their experience."""
 
 
 def _format_rubric_block(questions: list) -> str:
@@ -116,23 +119,27 @@ def _build_interview_structure(job) -> str:
         rubric = _format_rubric_block(valid)
         return f"""INTERVIEW STRUCTURE (follow this order):
 1. You have already greeted the candidate — move straight to asking for a brief self-introduction
-2. Ask EACH rubric question below IN ORDER — use the exact intent of each question.
+2. Ask EACH rubric question below IN ORDER — use the exact intent of each question, phrased for spoken answers only (explain / describe / walk through — never ask them to write or run code).
 3. After each rubric answer, apply ADAPTIVE FOLLOW-UP RULES before the next rubric question.
 4. Do not skip any rubric question. Do not reveal point values to the candidate.
 5. Ask about their interest in this role at Webknot
 6. Let them ask one or two questions
 7. Close warmly — thank them, say the hiring team will follow up
 
+{ORAL_ONLY_PROMPT_RULES}
+
 RUBRIC QUESTIONS (mandatory — ask in order):
 {rubric}"""
     return f"""INTERVIEW STRUCTURE (follow this order):
 1. You have already greeted the candidate — move straight to asking for a brief self-introduction
-2. Ask 2-3 technical questions relevant to {job.title} and their skills
+2. Ask 2-3 technical questions relevant to {job.title} and their skills — oral answers only (no live coding)
 3. After each answer, apply ADAPTIVE FOLLOW-UP RULES before moving on
 4. One behavioural question (challenging project, conflict resolution, or leadership)
 5. Ask about their interest in this role at Webknot
 6. Let them ask one or two questions
-7. Close warmly — thank them, say the hiring team will follow up"""
+7. Close warmly — thank them, say the hiring team will follow up
+
+{ORAL_ONLY_PROMPT_RULES}"""
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +206,10 @@ VOICE RULES:
 - Listen fully, then respond — probe thin answers before advancing
 - Be warm, encouraging, and professional
 - Keep total interview to 10-15 minutes
-- Do NOT reveal scores or make hiring decisions on the call"""
+- Do NOT reveal scores or make hiring decisions on the call
+- Do NOT ask for live coding, written code, screen sharing, or running programs — only spoken answers
+
+{ORAL_ONLY_PROMPT_RULES}"""
 
         greeting = f"Hello {candidate.name}! I'm your AI interviewer from Webknot Technologies today. Thank you for joining us. I'd love to start by having you tell me a little about yourself and your background."
 

@@ -9,25 +9,29 @@ from typing import Any, Optional
 from openai import AsyncOpenAI
 
 from app.core.config import settings
+from app.services.interview_question_constraints import ORAL_ONLY_PROMPT_RULES
 
 logger = logging.getLogger(__name__)
 
-EXPECTED_POINTS_SYSTEM_PROMPT = """You are an expert interviewer creating an answer key for a rubric question.
+EXPECTED_POINTS_SYSTEM_PROMPT = f"""You are an expert interviewer creating an answer key for a rubric question.
 Given a job context and one interview question, return ONLY valid JSON:
 
-{
+{{
   "expected_points": [
     "<concise assessable criterion 1>",
     "<concise assessable criterion 2>"
   ]
-}
+}}
 
 Rules:
 - Return 3 to 6 bullet points
-- Each point must be a single objective criterion that can be marked covered or not
+- Each point must be a single objective criterion that can be marked covered or not when the candidate speaks their answer aloud
 - No paragraphs, no numbering prefixes in the strings
-- Points should reflect what a strong candidate would mention for this question in this role
-- Do not include meta commentary"""
+- Points should reflect what a strong candidate would SAY in a voice interview for this question
+- Do not include criteria that require writing code, running a program, or sharing a screen
+- Do not include meta commentary
+
+{ORAL_ONLY_PROMPT_RULES}"""
 
 
 def _job_context(job: Any) -> str:

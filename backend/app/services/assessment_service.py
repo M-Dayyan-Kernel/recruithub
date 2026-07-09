@@ -103,6 +103,7 @@ Rubric:
 Rules:
 {scoring_rules}
 - If a question was not clearly addressed, mark all expected points as not covered and use empty candidate_points
+- Grade only what the candidate said aloud; do not penalize for lacking written code (this is a voice interview)
 - Be objective and cite evidence from the transcript
 """
 

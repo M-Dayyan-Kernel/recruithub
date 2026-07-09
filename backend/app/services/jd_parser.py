@@ -24,6 +24,7 @@ Return ONLY valid JSON with exactly these fields:
   Generate 4-6 role-relevant technical/behavioural interview questions.
   Point weights (score field) must sum to approximately 100 across all questions.
   Each question must have a unique id (UUID string).
+  VOICE-ONLY: This is a spoken interview with no code editor or compiler. Every question must be answerable by talking (explain, describe experience, walk through approach). Do NOT generate live coding, "write a function", coding exercises, whiteboard implementation, or screen-share tasks.
 If experience is given as a single number (e.g. "5+ years"), set experience_min to that number and experience_max to null.
 required_skills must be a flat array of individual skill strings (e.g. ["Python", "React", "PostgreSQL"]).
 Use null for fields that cannot be determined from the document. Use empty array for interview_questions if none can be inferred."""
@@ -58,6 +59,20 @@ def _normalize_parsed_screening_questions(raw_questions: list | None) -> list[di
     return normalized
 
 
+def _filter_oral_interview_questions(raw_questions: list[dict]) -> list[dict]:
+    """Drop questions that require live coding; voice interviews cannot assess them."""
+    from app.services.interview_question_constraints import question_requires_live_coding
+
+    kept = []
+    for item in raw_questions:
+        question = (item.get("question") or "").strip()
+        if question_requires_live_coding(question):
+            logger.warning("JD parse dropped non-oral interview question: %r", question[:80])
+            continue
+        kept.append(item)
+    return kept
+
+
 def _normalize_parsed_questions(raw_questions: list | None) -> list[dict]:
     if not raw_questions:
         return []
@@ -79,7 +94,7 @@ def _normalize_parsed_questions(raw_questions: list | None) -> list[dict]:
             "question": question,
             "score": score,
         })
-    return normalized
+    return _filter_oral_interview_questions(normalized)
 
 
 async def parse_job_description(raw_text: str) -> dict:
