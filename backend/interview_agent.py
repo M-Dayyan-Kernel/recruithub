@@ -36,7 +36,11 @@ from livekit.agents import (
 )
 from livekit.plugins import openai as lk_openai
 
-from app.services.interview_question_constraints import ORAL_ONLY_PROMPT_RULES
+from app.services.interview_question_constraints import (
+    ORAL_ONLY_PROMPT_RULES,
+    TECHNICAL_ONLY_PROMPT_RULES,
+    derive_difficulty_hint,
+)
 
 logger = logging.getLogger("interview-agent")
 logging.basicConfig(level=logging.INFO)
@@ -128,18 +132,24 @@ def _build_interview_structure(job) -> str:
 
 {ORAL_ONLY_PROMPT_RULES}
 
+{TECHNICAL_ONLY_PROMPT_RULES}
+
 RUBRIC QUESTIONS (mandatory — ask in order):
 {rubric}"""
+    difficulty = derive_difficulty_hint(job)
     return f"""INTERVIEW STRUCTURE (follow this order):
 1. You have already greeted the candidate — move straight to asking for a brief self-introduction
-2. Ask 2-3 technical questions relevant to {job.title} and their skills — oral answers only (no live coding)
-3. After each answer, apply ADAPTIVE FOLLOW-UP RULES before moving on
-4. One behavioural question (challenging project, conflict resolution, or leadership)
-5. Ask about their interest in this role at Webknot
-6. Let them ask one or two questions
-7. Close warmly — thank them, say the hiring team will follow up
+2. Ask 3-4 technical questions relevant to {job.title} and required skills — oral answers only (no live coding)
+3. After each answer, apply ADAPTIVE FOLLOW-UP RULES before moving on — technical probes only, no behavioural follow-ups
+4. Ask about their interest in this role at Webknot
+5. Let them ask one or two questions
+6. Close warmly — thank them, say the hiring team will follow up
 
-{ORAL_ONLY_PROMPT_RULES}"""
+{difficulty}
+
+{ORAL_ONLY_PROMPT_RULES}
+
+{TECHNICAL_ONLY_PROMPT_RULES}"""
 
 
 # ---------------------------------------------------------------------------
@@ -208,8 +218,11 @@ VOICE RULES:
 - Keep total interview to 10-15 minutes
 - Do NOT reveal scores or make hiring decisions on the call
 - Do NOT ask for live coding, written code, screen sharing, or running programs — only spoken answers
+- Do NOT ask behavioural or soft-skill questions — technical probes only
 
-{ORAL_ONLY_PROMPT_RULES}"""
+{ORAL_ONLY_PROMPT_RULES}
+
+{TECHNICAL_ONLY_PROMPT_RULES}"""
 
         greeting = f"Hello {candidate.name}! I'm your AI interviewer from Webknot Technologies today. Thank you for joining us. I'd love to start by having you tell me a little about yourself and your background."
 
@@ -221,10 +234,14 @@ VOICE RULES:
 
 
 def _default_prompt() -> str:
-    return f"""You are a professional AI interviewer at Webknot Technologies conducting a voice interview.
-Cover: background, technical skills, a behavioural question, and role interest. Be warm and encouraging.
+    return f"""You are a professional AI interviewer at Webknot Technologies conducting a voice-only technical interview.
+Cover: brief background, technical skills, and role-relevant technical questions. Be warm and encouraging.
 
 {_adaptive_followup_rules()}
+
+{ORAL_ONLY_PROMPT_RULES}
+
+{TECHNICAL_ONLY_PROMPT_RULES}
 
 Speak in short natural sentences — no markdown or bullet points."""
 

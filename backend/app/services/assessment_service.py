@@ -66,7 +66,8 @@ def _rubric_assessment_prompt(rubric: list[dict]) -> str:
     if has_expected:
         scoring_rules = """- For each question with expected_points, return point_coverage with one entry per expected point (same text, covered true/false)
 - Use semantic matching: paraphrases and synonyms count as covered
-- candidate_points: 3-8 concise bullets summarizing what the candidate said for that question (from transcript)
+- candidate_points: 3-8 concise bullets summarizing TECHNICAL content the candidate said for that question (from transcript)
+- Do NOT award coverage for generic soft-skill statements unless they carry specific technical substance
 - Do NOT return earned_score — scoring is computed from point_coverage"""
         question_shape = """{{ "id": "<rubric question id>", "candidate_points": ["..."], "point_coverage": [{{ "point": "<exact expected point text>", "covered": <true|false> }}], "notes": "<optional 1-line summary>", "candidate_answer": "<brief combined answer if helpful>" }}"""
     else:
@@ -104,6 +105,7 @@ Rules:
 {scoring_rules}
 - If a question was not clearly addressed, mark all expected points as not covered and use empty candidate_points
 - Grade only what the candidate said aloud; do not penalize for lacking written code (this is a voice interview)
+- Evaluate technical substance only — stack knowledge, design decisions, debugging approach, tools, trade-offs
 - Be objective and cite evidence from the transcript
 """
 

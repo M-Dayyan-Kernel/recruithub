@@ -71,9 +71,13 @@ def _normalize_interview_questions(questions: Optional[List]) -> List[dict]:
             raise ValueError("Each interview question must have non-empty question text")
         if q.score < 1:
             raise ValueError("Each interview question must have score >= 1")
-        from app.services.interview_question_constraints import validate_oral_interview_question
+        from app.services.interview_question_constraints import (
+            validate_oral_interview_question,
+            validate_technical_interview_question,
+        )
 
         validate_oral_interview_question(q.question)
+        validate_technical_interview_question(q.question)
         dumped = q.model_dump()
         normalized.append(dumped)
     return normalized

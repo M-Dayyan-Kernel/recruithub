@@ -9,7 +9,12 @@ from typing import Any, Optional
 from openai import AsyncOpenAI
 
 from app.core.config import settings
-from app.services.interview_question_constraints import ORAL_ONLY_PROMPT_RULES
+from app.services.interview_question_constraints import (
+    DIFFICULTY_TIER_GUIDANCE,
+    ORAL_ONLY_PROMPT_RULES,
+    TECHNICAL_ONLY_PROMPT_RULES,
+    derive_difficulty_hint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +30,17 @@ Given a job context and one interview question, return ONLY valid JSON:
 
 Rules:
 - Return 3 to 6 bullet points
-- Each point must be a single objective criterion that can be marked covered or not when the candidate speaks their answer aloud
+- Each point must be a single objective TECHNICAL criterion (concept, pattern, tool, metric, architecture decision, debugging step)
+- Do NOT include soft-skill or communication fluff (e.g. "communicates clearly", "shows enthusiasm")
+- Each point must be markable covered or not when the candidate speaks their answer aloud
 - No paragraphs, no numbering prefixes in the strings
-- Points should reflect what a strong candidate would SAY in a voice interview for this question
+- Calibrate depth to the role difficulty tier provided in the user message
 - Do not include criteria that require writing code, running a program, or sharing a screen
 - Do not include meta commentary
+
+{TECHNICAL_ONLY_PROMPT_RULES}
+
+{DIFFICULTY_TIER_GUIDANCE}
 
 {ORAL_ONLY_PROMPT_RULES}"""
 
@@ -56,6 +67,9 @@ async def generate_expected_points(question_text: str, job: Any) -> list[str]:
     client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
     user_content = f"""== JOB CONTEXT ==
 {_job_context(job)}
+
+== DIFFICULTY ==
+{derive_difficulty_hint(job)}
 
 == INTERVIEW QUESTION ==
 {question_text.strip()}
