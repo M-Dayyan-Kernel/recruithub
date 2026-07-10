@@ -8,6 +8,7 @@ import JobDetailsPage from '@/pages/JobDetailsPage'
 import JobShortlistPage from '@/pages/JobShortlistPage'
 import JobScreeningPage from '@/pages/JobScreeningPage'
 import JobInterviewsPage from '@/pages/JobInterviewsPage'
+import ArchivedJobsPage from '@/pages/ArchivedJobsPage'
 import SettingsPage from '@/pages/SettingsPage'
 import ReportPage from '@/pages/ReportPage'
 import ShortlistReportPage from '@/pages/ShortlistReportPage'
@@ -29,6 +30,7 @@ export default function App() {
           <Route index element={<DashboardPage />} />
           <Route path="jobs" element={<Navigate to="/" replace />} />
           <Route path="jobs/new" element={<CreateJobPage />} />
+          <Route path="jobs/archived" element={<ArchivedJobsPage />} />
           <Route path="jobs/:jobId" element={<JobLayout />}>
             <Route index element={<JobDetailsPage />} />
             <Route path="shortlist" element={<JobShortlistPage />} />

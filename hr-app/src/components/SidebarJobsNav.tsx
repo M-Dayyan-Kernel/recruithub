@@ -5,6 +5,7 @@ import { Briefcase, ChevronDown, ChevronRight, Plus } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Job, SystemSettings } from '@/types/api'
 import { cn } from '@/lib/utils'
+import { filterActiveJobs } from '@/lib/jobStatus'
 
 const JOB_PHASES = [
   { label: 'AI Shortlist', segment: 'shortlist' },
@@ -54,10 +55,12 @@ export function SidebarJobsNav({ onNavigate }: Props) {
     return JOB_PHASES
   }, [settings?.screening_enabled])
 
+  const activeJobs = useMemo(() => filterActiveJobs(jobs ?? []), [jobs])
+
   const activeJobId = useMemo(() => {
     const match = location.pathname.match(/^\/jobs\/([^/]+)/)
     const id = match?.[1]
-    return id && id !== 'new' ? id : null
+    return id && id !== 'new' && id !== 'archived' ? id : null
   }, [location.pathname])
 
   useEffect(() => {
@@ -104,11 +107,11 @@ export function SidebarJobsNav({ onNavigate }: Props) {
         <p className="px-3 py-2 text-xs text-slate-500">Loading jobs…</p>
       )}
 
-      {!isLoading && (!jobs || jobs.length === 0) && (
-        <p className="px-3 py-2 text-xs text-slate-500">No jobs yet</p>
+      {!isLoading && activeJobs.length === 0 && (
+        <p className="px-3 py-2 text-xs text-slate-500">No active jobs</p>
       )}
 
-      {jobs?.map((job) => {
+      {activeJobs.map((job) => {
         const isExpanded = expandedJobs.has(job.id)
         const isCurrentJob = activeJobId === job.id
         const detailsActive = isJobDetailsActive(location.pathname, job.id)

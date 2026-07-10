@@ -26,18 +26,37 @@ function createJobLink(page: import('@playwright/test').Page) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Sidebar lists all jobs
+// 1. Sidebar lists active jobs by default; archived jobs behind toggle
 // ---------------------------------------------------------------------------
 
-test('sidebar lists all jobs', async ({ page }) => {
+test('sidebar lists active jobs by default', async ({ page }) => {
   await mockLayoutWithJobs(page)
 
   await page.goto('/')
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByText('Senior Frontend Engineer').first()).toBeVisible()
-  await expect(page.getByText('Backend Python Engineer').first()).toBeVisible()
-  await expect(page.getByText('Product Designer').first()).toBeVisible()
+  const sidebar = page.getByRole('navigation')
+
+  await expect(sidebar.getByText('Senior Frontend Engineer')).toBeVisible()
+  await expect(sidebar.getByText('Backend Python Engineer')).toBeVisible()
+  await expect(sidebar.getByText('Product Designer')).not.toBeVisible()
+})
+
+test('sidebar Archived link opens archived jobs page with cards', async ({ page }) => {
+  await mockLayoutWithJobs(page)
+
+  await page.goto('/')
+  await page.waitForLoadState('networkidle')
+
+  const sidebar = page.locator('aside')
+
+  await sidebar.getByRole('link', { name: /Archived/i }).click()
+
+  await expect(page).toHaveURL('/jobs/archived')
+  await expect(page.getByRole('main').getByRole('heading', { name: 'Archived jobs' })).toBeVisible()
+  await expect(page.getByText('Product Designer')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reactivate' }).first()).toBeVisible()
+  await expect(page.getByText('Paused', { exact: true })).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
@@ -167,7 +186,7 @@ test('empty state shows no jobs message in sidebar', async ({ page }) => {
   await page.goto('/')
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByRole('navigation').getByText('No jobs yet')).toBeVisible()
+  await expect(page.getByRole('navigation').getByText('No active jobs')).toBeVisible()
   await createJobLink(page).click()
   await expect(page).toHaveURL('/jobs/new')
   await expect(page.getByRole('heading', { name: 'Create New Job' })).toBeVisible()
@@ -191,6 +210,6 @@ test('AI Shortlist link navigates to job shortlist page', async ({ page }) => {
   await page.getByRole('button', { name: 'Senior Frontend Engineer' }).click()
   await page.getByRole('link', { name: 'AI Shortlist' }).click()
 
-  await expect(page).toHaveURL(`/jobs/${JOB_IDS.frontend}`)
+  await expect(page).toHaveURL(`/jobs/${JOB_IDS.frontend}/shortlist`)
   await expect(page.locator('header').getByText('AI Shortlist')).toBeVisible()
 })

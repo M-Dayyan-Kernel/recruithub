@@ -1,16 +1,28 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Menu, Settings, X, Zap } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Archive, LayoutDashboard, Menu, Settings, X, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SidebarJobsNav } from '@/components/SidebarJobsNav'
+import { api } from '@/lib/api'
+import type { Job } from '@/types/api'
+import { filterArchivedJobs } from '@/lib/jobStatus'
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
 
+  const { data: jobs } = useQuery<Job[]>({
+    queryKey: ['jobs'],
+    queryFn: () => api.get('/api/jobs') as unknown as Promise<Job[]>,
+  })
+
+  const archivedCount = filterArchivedJobs(jobs ?? []).length
+
   const pageTitle = (() => {
     if (location.pathname === '/') return 'Dashboard'
     if (location.pathname === '/jobs/new') return 'Create Job'
+    if (location.pathname === '/jobs/archived') return 'Archived jobs'
     if (location.pathname.match(/^\/jobs\/[^/]+\/screening/)) return 'Screening'
     if (location.pathname.match(/^\/jobs\/[^/]+\/interviews/)) return 'Interviews'
     if (location.pathname.match(/^\/jobs\/[^/]+\/shortlist/)) return 'AI Shortlist'
@@ -76,7 +88,35 @@ export default function Layout() {
             <SidebarJobsNav onNavigate={() => setSidebarOpen(false)} />
           </nav>
 
-          <div className="border-t border-slate-700 px-3 py-3">
+          <div className="space-y-1 border-t border-slate-700 px-3 py-3">
+            <NavLink
+              to="/jobs/archived"
+              onClick={() => setSidebarOpen(false)}
+              className={({ isActive }) =>
+                cn(
+                  'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
+                )
+              }
+            >
+              <Archive className="h-4 w-4 shrink-0" />
+              Archived
+              {archivedCount > 0 && (
+                <span
+                  className={cn(
+                    'ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+                    location.pathname === '/jobs/archived'
+                      ? 'bg-indigo-500 text-white'
+                      : 'bg-slate-700 text-slate-300',
+                  )}
+                >
+                  {archivedCount}
+                </span>
+              )}
+            </NavLink>
+
             <NavLink
               to="/settings"
               onClick={() => setSidebarOpen(false)}

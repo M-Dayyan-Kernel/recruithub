@@ -19,3 +19,7 @@ AI Recruitment POC — Change log (one line per change)
 16. Renamed shortlist approve button to "Invite to interview" when voice screening is disabled.
 17. Added dedicated job details page at /jobs/:id with JobHeader; sidebar job title opens it; AI Shortlist moved to /jobs/:id/shortlist.
 18. Added pipeline overview dashboard on job details with shortlisted, screening, scheduled, and completed interview counts.
+19. Sidebar shows only active jobs by default; paused and closed jobs appear under an Archived toggle.
+20. Moved Archived above Settings; archived jobs open a card grid page with status, reactivate, and click-through to job details.
+21. Added All / Paused / Closed filter dropdown on the archived jobs page.
+22. Added "Back to Archived jobs" link on paused/closed job details so you can return from a card click.

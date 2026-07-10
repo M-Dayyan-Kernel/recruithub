@@ -6,23 +6,10 @@ import { ChevronDown, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { EditJobModal } from '@/components/EditJobModal'
+import { JobStatusBadge } from '@/components/JobStatusBadge'
 
 function StatusBadge({ status }: { status: Job['status'] }) {
-  const cfg: Record<Job['status'], { label: string; className: string }> = {
-    open: { label: 'Open', className: 'bg-indigo-100 text-indigo-700' },
-    active: { label: 'Active', className: 'bg-indigo-100 text-indigo-700' },
-    closed: { label: 'Closed', className: 'bg-slate-100 text-slate-600' },
-    paused: { label: 'Paused', className: 'bg-amber-100 text-amber-700' },
-    draft: { label: 'Draft', className: 'bg-slate-100 text-slate-500' },
-  }
-  const { label, className } = cfg[status] ?? cfg.open
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${className}`}
-    >
-      {label}
-    </span>
-  )
+  return <JobStatusBadge status={status} />
 }
 
 export function JobHeaderSkeleton() {

@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { JobHeader, JobHeaderSkeleton } from '@/components/JobHeader'
+import { isArchivedJobStatus } from '@/lib/jobStatus'
 
 export interface JobOutletContext {
   job: Job
@@ -74,6 +75,15 @@ export default function JobLayout() {
 
       {!isLoading && job && jobId && (
         <>
+          {showJobHeader && isArchivedJobStatus(job.status) && (
+            <Link
+              to="/jobs/archived"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-indigo-600"
+            >
+              <ArrowLeft size={14} />
+              Back to Archived jobs
+            </Link>
+          )}
           {showJobHeader && <JobHeader job={job} showDelete />}
           <Outlet context={{ job, jobId } satisfies JobOutletContext} />
         </>
