@@ -689,11 +689,11 @@ export function InterviewsTab({ job, jobId }: Props) {
           </div>
         ) : (
           <InterviewPipelineTable
-            job={job}
             jobId={jobId}
             rows={pagedCandidates}
             variant={activeTab}
             returnSearch={returnSearch}
+            onRescheduled={() => handleTabChange('scheduled')}
           />
         )
       ) : (

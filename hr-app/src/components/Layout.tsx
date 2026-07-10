@@ -92,10 +92,6 @@ export default function Layout() {
               Settings
             </NavLink>
           </div>
-
-          <div className="border-t border-slate-700 px-5 py-4">
-            <p className="text-xs text-slate-500">Powered by Olympus ⚡</p>
-          </div>
         </aside>
       </>
 

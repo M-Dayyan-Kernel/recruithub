@@ -70,10 +70,10 @@ def classify_interview_tab(
         return "completed" if has_report else "pending"
     if session.status == "in_progress":
         return "ongoing"
-    if has_report or session.status in ("completed", "assessed", "assessment_failed"):
-        return "completed"
     if session.status == "pending":
         return "scheduled"
+    if has_report or session.status in ("completed", "assessed", "assessment_failed"):
+        return "completed"
     return "scheduled"
 
 
@@ -171,7 +171,11 @@ async def get_interview_pipeline(
         candidate = candidate_map.get(candidate_id)
         session = latest_session_by_candidate.get(candidate_id)
         report = latest_report_by_candidate.get(candidate_id)
-        has_report = report is not None
+        has_report = (
+            report is not None
+            and session is not None
+            and report.interview_session_id == session.id
+        )
         stage = classify_interview_tab(session, has_report=has_report)
 
         if stage == "pending":

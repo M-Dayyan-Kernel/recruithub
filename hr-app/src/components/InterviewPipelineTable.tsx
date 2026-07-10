@@ -1,19 +1,17 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { CalendarClock, FileText, Loader2, RefreshCw } from 'lucide-react'
+import { FileText, Loader2, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { InterviewPipelineCandidate, Job } from '@/types/api'
-import { ScheduleInterviewModal } from '@/components/screening/ScheduleInterviewModal'
+import type { InterviewPipelineCandidate } from '@/types/api'
 import { WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
 
 interface Props {
-  job: Job
   jobId: string
   rows: InterviewPipelineCandidate[]
   variant: 'completed' | 'flagged'
   returnSearch: string
+  onRescheduled?: () => void
 }
 
 function interviewStatusLabel(row: InterviewPipelineCandidate): string {
@@ -29,86 +27,60 @@ function interviewStatusLabel(row: InterviewPipelineCandidate): string {
 
 function RescheduleButton({
   row,
-  job,
   jobId,
   onSuccess,
 }: {
   row: InterviewPipelineCandidate
-  job: Job
   jobId: string
   onSuccess: () => void
 }) {
-  const [scheduleOpen, setScheduleOpen] = useState(false)
   const queryClient = useQueryClient()
 
   const rescheduleMutation = useMutation({
     mutationFn: () =>
-      api.post(
-        `/api/candidates/${row.candidate_id}/interview/reschedule`,
-      ) as unknown as Promise<unknown>,
+      api.post(`/api/candidates/${row.candidate_id}/interview/reschedule`),
     onSuccess: () => {
-      toast.success(`Interview rescheduled for ${row.candidate_name ?? 'candidate'}`)
+      toast.success(
+        `Interview rescheduled — email sent to ${row.candidate_name ?? 'candidate'}`,
+      )
       queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
       onSuccess()
     },
-    onError: (err: Error) => toast.error(err.message || 'Failed to reschedule'),
+    onError: (err: Error) => toast.error(err.message || 'Failed to reschedule interview'),
   })
 
   const disabled =
     row.actions_disabled || !row.can_reschedule || row.has_active_session
 
-  let title = 'Send a new interview link'
+  let title = 'Send a new interview link by email'
   if (row.actions_disabled) title = 'Candidate or job no longer available'
   else if (row.has_active_session) title = 'Another interview is already pending or in progress'
   else if (!row.can_reschedule) title = 'Reschedule is not available'
 
   return (
-    <>
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <button
-          type="button"
-          disabled={disabled || rescheduleMutation.isPending}
-          title={title}
-          onClick={() => rescheduleMutation.mutate()}
-          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {rescheduleMutation.isPending ? (
-            <Loader2 size={12} className="animate-spin" />
-          ) : (
-            <RefreshCw size={12} />
-          )}
-          Reschedule
-        </button>
-        <button
-          type="button"
-          disabled={disabled}
-          title={title}
-          onClick={() => setScheduleOpen(true)}
-          className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <CalendarClock size={12} />
-          Schedule
-        </button>
-      </div>
-      <ScheduleInterviewModal
-        job={job}
-        candidateId={row.candidate_id}
-        candidateName={row.candidate_name ?? 'Candidate'}
-        open={scheduleOpen}
-        onClose={() => setScheduleOpen(false)}
-        onSuccess={onSuccess}
-        mode="reschedule"
-      />
-    </>
+    <button
+      type="button"
+      disabled={disabled || rescheduleMutation.isPending}
+      title={title}
+      onClick={() => rescheduleMutation.mutate()}
+      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {rescheduleMutation.isPending ? (
+        <Loader2 size={12} className="animate-spin" />
+      ) : (
+        <RefreshCw size={12} />
+      )}
+      Reschedule
+    </button>
   )
 }
 
 export function InterviewPipelineTable({
-  job,
   jobId,
   rows,
   variant,
   returnSearch,
+  onRescheduled,
 }: Props) {
   const queryClient = useQueryClient()
 
@@ -124,6 +96,11 @@ export function InterviewPipelineTable({
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
+  }
+
+  const handleRescheduled = () => {
+    invalidate()
+    onRescheduled?.()
   }
 
   const reportLink = (candidateId: string) =>
@@ -228,9 +205,8 @@ export function InterviewPipelineTable({
                     )}
                     <RescheduleButton
                       row={row}
-                      job={job}
                       jobId={jobId}
-                      onSuccess={invalidate}
+                      onSuccess={handleRescheduled}
                     />
                   </div>
                 </td>
