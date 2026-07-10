@@ -215,6 +215,39 @@ class SystemSettingsResponse(BaseModel):
     updated_at: datetime
 
 
+class EmailTemplateEntry(BaseModel):
+    subject: str
+    body_html: str
+    version: int = 1
+    updated_at: Optional[str] = None
+
+
+class EmailTemplatesResponse(BaseModel):
+    templates: dict[str, EmailTemplateEntry]
+    required_placeholders: dict[str, List[str]]
+
+
+class EmailTemplateUpdate(BaseModel):
+    subject: str
+    body_html: str
+
+
+class EmailTemplatePreviewRequest(BaseModel):
+    subject: str
+    body_html: str
+
+
+class EmailTemplatePreviewResponse(BaseModel):
+    subject: str
+    body_html: str
+
+
+class EmailTemplateTestRequest(BaseModel):
+    to_email: str
+    subject: str
+    body_html: str
+
+
 class SystemSettingsUpdate(BaseModel):
     allowed_phone_regions: Optional[List[str]] = None
     enforce_phone_geography: Optional[bool] = None
@@ -416,14 +449,22 @@ class InterviewPipelineCounts(BaseModel):
     scheduled: int
     ongoing: int
     completed: int
+    flagged: int = 0
 
 
 class InterviewPipelineCandidate(BaseModel):
     candidate_id: uuid.UUID
     candidate_name: Optional[str] = None
-    tab: Literal["pending", "scheduled", "ongoing", "completed"]
+    tab: Literal["pending", "scheduled", "ongoing", "completed", "flagged"]
     has_report: bool
     session: Optional[InterviewSessionResponse] = None
+    report_overall_score: Optional[float] = None
+    report_recommendation: Optional[str] = None
+    assessment_status: Literal["none", "generating", "ready", "failed"] = "none"
+    flag_reason: Optional[str] = None
+    can_reschedule: bool = False
+    actions_disabled: bool = False
+    has_active_session: bool = False
 
 
 class InterviewPipelineResponse(BaseModel):

@@ -24,8 +24,38 @@ from app.schemas.schemas import (
     InterviewPipelineResponse,
     InterviewSessionResponse,
 )
+from app.services.interview_flag_service import get_flag_reason, is_flagged_session
 
-InterviewTabStage = Literal["pending", "scheduled", "ongoing", "completed"]
+InterviewTabStage = Literal["pending", "scheduled", "ongoing", "completed", "flagged"]
+
+
+def _map_recommendation_label(rec: str | None) -> str | None:
+    if not rec:
+        return None
+    normalized = rec.lower().replace(" ", "_")
+    if normalized in ("strong_hire", "hire"):
+        return "Hire"
+    if normalized == "no_hire":
+        return "No Hire"
+    if normalized in ("hold", "needs_review"):
+        return "Needs Review"
+    return rec.replace("_", " ").title()
+
+
+def _assessment_status(
+    session: InterviewSession | None,
+    *,
+    has_report: bool,
+) -> str:
+    if has_report:
+        return "ready"
+    if not session:
+        return "none"
+    if session.status == "assessment_failed":
+        return "failed"
+    if session.status in ("completed", "assessed") and session.started_at:
+        return "generating"
+    return "none"
 
 
 def classify_interview_tab(
@@ -34,13 +64,21 @@ def classify_interview_tab(
     has_report: bool = False,
 ) -> InterviewTabStage:
     """Map latest session state to an HR-facing pipeline tab."""
+    if is_flagged_session(session, has_report=has_report):
+        return "flagged"
     if not session:
         return "completed" if has_report else "pending"
-    if session.status == "in_progress" and not has_report:
+    if session.status == "in_progress":
         return "ongoing"
-    if session.status == "completed" or has_report:
+    if has_report or session.status in ("completed", "assessed", "assessment_failed"):
         return "completed"
+    if session.status == "pending":
+        return "scheduled"
     return "scheduled"
+
+
+def _has_active_session(sessions: list[InterviewSession]) -> bool:
+    return any(s.status in ("pending", "in_progress") for s in sessions)
 
 
 def _enrich_session(
@@ -86,8 +124,11 @@ async def get_interview_pipeline(
         .where(InterviewSession.job_id == job_id)
         .order_by(InterviewSession.created_at.desc())
     )
+    all_sessions = sessions_result.scalars().all()
     latest_session_by_candidate: dict[uuid.UUID, InterviewSession] = {}
-    for session in sessions_result.scalars().all():
+    sessions_by_candidate: dict[uuid.UUID, list[InterviewSession]] = {}
+    for session in all_sessions:
+        sessions_by_candidate.setdefault(session.candidate_id, []).append(session)
         if session.candidate_id not in latest_session_by_candidate:
             latest_session_by_candidate[session.candidate_id] = session
 
@@ -99,7 +140,7 @@ async def get_interview_pipeline(
     ]
     if not eligible_candidate_ids:
         empty_counts = InterviewPipelineCounts(
-            pending=0, scheduled=0, ongoing=0, completed=0
+            pending=0, scheduled=0, ongoing=0, completed=0, flagged=0
         )
         return InterviewPipelineResponse(counts=empty_counts, candidates=[])
 
@@ -109,24 +150,28 @@ async def get_interview_pipeline(
     candidate_map = {c.id: c for c in candidates_result.scalars().all()}
 
     reports_result = await db.execute(
-        select(InterviewReport.candidate_id)
+        select(InterviewReport)
         .where(
             InterviewReport.job_id == job_id,
             InterviewReport.candidate_id.in_(eligible_candidate_ids),
         )
-        .distinct()
+        .order_by(InterviewReport.created_at.desc())
     )
-    candidates_with_report = set(reports_result.scalars().all())
+    latest_report_by_candidate: dict[uuid.UUID, InterviewReport] = {}
+    for report in reports_result.scalars().all():
+        if report.candidate_id not in latest_report_by_candidate:
+            latest_report_by_candidate[report.candidate_id] = report
 
     counts = InterviewPipelineCounts(
-        pending=0, scheduled=0, ongoing=0, completed=0
+        pending=0, scheduled=0, ongoing=0, completed=0, flagged=0
     )
     pipeline_candidates: list[InterviewPipelineCandidate] = []
 
     for candidate_id in eligible_candidate_ids:
         candidate = candidate_map.get(candidate_id)
         session = latest_session_by_candidate.get(candidate_id)
-        has_report = candidate_id in candidates_with_report
+        report = latest_report_by_candidate.get(candidate_id)
+        has_report = report is not None
         stage = classify_interview_tab(session, has_report=has_report)
 
         if stage == "pending":
@@ -135,11 +180,24 @@ async def get_interview_pipeline(
             counts.scheduled += 1
         elif stage == "ongoing":
             counts.ongoing += 1
+        elif stage == "flagged":
+            counts.flagged += 1
         else:
             counts.completed += 1
 
         if tab is not None and stage != tab:
             continue
+
+        candidate_sessions = sessions_by_candidate.get(candidate_id, [])
+        has_other_active = _has_active_session(
+            [s for s in candidate_sessions if session is None or s.id != session.id]
+        )
+        actions_disabled = candidate is None
+        can_reschedule = (
+            not actions_disabled
+            and not has_other_active
+            and stage in ("completed", "flagged")
+        )
 
         session_response = (
             _enrich_session(session, candidate, job.title) if session else None
@@ -151,6 +209,15 @@ async def get_interview_pipeline(
                 tab=stage,
                 has_report=has_report,
                 session=session_response,
+                report_overall_score=report.overall_score if report else None,
+                report_recommendation=_map_recommendation_label(
+                    report.final_recommendation if report else None
+                ),
+                assessment_status=_assessment_status(session, has_report=has_report),
+                flag_reason=get_flag_reason(session, has_report=has_report),
+                can_reschedule=can_reschedule,
+                actions_disabled=actions_disabled,
+                has_active_session=has_other_active,
             )
         )
 

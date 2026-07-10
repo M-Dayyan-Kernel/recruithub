@@ -366,16 +366,19 @@ async def update_decision(
             job = await db.get(Job, record.job_id)
             job_title = job.title if job else "the position"
             from app.services.email_service import send_rejection_email
+            from app.services.email_template_service import get_merged_templates
 
+            templates = await get_merged_templates(db)
             logger.info(
                 "Sending rejection email to %s for shortlist=%s",
                 candidate_email,
                 shortlist_id,
             )
-            if not send_rejection_email(
+            if not await send_rejection_email(
                 _resolve_candidate_name(candidate),
                 candidate_email,
                 job_title,
+                templates=templates,
             ):
                 logger.warning(
                     "Rejection decision saved but email failed for shortlist=%s candidate=%s",

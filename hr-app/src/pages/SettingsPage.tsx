@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import type { SystemSettings } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
 import { WORKFLOW_CARD_CLASS, WORKFLOW_INPUT_CLASS, WORKFLOW_PRIMARY_BUTTON_CLASS } from '@/lib/workflow'
+import { EmailTemplatesSettings } from '@/components/EmailTemplatesSettings'
 
 const DEFAULT_MAX_RETRIES = 3
 const DEFAULT_RETRY_DELAY_MINUTES = 30
@@ -62,7 +63,7 @@ export default function SettingsPage() {
       <div>
         <h2 className="text-lg font-semibold text-slate-800">System Settings</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Configure platform-wide rules for outbound screening calls.
+          Configure platform-wide rules for outbound screening calls and email templates.
         </p>
       </div>
 
@@ -146,6 +147,8 @@ export default function SettingsPage() {
           Tip: use 1–2 minutes while testing, then restore 30 minutes for production.
         </p>
       </div>
+
+      <EmailTemplatesSettings />
 
       <button
         type="button"

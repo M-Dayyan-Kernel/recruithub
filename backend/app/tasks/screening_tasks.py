@@ -508,6 +508,9 @@ async def apply_screening_call_end(
         screening_call.result = None
         screening_call.summary = describe_screening_failure(ended_reason)
         await session.commit()
+        from app.services.failed_screening_email_service import maybe_send_failed_screening_email
+
+        await maybe_send_failed_screening_email(session, screening_call)
         return True
 
     screening_call.call_status = "completed"
@@ -537,7 +540,23 @@ async def apply_screening_call_end(
         if can_schedule_retry(screening_call.retry_count, settings.screening_max_retries):
             await _schedule_retry(session, screening_call)
 
+    if outcome == "completed" and transcript.strip():
+        await _cancel_pending_retries(
+            session,
+            candidate_id=screening_call.candidate_id,
+            job_id=screening_call.job_id,
+            except_call_id=screening_call.id,
+        )
+
     await session.commit()
+
+    from app.services.failed_screening_email_service import maybe_send_failed_screening_email
+
+    if outcome in ("no_answer", "voicemail", "dropped") or (
+        outcome == "failed" and screening_call.call_status == "failed"
+    ):
+        await maybe_send_failed_screening_email(session, screening_call)
+
     return True
 
 
@@ -548,6 +567,15 @@ def classify_call_outcome(ended_reason: str | None, transcript_length: int) -> t
     outcome_label: "completed" | "no_answer" | "voicemail" | "declined" | "dropped" | "failed"
     should_retry: True if we should auto-schedule a retry call
     """
+    if ended_reason:
+        r = ended_reason.lower()
+        if "voicemail" in r:
+            return ("voicemail", True)
+
+    # Substantive conversation — completed even if carrier reports no-answer/dropped.
+    if transcript_length > 50:
+        return ("completed", False)
+
     if not ended_reason:
         return ("completed", False) if transcript_length > 0 else ("no_answer", True)
 
@@ -573,10 +601,6 @@ def classify_call_outcome(ended_reason: str | None, transcript_length: int) -> t
     # No answer / not reachable
     if r in ("customer-did-not-answer", "no-answer", "customer-busy", "call-forwarded"):
         return ("no_answer", True)
-
-    # Voicemail
-    if "voicemail" in r:
-        return ("voicemail", True)
 
     # Technical failures
     if "error" in r or "failed" in r or "pipeline" in r:
@@ -684,15 +708,12 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
             screening_call.call_status = "completed"
             screening_call.call_outcome = "completed"
 
-            outcome, should_retry = classify_call_outcome(
-                screening_call.ended_reason, transcript_length
+            await _cancel_pending_retries(
+                session,
+                candidate_id=screening_call.candidate_id,
+                job_id=screening_call.job_id,
+                except_call_id=screening_call.id,
             )
-            if should_retry:
-                from app.services.settings_service import can_schedule_retry, get_system_settings
-
-                settings = await get_system_settings()
-                if can_schedule_retry(screening_call.retry_count, settings.screening_max_retries):
-                    await _schedule_retry(session, screening_call)
 
             await session.commit()
             logger.info(
@@ -725,6 +746,39 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
             screening_call.result = "needs_review"
             screening_call.summary = "GPT extraction failed. Manual review required."
             await session.commit()
+
+
+async def _cancel_pending_retries(
+    session,
+    *,
+    candidate_id: uuid.UUID,
+    job_id: uuid.UUID,
+    except_call_id: uuid.UUID | None = None,
+) -> int:
+    """Delete queued retry rows once a screening call completes successfully."""
+    from app.models.models import ScreeningCall
+
+    result = await session.execute(
+        select(ScreeningCall).where(
+            ScreeningCall.candidate_id == candidate_id,
+            ScreeningCall.job_id == job_id,
+            ScreeningCall.call_status == "pending",
+            ScreeningCall.vapi_call_id.is_(None),
+        )
+    )
+    cancelled = 0
+    for pending_call in result.scalars().all():
+        if except_call_id and pending_call.id == except_call_id:
+            continue
+        await session.delete(pending_call)
+        cancelled += 1
+    if cancelled:
+        logger.info(
+            "Cancelled %d pending screening retry(ies) for candidate=%s after successful call",
+            cancelled,
+            candidate_id,
+        )
+    return cancelled
 
 
 async def _schedule_retry(session, screening_call) -> None:

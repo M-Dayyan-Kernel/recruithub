@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useMemo, useEffect } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Loader2,
@@ -19,6 +19,8 @@ import { api } from '@/lib/api'
 import type { InterviewSession, Job, InterviewPipelineResponse } from '@/types/api'
 import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
 import { ScheduleInterviewModal } from '@/components/screening/ScheduleInterviewModal'
+import { InterviewPipelineTable } from '@/components/InterviewPipelineTable'
+import type { InterviewPipelineTab } from '@/types/api'
 
 // ---------------------------------------------------------------------------
 // Interview status chip
@@ -32,13 +34,21 @@ type InterviewStatus =
   | 'completed'
   | 'report_ready'
 
-type InterviewTabId = 'pending' | 'scheduled' | 'ongoing' | 'completed'
+type InterviewTabId = InterviewPipelineTab
 
 const TAB_LABELS: Record<InterviewTabId, string> = {
   pending: 'Pending',
   scheduled: 'Scheduled',
   ongoing: 'Ongoing',
   completed: 'Completed',
+  flagged: 'Flagged',
+}
+
+const VISIBLE_TABS: InterviewTabId[] = ['scheduled', 'ongoing', 'completed', 'flagged']
+
+function resolveInterviewTab(tab: InterviewTabId | null): InterviewTabId {
+  if (tab && tab !== 'pending' && VISIBLE_TABS.includes(tab)) return tab
+  return 'scheduled'
 }
 
 const TAB_EMPTY_MESSAGES: Record<InterviewTabId, string> = {
@@ -46,6 +56,7 @@ const TAB_EMPTY_MESSAGES: Record<InterviewTabId, string> = {
   scheduled: 'No interviews scheduled for a future slot.',
   ongoing: 'No interviews in progress right now.',
   completed: 'No completed interviews yet.',
+  flagged: 'No flagged interviews.',
 }
 
 function resolveInterviewStatus(
@@ -87,6 +98,7 @@ function activeTabClass(tab: InterviewTabId, isActive: boolean): string {
     scheduled: 'bg-blue-600 text-white',
     ongoing: 'bg-amber-500 text-white',
     completed: 'bg-indigo-600 text-white',
+    flagged: 'bg-amber-600 text-white',
   }
   return active[tab]
 }
@@ -323,7 +335,7 @@ function CandidateInterviewCard({
 
         {hasReport && (
           <Link
-            to={`/jobs/${jobId}/candidates/${candidateId}/report`}
+            to={`/jobs/${jobId}/candidates/${candidateId}/report?tab=completed`}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700"
           >
             <FileText size={13} />
@@ -428,7 +440,44 @@ interface Props {
 }
 
 export function InterviewsTab({ job, jobId }: Props) {
-  const [activeTab, setActiveTab] = useState<InterviewTabId>('pending')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab') as InterviewTabId | null
+  const [activeTab, setActiveTab] = useState<InterviewTabId>(resolveInterviewTab(tabParam))
+  const [search, setSearch] = useState(searchParams.get('search') ?? '')
+  const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1)
+  const pageSize = 10
+
+  const syncSearchParams = (nextTab: InterviewTabId, nextSearch = search, nextPage = page) => {
+    const params = new URLSearchParams()
+    params.set('tab', nextTab)
+    if (nextSearch.trim()) params.set('search', nextSearch.trim())
+    if (nextPage > 1) params.set('page', String(nextPage))
+    setSearchParams(params, { replace: true })
+  }
+
+  useEffect(() => {
+    if (tabParam === 'pending') {
+      syncSearchParams('scheduled', search, page)
+      return
+    }
+    const resolved = resolveInterviewTab(tabParam)
+    if (resolved !== activeTab) {
+      setActiveTab(resolved)
+    }
+  }, [tabParam])
+
+  const handleTabChange = (tab: InterviewTabId) => {
+    setActiveTab(tab)
+    syncSearchParams(tab, search, 1)
+  }
+
+  const returnSearch = useMemo(() => {
+    const params = new URLSearchParams()
+    params.set('tab', activeTab)
+    if (search.trim()) params.set('search', search.trim())
+    if (page > 1) params.set('page', String(page))
+    return `?${params.toString()}`
+  }, [activeTab, search, page])
 
   const {
     data: pipeline,
@@ -448,23 +497,39 @@ export function InterviewsTab({ job, jobId }: Props) {
     scheduled: 0,
     ongoing: 0,
     completed: 0,
+    flagged: 0,
   }
 
   const pipelineCandidates = pipeline?.candidates ?? []
 
+  const filteredCandidates = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return pipelineCandidates
+    return pipelineCandidates.filter((row) =>
+      (row.candidate_name ?? '').toLowerCase().includes(q),
+    )
+  }, [pipelineCandidates, search])
+
+  const totalPages = Math.max(1, Math.ceil(filteredCandidates.length / pageSize))
+  const safePage = Math.min(page, totalPages)
+  const pagedCandidates = filteredCandidates.slice(
+    (safePage - 1) * pageSize,
+    safePage * pageSize,
+  )
+
   const totalEligible =
-    tabCounts.pending +
     tabCounts.scheduled +
     tabCounts.ongoing +
-    tabCounts.completed
+    tabCounts.completed +
+    tabCounts.flagged
 
   const tabBar = (
     <div className="mb-4 flex flex-wrap items-center gap-2">
-      {(Object.keys(TAB_LABELS) as InterviewTabId[]).map((tab) => (
+      {VISIBLE_TABS.map((tab) => (
         <button
           key={tab}
           type="button"
-          onClick={() => setActiveTab(tab)}
+          onClick={() => handleTabChange(tab)}
           className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${activeTabClass(tab, activeTab === tab)}`}
         >
           {TAB_LABELS[tab]}
@@ -473,6 +538,45 @@ export function InterviewsTab({ job, jobId }: Props) {
       ))}
     </div>
   )
+
+  const filterBar =
+    activeTab === 'completed' || activeTab === 'flagged' ? (
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value)
+            syncSearchParams(activeTab, e.target.value, 1)
+          }}
+          placeholder="Search candidates…"
+          className="h-9 w-full max-w-xs rounded-lg border border-slate-200 px-3 text-sm text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+        />
+        {totalPages > 1 && (
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <button
+              type="button"
+              disabled={safePage <= 1}
+              onClick={() => syncSearchParams(activeTab, search, safePage - 1)}
+              className="rounded border border-slate-200 px-2 py-1 disabled:opacity-40"
+            >
+              Prev
+            </button>
+            <span>
+              Page {safePage} of {totalPages}
+            </span>
+            <button
+              type="button"
+              disabled={safePage >= totalPages}
+              onClick={() => syncSearchParams(activeTab, search, safePage + 1)}
+              className="rounded border border-slate-200 px-2 py-1 disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        )}
+      </div>
+    ) : null
 
   // ── Loading ───────────────────────────────────────────────────────────────
   if (isLoading) {
@@ -529,11 +633,26 @@ export function InterviewsTab({ job, jobId }: Props) {
     <div>
       <InterviewRubricPanel job={job} />
       {tabBar}
+      {filterBar}
 
       {pipelineCandidates.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center">
           <p className="text-sm text-slate-500">{TAB_EMPTY_MESSAGES[activeTab]}</p>
         </div>
+      ) : activeTab === 'completed' || activeTab === 'flagged' ? (
+        filteredCandidates.length === 0 ? (
+          <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center">
+            <p className="text-sm text-slate-500">No candidates match your search.</p>
+          </div>
+        ) : (
+          <InterviewPipelineTable
+            job={job}
+            jobId={jobId}
+            rows={pagedCandidates}
+            variant={activeTab}
+            returnSearch={returnSearch}
+          />
+        )
       ) : (
         <div className="space-y-4">
           {pipelineCandidates.map((row) => (

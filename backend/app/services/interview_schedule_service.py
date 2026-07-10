@@ -57,18 +57,22 @@ def format_scheduled_at_label(
 
 
 async def send_interview_invitation_email(
+    db: AsyncSession,
     session: InterviewSession,
     candidate: Candidate,
     job_title: str,
 ) -> bool:
     from app.services.email_service import send_interview_link
+    from app.services.email_template_service import get_merged_templates
 
     interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{session.unique_token}"
-    sent = send_interview_link(
+    templates = await get_merged_templates(db)
+    sent = await send_interview_link(
         candidate_name=candidate.name,
         candidate_email=candidate.email,
         job_title=job_title,
         interview_url=interview_url,
+        templates=templates,
     )
     if sent:
         session.email_sent_at = datetime.now(timezone.utc)
@@ -81,6 +85,7 @@ async def send_interview_invitation_email(
 
 
 async def send_scheduled_interview_notification_email(
+    db: AsyncSession,
     session: InterviewSession,
     candidate: Candidate,
     job_title: str,
@@ -88,21 +93,24 @@ async def send_scheduled_interview_notification_email(
     timezone_name: str,
 ) -> bool:
     from app.services.email_service import send_scheduled_interview_notification
+    from app.services.email_template_service import get_merged_templates
 
     if not session.scheduled_interview_at:
-        return await send_interview_invitation_email(session, candidate, job_title)
+        return await send_interview_invitation_email(db, session, candidate, job_title)
 
     interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{session.unique_token}"
     scheduled_label = format_scheduled_at_label(
         session.scheduled_interview_at,
         timezone_name,
     )
-    sent = send_scheduled_interview_notification(
+    templates = await get_merged_templates(db)
+    sent = await send_scheduled_interview_notification(
         candidate_name=candidate.name,
         candidate_email=candidate.email,
         job_title=job_title,
         interview_url=interview_url,
         scheduled_at_label=scheduled_label,
+        templates=templates,
     )
     if sent:
         session.email_sent_at = datetime.now(timezone.utc)

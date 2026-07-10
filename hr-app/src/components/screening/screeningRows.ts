@@ -40,6 +40,11 @@ function latestCallForCandidate(
   const live = forCandidate.find((c) => LIVE_CALL_STATUSES.has(c.call_status))
   if (live) return live
 
+  const successfulCalls = [...forCandidate]
+    .filter(isSuccessfulScreeningCall)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  if (successfulCalls.length > 0) return successfulCalls[0]
+
   const scheduledRetry = forCandidate.find((c) => isScheduledRetry(c))
   if (scheduledRetry) return scheduledRetry
 
@@ -73,6 +78,18 @@ function isConnectFailure(call: ScreeningCall): boolean {
     call.call_outcome === 'voicemail' ||
     call.call_outcome === 'dropped'
   )
+}
+
+/** A call where the candidate was actually reached and screened. */
+function isSuccessfulScreeningCall(call: ScreeningCall): boolean {
+  if (call.call_status !== 'completed') return false
+
+  if (call.call_outcome === 'completed') return true
+  if (call.result === 'pass' || call.result === 'fail') return true
+  if (call.result === 'needs_review' && Boolean(call.transcript?.trim())) return true
+
+  const transcript = call.transcript?.trim() ?? ''
+  return transcript.length > 50
 }
 
 function isTechnicalFailure(call: ScreeningCall): boolean {
@@ -120,6 +137,12 @@ function classifyTab(
     return { tab: 'pending' }
   }
 
+  // Successful contact — check before connect-failure exhaustion so a answered
+  // retry is not flagged when call_outcome is still no_answer from an early webhook.
+  if (isSuccessfulScreeningCall(call)) {
+    return { tab: 'completed' }
+  }
+
   if (isConnectFailure(call)) {
     if (dialAttemptsExhausted(call, maxAttempts)) {
       const ageMs = Date.now() - new Date(call.created_at).getTime()
@@ -164,13 +187,18 @@ function canCallNowForRow(
   latestCall: ScreeningCall | null,
   settings: SystemSettings | undefined,
 ): boolean {
-  if (tab === 'completed') return false
   if (!isCallablePhone(phone, settings)) return false
   if (latestCall && isLiveCall(latestCall)) return false
-  if (tab !== 'flagged' && isManualCallBlocked(latestCall)) return false
 
   const scheduledRetry = latestCall ? isScheduledRetry(latestCall) : false
   const maxAttempts = maxDialAttempts(settings)
+
+  if (tab === 'completed' || tab === 'flagged') {
+    if (isManualCallBlocked(latestCall)) return false
+    return true
+  }
+
+  if (isManualCallBlocked(latestCall)) return false
 
   if (tab === 'pending') {
     return (
@@ -180,10 +208,6 @@ function canCallNowForRow(
         isConnectFailure(latestCall) &&
         !dialAttemptsExhausted(latestCall, maxAttempts))
     )
-  }
-
-  if (tab === 'flagged') {
-    return true
   }
 
   return false

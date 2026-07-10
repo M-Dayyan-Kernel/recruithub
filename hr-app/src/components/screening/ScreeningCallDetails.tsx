@@ -5,7 +5,6 @@ import toast from 'react-hot-toast'
 import {
   Briefcase,
   Calendar,
-  CalendarClock,
   CheckCircle2,
   ChevronDown,
   DollarSign,
@@ -23,7 +22,6 @@ import {
 import { api } from '@/lib/api'
 import type { ScreeningCall, ScreeningResult } from '@/types/api'
 import type { JobOutletContext } from '@/components/JobLayout'
-import { ScheduleInterviewModal } from '@/components/screening/ScheduleInterviewModal'
 import { downloadScreeningReportPdf } from '@/lib/screeningReportPdf'
 
 function formatCallDate(iso: string): string {
@@ -182,10 +180,8 @@ function ScreeningActionBar({
 }) {
   const { job } = useOutletContext<JobOutletContext>()
   const queryClient = useQueryClient()
-  const [scheduleOpen, setScheduleOpen] = useState(false)
   const [downloadingPdf, setDownloadingPdf] = useState(false)
   const isApproved = call.result === 'pass'
-  const isQueued = Boolean(call.interview_queued_at)
   const hasSession = Boolean(call.has_interview_session)
 
   const invalidate = () => {
@@ -203,17 +199,17 @@ function ScreeningActionBar({
     onError: () => toast.error('Failed to update decision'),
   })
 
-  const queueMutation = useMutation({
+  const scheduleMutation = useMutation({
     mutationFn: () =>
-      api.post(`/api/candidates/${call.candidate_id}/interview/queue`),
+      api.post(`/api/candidates/${call.candidate_id}/interview/send`),
     onSuccess: () => {
       invalidate()
-      toast.success('Candidate queued for interview')
+      toast.success(`Interview invitation sent to ${candidateName ?? 'candidate'}`)
     },
-    onError: (err: Error) => toast.error(err.message || 'Failed to queue for interview'),
+    onError: (err: Error) => toast.error(err.message || 'Failed to schedule interview'),
   })
 
-  const busy = decisionMutation.isPending || queueMutation.isPending || downloadingPdf
+  const busy = decisionMutation.isPending || scheduleMutation.isPending || downloadingPdf
 
   const handleDownloadPdf = () => {
     setDownloadingPdf(true)
@@ -233,11 +229,10 @@ function ScreeningActionBar({
   }
 
   return (
-    <>
-      <div
-        className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div
+      className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"
+      onClick={(e) => e.stopPropagation()}
+    >
       <p className="text-[11px] font-medium text-slate-600">HR actions</p>
       <div className="flex flex-wrap gap-2">
         <button
@@ -289,24 +284,7 @@ function ScreeningActionBar({
         </button>
         <button
           type="button"
-          onClick={() => queueMutation.mutate()}
-          disabled={busy || !isApproved || isQueued || hasSession}
-          className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${
-            isQueued
-              ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
-              : 'border border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50'
-          }`}
-        >
-          {queueMutation.isPending ? (
-            <Loader2 size={13} className="animate-spin" />
-          ) : (
-            <CalendarClock size={13} />
-          )}
-          {isQueued ? 'Queued' : 'Queue interview'}
-        </button>
-        <button
-          type="button"
-          onClick={() => setScheduleOpen(true)}
+          onClick={() => scheduleMutation.mutate()}
           disabled={busy || !isApproved || hasSession}
           className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${
             hasSession
@@ -314,24 +292,18 @@ function ScreeningActionBar({
               : 'border border-indigo-200 bg-indigo-600 text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50'
           }`}
         >
-          <Send size={13} />
+          {scheduleMutation.isPending ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : (
+            <Send size={13} />
+          )}
           {hasSession ? 'Scheduled' : 'Schedule'}
         </button>
       </div>
       {!isApproved && (
         <p className="text-[10px] text-slate-500">Approve to enable interview actions.</p>
       )}
-      </div>
-
-      <ScheduleInterviewModal
-        job={job}
-        candidateId={call.candidate_id}
-        candidateName={candidateName ?? 'Candidate'}
-        open={scheduleOpen}
-        onClose={() => setScheduleOpen(false)}
-        onSuccess={invalidate}
-      />
-    </>
+    </div>
   )
 }
 
@@ -346,6 +318,8 @@ export function ScreeningCallDetails({
   expanded: expandedProp,
   defaultExpanded = false,
   onExpandedChange,
+  showActions = true,
+  hideHeader = false,
 }: {
   call: ScreeningCall
   jobId: string
@@ -357,6 +331,8 @@ export function ScreeningCallDetails({
   expanded?: boolean
   defaultExpanded?: boolean
   onExpandedChange?: (expanded: boolean) => void
+  showActions?: boolean
+  hideHeader?: boolean
 }) {
   const [showTranscript, setShowTranscript] = useState(false)
   const [expandedInternal, setExpandedInternal] = useState(defaultExpanded)
@@ -483,15 +459,17 @@ export function ScreeningCallDetails({
           </div>
         </div>
       </div>
-      <div className="px-3.5 pb-2.5">
-        <ScreeningActionBar
-          call={call}
-          jobId={jobId}
-          candidateName={candidateName}
-          phone={phone}
-          attemptNumber={attemptNumber}
-        />
-      </div>
+      {showActions && (
+        <div className="px-3.5 pb-2.5">
+          <ScreeningActionBar
+            call={call}
+            jobId={jobId}
+            candidateName={candidateName}
+            phone={phone}
+            attemptNumber={attemptNumber}
+          />
+        </div>
+      )}
     </div>
   )
 
@@ -574,11 +552,13 @@ export function ScreeningCallDetails({
     call.expected_ctc ||
     quickStats.some((s) => s.value?.trim())
 
-  const outerClass = isCompactCard
-    ? expanded
-      ? 'mx-1 my-1.5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm'
-      : ''
-    : 'overflow-hidden rounded-lg border border-slate-200 bg-white'
+  const outerClass = hideHeader
+    ? ''
+    : isCompactCard
+      ? expanded
+        ? 'mx-1 my-1.5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm'
+        : ''
+      : 'overflow-hidden rounded-lg border border-slate-200 bg-white'
 
   if (isCollapsible && !expanded) {
     return <div className={outerClass}>{collapsedCard}</div>
@@ -586,10 +566,10 @@ export function ScreeningCallDetails({
 
   return (
     <div className={outerClass}>
-      {expandedHeader}
+      {!hideHeader && expandedHeader}
 
       {(!isCollapsible || expanded) && (
-        <div className="space-y-3 px-3.5 py-3">
+        <div className={hideHeader ? 'space-y-3' : 'space-y-3 px-3.5 py-3'}>
           {call.summary && (
             <section className="rounded-lg border border-indigo-100 bg-indigo-50/40 px-3 py-2.5">
               <div className="mb-1 flex items-center gap-1.5">
@@ -685,13 +665,15 @@ export function ScreeningCallDetails({
             </div>
           )}
 
-          <ScreeningActionBar
-          call={call}
-          jobId={jobId}
-          candidateName={candidateName}
-          phone={phone}
-          attemptNumber={attemptNumber}
-        />
+          {showActions && (
+            <ScreeningActionBar
+              call={call}
+              jobId={jobId}
+              candidateName={candidateName}
+              phone={phone}
+              attemptNumber={attemptNumber}
+            />
+          )}
 
           {call.transcript && (
             <section onClick={(e) => e.stopPropagation()}>

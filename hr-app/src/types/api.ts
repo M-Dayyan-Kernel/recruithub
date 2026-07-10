@@ -147,6 +147,18 @@ export interface SystemSettings {
   updated_at: string
 }
 
+export interface EmailTemplateEntry {
+  subject: string
+  body_html: string
+  version: number
+  updated_at?: string | null
+}
+
+export interface EmailTemplatesResponse {
+  templates: Record<string, EmailTemplateEntry>
+  required_placeholders: Record<string, string[]>
+}
+
 export interface ScreeningTriggerResponse {
   initiated: number
   queued: number
@@ -162,7 +174,7 @@ export interface InterviewSession {
   candidate_id: string
   job_id: string
   unique_token: string
-  status: 'pending' | 'in_progress' | 'completed'
+  status: 'pending' | 'in_progress' | 'completed' | 'expired' | 'assessment_failed' | 'assessed'
   candidate_name?: string
   job_title?: string
   interview_url?: string
@@ -173,14 +185,17 @@ export interface InterviewSession {
   created_at: string
 }
 
-export type InterviewPipelineTab = 'pending' | 'scheduled' | 'ongoing' | 'completed'
+export type InterviewPipelineTab = 'pending' | 'scheduled' | 'ongoing' | 'completed' | 'flagged'
 
 export interface InterviewPipelineCounts {
   pending: number
   scheduled: number
   ongoing: number
   completed: number
+  flagged: number
 }
+
+export type InterviewAssessmentStatus = 'none' | 'generating' | 'ready' | 'failed'
 
 export interface InterviewPipelineCandidate {
   candidate_id: string
@@ -188,6 +203,13 @@ export interface InterviewPipelineCandidate {
   tab: InterviewPipelineTab
   has_report: boolean
   session?: InterviewSession | null
+  report_overall_score?: number | null
+  report_recommendation?: string | null
+  assessment_status?: InterviewAssessmentStatus
+  flag_reason?: string | null
+  can_reschedule?: boolean
+  actions_disabled?: boolean
+  has_active_session?: boolean
 }
 
 export interface InterviewPipelineResponse {

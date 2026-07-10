@@ -386,9 +386,11 @@ export function ScreeningTab({ jobId }: Props) {
       {tabBar}
       {showSettingsCard && settingsCard}
 
-      <div className={activeTab === 'completed' ? '' : WORKFLOW_CARD_CLASS}>
+      <div className={WORKFLOW_CARD_CLASS}>
         {activeTab === 'completed' ? (
-          <CompletedScreeningList rows={filteredRows} jobId={jobId} />
+          <div className="p-4">
+            <CompletedScreeningList rows={filteredRows} jobId={jobId} />
+          </div>
         ) : (
           <table className={WORKFLOW_TABLE_CLASS}>
             <thead className="bg-slate-50">

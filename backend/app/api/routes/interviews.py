@@ -16,7 +16,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
@@ -195,6 +195,7 @@ async def schedule_interview(
     interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{unique_token}"
 
     await send_scheduled_interview_notification_email(
+        db,
         interview_session,
         candidate,
         job_title,
@@ -294,7 +295,7 @@ async def send_interview_link(
     job_title = job.title if job else "the position"
     interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{unique_token}"
 
-    await send_interview_invitation_email(interview_session, candidate, job_title)
+    await send_interview_invitation_email(db, interview_session, candidate, job_title)
 
     await db.commit()
     await db.refresh(interview_session)
@@ -702,7 +703,7 @@ async def list_job_interviews(
 )
 async def get_interview_pipeline(
     job_id: uuid.UUID,
-    tab: Optional[Literal["pending", "scheduled", "ongoing", "completed"]] = Query(
+    tab: Optional[Literal["pending", "scheduled", "ongoing", "completed", "flagged"]] = Query(
         default=None,
         description="Filter candidates to a single pipeline tab. Counts always reflect all tabs.",
     ),
@@ -716,6 +717,7 @@ async def get_interview_pipeline(
       - scheduled: link sent, session status pending
       - ongoing: session in_progress
       - completed: session completed (has_report indicates report availability)
+      - flagged: interview never produced a meaningful result
     """
     from app.services.interview_pipeline_service import get_interview_pipeline as build_pipeline
 
@@ -725,3 +727,73 @@ async def get_interview_pipeline(
         if str(exc) == "Job not found":
             raise HTTPException(status_code=404, detail="Job not found") from exc
         raise
+
+
+# ---------------------------------------------------------------------------
+# POST /api/candidates/{candidate_id}/interview/reschedule
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/candidates/{candidate_id}/interview/reschedule",
+    response_model=InterviewSessionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def reschedule_interview_endpoint(
+    candidate_id: uuid.UUID,
+    body: Optional[InterviewScheduleRequest] = Body(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Expire the previous interview link, create a new session, and email the candidate.
+    """
+    from app.services.interview_reschedule_service import reschedule_interview
+
+    try:
+        return await reschedule_interview(db, candidate_id, schedule=body)
+    except ValueError as exc:
+        msg = str(exc)
+        if msg == "Candidate not found":
+            raise HTTPException(status_code=404, detail=msg) from exc
+        if "already exists" in msg:
+            raise HTTPException(status_code=409, detail=msg) from exc
+        raise HTTPException(status_code=400, detail=msg) from exc
+
+
+# ---------------------------------------------------------------------------
+# POST /api/candidates/{candidate_id}/interview/retry-assessment
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/candidates/{candidate_id}/interview/retry-assessment",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def retry_interview_assessment(
+    candidate_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-enqueue assessment generation for the latest failed interview session."""
+    from app.tasks.interview_tasks import generate_interview_report
+
+    result = await db.execute(
+        select(InterviewSession)
+        .where(InterviewSession.candidate_id == candidate_id)
+        .order_by(InterviewSession.created_at.desc())
+    )
+    session = result.scalars().first()
+    if not session:
+        raise HTTPException(status_code=404, detail="No interview session found")
+
+    if session.status != "assessment_failed":
+        raise HTTPException(
+            status_code=400,
+            detail="Assessment retry is only available for failed assessments",
+        )
+
+    session.status = "completed"
+    await db.commit()
+
+    generate_interview_report.delay(str(session.id))
+    return {
+        "message": "Assessment retry enqueued",
+        "session_id": str(session.id),
+    }

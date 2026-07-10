@@ -1,12 +1,14 @@
 """
-Email Service — interview invitations and rejection notices via Gmail API.
+Email Service — interview invitations, rejection, and screening notifications via Gmail API.
 
 Functions return True on success, False on failure (never raise).
 """
 
 import logging
+from typing import Any
 
 from app.services import gmail_service
+from app.services.email_template_service import render_template
 
 logger = logging.getLogger(__name__)
 
@@ -91,17 +93,33 @@ def _build_rejection_email_html(candidate_name: str, job_title: str) -> str:
 </html>"""
 
 
-def send_interview_link(
+async def send_interview_link(
     candidate_name: str,
     candidate_email: str,
     job_title: str,
     interview_url: str,
+    *,
+    templates: dict[str, dict[str, Any]] | None = None,
 ) -> bool:
     """Send an immediate interview invitation (join at your convenience)."""
+    if templates:
+        subject, html_body = render_template(
+            "interview_invitation",
+            templates,
+            {
+                "candidate_name": candidate_name,
+                "job_title": job_title,
+                "interview_url": interview_url,
+            },
+        )
+    else:
+        subject = f"[Interview Invitation] {job_title}"
+        html_body = _build_interview_email_html(candidate_name, job_title, interview_url)
+
     sent = gmail_service.send_html_email(
         to_email=candidate_email,
-        subject=f"[Interview Invitation] {job_title}",
-        html_body=_build_interview_email_html(candidate_name, job_title, interview_url),
+        subject=subject,
+        html_body=html_body,
     )
     if sent:
         logger.info(
@@ -166,23 +184,27 @@ def _build_scheduled_interview_email_html(
 </html>"""
 
 
-def send_scheduled_interview_notification(
+async def send_scheduled_interview_notification(
     candidate_name: str,
     candidate_email: str,
     job_title: str,
     interview_url: str,
     scheduled_at_label: str,
+    *,
+    templates: dict[str, dict[str, Any]] | None = None,
 ) -> bool:
     """Notify candidate of a future interview slot with the join link."""
+    subject = f"[Interview Scheduled] {job_title} — {scheduled_at_label}"
+    html_body = _build_scheduled_interview_email_html(
+        candidate_name,
+        job_title,
+        interview_url,
+        scheduled_at_label,
+    )
     sent = gmail_service.send_html_email(
         to_email=candidate_email,
-        subject=f"[Interview Scheduled] {job_title} — {scheduled_at_label}",
-        html_body=_build_scheduled_interview_email_html(
-            candidate_name,
-            job_title,
-            interview_url,
-            scheduled_at_label,
-        ),
+        subject=subject,
+        html_body=html_body,
     )
     if sent:
         logger.info(
@@ -194,16 +216,90 @@ def send_scheduled_interview_notification(
     return sent
 
 
-def send_rejection_email(
+async def send_reschedule_notification(
     candidate_name: str,
     candidate_email: str,
     job_title: str,
+    interview_url: str,
+    *,
+    templates: dict[str, dict[str, Any]],
 ) -> bool:
-    """Send a polite application rejection email via Gmail."""
+    subject, html_body = render_template(
+        "interview_reschedule",
+        templates,
+        {
+            "candidate_name": candidate_name,
+            "job_title": job_title,
+            "interview_url": interview_url,
+        },
+    )
     sent = gmail_service.send_html_email(
         to_email=candidate_email,
-        subject=f"Update on your application — {job_title}",
-        html_body=_build_rejection_email_html(candidate_name, job_title),
+        subject=subject,
+        html_body=html_body,
+    )
+    if sent:
+        logger.info(
+            "Reschedule notification sent to %s (job=%s)",
+            candidate_email,
+            job_title,
+        )
+    return sent
+
+
+async def send_failed_screening_attempt_email(
+    candidate_name: str,
+    candidate_email: str,
+    job_title: str,
+    phone_number: str,
+    *,
+    templates: dict[str, dict[str, Any]],
+) -> bool:
+    subject, html_body = render_template(
+        "failed_screening_attempt",
+        templates,
+        {
+            "candidate_name": candidate_name,
+            "job_title": job_title,
+            "phone_number": phone_number,
+        },
+    )
+    sent = gmail_service.send_html_email(
+        to_email=candidate_email,
+        subject=subject,
+        html_body=html_body,
+    )
+    if sent:
+        logger.info(
+            "Failed screening attempt email sent to %s (job=%s)",
+            candidate_email,
+            job_title,
+        )
+    return sent
+
+
+async def send_rejection_email(
+    candidate_name: str,
+    candidate_email: str,
+    job_title: str,
+    *,
+    templates: dict[str, dict[str, Any]] | None = None,
+) -> bool:
+    """Send a polite application rejection email via Gmail."""
+    if templates:
+        subject, html_body = render_template(
+            "rejection",
+            templates,
+            {"candidate_name": candidate_name, "job_title": job_title},
+        )
+    else:
+        subject = f"Update on your application — {job_title}"
+        html_body = _build_rejection_email_html(candidate_name, job_title)
+
+    sent = gmail_service.send_html_email(
+        to_email=candidate_email,
+        subject=subject,
+        html_body=html_body,
     )
     if sent:
         logger.info(

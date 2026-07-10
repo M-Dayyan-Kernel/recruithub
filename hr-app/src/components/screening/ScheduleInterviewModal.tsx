@@ -12,6 +12,7 @@ interface Props {
   open: boolean
   onClose: () => void
   onSuccess: () => void
+  mode?: 'schedule' | 'reschedule'
 }
 
 const inputClass =
@@ -30,6 +31,7 @@ export function ScheduleInterviewModal({
   open,
   onClose,
   onSuccess,
+  mode = 'schedule',
 }: Props) {
   const timezone = job.screening_timezone || 'Asia/Kolkata'
   const [scheduledDate, setScheduledDate] = useState(defaultScheduleDate)
@@ -51,18 +53,29 @@ export function ScheduleInterviewModal({
   }, [scheduledDate, scheduledTime, timezone])
 
   const mutation = useMutation({
-    mutationFn: () =>
-      api.post(`/api/candidates/${candidateId}/interview/schedule`, {
+    mutationFn: () => {
+      const body = {
         scheduled_date: scheduledDate,
         scheduled_time: scheduledTime,
         timezone,
-      }) as unknown as Promise<InterviewSession>,
+      }
+      const endpoint =
+        mode === 'reschedule'
+          ? `/api/candidates/${candidateId}/interview/reschedule`
+          : `/api/candidates/${candidateId}/interview/schedule`
+      return api.post(endpoint, body) as unknown as Promise<InterviewSession>
+    },
     onSuccess: () => {
-      toast.success(`Interview scheduled — ${candidateName} was notified by email`)
+      toast.success(
+        mode === 'reschedule'
+          ? `Interview rescheduled — ${candidateName} was notified by email`
+          : `Interview scheduled — ${candidateName} was notified by email`,
+      )
       onSuccess()
       onClose()
     },
-    onError: (err: Error) => toast.error(err.message || 'Failed to schedule interview'),
+    onError: (err: Error) =>
+      toast.error(err.message || `Failed to ${mode === 'reschedule' ? 'reschedule' : 'schedule'} interview`),
   })
 
   if (!open) return null
@@ -72,7 +85,9 @@ export function ScheduleInterviewModal({
       <div className="flex w-full max-w-md flex-col rounded-xl bg-white shadow-xl">
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-slate-800">Schedule interview</h2>
+            <h2 className="text-base font-semibold text-slate-800">
+              {mode === 'reschedule' ? 'Reschedule interview' : 'Schedule interview'}
+            </h2>
             <p className="mt-0.5 truncate text-xs text-slate-500">{candidateName}</p>
           </div>
           <button

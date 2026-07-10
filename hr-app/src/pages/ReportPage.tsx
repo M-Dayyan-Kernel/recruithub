@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -187,7 +187,20 @@ function ReportSkeleton() {
 
 export default function ReportPage() {
   const { jobId, candidateId } = useParams<{ jobId: string; candidateId: string }>()
+  const [searchParams] = useSearchParams()
   const [downloadingPdf, setDownloadingPdf] = useState(false)
+
+  const backToInterviews = useMemo(() => {
+    if (!jobId) return '/'
+    const params = new URLSearchParams()
+    const tab = searchParams.get('tab') ?? 'completed'
+    params.set('tab', tab)
+    const search = searchParams.get('search')
+    const page = searchParams.get('page')
+    if (search) params.set('search', search)
+    if (page) params.set('page', page)
+    return `/jobs/${jobId}/interviews?${params.toString()}`
+  }, [jobId, searchParams])
 
   // ── Report ────────────────────────────────────────────────────────────────
   const {
@@ -228,11 +241,11 @@ export default function ReportPage() {
     <div className="p-6 max-w-5xl mx-auto">
       {/* Back link */}
       <Link
-        to={jobId ? `/jobs/${jobId}` : '/'}
+        to={backToInterviews}
         className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-5 transition-colors"
       >
         <ArrowLeft size={14} />
-        Back to Job
+        Back to Interviews
       </Link>
 
       {/* Loading */}
