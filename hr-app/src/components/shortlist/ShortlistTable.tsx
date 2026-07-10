@@ -8,7 +8,7 @@ import {
   RecommendationBadge,
   ScoreBadge,
 } from '@/components/shortlist/shortlistBadges'
-import { DECISION_CONFIG, getApproveLabel } from '@/components/shortlist/shortlistDecisionConfig'
+import { DECISION_CONFIG, getApproveLabel, getApproveTooltip } from '@/components/shortlist/shortlistDecisionConfig'
 import { ShortlistReportModal } from '@/components/shortlist/ShortlistReportModal'
 import { useShortlistDecision } from '@/hooks/useShortlistDecision'
 import { useShortlistApproveNavigation } from '@/hooks/useShortlistApproveNavigation'
@@ -95,11 +95,7 @@ function ShortlistTableRow({
                 type="button"
                 onClick={() => decisionMutation.mutate(decision)}
                 disabled={decisionMutation.isPending}
-                title={
-                  decision === 'approved' && !screeningEnabled
-                    ? 'Approve and send interview link directly'
-                    : undefined
-                }
+                title={decision === 'approved' ? getApproveTooltip(screeningEnabled) : undefined}
                 className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                   isActive ? cfg.active : cfg.inactive
                 }`}

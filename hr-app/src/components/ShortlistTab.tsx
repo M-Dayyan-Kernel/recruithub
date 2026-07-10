@@ -20,7 +20,7 @@ import type { ShortlistResultWithCandidate, HrDecision, SystemSettings } from '@
 import { BackendError } from '@/components/BackendError'
 import { ShortlistTable } from '@/components/shortlist/ShortlistTable'
 import { ShortlistTableSkeleton } from '@/components/shortlist/ShortlistTableSkeleton'
-import { getApproveLabel } from '@/components/shortlist/shortlistDecisionConfig'
+import { getApproveLabel, getApproveTooltip } from '@/components/shortlist/shortlistDecisionConfig'
 import { useShortlistDecision } from '@/hooks/useShortlistDecision'
 import { useShortlistApproveNavigation, navigateAfterScreeningSkipped } from '@/hooks/useShortlistApproveNavigation'
 import {
@@ -442,11 +442,7 @@ function ShortlistCard({
                   key={decision}
                   onClick={() => decisionMutation.mutate(decision)}
                   disabled={decisionMutation.isPending}
-                  title={
-                    decision === 'approved' && !screeningEnabled
-                      ? 'Approve and send interview link directly'
-                      : undefined
-                  }
+                  title={decision === 'approved' ? getApproveTooltip(screeningEnabled) : undefined}
                   className={`px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     isActive ? cfg.active : cfg.inactive
                   }`}

@@ -652,33 +652,25 @@ export function InterviewsTab({ job, jobId }: Props) {
     )
   }
 
-  // ── Empty state ───────────────────────────────────────────────────────────
-  if (totalEligible === 0) {
-    return (
-      <div>
-        <InterviewRubricPanel job={job} />
-        <div className="py-16 flex flex-col items-center justify-center text-center">
-          <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mb-4">
-            <ClipboardList className="w-6 h-6 text-slate-400" />
-          </div>
-          <p className="text-slate-700 font-semibold mb-1">No candidates ready for interview</p>
-          <p className="text-slate-400 text-sm max-w-xs">
-            Once a candidate passes voice screening, they will appear below. You can set up the
-            interview rubric above anytime.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Normal view ───────────────────────────────────────────────────────────
+  // ── Normal view (tabs always visible) ─────────────────────────────────────
   return (
     <div>
       <InterviewRubricPanel job={job} />
       {tabBar}
       {filterBar}
 
-      {pipelineCandidates.length === 0 ? (
+      {totalEligible === 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
+            <ClipboardList className="h-6 w-6 text-slate-400" />
+          </div>
+          <p className="mb-1 font-semibold text-slate-700">No candidates ready for interview</p>
+          <p className="mx-auto max-w-xs text-sm text-slate-400">
+            Once a candidate is approved for interview, they will appear in these tabs. You can set
+            up the interview rubric above anytime.
+          </p>
+        </div>
+      ) : pipelineCandidates.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center">
           <p className="text-sm text-slate-500">{TAB_EMPTY_MESSAGES[activeTab]}</p>
         </div>

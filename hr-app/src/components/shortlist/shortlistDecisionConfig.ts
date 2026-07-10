@@ -1,7 +1,13 @@
 import type { HrDecision } from '@/types/api'
 
 export function getApproveLabel(screeningEnabled: boolean): string {
-  return screeningEnabled ? 'Approve' : 'Approve & interview'
+  return screeningEnabled ? 'Approve' : 'Invite to interview'
+}
+
+export function getApproveTooltip(screeningEnabled: boolean): string | undefined {
+  return screeningEnabled
+    ? undefined
+    : 'Approve candidate and send an interview invitation email'
 }
 
 export const DECISION_CONFIG: Record<
