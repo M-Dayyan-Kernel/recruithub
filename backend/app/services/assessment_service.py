@@ -367,6 +367,11 @@ async def generate_assessment(transcript: str, job, candidate) -> dict:
         )
         return _build_needs_review_report(rubric if rubric else None)
 
+    from app.services.mock_external import mock_interview_assessment, mock_openai_enabled
+
+    if mock_openai_enabled():
+        return mock_interview_assessment(transcript, job, candidate)
+
     user_content = _build_user_content(transcript, job, candidate)
 
     try:

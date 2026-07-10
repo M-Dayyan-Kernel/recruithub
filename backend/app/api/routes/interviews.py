@@ -347,6 +347,10 @@ async def get_session_by_token(token: str, db: AsyncSession = Depends(get_db)):
     response_data.candidate_name = candidate.name if candidate else None
     response_data.job_title = job.title if job else None
 
+    from app.services.mock_external import mock_livekit_enabled
+
+    response_data.mock_mode = mock_livekit_enabled()
+
     return response_data
 
 
@@ -496,7 +500,34 @@ async def complete_interview(token: str, db: AsyncSession = Depends(get_db)):
     session.status = "completed"
     session.completed_at = datetime.now(timezone.utc)
 
+    from app.services.mock_external import mock_livekit_enabled
+
+    if mock_livekit_enabled() and not (session.transcript or "").strip():
+        session.transcript = (
+            "AI: Welcome to your technical interview. Let's begin.\n"
+            "User: Sure, I'm ready.\n"
+            "AI: Can you describe a recent project where you built a backend API?\n"
+            "User: I built a FastAPI service with PostgreSQL, Celery workers for async jobs, "
+            "and integrated OpenAI for document parsing. We handled about 10k requests per day.\n"
+            "AI: How did you handle failures in background tasks?\n"
+            "User: We used retries with exponential backoff in Celery and dead-letter logging.\n"
+            "AI: Thank you. That concludes our interview.\n"
+        )
+
     await db.commit()
+
+    if mock_livekit_enabled():
+        from app.tasks.interview_tasks import generate_interview_report
+
+        generate_interview_report.delay(str(session.id))
+        logger.info(
+            "Mock interview completed: session=%s — mock transcript saved, assessment enqueued",
+            session.id,
+        )
+        return {
+            "message": "Interview marked complete (mock mode). Assessment is being generated.",
+            "session_id": str(session.id),
+        }
 
     # NOTE: assessment is triggered by the interview agent AFTER it saves the transcript
     # (avoids race condition where assessment ran before transcript was written to DB)

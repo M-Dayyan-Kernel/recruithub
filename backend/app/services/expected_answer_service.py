@@ -60,6 +60,11 @@ async def generate_expected_points(question_text: str, job: Any) -> list[str]:
     if not (question_text or "").strip():
         return []
 
+    from app.services.mock_external import mock_expected_points, mock_openai_enabled
+
+    if mock_openai_enabled():
+        return mock_expected_points(question_text)
+
     if not settings.OPENAI_API_KEY:
         logger.warning("OPENAI_API_KEY not set; skipping expected_points generation")
         return []

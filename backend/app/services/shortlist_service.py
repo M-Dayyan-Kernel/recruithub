@@ -104,6 +104,11 @@ async def _gpt4o_assess(
     Returns: (match_score, recommendation, strengths, gaps, reason)
     Raises openai.* exceptions — let the caller handle retries.
     """
+    from app.services.mock_external import mock_openai_enabled, mock_shortlist_assessment
+
+    if mock_openai_enabled():
+        return mock_shortlist_assessment(similarity)
+
     response = await client.chat.completions.create(
         model="gpt-4o",
         response_format={"type": "json_object"},

@@ -33,6 +33,8 @@ _EMPTY_RESUME: dict = {
 
 async def parse_resume(raw_text: str) -> dict:
     """Parse resume text into structured JSON using GPT-4o."""
+    from app.services.mock_external import mock_openai_enabled, mock_resume_parse
+
     # Guard: don't call GPT for empty or trivially short input — avoids hallucination
     if not raw_text or len(raw_text.strip()) < MIN_RESUME_LENGTH:
         logger.warning(
@@ -40,6 +42,9 @@ async def parse_resume(raw_text: str) -> dict:
             len(raw_text) if raw_text else 0,
         )
         return dict(_EMPTY_RESUME)
+
+    if mock_openai_enabled():
+        return mock_resume_parse(raw_text)
 
     client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 

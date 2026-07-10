@@ -183,6 +183,7 @@ export interface InterviewSession {
   completed_at?: string
   scheduled_interview_at?: string | null
   created_at: string
+  mock_mode?: boolean
 }
 
 export type InterviewPipelineTab = 'pending' | 'scheduled' | 'ongoing' | 'completed' | 'flagged'

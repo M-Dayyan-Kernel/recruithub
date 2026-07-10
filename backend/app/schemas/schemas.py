@@ -428,6 +428,7 @@ class InterviewSessionResponse(BaseModel):
     interview_url: Optional[str] = None
     candidate_name: Optional[str] = None
     job_title: Optional[str] = None
+    mock_mode: bool = False
 
 
 class InterviewScheduleRequest(BaseModel):

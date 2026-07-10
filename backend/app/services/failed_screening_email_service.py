@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import Candidate, Job, ScreeningCall
 from app.services.email_service import send_failed_screening_attempt_email
 from app.services.email_template_service import get_merged_templates
-from app.services.settings_service import get_system_settings
+from app.services.settings_service import load_system_settings
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ async def maybe_send_failed_screening_email(
         return
 
     phone = candidate.phone
-    settings = await get_system_settings()
+    settings = await load_system_settings(db)
 
     if await _would_be_flagged_after_failure(screening_call, phone, settings):
         logger.info(

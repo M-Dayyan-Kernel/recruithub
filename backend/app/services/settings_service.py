@@ -4,12 +4,13 @@ System settings loader — single-row system_settings table (id=1).
 
 from __future__ import annotations
 
-import asyncio
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import List
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
 from app.models.models import SystemSettings
@@ -33,7 +34,7 @@ class CachedSettings:
 
 
 _cache: CachedSettings | None = None
-_cache_lock = asyncio.Lock()
+_cache_lock = threading.Lock()
 _CACHE_TTL = timedelta(seconds=30)
 
 
@@ -84,33 +85,51 @@ def can_schedule_retry(retry_count: int, max_attempts: int) -> bool:
     return retry_count < max_attempts - 1
 
 
-async def get_system_settings() -> CachedSettings:
+def _settings_from_row(row: SystemSettings | None, fetched_at: datetime) -> CachedSettings:
+    if not row:
+        cached = _defaults()
+        cached.fetched_at = fetched_at
+        return cached
+    return CachedSettings(
+        allowed_phone_regions=list(row.allowed_phone_regions or DEFAULT_REGIONS),
+        enforce_phone_geography=bool(row.enforce_phone_geography),
+        screening_max_retries=normalize_max_retries(row.screening_max_retries),
+        screening_retry_delay_seconds=normalize_retry_delay_seconds(
+            row.screening_retry_delay_seconds
+        ),
+        fetched_at=fetched_at,
+    )
+
+
+async def load_system_settings(session: AsyncSession | None = None) -> CachedSettings:
+    """
+    Load system settings, optionally using the caller's DB session.
+
+    Pass the Celery task session when inside asyncio.run() to avoid reusing the
+  FastAPI connection pool across closed event loops (Windows Celery beat).
+    """
     global _cache
-    async with _cache_lock:
-        now = datetime.utcnow()
+    now = datetime.utcnow()
+    with _cache_lock:
         if _cache and (now - _cache.fetched_at) < _CACHE_TTL:
             return _cache
 
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(SystemSettings).where(SystemSettings.id == 1)
-            )
+    if session is not None:
+        result = await session.execute(select(SystemSettings).where(SystemSettings.id == 1))
+        row = result.scalar_one_or_none()
+    else:
+        async with AsyncSessionLocal() as owned:
+            result = await owned.execute(select(SystemSettings).where(SystemSettings.id == 1))
             row = result.scalar_one_or_none()
-            if not row:
-                _cache = _defaults()
-                _cache.fetched_at = now
-                return _cache
 
-            _cache = CachedSettings(
-                allowed_phone_regions=list(row.allowed_phone_regions or DEFAULT_REGIONS),
-                enforce_phone_geography=bool(row.enforce_phone_geography),
-                screening_max_retries=normalize_max_retries(row.screening_max_retries),
-                screening_retry_delay_seconds=normalize_retry_delay_seconds(
-                    row.screening_retry_delay_seconds
-                ),
-                fetched_at=now,
-            )
-            return _cache
+    cached = _settings_from_row(row, now)
+    with _cache_lock:
+        _cache = cached
+    return cached
+
+
+async def get_system_settings() -> CachedSettings:
+    return await load_system_settings(None)
 
 
 def invalidate_settings_cache() -> None:

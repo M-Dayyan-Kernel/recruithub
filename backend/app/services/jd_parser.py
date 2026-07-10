@@ -132,6 +132,18 @@ async def parse_job_description(raw_text: str) -> dict:
         )
         return dict(_EMPTY_JD)
 
+    from app.services.mock_external import mock_jd_parse, mock_openai_enabled
+
+    if mock_openai_enabled():
+        parsed = mock_jd_parse(raw_text)
+        parsed["screening_questions"] = _normalize_parsed_screening_questions(
+            parsed.get("screening_questions")
+        )
+        parsed["interview_questions"] = _normalize_parsed_questions(
+            parsed.get("interview_questions")
+        )
+        return parsed
+
     client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
     truncated_text = raw_text[:12000] if len(raw_text) > 12000 else raw_text
 

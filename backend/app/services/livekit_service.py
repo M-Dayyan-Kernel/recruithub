@@ -30,6 +30,12 @@ async def create_room(room_name: str) -> tuple[str, str | None]:
     Returns (room_name, egress_id). egress_id is None if recording could not
     be started (e.g. egress not configured on this LiveKit project).
     """
+    from app.services.mock_external import mock_livekit_enabled, log_mock_usage
+
+    if mock_livekit_enabled():
+        log_mock_usage("livekit", f"create_room({room_name})")
+        return room_name, None
+
     from livekit import api
 
     lkapi = api.LiveKitAPI(
@@ -98,6 +104,12 @@ def generate_candidate_token(room_name: str, candidate_name: str) -> str:
 
     The token grants publish+subscribe permissions for the given room.
     """
+    from app.services.mock_external import mock_livekit_enabled, mock_livekit_token
+
+    if mock_livekit_enabled():
+        identity = f"candidate-{candidate_name.replace(' ', '-').lower()}"
+        return mock_livekit_token(room_name, identity)
+
     from livekit.api import AccessToken, VideoGrants
 
     token = (
@@ -126,6 +138,11 @@ def generate_agent_token(room_name: str) -> str:
 
     The agent gets publish+subscribe and room admin permissions.
     """
+    from app.services.mock_external import mock_livekit_enabled, mock_livekit_token
+
+    if mock_livekit_enabled():
+        return mock_livekit_token(room_name, "ai-interviewer-agent")
+
     from livekit.api import AccessToken, VideoGrants
 
     token = (

@@ -5,6 +5,13 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_recruitment"
     REDIS_URL: str = "redis://localhost:6379"
 
+    # Mock mode — skip paid external APIs during local dev (see MOCK_MODE.md)
+    MOCK_EXTERNAL_APIS: bool = False
+    MOCK_OPENAI: bool = False
+    MOCK_VAPI: bool = False
+    MOCK_LIVEKIT: bool = False
+    MOCK_EMAIL: bool = False
+
     OPENAI_API_KEY: str = ""
     VAPI_API_KEY: str = ""
     VAPI_PHONE_NUMBER_ID: str = ""

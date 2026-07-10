@@ -24,6 +24,7 @@ interface InterviewInfo {
   candidate_name?: string
   job_title?: string
   created_at: string
+  mock_mode?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +89,7 @@ export default function InterviewLandingPage() {
   const [is404, setIs404] = useState(false)
 
   const [permissionState, setPermissionState] = useState<PermissionState>('idle')
+  const [mockCompleting, setMockCompleting] = useState(false)
 
   // ── Fetch interview info ──────────────────────────────────────────────────
   useEffect(() => {
@@ -144,6 +146,19 @@ export default function InterviewLandingPage() {
 
   const handleStart = () => {
     navigate(`/interview/${token}/room`)
+  }
+
+  const handleMockComplete = async () => {
+    if (!token) return
+    setMockCompleting(true)
+    try {
+      await api.post(`/api/interview/${token}/complete`)
+      navigate(`/interview/${token}/complete`)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to complete mock interview'
+      setError(msg)
+      setMockCompleting(false)
+    }
   }
 
   // ── Loading ───────────────────────────────────────────────────────────────
@@ -274,6 +289,32 @@ export default function InterviewLandingPage() {
             will be reviewed by the hiring team.
           </p>
         </div>
+
+        {/* Mock mode — skip LiveKit room */}
+        {info.mock_mode && (
+          <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-950/30 p-4">
+            <p className="text-sm font-medium text-amber-200 mb-2">Mock interview mode</p>
+            <p className="text-xs text-amber-200/80 leading-relaxed mb-3">
+              LiveKit is disabled. Use the button below to simulate a completed interview without
+              joining a real room.
+            </p>
+            <button
+              type="button"
+              onClick={handleMockComplete}
+              disabled={mockCompleting}
+              className="w-full py-3 px-6 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-xl text-sm transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-2"
+            >
+              {mockCompleting ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Completing…
+                </>
+              ) : (
+                'Complete mock interview'
+              )}
+            </button>
+          </div>
+        )}
 
         {/* Permission check + start button */}
         {permissionState === 'idle' && (

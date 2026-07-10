@@ -53,6 +53,7 @@ pip install -r requirements.txt
 # Copy and edit environment file
 cp .env.example .env
 # Edit .env — at minimum set OPENAI_API_KEY
+# For free local dev without API costs, set MOCK_EXTERNAL_APIS=true (see MOCK_MODE.md)
 ```
 
 ### 3. Run Database Migrations
@@ -89,6 +90,7 @@ See `.env.example` for all required variables.
 
 | Variable | Required By | Notes |
 |----------|------------|-------|
+| `MOCK_EXTERNAL_APIS` | Optional | `true` = mock OpenAI, Vapi, LiveKit, Gmail (see `MOCK_MODE.md`) |
 | `DATABASE_URL` | Always | postgresql+asyncpg://... |
 | `REDIS_URL` | Always | redis://localhost:6379/0 |
 | `OPENAI_API_KEY` | Sprint 3+ | Resume parsing, shortlisting, assessment |

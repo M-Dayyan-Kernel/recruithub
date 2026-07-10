@@ -534,9 +534,9 @@ async def apply_screening_call_end(
         )
 
     if schedule_retry and should_retry and not transcript.strip():
-        from app.services.settings_service import can_schedule_retry, get_system_settings
+        from app.services.settings_service import can_schedule_retry, load_system_settings
 
-        settings = await get_system_settings()
+        settings = await load_system_settings(session)
         if can_schedule_retry(screening_call.retry_count, settings.screening_max_retries):
             await _schedule_retry(session, screening_call)
 
@@ -785,7 +785,7 @@ async def _schedule_retry(session, screening_call) -> None:
     """Create a new ScreeningCall retry record and enqueue it with a delay."""
     from app.models.models import Job, ScreeningCall
     from app.services.call_window_service import effective_dispatch_delay
-    from app.services.settings_service import can_schedule_retry, get_system_settings
+    from app.services.settings_service import can_schedule_retry, load_system_settings
     from app.tasks.screening_tasks import initiate_screening_call
 
     job_result = await session.execute(
@@ -800,7 +800,7 @@ async def _schedule_retry(session, screening_call) -> None:
         )
         return
 
-    settings = await get_system_settings()
+    settings = await load_system_settings(session)
     if not can_schedule_retry(screening_call.retry_count, settings.screening_max_retries):
         logger.info(
             "Max retries (%d) reached for candidate=%s — not scheduling another retry",
@@ -874,6 +874,11 @@ async def _extract_screening_fields(
     screening_questions: list | None = None,
 ) -> dict:
     """Call GPT-4o to extract structured screening fields from transcript."""
+    from app.services.mock_external import mock_openai_enabled, mock_screening_extraction
+
+    if mock_openai_enabled():
+        return mock_screening_extraction()
+
     import openai
 
     from app.services.screening_defaults import format_screening_questions_for_prompt, merge_screening_questions
@@ -931,13 +936,13 @@ async def _async_dispatch_pending() -> None:
 
     from app.models.models import Job, ScreeningCall
     from app.services.call_window_service import is_within_call_window
-    from app.services.settings_service import get_system_settings
+    from app.services.settings_service import load_system_settings
 
     stale_active_cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
     now = datetime.now(timezone.utc)
-    settings = await get_system_settings()
 
     async with get_celery_db() as session:
+        settings = await load_system_settings(session)
         stale_active = await session.execute(
             select(ScreeningCall).where(
                 ScreeningCall.call_status.in_(LIVE_CALL_STATUSES),

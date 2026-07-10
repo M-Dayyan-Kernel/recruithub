@@ -215,6 +215,7 @@ interface CandidateInterviewCardProps {
   jobId: string
   jobTimezone?: string
   hasReport: boolean
+  mockMode?: boolean
   /** Session pre-loaded from backend (source of truth) */
   initialSession?: InterviewSession | null
 }
@@ -226,6 +227,7 @@ function CandidateInterviewCard({
   jobId,
   jobTimezone,
   hasReport,
+  mockMode = false,
   initialSession = null,
 }: CandidateInterviewCardProps) {
   const queryClient = useQueryClient()
@@ -262,6 +264,23 @@ function CandidateInterviewCard({
       toast.error('Failed to send interview link.')
     },
   })
+
+  const mockCompleteMutation = useMutation({
+    mutationFn: () => api.post(`/api/interview/${session!.unique_token}/complete`),
+    onSuccess: () => {
+      invalidatePipeline()
+      toast.success(`Mock interview completed for ${candidateName}`)
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'Failed to complete mock interview')
+    },
+  })
+
+  const canMockComplete =
+    mockMode &&
+    session?.unique_token &&
+    !hasReport &&
+    (session.status === 'pending' || session.status === 'in_progress')
 
   const statusHint =
     interviewStatus === 'not_sent'
@@ -341,6 +360,22 @@ function CandidateInterviewCard({
             <FileText size={13} />
             View Report
           </Link>
+        )}
+
+        {canMockComplete && (
+          <button
+            type="button"
+            onClick={() => mockCompleteMutation.mutate()}
+            disabled={mockCompleteMutation.isPending}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-50"
+          >
+            {mockCompleteMutation.isPending ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <CheckCircle2 size={13} />
+            )}
+            Complete mock interview
+          </button>
         )}
       </div>
 
@@ -491,6 +526,14 @@ export function InterviewsTab({ job, jobId }: Props) {
     enabled: !!jobId,
     refetchInterval: 15000,
   })
+
+  const { data: health } = useQuery<{ mock_mode?: boolean }>({
+    queryKey: ['health'],
+    queryFn: () => api.get('/health') as Promise<{ mock_mode?: boolean }>,
+    staleTime: 60_000,
+  })
+
+  const mockMode = Boolean(health?.mock_mode)
 
   const tabCounts = pipeline?.counts ?? {
     pending: 0,
@@ -664,6 +707,7 @@ export function InterviewsTab({ job, jobId }: Props) {
               jobId={jobId}
               jobTimezone={job.screening_timezone}
               hasReport={row.has_report}
+              mockMode={mockMode}
               initialSession={row.session ?? null}
             />
           ))}

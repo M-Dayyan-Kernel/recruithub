@@ -114,6 +114,11 @@ def _send_mime_message(to_email: str, subject: str, mime_message: MIMEText) -> s
 
 
 def send_html_email(to_email: str, subject: str, html_body: str) -> bool:
+    from app.services.mock_external import mock_email_enabled, mock_email_send
+
+    if mock_email_enabled():
+        return mock_email_send(to_email, subject)
+
     try:
         message = MIMEText(html_body, "html", "utf-8")
         message_id = _send_mime_message(to_email, subject, message)
@@ -125,6 +130,11 @@ def send_html_email(to_email: str, subject: str, html_body: str) -> bool:
 
 
 def send_plain_email(to_email: str, subject: str, body: str) -> bool:
+    from app.services.mock_external import mock_email_enabled, mock_email_send
+
+    if mock_email_enabled():
+        return mock_email_send(to_email, subject)
+
     try:
         message = MIMEText(body, "plain", "utf-8")
         message_id = _send_mime_message(to_email, subject, message)

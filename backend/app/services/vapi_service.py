@@ -62,6 +62,11 @@ Guidelines:
 
 async def get_vapi_call(vapi_call_id: str, *, timeout: float = 5.0) -> dict:
     """Fetch call details from Vapi REST API."""
+    from app.services.mock_external import mock_vapi_enabled, mock_vapi_get_call
+
+    if mock_vapi_enabled():
+        return mock_vapi_get_call(vapi_call_id)
+
     headers = {
         "Authorization": f"Bearer {settings.VAPI_API_KEY}",
         "Content-Type": "application/json",
@@ -140,6 +145,18 @@ async def initiate_screening_call(
     Raises:
         Exception: with status code and body if Vapi API returns a non-2xx response
     """
+    from app.services.mock_external import mock_vapi_call_id, mock_vapi_enabled
+
+    if mock_vapi_enabled():
+        call_id = mock_vapi_call_id()
+        logger.info(
+            "Mock Vapi call initiated: vapi_call_id=%s screening_call_id=%s candidate=%s",
+            call_id,
+            screening_call_id,
+            candidate.name,
+        )
+        return call_id
+
     screening_prompt = _build_screening_prompt(
         candidate_name=candidate.name,
         job_title=job.title,
