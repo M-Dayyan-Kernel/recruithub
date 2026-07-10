@@ -57,7 +57,8 @@ async def _async_extract(task_self, candidate_id: str) -> None:
 
         job_id = candidate.job_id
 
-        if candidate.parse_status not in ("parse_queued", "pending_parse"):
+        # Allow resume when a previous worker died mid-extraction (status left as parsing).
+        if candidate.parse_status not in ("parse_queued", "pending_parse", "parsing"):
             logger.info(
                 "extract_resume_text: candidate %s not queued (status=%s) — skipping",
                 candidate_id,
@@ -309,3 +310,21 @@ async def _async_embed(candidate_id: str) -> None:
                 exc,
             )
             raise generate_candidate_embedding.retry(exc=exc, countdown=120)
+
+
+@celery_app.task(name="tasks.recover_stuck_resume_parses")
+def recover_stuck_resume_parses():
+    """Periodic recovery for resumes stuck in parse_queued/parsing after a worker crash."""
+    try:
+        asyncio.run(_async_recover_stuck_parses())
+    except Exception as exc:
+        logger.error("recover_stuck_resume_parses failed: %s", exc)
+
+
+async def _async_recover_stuck_parses() -> None:
+    from app.services.parse_queue_service import recover_stuck_parses
+
+    async with get_celery_db() as session:
+        recovered = await recover_stuck_parses(session)
+        if recovered:
+            logger.info("recover_stuck_resume_parses: recovered %d candidates", recovered)

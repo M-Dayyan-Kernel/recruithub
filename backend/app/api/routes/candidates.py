@@ -302,7 +302,8 @@ async def retry_parse(
     """
     Re-queue a candidate's resume for parsing.
 
-    Only allowed when parse_status is 'parse_failed' or 'ready'.
+    Allowed when parse_status is 'parse_failed', 'ready', or a stuck in-progress
+    state ('parse_queued', 'parsing', 'parsed') after a worker crash.
     Returns 202 Accepted immediately — parse pipeline runs async.
     """
     candidate = await db.get(Candidate, candidate_id)
@@ -311,7 +312,8 @@ async def retry_parse(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Candidate not found",
         )
-    if candidate.parse_status not in ("parse_failed", "ready"):
+    retryable = ("parse_failed", "ready", "parse_queued", "parsing", "parsed")
+    if candidate.parse_status not in retryable:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Candidate is not in a retryable state",

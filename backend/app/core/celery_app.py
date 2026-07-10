@@ -22,5 +22,9 @@ celery_app.conf.update(
             "task": "tasks.dispatch_pending_screening_calls",
             "schedule": 60.0,  # every minute — dispatch queued calls when window opens
         },
+        "recover-stuck-resume-parses": {
+            "task": "tasks.recover_stuck_resume_parses",
+            "schedule": 120.0,  # every 2 minutes — re-enqueue crashed mid-parse resumes
+        },
     },
 )

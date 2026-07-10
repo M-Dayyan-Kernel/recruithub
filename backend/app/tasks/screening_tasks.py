@@ -30,8 +30,22 @@ SCREENING_SYNC_MAX_POLLS = 60
 VAPI_STATUS_TIMEOUT_SEC = 4.0
 MIN_LIVE_CALL_GRACE_SECONDS = 12
 MIN_RETRY_CALL_GRACE_SECONDS = 20
+# After a live conversation ends, Vapi often needs a few seconds before artifact.transcript
+# is available. Wait/re-poll before treating the call as dropped and scheduling a retry.
+TRANSCRIPT_ENRICH_MAX_ATTEMPTS = 8
+TRANSCRIPT_ENRICH_DELAY_SEC = 5
 
 LIVE_CALL_STATUSES = ("initiated", "in_progress")
+
+# End reasons that imply the candidate was connected (even if transcript is not ready yet).
+CONNECTED_END_REASONS = (
+    "customer-ended-call",
+    "assistant-ended-call",
+    "assistant-said-end-call-phrase",
+    "assistant-ended-call-after-message-spoken",
+    "silence-timed-out",
+    "max-duration-reached",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -391,13 +405,23 @@ async def _finalize_screening_call_from_vapi(
         has_transcript=bool(transcript.strip()),
     )
 
+    needs_transcript_wait = not transcript.strip() and (
+        bool(started_at)
+        or (resolved_reason or "").lower() in CONNECTED_END_REASONS
+    )
+
     finalized = await apply_screening_call_end(
         session,
         screening_call,
         ended_reason=resolved_reason,
         transcript=transcript,
+        # Conversation started but transcript not ready yet — enrich later, don't redial.
+        schedule_retry=not needs_transcript_wait,
     )
-    if finalized and transcript.strip() and vapi_call is not None:
+    if not finalized:
+        return False
+
+    if transcript.strip() and vapi_call is not None:
         artifact = vapi_call.get("artifact") or {}
         payload = {
             "call": vapi_call,
@@ -405,7 +429,130 @@ async def _finalize_screening_call_from_vapi(
             "endedReason": resolved_reason,
         }
         process_screening_webhook.delay(payload)
-    return finalized
+    elif needs_transcript_wait:
+        enrich_screening_transcript.apply_async(
+            args=[str(screening_call.id), 0],
+            countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
+        )
+        logger.info(
+            "Scheduled transcript enrichment for screening_call=%s (ended_reason=%s)",
+            screening_call.id,
+            resolved_reason,
+        )
+    return True
+
+
+@celery_app.task(name="tasks.enrich_screening_transcript", bind=True, max_retries=0)
+def enrich_screening_transcript(self, screening_call_id: str, attempt: int = 0):
+    """
+    Re-fetch Vapi artifact after call end — transcript often arrives a few seconds late.
+
+    If found: update the ScreeningCall, cancel any pending retries, run GPT extraction.
+    If exhausted with no transcript: schedule a retry when the outcome warrants it.
+    """
+    try:
+        asyncio.run(_async_enrich_transcript(screening_call_id, attempt))
+    except Exception as exc:
+        logger.error(
+            "enrich_screening_transcript failed for %s: %s", screening_call_id, exc
+        )
+
+
+async def _async_enrich_transcript(screening_call_id: str, attempt: int) -> None:
+    from app.models.models import ScreeningCall
+    from app.services.vapi_service import get_vapi_call
+
+    async with get_celery_db() as session:
+        result = await session.execute(
+            select(ScreeningCall).where(ScreeningCall.id == uuid.UUID(screening_call_id))
+        )
+        screening_call = result.scalars().first()
+        if not screening_call or not screening_call.vapi_call_id:
+            return
+
+        # Already enriched successfully
+        if (screening_call.transcript or "").strip() and screening_call.call_outcome == "completed":
+            await _cancel_pending_retries(
+                session,
+                candidate_id=screening_call.candidate_id,
+                job_id=screening_call.job_id,
+                except_call_id=screening_call.id,
+            )
+            await session.commit()
+            return
+
+        try:
+            vapi_call = await get_vapi_call(
+                screening_call.vapi_call_id,
+                timeout=VAPI_STATUS_TIMEOUT_SEC,
+            )
+        except Exception as exc:
+            logger.warning(
+                "enrich_screening_transcript: Vapi fetch failed for %s: %s",
+                screening_call_id,
+                exc,
+            )
+            vapi_call = None
+
+        transcript = ""
+        ended_reason = screening_call.ended_reason
+        if vapi_call:
+            _, _, ended_reason_from_vapi, transcript, _ = _parse_vapi_call_payload(vapi_call)
+            if ended_reason_from_vapi:
+                ended_reason = ended_reason_from_vapi
+
+        if transcript.strip():
+            screening_call.transcript = transcript
+            screening_call.ended_reason = ended_reason
+            screening_call.call_status = "completed"
+            screening_call.call_outcome = "completed"
+            screening_call.result = screening_call.result or "needs_review"
+            await _cancel_pending_retries(
+                session,
+                candidate_id=screening_call.candidate_id,
+                job_id=screening_call.job_id,
+                except_call_id=screening_call.id,
+            )
+            await session.commit()
+            logger.info(
+                "enrich_screening_transcript: recovered transcript for %s (%d chars)",
+                screening_call_id,
+                len(transcript),
+            )
+            artifact = (vapi_call or {}).get("artifact") or {}
+            process_screening_webhook.delay(
+                {
+                    "call": vapi_call or {"id": screening_call.vapi_call_id},
+                    "artifact": artifact,
+                    "endedReason": ended_reason,
+                }
+            )
+            return
+
+        if attempt + 1 < TRANSCRIPT_ENRICH_MAX_ATTEMPTS:
+            enrich_screening_transcript.apply_async(
+                args=[screening_call_id, attempt + 1],
+                countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
+            )
+            return
+
+        logger.warning(
+            "enrich_screening_transcript: no transcript after %d attempts for %s — evaluating retry",
+            TRANSCRIPT_ENRICH_MAX_ATTEMPTS,
+            screening_call_id,
+        )
+        outcome, should_retry = classify_call_outcome(
+            ended_reason,
+            len((screening_call.transcript or "").strip()),
+        )
+        screening_call.call_outcome = outcome
+        if should_retry:
+            from app.services.settings_service import can_schedule_retry, load_system_settings
+
+            settings = await load_system_settings(session)
+            if can_schedule_retry(screening_call.retry_count, settings.screening_max_retries):
+                await _schedule_retry(session, screening_call)
+        await session.commit()
 
 
 async def refresh_live_screening_calls_from_vapi(session, screening_calls) -> bool:

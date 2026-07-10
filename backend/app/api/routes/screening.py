@@ -168,6 +168,7 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         artifact = message.get("artifact") or call_data.get("artifact") or {}
         transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
         ended_at = call_data.get("endedAt") or message.get("endedAt")
+        started_at = call_data.get("startedAt") or message.get("startedAt")
 
         if status_value in ("ringing", "in-progress", "forwarding", "queued", "scheduled"):
             screening_call.call_status = "in_progress"
@@ -175,15 +176,30 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             return {"status": "received"}
 
         if status_value in ("ended", "completed", "failed", "busy", "no-answer") or ended_at:
+            from app.tasks.screening_tasks import (
+                CONNECTED_END_REASONS,
+                TRANSCRIPT_ENRICH_DELAY_SEC,
+                enrich_screening_transcript as _enrich_task,
+            )
+
+            needs_transcript_wait = not transcript.strip() and (
+                bool(started_at)
+                or (ended_reason or "").lower() in CONNECTED_END_REASONS
+            )
             await apply_screening_call_end(
                 db,
                 screening_call,
                 ended_reason=ended_reason,
                 transcript=transcript,
-                schedule_retry=not transcript.strip(),
+                schedule_retry=not needs_transcript_wait and not transcript.strip(),
             )
             if transcript.strip():
                 _process_task.delay(body)
+            elif needs_transcript_wait:
+                _enrich_task.apply_async(
+                    args=[str(screening_call.id), 0],
+                    countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
+                )
             return {"status": "received"}
 
         return {"status": "received"}
@@ -197,15 +213,31 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             or {}
         )
         transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
+        started_at = call_data.get("startedAt") or message.get("startedAt")
+        from app.tasks.screening_tasks import (
+            CONNECTED_END_REASONS,
+            TRANSCRIPT_ENRICH_DELAY_SEC,
+            enrich_screening_transcript as _enrich_task,
+        )
+
+        needs_transcript_wait = not transcript.strip() and (
+            bool(started_at)
+            or (ended_reason or "").lower() in CONNECTED_END_REASONS
+        )
         await apply_screening_call_end(
             db,
             screening_call,
             ended_reason=ended_reason,
             transcript=transcript,
-            schedule_retry=not transcript.strip(),
+            schedule_retry=not needs_transcript_wait and not transcript.strip(),
         )
         if transcript.strip():
             _process_task.delay(body)
+        elif needs_transcript_wait:
+            _enrich_task.apply_async(
+                args=[str(screening_call.id), 0],
+                countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
+            )
         return {"status": "received"}
 
     if call_data.get("status", "").lower() == "ended" or body.get("artifact"):
@@ -217,15 +249,31 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             or {}
         )
         transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
+        started_at = call_data.get("startedAt") or message.get("startedAt")
+        from app.tasks.screening_tasks import (
+            CONNECTED_END_REASONS,
+            TRANSCRIPT_ENRICH_DELAY_SEC,
+            enrich_screening_transcript as _enrich_task,
+        )
+
+        needs_transcript_wait = not transcript.strip() and (
+            bool(started_at)
+            or (ended_reason or "").lower() in CONNECTED_END_REASONS
+        )
         await apply_screening_call_end(
             db,
             screening_call,
             ended_reason=ended_reason,
             transcript=transcript,
-            schedule_retry=not transcript.strip(),
+            schedule_retry=not needs_transcript_wait and not transcript.strip(),
         )
         if transcript.strip():
             _process_task.delay(body)
+        elif needs_transcript_wait:
+            _enrich_task.apply_async(
+                args=[str(screening_call.id), 0],
+                countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
+            )
         return {"status": "received"}
 
     _sync_task.delay(str(screening_call.id))

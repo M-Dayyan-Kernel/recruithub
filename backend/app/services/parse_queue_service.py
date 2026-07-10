@@ -8,6 +8,7 @@ a slot opens.
 
 import logging
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,10 @@ from app.models.models import Candidate
 logger = logging.getLogger(__name__)
 
 ACTIVE_PARSE_STATUSES = ("parse_queued", "parsing", "parsed")
+
+# If a worker dies mid-task, status can stay in parse_queued/parsing forever.
+# Re-enqueue after this age so the pipeline can recover without manual intervention.
+STUCK_PARSE_TIMEOUT = timedelta(minutes=5)
 
 
 async def _count_active_parses(session: AsyncSession, job_id: uuid.UUID) -> int:
@@ -32,6 +37,54 @@ async def _count_active_parses(session: AsyncSession, job_id: uuid.UUID) -> int:
     return int(result.scalar() or 0)
 
 
+async def recover_stuck_parses(session: AsyncSession, job_id: uuid.UUID | None = None) -> int:
+    """
+    Re-queue candidates stuck in parse_queued/parsing longer than STUCK_PARSE_TIMEOUT.
+
+    A previous Celery worker may have set status to parsing then crashed; the task is
+    gone from Redis and will never complete without recovery.
+    """
+    cutoff = datetime.now(timezone.utc) - STUCK_PARSE_TIMEOUT
+    query = (
+        select(Candidate)
+        .where(
+            Candidate.parse_status.in_(("parse_queued", "parsing")),
+            Candidate.created_at < cutoff,
+        )
+        .order_by(Candidate.created_at.asc())
+    )
+    if job_id is not None:
+        query = query.where(Candidate.job_id == job_id)
+
+    result = await session.execute(query)
+    stuck = result.scalars().all()
+    if not stuck:
+        return 0
+
+    from app.tasks.resume_tasks import extract_resume_text  # noqa: PLC0415
+
+    recovered = 0
+    job_ids: set[uuid.UUID] = set()
+    for candidate in stuck:
+        logger.warning(
+            "recover_stuck_parses: re-enqueueing candidate %s (status=%s created_at=%s)",
+            candidate.id,
+            candidate.parse_status,
+            candidate.created_at,
+        )
+        candidate.parse_status = "parse_queued"
+        await session.flush()
+        extract_resume_text.apply_async(args=[str(candidate.id)])
+        recovered += 1
+        job_ids.add(candidate.job_id)
+
+    if recovered:
+        await session.commit()
+        logger.info("recover_stuck_parses: recovered=%d jobs=%s", recovered, job_ids)
+
+    return recovered
+
+
 async def dispatch_parse_slots(session: AsyncSession, job_id: uuid.UUID) -> int:
     """
     Start parsing for as many pending candidates as slots allow.
@@ -39,6 +92,8 @@ async def dispatch_parse_slots(session: AsyncSession, job_id: uuid.UUID) -> int:
     Claims a slot by setting parse_status to `parse_queued` before enqueueing Celery.
     Resumes stay in the Upload tab until a worker starts and moves them to `parsing`.
     """
+    await recover_stuck_parses(session, job_id)
+
     active = await _count_active_parses(session, job_id)
     max_concurrent = settings.MAX_CONCURRENT_PARSES
     slots = max(0, max_concurrent - active)
