@@ -77,6 +77,19 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
             )
             return
 
+        from app.services.settings_service import load_system_settings
+
+        system_settings = await load_system_settings(session)
+        if not system_settings.screening_enabled:
+            logger.info(
+                "Screening disabled — aborting initiate for ScreeningCall %s",
+                screening_call_id,
+            )
+            screening_call.call_status = "failed"
+            screening_call.summary = "Voice screening is disabled in system settings"
+            await session.commit()
+            return
+
         from app.models.models import ScreeningCall as ScreeningCallModel
 
         other_live = await session.execute(
@@ -943,6 +956,10 @@ async def _async_dispatch_pending() -> None:
 
     async with get_celery_db() as session:
         settings = await load_system_settings(session)
+        if not settings.screening_enabled:
+            logger.debug("dispatch_pending_screening_calls: screening disabled — skipping")
+            return
+
         stale_active = await session.execute(
             select(ScreeningCall).where(
                 ScreeningCall.call_status.in_(LIVE_CALL_STATUSES),

@@ -210,6 +210,7 @@ class SystemSettingsResponse(BaseModel):
 
     allowed_phone_regions: List[str]
     enforce_phone_geography: bool
+    screening_enabled: bool
     screening_max_retries: int
     screening_retry_delay_seconds: int
     updated_at: datetime
@@ -251,6 +252,7 @@ class EmailTemplateTestRequest(BaseModel):
 class SystemSettingsUpdate(BaseModel):
     allowed_phone_regions: Optional[List[str]] = None
     enforce_phone_geography: Optional[bool] = None
+    screening_enabled: Optional[bool] = None
     screening_max_retries: Optional[int] = None
     screening_retry_delay_seconds: Optional[int] = None
 
@@ -347,6 +349,12 @@ class ShortlistResultWithCandidateResponse(ShortlistResultResponse):
 
 class ShortlistDecisionUpdate(BaseModel):
     hr_decision: str  # approved / rejected / overridden
+
+
+class ShortlistDecisionResponse(ShortlistResultResponse):
+    screening_skipped: bool = False
+    interview_session_id: Optional[uuid.UUID] = None
+    interview_email_sent: Optional[bool] = None
 
 
 class ShortlistFeedbackCreate(BaseModel):

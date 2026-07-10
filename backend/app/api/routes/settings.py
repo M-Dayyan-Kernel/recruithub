@@ -37,6 +37,7 @@ async def _get_or_create_settings(db: AsyncSession) -> SystemSettings:
         id=1,
         allowed_phone_regions=["IN"],
         enforce_phone_geography=True,
+        screening_enabled=True,
         screening_max_retries=3,
         screening_retry_delay_seconds=1800,
     )
@@ -71,6 +72,9 @@ async def update_settings(
 
     if "enforce_phone_geography" in data and data["enforce_phone_geography"] is not None:
         row.enforce_phone_geography = data["enforce_phone_geography"]
+
+    if "screening_enabled" in data and data["screening_enabled"] is not None:
+        row.screening_enabled = data["screening_enabled"]
 
     if "screening_max_retries" in data and data["screening_max_retries"] is not None:
         try:

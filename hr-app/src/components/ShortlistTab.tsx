@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
@@ -15,10 +16,13 @@ import {
   FileText,
 } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { ShortlistResultWithCandidate, HrDecision } from '@/types/api'
+import type { ShortlistResultWithCandidate, HrDecision, SystemSettings } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
 import { ShortlistTable } from '@/components/shortlist/ShortlistTable'
 import { ShortlistTableSkeleton } from '@/components/shortlist/ShortlistTableSkeleton'
+import { getApproveLabel } from '@/components/shortlist/shortlistDecisionConfig'
+import { useShortlistDecision } from '@/hooks/useShortlistDecision'
+import { useShortlistApproveNavigation, navigateAfterScreeningSkipped } from '@/hooks/useShortlistApproveNavigation'
 import {
   buildShortlistCsv,
   downloadTextFile,
@@ -244,12 +248,16 @@ function ShortlistCard({
   readOnly = false,
   decisionActions,
   showDelete = false,
+  screeningEnabled = true,
+  onApproved,
 }: {
   result: ShortlistResultWithCandidate
   jobId: string
   readOnly?: boolean
   decisionActions?: DecisionActionsMode
   showDelete?: boolean
+  screeningEnabled?: boolean
+  onApproved?: ReturnType<typeof useShortlistApproveNavigation>
 }) {
   const actionsMode: DecisionActionsMode =
     decisionActions ?? (readOnly ? 'none' : 'full')
@@ -284,31 +292,7 @@ function ShortlistCard({
   const hasMoreGaps = gaps.length > 3
 
   // Decision mutation (optimistic update)
-  const decisionMutation = useMutation<unknown, Error, Exclude<HrDecision, 'pending'>>({
-    mutationFn: (hr_decision) =>
-      api.patch(`/api/shortlist/${result.id}/decision`, { hr_decision }),
-    onMutate: async (hr_decision) => {
-      await queryClient.cancelQueries({ queryKey: ['shortlist', jobId] })
-      const previous = queryClient.getQueryData<ShortlistResultWithCandidate[]>([
-        'shortlist',
-        jobId,
-      ])
-      queryClient.setQueryData<ShortlistResultWithCandidate[]>(
-        ['shortlist', jobId],
-        (old) => (old ? old.map((r) => (r.id === result.id ? { ...r, hr_decision } : r)) : old),
-      )
-      return { previous }
-    },
-    onError: (_err, _vars, context) => {
-      const ctx = context as { previous?: ShortlistResultWithCandidate[] } | undefined
-      if (ctx?.previous) {
-        queryClient.setQueryData(['shortlist', jobId], ctx.previous)
-      }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
-    },
-  })
+  const decisionMutation = useShortlistDecision(jobId, result.id, { onApproved })
 
   const deleteMutation = useMutation({
     mutationFn: () => api.delete(`/api/candidates/${result.candidate_id}`),
@@ -451,16 +435,23 @@ function ShortlistCard({
             {visibleDecisions.map((decision) => {
               const cfg = DECISION_CONFIG[decision]
               const isActive = result.hr_decision === decision
+              const label =
+                decision === 'approved' ? getApproveLabel(screeningEnabled) : cfg.label
               return (
                 <button
                   key={decision}
                   onClick={() => decisionMutation.mutate(decision)}
                   disabled={decisionMutation.isPending}
+                  title={
+                    decision === 'approved' && !screeningEnabled
+                      ? 'Approve and send interview link directly'
+                      : undefined
+                  }
                   className={`px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     isActive ? cfg.active : cfg.inactive
                   }`}
                 >
-                  {cfg.label}
+                  {label}
                 </button>
               )
             })}
@@ -623,6 +614,14 @@ export function ShortlistTab({
     },
   })
 
+  const { data: settings } = useQuery<SystemSettings>({
+    queryKey: ['settings'],
+    queryFn: () => api.get('/api/settings') as unknown as Promise<SystemSettings>,
+  })
+  const screeningEnabled = settings?.screening_enabled ?? true
+  const navigate = useNavigate()
+  const onApproved = useShortlistApproveNavigation(jobId)
+
   // When results finally arrive, notify parent so it can reset shortlistTriggered (default mode only)
   useEffect(() => {
     if (!isAiShortlistedMode && shortlistTriggered && results && results.length > 0) {
@@ -667,14 +666,32 @@ export function ShortlistTab({
     }
     setApprovingAll(true)
     try {
-      await Promise.all(
+      const responses = await Promise.all(
         toApprove.map((r) =>
-          api.patch(`/api/shortlist/${r.id}/decision`, { hr_decision: 'approved' }),
+          api.patch(`/api/shortlist/${r.id}/decision`, {
+            hr_decision: 'approved',
+          }) as unknown as Promise<{ screening_skipped?: boolean; interview_email_sent?: boolean | null }>,
         ),
       )
-      toast.success(
-        `Approved ${toApprove.length} candidate${toApprove.length !== 1 ? 's' : ''}`,
-      )
+      if (!screeningEnabled) {
+        const anyEmailFailed = responses.some(
+          (r) => r.screening_skipped && r.interview_email_sent === false,
+        )
+        if (anyEmailFailed) {
+          toast.error(
+            `Approved ${toApprove.length} candidate${toApprove.length !== 1 ? 's' : ''}, but some interview emails failed.`,
+          )
+        } else {
+          toast.success(
+            `Approved ${toApprove.length} candidate${toApprove.length !== 1 ? 's' : ''} — interview links sent`,
+          )
+        }
+        navigateAfterScreeningSkipped(jobId, navigate, queryClient)
+      } else {
+        toast.success(
+          `Approved ${toApprove.length} candidate${toApprove.length !== 1 ? 's' : ''}`,
+        )
+      }
     } catch {
       toast.error('Failed to approve all. Please try again.')
     } finally {
@@ -945,7 +962,13 @@ export function ShortlistTab({
         />
       </div>
       {results.map((result) => (
-        <ShortlistCard key={result.id} result={result} jobId={jobId} />
+        <ShortlistCard
+          key={result.id}
+          result={result}
+          jobId={jobId}
+          screeningEnabled={screeningEnabled}
+          onApproved={onApproved}
+        />
       ))}
     </div>
   )

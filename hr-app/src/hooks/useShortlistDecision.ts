@@ -1,13 +1,17 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import type { HrDecision, ShortlistResultWithCandidate } from '@/types/api'
+import type { HrDecision, ShortlistDecisionResponse, ShortlistResultWithCandidate } from '@/types/api'
 
-export function useShortlistDecision(jobId: string, shortlistId: string) {
+interface Options {
+  onApproved?: (data: ShortlistDecisionResponse) => void
+}
+
+export function useShortlistDecision(jobId: string, shortlistId: string, options?: Options) {
   const queryClient = useQueryClient()
 
-  return useMutation<unknown, Error, Exclude<HrDecision, 'pending'>>({
+  return useMutation<ShortlistDecisionResponse, Error, Exclude<HrDecision, 'pending'>>({
     mutationFn: (hr_decision) =>
-      api.patch(`/api/shortlist/${shortlistId}/decision`, { hr_decision }),
+      api.patch(`/api/shortlist/${shortlistId}/decision`, { hr_decision }) as unknown as Promise<ShortlistDecisionResponse>,
     onMutate: async (hr_decision) => {
       await queryClient.cancelQueries({ queryKey: ['shortlist', jobId] })
       const previous = queryClient.getQueryData<ShortlistResultWithCandidate[]>([
@@ -20,6 +24,11 @@ export function useShortlistDecision(jobId: string, shortlistId: string) {
           old ? old.map((r) => (r.id === shortlistId ? { ...r, hr_decision } : r)) : old,
       )
       return { previous }
+    },
+    onSuccess: (data, hr_decision) => {
+      if (hr_decision === 'approved') {
+        options?.onApproved?.(data)
+      }
     },
     onError: (_err, _vars, context) => {
       const ctx = context as { previous?: ShortlistResultWithCandidate[] } | undefined

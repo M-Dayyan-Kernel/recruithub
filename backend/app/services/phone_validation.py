@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import re
 
-from app.services.settings_service import get_system_settings
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.services.settings_service import load_system_settings
 
 
 def _strip_digits(phone: str) -> str:
@@ -60,7 +62,11 @@ def validate_phone_sync(
     return False, "", "Invalid phone number"
 
 
-async def validate_phone(phone: str) -> tuple[bool, str]:
+async def validate_phone(
+    phone: str,
+    *,
+    session: AsyncSession | None = None,
+) -> tuple[bool, str]:
     """
     Validate and normalise a phone number using current system settings.
 
@@ -68,7 +74,7 @@ async def validate_phone(phone: str) -> tuple[bool, str]:
         (True, "+919876543210")  — valid number, normalised
         (False, "")              — invalid number
     """
-    settings = await get_system_settings()
+    settings = await load_system_settings(session)
     is_valid, normalized, _reason = validate_phone_sync(
         phone,
         enforce_geography=settings.enforce_phone_geography,
@@ -77,9 +83,13 @@ async def validate_phone(phone: str) -> tuple[bool, str]:
     return is_valid, normalized
 
 
-async def validate_phone_with_reason(phone: str) -> tuple[bool, str, str | None]:
+async def validate_phone_with_reason(
+    phone: str,
+    *,
+    session: AsyncSession | None = None,
+) -> tuple[bool, str, str | None]:
     """Like validate_phone but includes human-readable reject reason."""
-    settings = await get_system_settings()
+    settings = await load_system_settings(session)
     return validate_phone_sync(
         phone,
         enforce_geography=settings.enforce_phone_geography,

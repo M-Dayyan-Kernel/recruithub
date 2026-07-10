@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Clock, Settings } from 'lucide-react'
+import { Clock, Phone, Settings } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
@@ -25,12 +25,14 @@ export default function SettingsPage() {
   })
 
   const [enforceGeography, setEnforceGeography] = useState(true)
+  const [screeningEnabled, setScreeningEnabled] = useState(true)
   const [maxRetries, setMaxRetries] = useState(DEFAULT_MAX_RETRIES)
   const [retryDelayMinutes, setRetryDelayMinutes] = useState(DEFAULT_RETRY_DELAY_MINUTES)
 
   useEffect(() => {
     if (!data) return
     setEnforceGeography(data.enforce_phone_geography)
+    setScreeningEnabled(data.screening_enabled)
     setMaxRetries(data.screening_max_retries)
     setRetryDelayMinutes(Math.round(data.screening_retry_delay_seconds / 60))
   }, [data])
@@ -39,6 +41,7 @@ export default function SettingsPage() {
     mutationFn: () =>
       api.patch('/api/settings', {
         enforce_phone_geography: enforceGeography,
+        screening_enabled: screeningEnabled,
         allowed_phone_regions: ['IN'],
         screening_max_retries: maxRetries,
         screening_retry_delay_seconds: Math.max(1, Math.round(retryDelayMinutes)) * 60,
@@ -96,13 +99,41 @@ export default function SettingsPage() {
 
       <div className={`${WORKFLOW_CARD_CLASS} p-6`}>
         <div className="mb-4 flex items-center gap-2">
+          <Phone className="h-5 w-5 text-slate-500" />
+          <h3 className="font-semibold text-slate-800">Voice screening</h3>
+        </div>
+        <p className="mb-4 text-sm text-slate-600">
+          When enabled, approved candidates go through AI voice screening before interviews.
+          When disabled, approving on the shortlist sends the interview link immediately and
+          moves the candidate to Scheduled interviews.
+        </p>
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={screeningEnabled}
+            onChange={(e) => setScreeningEnabled(e.target.checked)}
+            className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+          />
+          <span>
+            <span className="block text-sm font-medium text-slate-800">
+              Enable voice screening
+            </span>
+            <span className="block text-xs text-slate-500">
+              Turn off to skip screening and go straight to interviews on approve
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div className={`${WORKFLOW_CARD_CLASS} p-6 ${!screeningEnabled ? 'opacity-60' : ''}`}>
+        <div className="mb-4 flex items-center gap-2">
           <Clock className="h-5 w-5 text-slate-500" />
           <h3 className="font-semibold text-slate-800">Screening Attempts</h3>
         </div>
         <p className="mb-4 text-sm text-slate-600">
-          When a candidate cannot be reached (no answer, voicemail, or hangs up early), the system
-          automatically redials using the same delay between each attempt, up to the maximum below.
-          After all attempts are used, the candidate is moved to Flagged.
+          {screeningEnabled
+            ? 'When a candidate cannot be reached (no answer, voicemail, or hangs up early), the system automatically redials using the same delay between each attempt, up to the maximum below. After all attempts are used, the candidate is moved to Flagged.'
+            : 'Retry settings apply only when voice screening is enabled.'}
         </p>
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
@@ -116,7 +147,8 @@ export default function SettingsPage() {
               max={10}
               value={maxRetries}
               onChange={(e) => setMaxRetries(Number(e.target.value))}
-              className={`${WORKFLOW_INPUT_CLASS} w-28`}
+              disabled={!screeningEnabled}
+              className={`${WORKFLOW_INPUT_CLASS} w-28 disabled:cursor-not-allowed disabled:opacity-50`}
             />
             <span className="text-sm text-slate-500">
               {maxRetries === 1
@@ -135,7 +167,7 @@ export default function SettingsPage() {
               max={10080}
               value={retryDelayMinutes}
               onChange={(e) => setRetryDelayMinutes(Number(e.target.value))}
-              disabled={maxRetries <= 1}
+              disabled={!screeningEnabled || maxRetries <= 1}
               className={`${WORKFLOW_INPUT_CLASS} w-28 disabled:cursor-not-allowed disabled:opacity-50`}
             />
             <span className="text-sm text-slate-500">

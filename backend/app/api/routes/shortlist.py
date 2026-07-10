@@ -21,8 +21,13 @@ from sqlalchemy import select, exists
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.models import Candidate, Job, ShortlistResult
+from app.services.candidate_contact_service import (
+    resolve_candidate_email,
+    resolve_candidate_name,
+)
 from app.schemas.schemas import (
     ShortlistDecisionUpdate,
+    ShortlistDecisionResponse,
     ShortlistFeedbackCreate,
     ShortlistResultResponse,
     ShortlistResultWithCandidateResponse,
@@ -75,22 +80,6 @@ async def _candidate_has_shortlist_result(
     )
     return result.scalar_one_or_none() is not None
 
-
-def _resolve_candidate_email(candidate: Candidate | None) -> str | None:
-    if not candidate:
-        return None
-    parsed = candidate.parsed_data or {}
-    raw_email = parsed.get("email") or candidate.email
-    if not raw_email or str(raw_email).endswith("@upload.pending"):
-        return None
-    return str(raw_email)
-
-
-def _resolve_candidate_name(candidate: Candidate | None) -> str:
-    if not candidate:
-        return "Candidate"
-    parsed = candidate.parsed_data or {}
-    return parsed.get("name") or candidate.name or "Candidate"
 
 
 async def _resolve_eligible_candidate_ids(
@@ -336,7 +325,7 @@ async def get_shortlist(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 # Task 4.3 — HR decision (approve / reject / override)
 # ---------------------------------------------------------------------------
 
-@router.patch("/shortlist/{shortlist_id}/decision", response_model=ShortlistResultResponse)
+@router.patch("/shortlist/{shortlist_id}/decision", response_model=ShortlistDecisionResponse)
 async def update_decision(
     shortlist_id: uuid.UUID,
     payload: ShortlistDecisionUpdate,
@@ -361,7 +350,7 @@ async def update_decision(
 
     if payload.hr_decision == "rejected" and previous_decision != "rejected":
         candidate = await db.get(Candidate, record.candidate_id)
-        candidate_email = _resolve_candidate_email(candidate)
+        candidate_email = resolve_candidate_email(candidate)
         if candidate_email:
             job = await db.get(Job, record.job_id)
             job_title = job.title if job else "the position"
@@ -375,7 +364,7 @@ async def update_decision(
                 shortlist_id,
             )
             if not await send_rejection_email(
-                _resolve_candidate_name(candidate),
+                resolve_candidate_name(candidate),
                 candidate_email,
                 job_title,
                 templates=templates,
@@ -398,6 +387,26 @@ async def update_decision(
         )
 
     if payload.hr_decision == "approved":
+        from app.services.settings_service import load_system_settings
+
+        system_settings = await load_system_settings(db)
+        if not system_settings.screening_enabled:
+            from app.services.interview_skip_screening_service import (
+                advance_approved_candidate_to_interview,
+            )
+
+            advance = await advance_approved_candidate_to_interview(
+                db,
+                candidate_id=record.candidate_id,
+                job_id=record.job_id,
+            )
+            return ShortlistDecisionResponse(
+                **ShortlistResultResponse.model_validate(record).model_dump(),
+                screening_skipped=True,
+                interview_session_id=advance.session_id,
+                interview_email_sent=advance.email_sent,
+            )
+
         from app.services.call_window_service import is_within_call_window
         from app.services.celery_health import celery_workers_available
         from app.services.screening_trigger_service import (
@@ -413,7 +422,7 @@ async def update_decision(
                 ):
                     await auto_dispatch_unqueued_approved_for_job(db, job)
 
-    return record
+    return ShortlistDecisionResponse.model_validate(record)
 
 
 # ---------------------------------------------------------------------------

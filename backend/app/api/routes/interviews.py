@@ -237,6 +237,7 @@ async def send_interview_link(
     """
     from app.models.models import Job
     from app.services.interview_schedule_service import send_interview_invitation_email
+    from app.services.interview_session_service import create_pending_interview_session
 
     # Load candidate
     candidate_result = await db.execute(
@@ -260,40 +261,21 @@ async def send_interview_link(
             detail="Candidate has not passed screening. Interview cannot be scheduled.",
         )
 
-    # Check for existing active session (pending or in_progress)
-    existing_result = await db.execute(
-        select(InterviewSession).where(
-            InterviewSession.candidate_id == candidate_id,
-            InterviewSession.job_id == candidate.job_id,
-            InterviewSession.status.in_(["pending", "in_progress"]),
+    try:
+        interview_session, candidate, job_title = await create_pending_interview_session(
+            db,
+            candidate_id=candidate_id,
+            job_id=candidate.job_id,
         )
-    )
-    existing_session = existing_result.scalars().first()
-    if existing_session:
-        raise HTTPException(
-            status_code=409,
-            detail=f"An active interview session already exists (status={existing_session.status}). "
-                   f"Token: {existing_session.unique_token}",
-        )
-
-    # Create InterviewSession
-    unique_token = str(uuid.uuid4())
-    interview_session = InterviewSession(
-        candidate_id=candidate_id,
-        job_id=candidate.job_id,
-        unique_token=unique_token,
-        status="pending",
-        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
-    )
-    db.add(interview_session)
-    await db.flush()  # get the session.id before commit
+    except ValueError as exc:
+        detail = str(exc)
+        if "already exists" in detail:
+            raise HTTPException(status_code=409, detail=detail) from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
 
     await _mark_interview_queued(db, candidate_id, candidate.job_id)
 
-    job_result = await db.execute(select(Job).where(Job.id == candidate.job_id))
-    job = job_result.scalars().first()
-    job_title = job.title if job else "the position"
-    interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{unique_token}"
+    interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{interview_session.unique_token}"
 
     await send_interview_invitation_email(db, interview_session, candidate, job_title)
 

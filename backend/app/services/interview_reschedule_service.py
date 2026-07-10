@@ -14,6 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.models import Candidate, InterviewSession, Job, ScreeningCall
 from app.schemas.schemas import InterviewScheduleRequest, InterviewSessionResponse
+from app.services.candidate_contact_service import (
+    resolve_candidate_email,
+    resolve_candidate_name,
+)
 from app.services.interview_schedule_service import (
     parse_scheduled_at,
     send_scheduled_interview_notification_email,
@@ -56,9 +60,17 @@ async def send_reschedule_email(
 
     templates = await get_merged_templates(db)
     interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{session.unique_token}"
+    candidate_email = resolve_candidate_email(candidate)
+    if not candidate_email:
+        logger.warning(
+            "Cannot send reschedule email — no valid email for candidate=%s",
+            candidate.id,
+        )
+        return False
+
     sent = await send_reschedule_notification(
-        candidate_name=candidate.name,
-        candidate_email=candidate.email,
+        candidate_name=resolve_candidate_name(candidate),
+        candidate_email=candidate_email,
         job_title=job_title,
         interview_url=interview_url,
         templates=templates,

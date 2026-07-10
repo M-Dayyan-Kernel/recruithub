@@ -1,5 +1,9 @@
 import type { HrDecision } from '@/types/api'
 
+export function getApproveLabel(screeningEnabled: boolean): string {
+  return screeningEnabled ? 'Approve' : 'Approve & interview'
+}
+
 export const DECISION_CONFIG: Record<
   Exclude<HrDecision, 'pending'>,
   { label: string; active: string; inactive: string }

@@ -14,6 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.models import Candidate, InterviewSession
 from app.schemas.schemas import InterviewScheduleRequest
+from app.services.candidate_contact_service import (
+    resolve_candidate_email,
+    resolve_candidate_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,9 +71,17 @@ async def send_interview_invitation_email(
 
     interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{session.unique_token}"
     templates = await get_merged_templates(db)
+    candidate_email = resolve_candidate_email(candidate)
+    if not candidate_email:
+        logger.warning(
+            "Cannot send interview invitation — no valid email for candidate=%s",
+            candidate.id,
+        )
+        return False
+
     sent = await send_interview_link(
-        candidate_name=candidate.name,
-        candidate_email=candidate.email,
+        candidate_name=resolve_candidate_name(candidate),
+        candidate_email=candidate_email,
         job_title=job_title,
         interview_url=interview_url,
         templates=templates,
@@ -78,7 +90,7 @@ async def send_interview_invitation_email(
         session.email_sent_at = datetime.now(timezone.utc)
         logger.info(
             "Interview invitation sent to %s (session=%s)",
-            candidate.email,
+            candidate_email,
             session.id,
         )
     return sent
@@ -104,9 +116,17 @@ async def send_scheduled_interview_notification_email(
         timezone_name,
     )
     templates = await get_merged_templates(db)
+    candidate_email = resolve_candidate_email(candidate)
+    if not candidate_email:
+        logger.warning(
+            "Cannot send scheduled interview notification — no valid email for candidate=%s",
+            candidate.id,
+        )
+        return False
+
     sent = await send_scheduled_interview_notification(
-        candidate_name=candidate.name,
-        candidate_email=candidate.email,
+        candidate_name=resolve_candidate_name(candidate),
+        candidate_email=candidate_email,
         job_title=job_title,
         interview_url=interview_url,
         scheduled_at_label=scheduled_label,
@@ -116,7 +136,7 @@ async def send_scheduled_interview_notification_email(
         session.email_sent_at = datetime.now(timezone.utc)
         logger.info(
             "Scheduled interview notification sent to %s (session=%s, slot=%s)",
-            candidate.email,
+            candidate_email,
             session.id,
             scheduled_label,
         )

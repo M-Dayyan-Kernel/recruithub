@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Briefcase, ChevronDown, ChevronRight, Plus } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { Job } from '@/types/api'
+import type { Job, SystemSettings } from '@/types/api'
 import { cn } from '@/lib/utils'
 
 const JOB_PHASES = [
@@ -36,6 +36,18 @@ export function SidebarJobsNav({ onNavigate }: Props) {
     queryKey: ['jobs'],
     queryFn: () => api.get('/api/jobs') as unknown as Promise<Job[]>,
   })
+
+  const { data: settings } = useQuery<SystemSettings>({
+    queryKey: ['settings'],
+    queryFn: () => api.get('/api/settings') as unknown as Promise<SystemSettings>,
+  })
+
+  const jobPhases = useMemo(() => {
+    if (settings?.screening_enabled === false) {
+      return JOB_PHASES.filter((phase) => phase.segment !== 'screening')
+    }
+    return JOB_PHASES
+  }, [settings?.screening_enabled])
 
   const activeJobId = useMemo(() => {
     const match = location.pathname.match(/^\/jobs\/([^/]+)/)
@@ -113,7 +125,7 @@ export function SidebarJobsNav({ onNavigate }: Props) {
 
             {isExpanded && (
               <div className="ml-4 space-y-0.5 border-l border-slate-700 pl-2">
-                {JOB_PHASES.map(({ label, segment }) => (
+                {jobPhases.map(({ label, segment }) => (
                   <NavLink
                     key={segment || 'shortlist'}
                     to={jobPhasePath(job.id, segment)}

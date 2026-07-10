@@ -100,6 +100,12 @@ export interface ShortlistResultWithCandidate extends ShortlistResult {
   candidate_email?: string | null
 }
 
+export interface ShortlistDecisionResponse extends ShortlistResult {
+  screening_skipped?: boolean
+  interview_session_id?: string | null
+  interview_email_sent?: boolean | null
+}
+
 // ---------------------------------------------------------------------------
 // Screening
 // ---------------------------------------------------------------------------
@@ -142,6 +148,7 @@ export interface ScreeningCall {
 export interface SystemSettings {
   allowed_phone_regions: string[]
   enforce_phone_geography: boolean
+  screening_enabled: boolean
   screening_max_retries: number
   screening_retry_delay_seconds: number
   updated_at: string

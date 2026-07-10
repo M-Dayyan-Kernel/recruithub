@@ -44,9 +44,9 @@ Expected response includes:
 Instead of mocking everything, enable only what you need:
 
 ```env
-MOCK_EXTERNAL_APIS=false
+MOCK_EXTERNAL_APIS=f
+MOCK_VAPI=truealse
 MOCK_OPENAI=true
-MOCK_VAPI=true
 MOCK_EMAIL=true
 # MOCK_LIVEKIT=false  → use real LiveKit for interview room testing
 ```

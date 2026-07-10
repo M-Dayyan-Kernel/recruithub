@@ -105,6 +105,14 @@ async def dispatch_screening_for_candidates(
 
     Returns (initiated, queued, skipped).
     """
+    from app.services.settings_service import load_system_settings
+
+    system_settings = await load_system_settings(db)
+    if not system_settings.screening_enabled:
+        return 0, 0, [
+            {"reason": "Voice screening is disabled in system settings"},
+        ]
+
     initiated = 0
     queued = 0
     skipped: list[dict] = []
@@ -154,7 +162,8 @@ async def dispatch_screening_for_candidates(
             continue
 
         is_valid, normalized_phone, reject_reason = await validate_phone_with_reason(
-            candidate.phone
+            candidate.phone,
+            session=db,
         )
         if not is_valid:
             skipped.append({

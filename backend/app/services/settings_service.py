@@ -28,6 +28,7 @@ MAX_MAX_RETRIES = 10
 class CachedSettings:
     allowed_phone_regions: List[str]
     enforce_phone_geography: bool
+    screening_enabled: bool
     screening_max_retries: int
     screening_retry_delay_seconds: int
     fetched_at: datetime
@@ -42,6 +43,7 @@ def _defaults() -> CachedSettings:
     return CachedSettings(
         allowed_phone_regions=list(DEFAULT_REGIONS),
         enforce_phone_geography=True,
+        screening_enabled=True,
         screening_max_retries=DEFAULT_MAX_RETRIES,
         screening_retry_delay_seconds=DEFAULT_RETRY_DELAY_SECONDS,
         fetched_at=datetime.min,
@@ -93,6 +95,7 @@ def _settings_from_row(row: SystemSettings | None, fetched_at: datetime) -> Cach
     return CachedSettings(
         allowed_phone_regions=list(row.allowed_phone_regions or DEFAULT_REGIONS),
         enforce_phone_geography=bool(row.enforce_phone_geography),
+        screening_enabled=bool(getattr(row, "screening_enabled", True)),
         screening_max_retries=normalize_max_retries(row.screening_max_retries),
         screening_retry_delay_seconds=normalize_retry_delay_seconds(
             row.screening_retry_delay_seconds

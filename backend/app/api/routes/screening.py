@@ -82,6 +82,15 @@ async def trigger_screening(
             detail=CELERY_UNAVAILABLE_MSG,
         )
 
+    from app.services.settings_service import load_system_settings
+
+    system_settings = await load_system_settings(db)
+    if not system_settings.screening_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Voice screening is disabled in system settings",
+        )
+
     job_result = await db.execute(select(Job).where(Job.id == job_id))
     job = job_result.scalars().first()
     if not job:

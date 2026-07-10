@@ -14,3 +14,4 @@ AI Recruitment POC — Change log (one line per change)
 11. Made Reschedule a one-click action that emails a new link and jumps to the Scheduled tab (no date picker).
 12. Removed "Powered by Olympus" from the sidebar footer.
 13. Made the interview rubric panel collapsible (collapsed by default) with a scrollable editor when expanded.
+14. Added admin setting to enable/disable voice screening; when disabled, shortlist approve skips to scheduled interviews and emails the candidate.

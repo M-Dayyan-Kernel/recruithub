@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { AlertCircle, Loader2, Trash2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { ShortlistResultWithCandidate } from '@/types/api'
@@ -7,11 +8,14 @@ import {
   RecommendationBadge,
   ScoreBadge,
 } from '@/components/shortlist/shortlistBadges'
-import { DECISION_CONFIG } from '@/components/shortlist/shortlistDecisionConfig'
+import { DECISION_CONFIG, getApproveLabel } from '@/components/shortlist/shortlistDecisionConfig'
 import { ShortlistReportModal } from '@/components/shortlist/ShortlistReportModal'
 import { useShortlistDecision } from '@/hooks/useShortlistDecision'
+import { useShortlistApproveNavigation } from '@/hooks/useShortlistApproveNavigation'
 import { useDeleteCandidate } from '@/hooks/useDeleteCandidate'
 import { WORKFLOW_CARD_CLASS, WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
+import { api } from '@/lib/api'
+import type { SystemSettings } from '@/types/api'
 
 interface Props {
   results: ShortlistResultWithCandidate[]
@@ -32,14 +36,18 @@ function ShortlistTableRow({
   selected,
   onToggleSelect,
   onOpenReport,
+  screeningEnabled,
+  onApproved,
 }: {
   result: ShortlistResultWithCandidate
   jobId: string
   selected: boolean
   onToggleSelect: () => void
   onOpenReport: (result: ShortlistResultWithCandidate) => void
+  screeningEnabled: boolean
+  onApproved: ReturnType<typeof useShortlistApproveNavigation>
 }) {
-  const decisionMutation = useShortlistDecision(jobId, result.id)
+  const decisionMutation = useShortlistDecision(jobId, result.id, { onApproved })
   const displayName = result.candidate_name ?? 'Candidate'
 
   return (
@@ -79,17 +87,24 @@ function ShortlistTableRow({
           {(['approved', 'rejected'] as const).map((decision) => {
             const cfg = DECISION_CONFIG[decision]
             const isActive = result.hr_decision === decision
+            const label =
+              decision === 'approved' ? getApproveLabel(screeningEnabled) : cfg.label
             return (
               <button
                 key={decision}
                 type="button"
                 onClick={() => decisionMutation.mutate(decision)}
                 disabled={decisionMutation.isPending}
+                title={
+                  decision === 'approved' && !screeningEnabled
+                    ? 'Approve and send interview link directly'
+                    : undefined
+                }
                 className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                   isActive ? cfg.active : cfg.inactive
                 }`}
               >
-                {cfg.label}
+                {label}
               </button>
             )
           })}
@@ -110,6 +125,12 @@ export function ShortlistTable({ results, jobId, requiredSkills = [], jobTitle }
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
   const deleteMutation = useDeleteCandidate(jobId)
+  const onApproved = useShortlistApproveNavigation(jobId)
+  const { data: settings } = useQuery<SystemSettings>({
+    queryKey: ['settings'],
+    queryFn: () => api.get('/api/settings') as unknown as Promise<SystemSettings>,
+  })
+  const screeningEnabled = settings?.screening_enabled ?? true
 
   const sortedResults = useMemo(
     () => [...results].sort((a, b) => b.match_score - a.match_score),
@@ -289,6 +310,8 @@ export function ShortlistTable({ results, jobId, requiredSkills = [], jobTitle }
                   selected={selectedIds.has(result.candidate_id)}
                   onToggleSelect={() => toggleOne(result.candidate_id)}
                   onOpenReport={setReportResult}
+                  screeningEnabled={screeningEnabled}
+                  onApproved={onApproved}
                 />
               ))}
             </tbody>
