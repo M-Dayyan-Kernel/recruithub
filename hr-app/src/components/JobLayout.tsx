@@ -10,16 +10,15 @@ export interface JobOutletContext {
   jobId: string
 }
 
+function isJobDetailsPath(pathname: string, jobId: string): boolean {
+  const base = `/jobs/${jobId}`
+  return pathname === base || pathname === `${base}/`
+}
+
 export default function JobLayout() {
   const { jobId } = useParams<{ jobId: string }>()
   const location = useLocation()
-  const isShortlistRoute =
-    !!jobId &&
-    (location.pathname === `/jobs/${jobId}` || location.pathname === `/jobs/${jobId}/`)
-  const hideJobHeader =
-    !!jobId &&
-    (location.pathname === `/jobs/${jobId}/interviews` ||
-      location.pathname === `/jobs/${jobId}/screening`)
+  const showJobHeader = !!jobId && isJobDetailsPath(location.pathname, jobId)
 
   const {
     data: job,
@@ -46,8 +45,8 @@ export default function JobLayout() {
     <div className="mx-auto max-w-7xl space-y-6">
       {isLoading && (
         <>
-          {!hideJobHeader && <JobHeaderSkeleton />}
-          <div className="mb-6 h-10 w-80 animate-pulse rounded bg-slate-200" />
+          {showJobHeader && <JobHeaderSkeleton />}
+          {!showJobHeader && <div className="mb-6 h-10 w-80 animate-pulse rounded bg-slate-200" />}
         </>
       )}
 
@@ -75,9 +74,7 @@ export default function JobLayout() {
 
       {!isLoading && job && jobId && (
         <>
-          {!hideJobHeader && (
-            <JobHeader job={job} showDelete={isShortlistRoute} />
-          )}
+          {showJobHeader && <JobHeader job={job} showDelete />}
           <Outlet context={{ job, jobId } satisfies JobOutletContext} />
         </>
       )}

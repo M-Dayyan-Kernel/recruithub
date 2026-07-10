@@ -7,7 +7,7 @@ import type { Job, SystemSettings } from '@/types/api'
 import { cn } from '@/lib/utils'
 
 const JOB_PHASES = [
-  { label: 'AI Shortlist', segment: '' },
+  { label: 'AI Shortlist', segment: 'shortlist' },
   { label: 'Screening', segment: 'screening' },
   { label: 'Interviews', segment: 'interviews' },
 ] as const
@@ -16,16 +16,21 @@ interface Props {
   onNavigate?: () => void
 }
 
+function jobDetailsPath(jobId: string): string {
+  return `/jobs/${jobId}`
+}
+
 function jobPhasePath(jobId: string, segment: string): string {
-  return segment ? `/jobs/${jobId}/${segment}` : `/jobs/${jobId}`
+  return `/jobs/${jobId}/${segment}`
+}
+
+function isJobDetailsActive(pathname: string, jobId: string): boolean {
+  const base = `/jobs/${jobId}`
+  return pathname === base || pathname === `${base}/`
 }
 
 function isPhaseActive(pathname: string, jobId: string, segment: string): boolean {
-  const base = `/jobs/${jobId}`
-  if (segment === '') {
-    return pathname === base || pathname === `${base}/`
-  }
-  return pathname.startsWith(`${base}/${segment}`)
+  return pathname === jobPhasePath(jobId, segment) || pathname.startsWith(`${jobPhasePath(jobId, segment)}/`)
 }
 
 export function SidebarJobsNav({ onNavigate }: Props) {
@@ -70,6 +75,10 @@ export function SidebarJobsNav({ onNavigate }: Props) {
     })
   }
 
+  const expandJob = (jobId: string) => {
+    setExpandedJobs((prev) => new Set(prev).add(jobId))
+  }
+
   const handleLinkClick = () => {
     onNavigate?.()
   }
@@ -102,40 +111,60 @@ export function SidebarJobsNav({ onNavigate }: Props) {
       {jobs?.map((job) => {
         const isExpanded = expandedJobs.has(job.id)
         const isCurrentJob = activeJobId === job.id
+        const detailsActive = isJobDetailsActive(location.pathname, job.id)
 
         return (
           <div key={job.id} className="space-y-0.5">
-            <button
-              type="button"
-              onClick={() => toggleJob(job.id)}
+            <div
               className={cn(
-                'flex w-full items-center gap-1.5 rounded-lg px-2 py-2 text-left text-sm transition-colors',
-                isCurrentJob
-                  ? 'text-slate-100'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
+                'flex w-full items-center gap-0.5 rounded-lg px-1 py-1 transition-colors',
+                isCurrentJob && 'bg-slate-800/40',
               )}
             >
-              {isExpanded ? (
-                <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-              )}
-              <span className="truncate">{job.title}</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => toggleJob(job.id)}
+                aria-label={isExpanded ? `Collapse ${job.title}` : `Expand ${job.title}`}
+                aria-expanded={isExpanded}
+                className="shrink-0 rounded p-1 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100"
+              >
+                {isExpanded ? (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5" />
+                )}
+              </button>
+              <Link
+                to={jobDetailsPath(job.id)}
+                onClick={() => {
+                  expandJob(job.id)
+                  handleLinkClick()
+                }}
+                title="Job details"
+                className={cn(
+                  'min-w-0 flex-1 truncate rounded-md px-1.5 py-1 text-left text-sm transition-colors',
+                  detailsActive
+                    ? 'bg-indigo-600 font-medium text-white'
+                    : isCurrentJob
+                      ? 'text-slate-100 hover:bg-slate-800'
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
+                )}
+              >
+                {job.title}
+              </Link>
+            </div>
 
             {isExpanded && (
               <div className="ml-4 space-y-0.5 border-l border-slate-700 pl-2">
                 {jobPhases.map(({ label, segment }) => (
                   <NavLink
-                    key={segment || 'shortlist'}
+                    key={segment}
                     to={jobPhasePath(job.id, segment)}
-                    end={segment === ''}
                     onClick={handleLinkClick}
                     className={({ isActive }) =>
                       cn(
                         'block rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
-                        isActive ||
-                          isPhaseActive(location.pathname, job.id, segment)
+                        isActive || isPhaseActive(location.pathname, job.id, segment)
                           ? 'bg-indigo-600 text-white'
                           : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
                       )

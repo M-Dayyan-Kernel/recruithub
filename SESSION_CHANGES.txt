@@ -17,3 +17,5 @@ AI Recruitment POC — Change log (one line per change)
 14. Added admin setting to enable/disable voice screening; when disabled, shortlist approve skips to scheduled interviews and emails the candidate.
 15. Kept interview tab buttons (Scheduled, Ongoing, Completed, Flagged) visible even when all tabs are empty.
 16. Renamed shortlist approve button to "Invite to interview" when voice screening is disabled.
+17. Added dedicated job details page at /jobs/:id with JobHeader; sidebar job title opens it; AI Shortlist moved to /jobs/:id/shortlist.
+18. Added pipeline overview dashboard on job details with shortlisted, screening, scheduled, and completed interview counts.

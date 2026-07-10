@@ -60,7 +60,7 @@ export default function ShortlistReportPage() {
   return (
     <div className="mx-auto max-w-5xl p-6">
       <Link
-        to={jobId ? `/jobs/${jobId}` : '/'}
+        to={jobId ? `/jobs/${jobId}/shortlist` : '/'}
         className="mb-5 inline-flex items-center gap-1.5 text-sm text-slate-500 transition-colors hover:text-slate-700"
       >
         <ArrowLeft size={14} />

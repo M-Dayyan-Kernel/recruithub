@@ -4,6 +4,7 @@ import Layout from '@/components/Layout'
 import DashboardPage from '@/pages/DashboardPage'
 import CreateJobPage from '@/pages/CreateJobPage'
 import JobLayout from '@/components/JobLayout'
+import JobDetailsPage from '@/pages/JobDetailsPage'
 import JobShortlistPage from '@/pages/JobShortlistPage'
 import JobScreeningPage from '@/pages/JobScreeningPage'
 import JobInterviewsPage from '@/pages/JobInterviewsPage'
@@ -29,7 +30,8 @@ export default function App() {
           <Route path="jobs" element={<Navigate to="/" replace />} />
           <Route path="jobs/new" element={<CreateJobPage />} />
           <Route path="jobs/:jobId" element={<JobLayout />}>
-            <Route index element={<JobShortlistPage />} />
+            <Route index element={<JobDetailsPage />} />
+            <Route path="shortlist" element={<JobShortlistPage />} />
             <Route path="screening" element={<JobScreeningPage />} />
             <Route path="interviews" element={<JobInterviewsPage />} />
           </Route>

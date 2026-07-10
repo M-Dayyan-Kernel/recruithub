@@ -12,6 +12,8 @@ import {
   mockGetShortlist,
   mockGetShortlistStatus,
   mockGetScreening,
+  mockGetSettings,
+  mockGetInterviewPipeline,
   mockAllJobSubEndpoints,
 } from './fixtures'
 
@@ -97,7 +99,7 @@ test('sidebar job tree lists jobs with phase sub-links', async ({ page }) => {
   await expect(page.getByText('Senior Frontend Engineer').first()).toBeVisible()
   await expect(page.getByRole('link', { name: 'Create Job' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Senior Frontend Engineer' }).click()
+  await page.getByRole('button', { name: /Expand Senior Frontend Engineer/i }).click()
 
   await expect(page.getByRole('link', { name: 'AI Shortlist' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Screening' })).toBeVisible()
@@ -115,7 +117,7 @@ test('sidebar Screening link navigates to screening route', async ({ page }) => 
   await page.goto('/')
   await page.waitForLoadState('networkidle')
 
-  await page.getByRole('button', { name: 'Senior Frontend Engineer' }).click()
+  await page.getByRole('button', { name: /Expand Senior Frontend Engineer/i }).click()
   await page.getByRole('link', { name: 'Screening' }).click()
 
   await expect(page).toHaveURL(`/jobs/${JOB_IDS.frontend}/screening`)
@@ -147,6 +149,23 @@ test('header shows Create Job for create job route', async ({ page }) => {
   await expect(topbar.getByText('Create Job')).toBeVisible()
 })
 
+test('header shows Job details for job overview route', async ({ page }) => {
+  await mockGetJobs(page)
+  await mockGetJob(page, JOB_IDS.frontend, MOCK_JOBS[0])
+  await mockGetCandidates(page, JOB_IDS.frontend, [])
+  await mockGetShortlist(page, JOB_IDS.frontend, [])
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
+  await mockGetSettings(page)
+  await mockGetInterviewPipeline(page, JOB_IDS.frontend)
+
+  await page.goto(`/jobs/${JOB_IDS.frontend}`)
+  await page.waitForLoadState('networkidle')
+
+  const topbar = page.locator('header')
+  await expect(topbar.getByText('Job details')).toBeVisible()
+})
+
 test('header shows AI Shortlist for job shortlist route', async ({ page }) => {
   await mockGetJobs(page)
   await mockGetJob(page, JOB_IDS.frontend, MOCK_JOBS[0])
@@ -155,7 +174,7 @@ test('header shows AI Shortlist for job shortlist route', async ({ page }) => {
   await mockGetShortlistStatus(page, JOB_IDS.frontend)
   await mockGetScreening(page, JOB_IDS.frontend, [])
 
-  await page.goto(`/jobs/${JOB_IDS.frontend}`)
+  await page.goto(`/jobs/${JOB_IDS.frontend}/shortlist`)
   await page.waitForLoadState('networkidle')
 
   const topbar = page.locator('header')
@@ -169,6 +188,8 @@ test('header shows Interviews for job interviews route', async ({ page }) => {
   await mockGetShortlist(page, JOB_IDS.frontend, [])
   await mockGetShortlistStatus(page, JOB_IDS.frontend)
   await mockGetScreening(page, JOB_IDS.frontend, [])
+  await mockGetSettings(page)
+  await mockGetInterviewPipeline(page, JOB_IDS.frontend)
 
   await page.goto(`/jobs/${JOB_IDS.frontend}/interviews`)
   await page.waitForLoadState('networkidle')

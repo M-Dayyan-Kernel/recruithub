@@ -665,6 +665,23 @@ export async function mockGetScreening(page: Page, jobId: string, calls = MOCK_S
   })
 }
 
+export const EMPTY_INTERVIEW_PIPELINE = {
+  counts: { pending: 0, scheduled: 0, ongoing: 0, completed: 0, flagged: 0 },
+  candidates: [],
+}
+
+/** Mock GET /api/jobs/:id/interviews/pipeline */
+export async function mockGetInterviewPipeline(
+  page: Page,
+  jobId: string,
+  pipeline: object = EMPTY_INTERVIEW_PIPELINE,
+) {
+  await page.route(`**/api/jobs/${jobId}/interviews/pipeline**`, (route: Route) => {
+    if (route.request().method() !== 'GET') return route.continue()
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pipeline) })
+  })
+}
+
 /**
  * Note: InterviewsTab does NOT call GET /api/jobs/:id/interviews.
  * It derives interview candidates from GET /api/jobs/:id/screening (candidates with result=pass).
@@ -716,6 +733,7 @@ export async function mockJobSubroutes(page: Page, jobId: string) {
   await mockGetShortlist(page, jobId, MOCK_SHORTLIST.filter(s => s.job_id === jobId))
   await mockGetShortlistStatus(page, jobId)
   await mockGetScreening(page, jobId, MOCK_SCREENING.filter(s => s.job_id === jobId))
+  await mockGetInterviewPipeline(page, jobId)
 }
 
 /**
@@ -728,5 +746,6 @@ export async function mockAllJobSubEndpoints(page: Page, jobs = MOCK_JOBS_SAFE) 
   for (const job of jobs) {
     await mockGetCandidates(page, job.id, MOCK_CANDIDATES.filter(c => c.job_id === job.id))
     await mockGetScreening(page, job.id,  MOCK_SCREENING.filter(s => s.job_id === job.id))
+    await mockGetInterviewPipeline(page, job.id)
   }
 }

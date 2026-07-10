@@ -21,11 +21,13 @@ import {
   mockPatchShortlistDecision,
   mockGetScreening,
   mockGetSettings,
+  mockGetInterviewPipeline,
   mockPostScreeningTrigger,
 } from './fixtures'
 
 const FRONTEND_JOB = MOCK_JOBS[0]
 const FRONTEND_URL = `/jobs/${JOB_IDS.frontend}`
+const FRONTEND_SHORTLIST_URL = `/jobs/${JOB_IDS.frontend}/shortlist`
 
 const WORKFLOW_TABS = [
   'Upload',
@@ -42,6 +44,8 @@ async function mockFrontendJobDetail(page: import('@playwright/test').Page) {
   await mockGetShortlist(page, JOB_IDS.frontend, [])
   await mockGetShortlistStatus(page, JOB_IDS.frontend)
   await mockGetScreening(page, JOB_IDS.frontend, [])
+  await mockGetSettings(page)
+  await mockGetInterviewPipeline(page, JOB_IDS.frontend)
 }
 
 test('job detail page loads with title, skills, and experience range', async ({ page }) => {
@@ -58,10 +62,10 @@ test('job detail page loads with title, skills, and experience range', async ({ 
   await expect(page.getByText('Active').first()).toBeVisible()
 })
 
-test('AI Shortlisted tab is default on job detail load', async ({ page }) => {
+test('AI Shortlisted tab is default on job shortlist load', async ({ page }) => {
   await mockFrontendJobDetail(page)
 
-  await page.goto(FRONTEND_URL)
+  await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
   await expect(page.getByRole('button', { name: 'AI Shortlisted', exact: true })).toBeVisible()
@@ -72,7 +76,7 @@ test('AI Shortlisted tab is default on job detail load', async ({ page }) => {
 test('Upload tab shows upload UI', async ({ page }) => {
   await mockFrontendJobDetail(page)
 
-  await page.goto(FRONTEND_URL)
+  await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
   await page.getByRole('button', { name: 'Upload', exact: true }).click()
@@ -83,7 +87,7 @@ test('Upload tab shows upload UI', async ({ page }) => {
 test('each workflow tab shows its empty state', async ({ page }) => {
   await mockFrontendJobDetail(page)
 
-  await page.goto(FRONTEND_URL)
+  await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
   const emptyStates: Record<(typeof WORKFLOW_TABS)[number], string> = {
@@ -189,7 +193,7 @@ test('send parsed resume to AI shortlisting shows progress then scored results',
     })
   })
 
-  await page.goto(FRONTEND_URL)
+  await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
   await page.getByRole('button', { name: 'Parsed Resumes', exact: true }).click()
@@ -234,7 +238,7 @@ test('AI Shortlisted tab supports table approve', async ({ page }) => {
     patched.push({ id, hr_decision: hrDecision })
   })
 
-  await page.goto(FRONTEND_URL)
+  await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
   await page.getByRole('button', { name: 'AI Shortlisted', exact: true }).click()
@@ -259,7 +263,7 @@ test('AI Shortlisted report button opens report modal on same screen', async ({ 
   await mockGetShortlistStatus(page, JOB_IDS.frontend)
   await mockGetScreening(page, JOB_IDS.frontend, [])
 
-  await page.goto(FRONTEND_URL)
+  await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
   await page.getByRole('button', { name: 'Report' }).click()
@@ -272,11 +276,24 @@ test('AI Shortlisted report button opens report modal on same screen', async ({ 
 
   await dialog.getByRole('button', { name: 'Close report' }).click()
   await expect(dialog).not.toBeVisible()
-  await expect(page).toHaveURL(FRONTEND_URL)
+  await expect(page).toHaveURL(FRONTEND_SHORTLIST_URL)
   await expect(page.getByRole('cell', { name: 'Alice Sharma' })).toBeVisible()
 })
 
-test('Delete Job button is visible on AI Shortlist route', async ({ page }) => {
+test('job details page shows pipeline overview stats', async ({ page }) => {
+  await mockFrontendJobDetail(page)
+
+  await page.goto(FRONTEND_URL)
+  await page.waitForLoadState('networkidle')
+
+  await expect(page.getByRole('heading', { name: 'Hiring pipeline' })).toBeVisible()
+  await expect(page.getByText('Shortlisted', { exact: true })).toBeVisible()
+  await expect(page.getByText('Screened', { exact: true })).toBeVisible()
+  await expect(page.getByText('Scheduled', { exact: true })).toBeVisible()
+  await expect(page.getByText('Completed', { exact: true })).toBeVisible()
+})
+
+test('Delete Job button is visible on job details route', async ({ page }) => {
   await mockFrontendJobDetail(page)
 
   await page.goto(FRONTEND_URL)
