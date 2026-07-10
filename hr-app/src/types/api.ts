@@ -182,6 +182,7 @@ export interface InterviewSession {
   job_id: string
   unique_token: string
   status: 'pending' | 'in_progress' | 'completed' | 'expired' | 'assessment_failed' | 'assessed'
+  hr_decision?: 'pending' | 'approved' | 'rejected'
   candidate_name?: string
   job_title?: string
   interview_url?: string
@@ -193,7 +194,13 @@ export interface InterviewSession {
   mock_mode?: boolean
 }
 
-export type InterviewPipelineTab = 'pending' | 'scheduled' | 'ongoing' | 'completed' | 'flagged'
+export type InterviewPipelineTab =
+  | 'pending'
+  | 'scheduled'
+  | 'ongoing'
+  | 'completed'
+  | 'flagged'
+  | 'finalists'
 
 export interface InterviewPipelineCounts {
   pending: number
@@ -201,6 +208,7 @@ export interface InterviewPipelineCounts {
   ongoing: number
   completed: number
   flagged: number
+  finalists?: number
 }
 
 export type InterviewAssessmentStatus = 'none' | 'generating' | 'ready' | 'failed'
@@ -218,11 +226,31 @@ export interface InterviewPipelineCandidate {
   can_reschedule?: boolean
   actions_disabled?: boolean
   has_active_session?: boolean
+  hr_decision?: 'pending' | 'approved' | 'rejected' | null
 }
 
 export interface InterviewPipelineResponse {
   counts: InterviewPipelineCounts
   candidates: InterviewPipelineCandidate[]
+}
+
+export interface FinalistCandidate {
+  candidate_id: string
+  session_id: string
+  candidate_name?: string | null
+  email?: string | null
+  phone?: string | null
+  current_ctc?: string | null
+  expected_ctc?: string | null
+  total_experience_years?: number | null
+  report_overall_score?: number | null
+  report_recommendation?: string | null
+  hr_decision: string
+  completed_at?: string | null
+}
+
+export interface FinalistsResponse {
+  candidates: FinalistCandidate[]
 }
 
 export interface InterviewReport {

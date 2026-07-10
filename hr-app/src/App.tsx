@@ -8,6 +8,7 @@ import JobDetailsPage from '@/pages/JobDetailsPage'
 import JobShortlistPage from '@/pages/JobShortlistPage'
 import JobScreeningPage from '@/pages/JobScreeningPage'
 import JobInterviewsPage from '@/pages/JobInterviewsPage'
+import JobFinalistsPage from '@/pages/JobFinalistsPage'
 import ArchivedJobsPage from '@/pages/ArchivedJobsPage'
 import SettingsPage from '@/pages/SettingsPage'
 import ReportPage from '@/pages/ReportPage'
@@ -36,6 +37,7 @@ export default function App() {
             <Route path="shortlist" element={<JobShortlistPage />} />
             <Route path="screening" element={<JobScreeningPage />} />
             <Route path="interviews" element={<JobInterviewsPage />} />
+            <Route path="finalists" element={<JobFinalistsPage />} />
           </Route>
           <Route path="jobs/:jobId/candidates/:candidateId/report" element={<ReportPage />} />
           <Route path="jobs/:jobId/shortlist/:shortlistId" element={<ShortlistReportPage />} />

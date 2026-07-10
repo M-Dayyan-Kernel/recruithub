@@ -13,14 +13,21 @@ import {
   Link2,
   Clock,
   CalendarClock,
+  Download,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { InterviewSession, Job, InterviewPipelineResponse } from '@/types/api'
+import type {
+  InterviewSession,
+  Job,
+  InterviewPipelineResponse,
+  FinalistsResponse,
+} from '@/types/api'
 import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
 import { ScheduleInterviewModal } from '@/components/screening/ScheduleInterviewModal'
 import { InterviewPipelineTable } from '@/components/InterviewPipelineTable'
 import type { InterviewPipelineTab } from '@/types/api'
+import { downloadFinalistsExcel } from '@/lib/finalistsExport'
 
 // ---------------------------------------------------------------------------
 // Interview status chip
@@ -42,9 +49,16 @@ const TAB_LABELS: Record<InterviewTabId, string> = {
   ongoing: 'Ongoing',
   completed: 'Completed',
   flagged: 'Flagged',
+  finalists: 'Finalists',
 }
 
-const VISIBLE_TABS: InterviewTabId[] = ['scheduled', 'ongoing', 'completed', 'flagged']
+const VISIBLE_TABS: InterviewTabId[] = [
+  'scheduled',
+  'ongoing',
+  'completed',
+  'finalists',
+  'flagged',
+]
 
 function resolveInterviewTab(tab: InterviewTabId | null): InterviewTabId {
   if (tab && tab !== 'pending' && VISIBLE_TABS.includes(tab)) return tab
@@ -57,6 +71,7 @@ const TAB_EMPTY_MESSAGES: Record<InterviewTabId, string> = {
   ongoing: 'No interviews in progress right now.',
   completed: 'No completed interviews yet.',
   flagged: 'No flagged interviews.',
+  finalists: 'No finalists yet. Approve candidates from Completed to move them here.',
 }
 
 function resolveInterviewStatus(
@@ -99,6 +114,7 @@ function activeTabClass(tab: InterviewTabId, isActive: boolean): string {
     ongoing: 'bg-amber-500 text-white',
     completed: 'bg-indigo-600 text-white',
     flagged: 'bg-amber-600 text-white',
+    finalists: 'bg-emerald-600 text-white',
   }
   return active[tab]
 }
@@ -527,6 +543,13 @@ export function InterviewsTab({ job, jobId }: Props) {
     refetchInterval: 15000,
   })
 
+  const { data: finalistsData } = useQuery<FinalistsResponse>({
+    queryKey: ['finalists', jobId],
+    queryFn: () =>
+      api.get(`/api/jobs/${jobId}/finalists`) as unknown as Promise<FinalistsResponse>,
+    enabled: !!jobId && activeTab === 'finalists',
+  })
+
   const { data: health } = useQuery<{ mock_mode?: boolean }>({
     queryKey: ['health'],
     queryFn: () => api.get('/health') as Promise<{ mock_mode?: boolean }>,
@@ -541,6 +564,7 @@ export function InterviewsTab({ job, jobId }: Props) {
     ongoing: 0,
     completed: 0,
     flagged: 0,
+    finalists: 0,
   }
 
   const pipelineCandidates = pipeline?.candidates ?? []
@@ -564,7 +588,8 @@ export function InterviewsTab({ job, jobId }: Props) {
     tabCounts.scheduled +
     tabCounts.ongoing +
     tabCounts.completed +
-    tabCounts.flagged
+    tabCounts.flagged +
+    (tabCounts.finalists ?? 0)
 
   const tabBar = (
     <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -576,14 +601,14 @@ export function InterviewsTab({ job, jobId }: Props) {
           className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${activeTabClass(tab, activeTab === tab)}`}
         >
           {TAB_LABELS[tab]}
-          <span className="ml-1.5 text-xs opacity-80">({tabCounts[tab]})</span>
+          <span className="ml-1.5 text-xs opacity-80">({tabCounts[tab] ?? 0})</span>
         </button>
       ))}
     </div>
   )
 
   const filterBar =
-    activeTab === 'completed' || activeTab === 'flagged' ? (
+    activeTab === 'completed' || activeTab === 'flagged' || activeTab === 'finalists' ? (
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           type="search"
@@ -617,6 +642,24 @@ export function InterviewsTab({ job, jobId }: Props) {
               Next
             </button>
           </div>
+        )}
+        {activeTab === 'finalists' && (
+          <button
+            type="button"
+            disabled={(finalistsData?.candidates.length ?? 0) === 0}
+            onClick={() => {
+              const candidates = finalistsData?.candidates ?? []
+              if (candidates.length === 0) {
+                toast.error('No finalists to export')
+                return
+              }
+              downloadFinalistsExcel(job.title, candidates)
+            }}
+            className="ml-auto inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Download size={15} />
+            Export Excel
+          </button>
         )}
       </div>
     ) : null
@@ -674,7 +717,7 @@ export function InterviewsTab({ job, jobId }: Props) {
         <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center">
           <p className="text-sm text-slate-500">{TAB_EMPTY_MESSAGES[activeTab]}</p>
         </div>
-      ) : activeTab === 'completed' || activeTab === 'flagged' ? (
+      ) : activeTab === 'completed' || activeTab === 'flagged' || activeTab === 'finalists' ? (
         filteredCandidates.length === 0 ? (
           <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center">
             <p className="text-sm text-slate-500">No candidates match your search.</p>

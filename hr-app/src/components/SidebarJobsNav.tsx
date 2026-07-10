@@ -11,6 +11,7 @@ const JOB_PHASES = [
   { label: 'AI Shortlist', segment: 'shortlist' },
   { label: 'Screening', segment: 'screening' },
   { label: 'Interviews', segment: 'interviews' },
+  { label: 'Finalists', segment: 'finalists' },
 ] as const
 
 interface Props {

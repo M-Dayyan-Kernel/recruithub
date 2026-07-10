@@ -23,3 +23,4 @@ AI Recruitment POC — Change log (one line per change)
 20. Moved Archived above Settings; archived jobs open a card grid page with status, reactivate, and click-through to job details.
 21. Added All / Paused / Closed filter dropdown on the archived jobs page.
 22. Added "Back to Archived jobs" link on paused/closed job details so you can return from a card click.
+23. Added new status called finalists and allowed to export all the finalized candidates in an excel sheet

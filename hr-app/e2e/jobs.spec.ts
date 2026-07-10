@@ -63,7 +63,7 @@ test('sidebar Archived link opens archived jobs page with cards', async ({ page 
 // 2. Expanding a job shows phase links
 // ---------------------------------------------------------------------------
 
-test('expanding a job shows AI Shortlist, Screening, and Interviews links', async ({ page }) => {
+test('expanding a job shows AI Shortlist, Screening, Interviews, and Finalists links', async ({ page }) => {
   await mockLayoutWithJobs(page)
 
   await page.goto('/')
@@ -74,6 +74,7 @@ test('expanding a job shows AI Shortlist, Screening, and Interviews links', asyn
   await expect(page.getByRole('link', { name: 'AI Shortlist' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Screening' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Interviews' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Finalists' })).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------

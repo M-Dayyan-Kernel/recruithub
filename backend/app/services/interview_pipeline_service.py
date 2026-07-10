@@ -26,7 +26,7 @@ from app.schemas.schemas import (
 )
 from app.services.interview_flag_service import get_flag_reason, is_flagged_session
 
-InterviewTabStage = Literal["pending", "scheduled", "ongoing", "completed", "flagged"]
+InterviewTabStage = Literal["pending", "scheduled", "ongoing", "completed", "flagged", "finalists"]
 
 
 def _map_recommendation_label(rec: str | None) -> str | None:
@@ -58,6 +58,12 @@ def _assessment_status(
     return "none"
 
 
+def _session_hr_decision(session: InterviewSession | None) -> str:
+    if not session:
+        return "pending"
+    return getattr(session, "hr_decision", None) or "pending"
+
+
 def classify_interview_tab(
     session: InterviewSession | None,
     *,
@@ -73,6 +79,8 @@ def classify_interview_tab(
     if session.status == "pending":
         return "scheduled"
     if has_report or session.status in ("completed", "assessed", "assessment_failed"):
+        if _session_hr_decision(session) == "approved":
+            return "finalists"
         return "completed"
     return "scheduled"
 
@@ -140,7 +148,7 @@ async def get_interview_pipeline(
     ]
     if not eligible_candidate_ids:
         empty_counts = InterviewPipelineCounts(
-            pending=0, scheduled=0, ongoing=0, completed=0, flagged=0
+            pending=0, scheduled=0, ongoing=0, completed=0, flagged=0, finalists=0
         )
         return InterviewPipelineResponse(counts=empty_counts, candidates=[])
 
@@ -163,7 +171,7 @@ async def get_interview_pipeline(
             latest_report_by_candidate[report.candidate_id] = report
 
     counts = InterviewPipelineCounts(
-        pending=0, scheduled=0, ongoing=0, completed=0, flagged=0
+        pending=0, scheduled=0, ongoing=0, completed=0, flagged=0, finalists=0
     )
     pipeline_candidates: list[InterviewPipelineCandidate] = []
 
@@ -186,6 +194,8 @@ async def get_interview_pipeline(
             counts.ongoing += 1
         elif stage == "flagged":
             counts.flagged += 1
+        elif stage == "finalists":
+            counts.finalists += 1
         else:
             counts.completed += 1
 
@@ -222,6 +232,7 @@ async def get_interview_pipeline(
                 can_reschedule=can_reschedule,
                 actions_disabled=actions_disabled,
                 has_active_session=has_other_active,
+                hr_decision=_session_hr_decision(session),
             )
         )
 

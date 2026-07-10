@@ -141,6 +141,7 @@ class InterviewSession(Base):
     unique_token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     livekit_room_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
+    hr_decision: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     email_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

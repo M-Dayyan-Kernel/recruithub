@@ -1,21 +1,23 @@
 import { Link } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { FileText, Loader2, RefreshCw } from 'lucide-react'
+import { Check, FileText, Loader2, RefreshCw, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { InterviewPipelineCandidate } from '@/types/api'
+import type { InterviewPipelineCandidate, InterviewSession } from '@/types/api'
 import { WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
 
 interface Props {
   jobId: string
   rows: InterviewPipelineCandidate[]
-  variant: 'completed' | 'flagged'
+  variant: 'completed' | 'flagged' | 'finalists'
   returnSearch: string
   onRescheduled?: () => void
 }
 
 function interviewStatusLabel(row: InterviewPipelineCandidate): string {
   const session = row.session
+  if (row.tab === 'finalists' || row.hr_decision === 'approved') return 'Finalist'
+  if (row.hr_decision === 'rejected') return 'Rejected'
   if (row.assessment_status === 'failed') return 'Assessment Failed'
   if (row.has_report) return 'Completed'
   if (session?.status === 'in_progress') return 'In Progress'
@@ -75,6 +77,77 @@ function RescheduleButton({
   )
 }
 
+function DecisionButtons({
+  row,
+  jobId,
+}: {
+  row: InterviewPipelineCandidate
+  jobId: string
+}) {
+  const queryClient = useQueryClient()
+  const decision = row.hr_decision ?? 'pending'
+  const canDecide =
+    !row.actions_disabled &&
+    (row.has_report || row.assessment_status === 'ready') &&
+    decision !== 'approved'
+
+  const decisionMutation = useMutation({
+    mutationFn: (hr_decision: 'approved' | 'rejected') =>
+      api.patch(`/api/candidates/${row.candidate_id}/interview/decision`, {
+        hr_decision,
+      }) as Promise<InterviewSession>,
+    onSuccess: (_data, hr_decision) => {
+      queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['finalists', jobId] })
+      toast.success(
+        hr_decision === 'approved'
+          ? `${row.candidate_name ?? 'Candidate'} moved to Finalists`
+          : `${row.candidate_name ?? 'Candidate'} rejected`,
+      )
+    },
+    onError: (err: Error) => toast.error(err.message || 'Failed to update decision'),
+  })
+
+  if (!canDecide) return null
+
+  if (decision === 'rejected') {
+    return (
+      <button
+        type="button"
+        disabled={decisionMutation.isPending}
+        onClick={() => decisionMutation.mutate('approved')}
+        className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+      >
+        {decisionMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+        Approve
+      </button>
+    )
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        disabled={decisionMutation.isPending}
+        onClick={() => decisionMutation.mutate('approved')}
+        className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+      >
+        {decisionMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+        Approve
+      </button>
+      <button
+        type="button"
+        disabled={decisionMutation.isPending}
+        onClick={() => decisionMutation.mutate('rejected')}
+        className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+      >
+        {decisionMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+        Reject
+      </button>
+    </>
+  )
+}
+
 export function InterviewPipelineTable({
   jobId,
   rows,
@@ -113,12 +186,12 @@ export function InterviewPipelineTable({
           <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
             <th className="px-4 py-3">Candidate Name</th>
             <th className="px-4 py-3">Interview Status</th>
-            {variant === 'completed' && (
+            {variant === 'completed' || variant === 'finalists' ? (
               <>
                 <th className="px-4 py-3">Hire Recommendation</th>
                 <th className="px-4 py-3">Interview Score</th>
               </>
-            )}
+            ) : null}
             {variant === 'flagged' && <th className="px-4 py-3">Reason</th>}
             <th className="px-4 py-3 text-right">Actions</th>
           </tr>
@@ -133,12 +206,19 @@ export function InterviewPipelineTable({
             return (
               <tr key={row.candidate_id} className="hover:bg-slate-50/60">
                 <td className="px-4 py-3 text-sm font-medium text-slate-800">
-                  {row.candidate_name ?? 'Candidate'}
+                  <div className="flex items-center gap-2">
+                    {row.candidate_name ?? 'Candidate'}
+                    {row.hr_decision === 'rejected' && (
+                      <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700">
+                        Rejected
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-sm text-slate-600">
                   {interviewStatusLabel(row)}
                 </td>
-                {variant === 'completed' && (
+                {variant === 'completed' || variant === 'finalists' ? (
                   <>
                     <td className="px-4 py-3 text-sm text-slate-600">
                       {row.report_recommendation ?? '—'}
@@ -149,7 +229,7 @@ export function InterviewPipelineTable({
                         : '—'}
                     </td>
                   </>
-                )}
+                ) : null}
                 {variant === 'flagged' && (
                   <td className="px-4 py-3 text-sm text-amber-800">
                     {row.flag_reason ?? '—'}
@@ -157,9 +237,9 @@ export function InterviewPipelineTable({
                 )}
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {variant === 'completed' && (
+                    {(variant === 'completed' || variant === 'finalists') && (
                       <>
-                        {assessmentFailed && !actionsDisabled && (
+                        {variant === 'completed' && assessmentFailed && !actionsDisabled && (
                           <button
                             type="button"
                             onClick={() => retryMutation.mutate(row.candidate_id)}
@@ -174,7 +254,7 @@ export function InterviewPipelineTable({
                             Retry Assessment
                           </button>
                         )}
-                        {generating && (
+                        {variant === 'completed' && generating && (
                           <span className="inline-flex items-center gap-1 text-xs text-slate-500">
                             <Loader2 size={12} className="animate-spin" />
                             Generating...
@@ -189,6 +269,7 @@ export function InterviewPipelineTable({
                             View Report
                           </Link>
                         ) : (
+                          variant === 'completed' &&
                           !assessmentFailed &&
                           !generating && (
                             <button
@@ -201,13 +282,18 @@ export function InterviewPipelineTable({
                             </button>
                           )
                         )}
+                        {variant === 'completed' && (
+                          <DecisionButtons row={row} jobId={jobId} />
+                        )}
                       </>
                     )}
-                    <RescheduleButton
-                      row={row}
-                      jobId={jobId}
-                      onSuccess={handleRescheduled}
-                    />
+                    {variant !== 'finalists' && (
+                      <RescheduleButton
+                        row={row}
+                        jobId={jobId}
+                        onSuccess={handleRescheduled}
+                      />
+                    )}
                   </div>
                 </td>
               </tr>

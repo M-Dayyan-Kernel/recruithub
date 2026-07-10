@@ -34,6 +34,8 @@ from app.schemas.schemas import (
     InterviewReportResponse,
     InterviewPipelineResponse,
     InterviewScheduleRequest,
+    InterviewHrDecisionUpdate,
+    FinalistsResponse,
 )
 
 router = APIRouter()
@@ -716,7 +718,9 @@ async def list_job_interviews(
 )
 async def get_interview_pipeline(
     job_id: uuid.UUID,
-    tab: Optional[Literal["pending", "scheduled", "ongoing", "completed", "flagged"]] = Query(
+    tab: Optional[
+        Literal["pending", "scheduled", "ongoing", "completed", "flagged", "finalists"]
+    ] = Query(
         default=None,
         description="Filter candidates to a single pipeline tab. Counts always reflect all tabs.",
     ),
@@ -729,7 +733,8 @@ async def get_interview_pipeline(
       - pending: no interview session yet
       - scheduled: link sent, session status pending
       - ongoing: session in_progress
-      - completed: session completed (has_report indicates report availability)
+      - completed: session completed (pending/rejected HR decision)
+      - finalists: completed and HR-approved
       - flagged: interview never produced a meaningful result
     """
     from app.services.interview_pipeline_service import get_interview_pipeline as build_pipeline
@@ -740,6 +745,40 @@ async def get_interview_pipeline(
         if str(exc) == "Job not found":
             raise HTTPException(status_code=404, detail="Job not found") from exc
         raise
+
+
+@router.get("/jobs/{job_id}/finalists", response_model=FinalistsResponse)
+async def get_finalists(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """List HR-approved finalists for a job (post-interview)."""
+    from app.services.interview_finalist_service import list_finalists
+
+    try:
+        return await list_finalists(db, job_id)
+    except ValueError as exc:
+        if str(exc) == "Job not found":
+            raise HTTPException(status_code=404, detail="Job not found") from exc
+        raise
+
+
+@router.patch(
+    "/candidates/{candidate_id}/interview/decision",
+    response_model=InterviewSessionResponse,
+)
+async def update_interview_hr_decision(
+    candidate_id: uuid.UUID,
+    payload: InterviewHrDecisionUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Approve (move to Finalists) or reject (keep in Completed) after interview."""
+    from app.services.interview_finalist_service import set_interview_hr_decision
+
+    try:
+        return await set_interview_hr_decision(db, candidate_id, payload.hr_decision)
+    except ValueError as exc:
+        msg = str(exc)
+        if msg == "Candidate not found":
+            raise HTTPException(status_code=404, detail=msg) from exc
+        raise HTTPException(status_code=400, detail=msg) from exc
 
 
 # ---------------------------------------------------------------------------

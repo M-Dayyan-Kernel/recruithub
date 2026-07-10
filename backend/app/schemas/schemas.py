@@ -425,6 +425,7 @@ class InterviewSessionResponse(BaseModel):
     unique_token: str
     livekit_room_name: Optional[str] = None
     status: str
+    hr_decision: str = "pending"  # pending | approved | rejected
     email_sent_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -437,6 +438,11 @@ class InterviewSessionResponse(BaseModel):
     candidate_name: Optional[str] = None
     job_title: Optional[str] = None
     mock_mode: bool = False
+
+
+class InterviewHrDecisionUpdate(BaseModel):
+    """HR approve/reject after a completed interview."""
+    hr_decision: Literal["approved", "rejected"]
 
 
 class InterviewScheduleRequest(BaseModel):
@@ -459,12 +465,13 @@ class InterviewPipelineCounts(BaseModel):
     ongoing: int
     completed: int
     flagged: int = 0
+    finalists: int = 0
 
 
 class InterviewPipelineCandidate(BaseModel):
     candidate_id: uuid.UUID
     candidate_name: Optional[str] = None
-    tab: Literal["pending", "scheduled", "ongoing", "completed", "flagged"]
+    tab: Literal["pending", "scheduled", "ongoing", "completed", "flagged", "finalists"]
     has_report: bool
     session: Optional[InterviewSessionResponse] = None
     report_overall_score: Optional[float] = None
@@ -474,11 +481,31 @@ class InterviewPipelineCandidate(BaseModel):
     can_reschedule: bool = False
     actions_disabled: bool = False
     has_active_session: bool = False
+    hr_decision: Optional[str] = None
 
 
 class InterviewPipelineResponse(BaseModel):
     counts: InterviewPipelineCounts
     candidates: List[InterviewPipelineCandidate]
+
+
+class FinalistCandidate(BaseModel):
+    candidate_id: uuid.UUID
+    session_id: uuid.UUID
+    candidate_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    current_ctc: Optional[str] = None
+    expected_ctc: Optional[str] = None
+    total_experience_years: Optional[float] = None
+    report_overall_score: Optional[float] = None
+    report_recommendation: Optional[str] = None
+    hr_decision: str = "approved"
+    completed_at: Optional[datetime] = None
+
+
+class FinalistsResponse(BaseModel):
+    candidates: List[FinalistCandidate]
 
 
 # ---------------------------------------------------------------------------

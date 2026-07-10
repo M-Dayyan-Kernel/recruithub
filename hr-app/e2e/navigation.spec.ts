@@ -104,6 +104,7 @@ test('sidebar job tree lists jobs with phase sub-links', async ({ page }) => {
   await expect(page.getByRole('link', { name: 'AI Shortlist' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Screening' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Interviews' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Finalists' })).toBeVisible()
 })
 
 test('sidebar Screening link navigates to screening route', async ({ page }) => {
