@@ -1,9 +1,19 @@
 import { useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Activity, Archive, LayoutDashboard, LogOut, Menu, Settings, Users, X, Zap } from 'lucide-react'
+import {
+  Activity,
+  Archive,
+  Briefcase,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Settings,
+  Users,
+  X,
+  Zap,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { SidebarJobsNav } from '@/components/SidebarJobsNav'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { filterArchivedJobs } from '@/lib/jobStatus'
@@ -33,6 +43,13 @@ function userInitials(name?: string | null, email?: string | null) {
   return source.slice(0, 2).toUpperCase()
 }
 
+function isJobsNavActive(pathname: string): boolean {
+  if (pathname === '/jobs' || pathname === '/jobs/') return true
+  if (pathname === '/jobs/new' || pathname.startsWith('/jobs/new/')) return true
+  if (pathname.startsWith('/jobs/') && !pathname.startsWith('/jobs/archived')) return true
+  return false
+}
+
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
@@ -48,6 +65,7 @@ export default function Layout() {
 
   const pageTitle = (() => {
     if (location.pathname === '/') return 'Dashboard'
+    if (location.pathname === '/jobs') return 'Jobs'
     if (location.pathname === '/jobs/new') return 'Create Job'
     if (location.pathname === '/jobs/archived') return 'Archived jobs'
     if (location.pathname.match(/^\/jobs\/[^/]+\/screening/)) return 'Screening'
@@ -78,7 +96,6 @@ export default function Layout() {
           sidebarOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        {/* Brand */}
         <div className="flex items-center gap-2.5 border-b border-slate-800 px-4 py-4">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600">
             <Zap className="h-4 w-4 text-white" />
@@ -97,20 +114,25 @@ export default function Layout() {
           </button>
         </div>
 
-        {/* Primary nav */}
         <nav className="scrollbar-thin flex-1 overflow-y-auto px-2.5 py-3">
           <SectionLabel>Overview</SectionLabel>
-          <NavLink to="/" end onClick={closeSidebar} className={navLinkClass}>
-            <LayoutDashboard className="h-4 w-4 shrink-0 opacity-80" />
-            Dashboard
-          </NavLink>
-
-          <div className="mt-4">
-            <SidebarJobsNav onNavigate={closeSidebar} />
+          <div className="space-y-0.5">
+            <NavLink to="/" end onClick={closeSidebar} className={navLinkClass}>
+              <LayoutDashboard className="h-4 w-4 shrink-0 opacity-80" />
+              Dashboard
+            </NavLink>
+            <NavLink
+              to="/jobs"
+              end
+              onClick={closeSidebar}
+              className={() => navLinkClass({ isActive: isJobsNavActive(location.pathname) })}
+            >
+              <Briefcase className="h-4 w-4 shrink-0 opacity-80" />
+              Jobs
+            </NavLink>
           </div>
         </nav>
 
-        {/* Secondary links */}
         <div className="space-y-3 border-t border-slate-800 px-2.5 py-3">
           <div>
             <SectionLabel>Library</SectionLabel>
@@ -153,7 +175,6 @@ export default function Layout() {
           )}
         </div>
 
-        {/* Account */}
         <div className="border-t border-slate-800 p-3">
           <div className="flex items-center gap-2.5 rounded-lg px-1.5 py-1">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-700 text-[11px] font-semibold text-slate-100">

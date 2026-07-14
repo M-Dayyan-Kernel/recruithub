@@ -152,11 +152,11 @@ Legacy UI explorations with mock/stub data. Not connected to the live backend. S
 | Parse job description (JD) | Upload PDF/DOCX → GPT-4o extracts fields and generates questions | HR: `CreateJobForm.tsx` / API: `POST /api/jobs/parse-jd` |
 | Default screening questions | Auto-applied if none provided (availability, CTC, notice period, etc.) | `screening_defaults.py` |
 | Interview rubric enrichment | GPT generates hidden `expected_points` for each interview question | `expected_answer_service.py` |
-| List jobs | Filter by status; shown in dashboard and sidebar | API: `GET /api/jobs` |
+| List jobs | Filter by status; Jobs page cards + dashboard | API: `GET /api/jobs` / `JobsPage.tsx` |
 | View job details | Title, skills, status, screening/interview config | `JobHeader.tsx` |
 | Edit job | Update metadata, questions, call window, timezone | `EditJobModal.tsx` / API: `PATCH /api/jobs/{id}` |
 | Delete job | Cascades candidates, shortlist, screening, interviews | `JobHeader.tsx` / API: `DELETE /api/jobs/{id}` |
-| Job phase navigation | Sidebar links: AI Shortlist → Screening → Interviews | `SidebarJobsNav.tsx` |
+| Job phase navigation | Jobs page card buttons: AI Shortlist → Screening → Interviews → Finalists | `JobsPage.tsx` |
 
 ### 2. Resume Upload & Parsing
 

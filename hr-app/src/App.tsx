@@ -1,7 +1,8 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import Layout from '@/components/Layout'
 import DashboardPage from '@/pages/DashboardPage'
+import JobsPage from '@/pages/JobsPage'
 import CreateJobPage from '@/pages/CreateJobPage'
 import JobLayout from '@/components/JobLayout'
 import JobDetailsPage from '@/pages/JobDetailsPage'
@@ -35,7 +36,7 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<Layout />}>
             <Route index element={<DashboardPage />} />
-            <Route path="jobs" element={<Navigate to="/" replace />} />
+            <Route path="jobs" element={<JobsPage />} />
             <Route path="jobs/new" element={<CreateJobPage />} />
             <Route path="jobs/archived" element={<ArchivedJobsPage />} />
             <Route path="jobs/:jobId" element={<JobLayout />}>
