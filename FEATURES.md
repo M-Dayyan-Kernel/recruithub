@@ -583,8 +583,8 @@ pending → in_progress → completed → assessed
 
 | Actor | Access | Notes |
 |-------|--------|-------|
-| **Admin** | Full HR App + Users + Settings | JWT login; manages accounts and system config |
-| **HR user** | Full hiring pipeline (including archive) | JWT login; no Users or Settings access |
+| **Admin** | Full HR App + Users + Settings + Activity | JWT login; manages accounts, system config, and audit trail |
+| **HR user** | Full hiring pipeline (including archive) | JWT login; no Users, Settings, or Activity access |
 | **Candidate** | Token-based interview access only | UUID in URL; no account required |
 | **Webhooks** | Unauthenticated callbacks | Vapi and LiveKit webhooks have no auth |
 | **LiveKit** | Short-lived JWT tokens | Generated server-side per session |

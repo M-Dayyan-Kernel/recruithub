@@ -20,8 +20,9 @@ from sqlalchemy import select, exists
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import require_roles
+from app.core.deps import RequireAdminOrHr, require_roles
 from app.models.models import Candidate, Job, ShortlistResult
+from app.services.audit_service import log_change, log_field_changes
 from app.services.candidate_contact_service import (
     resolve_candidate_email,
     resolve_candidate_name,
@@ -136,6 +137,7 @@ async def _resolve_eligible_candidate_ids(
 @router.post("/jobs/{job_id}/shortlist", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_shortlist(
     job_id: uuid.UUID,
+    actor: RequireAdminOrHr,
     body: Optional[ShortlistTriggerRequest] = None,
     db: AsyncSession = Depends(get_db),
 ):
@@ -183,6 +185,20 @@ async def trigger_shortlist(
     from app.tasks.shortlist_tasks import run_shortlist  # noqa: PLC0415
 
     run_shortlist.apply_async(args=[str(job_id), id_strings])
+
+    await log_change(
+        db,
+        actor=actor,
+        action="shortlist.triggered",
+        entity_type="job",
+        entity_id=job_id,
+        subject_label=job.title,
+        feature="shortlist",
+        before=None,
+        after={"candidate_count": len(id_strings), "candidate_ids": id_strings},
+        job_id=job_id,
+    )
+    await db.commit()
 
     response = {
         "status": "shortlisting_started",
@@ -330,6 +346,7 @@ async def get_shortlist(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 async def update_decision(
     shortlist_id: uuid.UUID,
     payload: ShortlistDecisionUpdate,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -346,6 +363,20 @@ async def update_decision(
     record = await _get_shortlist_or_404(shortlist_id, db)
     previous_decision = record.hr_decision
     record.hr_decision = payload.hr_decision
+    candidate = await db.get(Candidate, record.candidate_id)
+    subject = resolve_candidate_name(candidate) if candidate else str(record.candidate_id)
+    await log_change(
+        db,
+        actor=actor,
+        action="shortlist.decision_set",
+        entity_type="shortlist",
+        entity_id=record.id,
+        subject_label=subject,
+        feature="hr_decision",
+        before={"hr_decision": previous_decision},
+        after={"hr_decision": payload.hr_decision},
+        job_id=record.job_id,
+    )
     await db.commit()
     await db.refresh(record)
 
@@ -434,6 +465,7 @@ async def update_decision(
 async def submit_feedback(
     shortlist_id: uuid.UUID,
     payload: ShortlistFeedbackCreate,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -441,8 +473,24 @@ async def submit_feedback(
     Body: { "hr_feedback_type": str, "hr_comments": str | null }
     """
     record = await _get_shortlist_or_404(shortlist_id, db)
+    changes = {
+        "hr_feedback_type": (record.hr_feedback_type, payload.hr_feedback_type),
+        "hr_comments": (record.hr_comments, payload.hr_comments),
+    }
     record.hr_feedback_type = payload.hr_feedback_type
     record.hr_comments = payload.hr_comments
+    candidate = await db.get(Candidate, record.candidate_id)
+    subject = resolve_candidate_name(candidate) if candidate else str(record.candidate_id)
+    await log_field_changes(
+        db,
+        actor=actor,
+        action="shortlist.feedback_set",
+        entity_type="shortlist",
+        entity_id=record.id,
+        subject_label=subject,
+        changes=changes,
+        job_id=record.job_id,
+    )
     await db.commit()
     await db.refresh(record)
     return record

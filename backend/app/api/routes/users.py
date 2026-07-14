@@ -9,6 +9,7 @@ from app.core.deps import RequireAdmin
 from app.core.security import hash_password
 from app.models.models import User
 from app.schemas.schemas import UserCreate, UserResponse, UserUpdate
+from app.services.audit_service import log_change, log_field_changes
 
 router = APIRouter()
 
@@ -25,7 +26,7 @@ async def list_users(
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     body: UserCreate,
-    _admin: RequireAdmin,
+    admin: RequireAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     email = body.email.strip().lower()
@@ -44,6 +45,18 @@ async def create_user(
         is_active=True,
     )
     db.add(user)
+    await db.flush()
+    await log_change(
+        db,
+        actor=admin,
+        action="user.created",
+        entity_type="user",
+        entity_id=user.id,
+        subject_label=user.email,
+        feature="user",
+        before=None,
+        after={"email": user.email, "full_name": user.full_name, "role": user.role},
+    )
     await db.commit()
     await db.refresh(user)
     return UserResponse.model_validate(user)
@@ -61,27 +74,45 @@ async def update_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     data = body.model_dump(exclude_unset=True)
+    changes: dict = {}
+
     if "password" in data:
         password = data.pop("password")
         if password:
             user.hashed_password = hash_password(password)
+            changes["password"] = (None, "[redacted]")
     if "full_name" in data and data["full_name"] is not None:
+        before = user.full_name
         user.full_name = data["full_name"].strip()
+        changes["full_name"] = (before, user.full_name)
     if "role" in data and data["role"] is not None:
         if user.id == admin.id and data["role"] != "admin":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot change your own role away from admin",
             )
+        before = user.role
         user.role = data["role"]
+        changes["role"] = (before, user.role)
     if "is_active" in data and data["is_active"] is not None:
         if user.id == admin.id and data["is_active"] is False:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot deactivate your own account",
             )
+        before = user.is_active
         user.is_active = data["is_active"]
+        changes["is_active"] = (before, user.is_active)
 
+    await log_field_changes(
+        db,
+        actor=admin,
+        action="user.updated",
+        entity_type="user",
+        entity_id=user.id,
+        subject_label=user.email,
+        changes=changes,
+    )
     await db.commit()
     await db.refresh(user)
     return UserResponse.model_validate(user)
@@ -101,5 +132,17 @@ async def delete_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot delete your own account",
         )
+    label = user.email
+    await log_change(
+        db,
+        actor=admin,
+        action="user.deleted",
+        entity_type="user",
+        entity_id=user.id,
+        subject_label=label,
+        feature="user",
+        before={"email": label, "role": user.role, "full_name": user.full_name},
+        after=None,
+    )
     await db.delete(user)
     await db.commit()

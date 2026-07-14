@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
-from app.core.deps import require_roles
+from app.core.deps import RequireAdminOrHr, require_roles
 from app.models.models import Candidate, InterviewSession, Job, ScreeningCall
 from app.schemas.schemas import (
     ScreeningCallResponse,
@@ -23,6 +23,7 @@ from app.schemas.schemas import (
     ScreeningTriggerRequest,
     ScreeningTriggerResponse,
 )
+from app.services.audit_service import log_change
 from app.services.celery_health import CELERY_UNAVAILABLE_MSG, celery_workers_available
 from app.services.screening_trigger_service import dispatch_screening_for_candidates
 
@@ -66,6 +67,7 @@ async def _candidate_ids_with_interview_sessions(
 async def trigger_screening(
     job_id: uuid.UUID,
     body: ScreeningTriggerRequest,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -115,6 +117,24 @@ async def trigger_screening(
         force=body.force,
     )
     skipped.extend(dispatch_skipped)
+
+    await log_change(
+        db,
+        actor=actor,
+        action="screening.triggered",
+        entity_type="job",
+        entity_id=job_id,
+        subject_label=job.title,
+        feature="screening",
+        before=None,
+        after={
+            "initiated": initiated,
+            "queued": queued,
+            "candidate_ids": [str(i) for i in parsed_ids],
+        },
+        job_id=job_id,
+    )
+    await db.commit()
 
     return ScreeningTriggerResponse(
         initiated=initiated,
@@ -407,6 +427,7 @@ async def refresh_screening_call(
 async def update_screening_result(
     screening_id: uuid.UUID,
     payload: ScreeningResultUpdate,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """Set HR decision on a completed screening call."""
@@ -433,9 +454,27 @@ async def update_screening_result(
             detail="Screening result can only be set after the call is completed.",
         )
 
+    before_result = screening_call.result
     screening_call.result = payload.result
     if payload.result != "pass":
         screening_call.interview_queued_at = None
+
+    candidate = await db.get(Candidate, screening_call.candidate_id)
+    subject = (candidate.name if candidate and candidate.name else None) or str(
+        screening_call.candidate_id
+    )
+    await log_change(
+        db,
+        actor=actor,
+        action="screening.result_set",
+        entity_type="screening",
+        entity_id=screening_call.id,
+        subject_label=subject,
+        feature="result",
+        before={"result": before_result},
+        after={"result": payload.result},
+        job_id=screening_call.job_id,
+    )
     await db.commit()
     await db.refresh(screening_call)
 

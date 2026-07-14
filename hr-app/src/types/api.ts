@@ -344,3 +344,30 @@ export interface UserUpdate {
   password?: string
   is_active?: boolean
 }
+
+// ---------------------------------------------------------------------------
+// Audit logs
+// ---------------------------------------------------------------------------
+
+export interface AuditLog {
+  id: string
+  created_at: string
+  actor_user_id: string | null
+  actor_name: string
+  actor_role: string
+  action: string
+  entity_type: string
+  entity_id: string | null
+  subject_label: string
+  feature: string
+  before_state: Record<string, unknown> | null
+  after_state: Record<string, unknown> | null
+  job_id: string | null
+}
+
+export interface AuditLogListResponse {
+  items: AuditLog[]
+  total: number
+  limit: number
+  offset: number
+}

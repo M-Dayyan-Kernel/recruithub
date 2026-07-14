@@ -10,9 +10,10 @@ from sqlalchemy import select, exists
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import require_roles
+from app.core.deps import RequireAdminOrHr, require_roles
 from app.models.models import Candidate, Job, ShortlistResult
 from app.schemas.schemas import CandidateResponse, CandidateUpdate, ResumeUploadResponse
+from app.services.audit_service import log_change, log_field_changes
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,7 @@ MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 )
 async def upload_resumes(
     job_id: uuid.UUID,
+    actor: RequireAdminOrHr,
     files: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
@@ -205,6 +207,22 @@ async def upload_resumes(
         elif outcome == "skipped" and detail:
             skipped.append(detail)
 
+    for cid in created_ids:
+        cand = await db.get(Candidate, uuid.UUID(cid))
+        if cand:
+            await log_change(
+                db,
+                actor=actor,
+                action="candidate.uploaded",
+                entity_type="candidate",
+                entity_id=cand.id,
+                subject_label=cand.original_filename or cand.name or cid,
+                feature="resume",
+                before=None,
+                after={"original_filename": cand.original_filename},
+                job_id=job_id,
+            )
+
     await db.commit()
 
     from app.services.parse_queue_service import dispatch_parse_slots  # noqa: PLC0415
@@ -298,6 +316,7 @@ async def get_candidate(candidate_id: uuid.UUID, db: AsyncSession = Depends(get_
 async def retry_parse(
     job_id: uuid.UUID,
     candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -319,8 +338,20 @@ async def retry_parse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Candidate is not in a retryable state",
         )
-    # Reset to pending and fill parse slots (concurrency-limited queue)
+    before_status = candidate.parse_status
     candidate.parse_status = "pending_parse"
+    await log_change(
+        db,
+        actor=actor,
+        action="candidate.retry_parse",
+        entity_type="candidate",
+        entity_id=candidate.id,
+        subject_label=candidate.original_filename or candidate.name or str(candidate_id),
+        feature="parse_status",
+        before={"parse_status": before_status},
+        after={"parse_status": "pending_parse"},
+        job_id=job_id,
+    )
     await db.commit()
     from app.services.parse_queue_service import dispatch_parse_slots  # noqa: PLC0415
 
@@ -336,6 +367,7 @@ async def retry_parse(
 @router.delete("/candidates/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_candidate(
     candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -353,8 +385,21 @@ async def delete_candidate(
         )
     job_id = candidate.job_id
     was_active = candidate.parse_status in ("parse_queued", "parsing", "parsed")
+    label = candidate.original_filename or candidate.name or str(candidate_id)
     from app.services.parse_queue_service import dispatch_parse_slots  # noqa: PLC0415
 
+    await log_change(
+        db,
+        actor=actor,
+        action="candidate.deleted",
+        entity_type="candidate",
+        entity_id=candidate.id,
+        subject_label=label,
+        feature="candidate",
+        before={"name": candidate.name, "email": candidate.email, "original_filename": candidate.original_filename},
+        after=None,
+        job_id=job_id,
+    )
     await db.delete(candidate)
     await db.commit()
     if was_active:
@@ -370,6 +415,7 @@ async def delete_candidate(
 async def update_candidate(
     candidate_id: uuid.UUID,
     body: CandidateUpdate,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -383,12 +429,26 @@ async def update_candidate(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Candidate not found",
         )
+    changes = {}
     if body.phone is not None:
+        changes["phone"] = (candidate.phone, body.phone)
         candidate.phone = body.phone
     if body.name is not None:
+        changes["name"] = (candidate.name, body.name)
         candidate.name = body.name
     if body.email is not None:
+        changes["email"] = (candidate.email, body.email)
         candidate.email = body.email
+    await log_field_changes(
+        db,
+        actor=actor,
+        action="candidate.updated",
+        entity_type="candidate",
+        entity_id=candidate.id,
+        subject_label=candidate.original_filename or candidate.name or str(candidate_id),
+        changes=changes,
+        job_id=candidate.job_id,
+    )
     await db.commit()
     await db.refresh(candidate)
     return candidate

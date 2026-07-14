@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.routes import (
     auth,
+    audit,
     jobs,
     candidates,
     shortlist,
@@ -79,6 +80,7 @@ async def health():
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
+app.include_router(audit.router, prefix="/api/audit-logs", tags=["audit"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(candidates.router, prefix="/api", tags=["candidates"])
 app.include_router(shortlist.router, prefix="/api", tags=["shortlist"])

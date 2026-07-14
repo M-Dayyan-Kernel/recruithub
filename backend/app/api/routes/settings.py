@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import require_roles
+from app.core.deps import RequireAdmin, require_roles
 from app.models.models import SystemSettings
 from app.schemas.schemas import (
     SystemSettingsResponse,
@@ -19,6 +19,7 @@ from app.schemas.schemas import (
     EmailTemplatePreviewResponse,
     EmailTemplateTestRequest,
 )
+from app.services.audit_service import log_change, log_field_changes
 from app.services.settings_service import (
     invalidate_settings_cache,
     normalize_max_retries,
@@ -68,11 +69,13 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
 )
 async def update_settings(
     payload: SystemSettingsUpdate,
+    admin: RequireAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     """Update system-wide settings. Admin only."""
     row = await _get_or_create_settings(db)
     data = payload.model_dump(exclude_unset=True)
+    changes: dict = {}
 
     if "allowed_phone_regions" in data and data["allowed_phone_regions"] is not None:
         if not data["allowed_phone_regions"]:
@@ -80,29 +83,40 @@ async def update_settings(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="allowed_phone_regions must contain at least one region",
             )
+        changes["allowed_phone_regions"] = (
+            list(row.allowed_phone_regions or []),
+            list(data["allowed_phone_regions"]),
+        )
         row.allowed_phone_regions = data["allowed_phone_regions"]
 
     if "enforce_phone_geography" in data and data["enforce_phone_geography"] is not None:
+        changes["enforce_phone_geography"] = (
+            row.enforce_phone_geography,
+            data["enforce_phone_geography"],
+        )
         row.enforce_phone_geography = data["enforce_phone_geography"]
 
     if "screening_enabled" in data and data["screening_enabled"] is not None:
+        changes["screening_enabled"] = (row.screening_enabled, data["screening_enabled"])
         row.screening_enabled = data["screening_enabled"]
 
     if "screening_max_retries" in data and data["screening_max_retries"] is not None:
         try:
-            row.screening_max_retries = normalize_max_retries(data["screening_max_retries"])
+            new_val = normalize_max_retries(data["screening_max_retries"])
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=str(exc),
             ) from exc
+        changes["screening_max_retries"] = (row.screening_max_retries, new_val)
+        row.screening_max_retries = new_val
 
     if (
         "screening_retry_delay_seconds" in data
         and data["screening_retry_delay_seconds"] is not None
     ):
         try:
-            row.screening_retry_delay_seconds = normalize_retry_delay_seconds(
+            new_val = normalize_retry_delay_seconds(
                 data["screening_retry_delay_seconds"]
             )
         except ValueError as exc:
@@ -110,7 +124,21 @@ async def update_settings(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=str(exc),
             ) from exc
+        changes["screening_retry_delay_seconds"] = (
+            row.screening_retry_delay_seconds,
+            new_val,
+        )
+        row.screening_retry_delay_seconds = new_val
 
+    await log_field_changes(
+        db,
+        actor=admin,
+        action="settings.updated",
+        entity_type="settings",
+        entity_id=None,
+        subject_label="System settings",
+        changes=changes,
+    )
     await db.commit()
     await db.refresh(row)
     invalidate_settings_cache()
@@ -152,19 +180,38 @@ async def get_email_templates(db: AsyncSession = Depends(get_db)):
 async def update_email_template(
     template_id: str,
     payload: EmailTemplateUpdate,
+    admin: RequireAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     from app.services.email_template_service import (
         REQUIRED_PLACEHOLDERS,
         save_template,
-        merge_templates,
+        get_merged_templates,
     )
+
+    before_merged = await get_merged_templates(db)
+    before_entry = before_merged.get(template_id) or {}
 
     try:
         merged = await save_template(db, template_id, payload.subject, payload.body_html)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    await log_change(
+        db,
+        actor=admin,
+        action="settings.email_template_updated",
+        entity_type="settings",
+        entity_id=None,
+        subject_label=f"Email template: {template_id}",
+        feature="email_templates",
+        before={
+            "subject": before_entry.get("subject"),
+            "version": before_entry.get("version"),
+        },
+        after={"subject": payload.subject, "template_id": template_id},
+    )
+    await db.commit()
     invalidate_settings_cache()
     templates = {
         tid: EmailTemplateEntry(
@@ -186,7 +233,11 @@ async def update_email_template(
     response_model=EmailTemplatesResponse,
     dependencies=[_admin_auth],
 )
-async def restore_email_template(template_id: str, db: AsyncSession = Depends(get_db)):
+async def restore_email_template(
+    template_id: str,
+    admin: RequireAdmin,
+    db: AsyncSession = Depends(get_db),
+):
     from app.services.email_template_service import (
         REQUIRED_PLACEHOLDERS,
         restore_template,
@@ -197,6 +248,18 @@ async def restore_email_template(template_id: str, db: AsyncSession = Depends(ge
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    await log_change(
+        db,
+        actor=admin,
+        action="settings.email_template_restored",
+        entity_type="settings",
+        entity_id=None,
+        subject_label=f"Email template: {template_id}",
+        feature="email_templates",
+        before=None,
+        after={"template_id": template_id, "restored": True},
+    )
+    await db.commit()
     invalidate_settings_cache()
     templates = {
         tid: EmailTemplateEntry(

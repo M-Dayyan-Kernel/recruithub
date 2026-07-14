@@ -22,7 +22,7 @@ from sqlalchemy import select, update
 
 from app.core.database import get_db
 from app.core.config import settings
-from app.core.deps import require_roles
+from app.core.deps import RequireAdminOrHr, require_roles
 from app.models.models import (
     Candidate,
     InterviewSession,
@@ -38,11 +38,20 @@ from app.schemas.schemas import (
     InterviewHrDecisionUpdate,
     FinalistsResponse,
 )
+from app.services.audit_service import log_change
 
 _hr_auth = Depends(require_roles("admin", "hr"))
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+async def _candidate_label(db: AsyncSession, candidate: Candidate | None, candidate_id: uuid.UUID) -> str:
+    if candidate and candidate.name:
+        return candidate.name
+    if candidate and candidate.original_filename:
+        return candidate.original_filename
+    return str(candidate_id)
 
 
 async def _get_latest_pass_screening_call(
@@ -91,6 +100,7 @@ async def _mark_interview_queued(
 )
 async def queue_candidate_for_interview(
     candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -102,6 +112,18 @@ async def queue_candidate_for_interview(
         raise HTTPException(status_code=404, detail="Candidate not found")
 
     await _mark_interview_queued(db, candidate_id, candidate.job_id)
+    await log_change(
+        db,
+        actor=actor,
+        action="interview.queued",
+        entity_type="interview",
+        entity_id=candidate_id,
+        subject_label=await _candidate_label(db, candidate, candidate_id),
+        feature="interview_queue",
+        before=None,
+        after={"queued": True},
+        job_id=candidate.job_id,
+    )
     await db.commit()
 
     return {
@@ -123,6 +145,7 @@ async def queue_candidate_for_interview(
 async def schedule_interview(
     candidate_id: uuid.UUID,
     body: InterviewScheduleRequest,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -209,6 +232,18 @@ async def schedule_interview(
         timezone_name=body.timezone or "Asia/Kolkata",
     )
 
+    await log_change(
+        db,
+        actor=actor,
+        action="interview.scheduled",
+        entity_type="interview",
+        entity_id=interview_session.id,
+        subject_label=await _candidate_label(db, candidate, candidate_id),
+        feature="scheduled_interview_at",
+        before=None,
+        after={"scheduled_interview_at": scheduled_at.isoformat()},
+        job_id=candidate.job_id,
+    )
     await db.commit()
     await db.refresh(interview_session)
 
@@ -231,6 +266,7 @@ async def schedule_interview(
 )
 async def send_interview_link(
     candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -287,6 +323,18 @@ async def send_interview_link(
 
     await send_interview_invitation_email(db, interview_session, candidate, job_title)
 
+    await log_change(
+        db,
+        actor=actor,
+        action="interview.link_sent",
+        entity_type="interview",
+        entity_id=interview_session.id,
+        subject_label=await _candidate_label(db, candidate, candidate_id),
+        feature="interview_link",
+        before=None,
+        after={"status": interview_session.status},
+        job_id=candidate.job_id,
+    )
     await db.commit()
     await db.refresh(interview_session)
 
@@ -775,13 +823,41 @@ async def get_finalists(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 async def update_interview_hr_decision(
     candidate_id: uuid.UUID,
     payload: InterviewHrDecisionUpdate,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """Approve (move to Finalists) or reject (keep in Completed) after interview."""
     from app.services.interview_finalist_service import set_interview_hr_decision
 
+    candidate = await db.get(Candidate, candidate_id)
     try:
-        return await set_interview_hr_decision(db, candidate_id, payload.hr_decision)
+        # Capture before from latest completed session if present
+        before_decision = None
+        sess_result = await db.execute(
+            select(InterviewSession)
+            .where(InterviewSession.candidate_id == candidate_id)
+            .order_by(InterviewSession.created_at.desc())
+            .limit(1)
+        )
+        latest = sess_result.scalars().first()
+        if latest:
+            before_decision = latest.hr_decision
+
+        result = await set_interview_hr_decision(db, candidate_id, payload.hr_decision)
+        await log_change(
+            db,
+            actor=actor,
+            action="interview.decision_set",
+            entity_type="interview",
+            entity_id=result.id if hasattr(result, "id") else candidate_id,
+            subject_label=await _candidate_label(db, candidate, candidate_id),
+            feature="hr_decision",
+            before={"hr_decision": before_decision},
+            after={"hr_decision": payload.hr_decision},
+            job_id=candidate.job_id if candidate else None,
+        )
+        await db.commit()
+        return result
     except ValueError as exc:
         msg = str(exc)
         if msg == "Candidate not found":
@@ -801,6 +877,7 @@ async def update_interview_hr_decision(
 )
 async def reschedule_interview_endpoint(
     candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
     body: Optional[InterviewScheduleRequest] = Body(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -810,7 +887,22 @@ async def reschedule_interview_endpoint(
     from app.services.interview_reschedule_service import reschedule_interview
 
     try:
-        return await reschedule_interview(db, candidate_id, schedule=body)
+        candidate = await db.get(Candidate, candidate_id)
+        result = await reschedule_interview(db, candidate_id, schedule=body)
+        await log_change(
+            db,
+            actor=actor,
+            action="interview.rescheduled",
+            entity_type="interview",
+            entity_id=result.id if hasattr(result, "id") else candidate_id,
+            subject_label=await _candidate_label(db, candidate, candidate_id),
+            feature="interview_session",
+            before=None,
+            after={"session_id": str(result.id) if hasattr(result, "id") else None},
+            job_id=candidate.job_id if candidate else None,
+        )
+        await db.commit()
+        return result
     except ValueError as exc:
         msg = str(exc)
         if msg == "Candidate not found":
@@ -831,6 +923,7 @@ async def reschedule_interview_endpoint(
 )
 async def retry_interview_assessment(
     candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """Re-enqueue assessment generation for the latest failed interview session."""
@@ -851,7 +944,21 @@ async def retry_interview_assessment(
             detail="Assessment retry is only available for failed assessments",
         )
 
+    before_status = session.status
     session.status = "completed"
+    candidate = await db.get(Candidate, candidate_id)
+    await log_change(
+        db,
+        actor=actor,
+        action="interview.retry_assessment",
+        entity_type="interview",
+        entity_id=session.id,
+        subject_label=await _candidate_label(db, candidate, candidate_id),
+        feature="status",
+        before={"status": before_status},
+        after={"status": "completed"},
+        job_id=session.job_id,
+    )
     await db.commit()
 
     generate_interview_report.delay(str(session.id))

@@ -19,6 +19,7 @@
 - Candidate interview token routes and webhooks remain unauthenticated
 - `GET /api/settings` readable by admin and HR; mutations and email templates are **admin-only**
 - Users management and Settings UI are **admin-only**
+- **Audit (admin only):** `GET /api/audit-logs` — activity log of mutations (actor, subject, feature, before/after)
 
 ---
 

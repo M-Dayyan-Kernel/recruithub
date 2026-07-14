@@ -197,3 +197,23 @@ class InterviewReport(Base):
 
     # Relationships
     session: Mapped["InterviewSession"] = relationship("InterviewSession", back_populates="report")
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    actor_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    actor_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    actor_role: Mapped[str] = mapped_column(String(20), nullable=False)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    entity_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    subject_label: Mapped[str] = mapped_column(String(500), nullable=False)
+    feature: Mapped[str] = mapped_column(String(100), nullable=False)
+    before_state: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    after_state: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    job_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)

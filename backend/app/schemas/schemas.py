@@ -600,3 +600,32 @@ class UserUpdate(BaseModel):
     role: Optional[RoleLiteral] = None
     password: Optional[str] = Field(None, min_length=6, max_length=128)
     is_active: Optional[bool] = None
+
+
+# ---------------------------------------------------------------------------
+# Audit log schemas
+# ---------------------------------------------------------------------------
+
+class AuditLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    created_at: datetime
+    actor_user_id: Optional[uuid.UUID] = None
+    actor_name: str
+    actor_role: str
+    action: str
+    entity_type: str
+    entity_id: Optional[uuid.UUID] = None
+    subject_label: str
+    feature: str
+    before_state: Optional[dict] = None
+    after_state: Optional[dict] = None
+    job_id: Optional[uuid.UUID] = None
+
+
+class AuditLogListResponse(BaseModel):
+    items: List[AuditLogResponse]
+    total: int
+    limit: int
+    offset: int

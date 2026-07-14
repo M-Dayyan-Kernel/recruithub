@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Archive, LayoutDashboard, LogOut, Menu, Settings, Users, X, Zap } from 'lucide-react'
+import { Activity, Archive, LayoutDashboard, LogOut, Menu, Settings, Users, X, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SidebarJobsNav } from '@/components/SidebarJobsNav'
 import { api } from '@/lib/api'
@@ -33,6 +33,7 @@ export default function Layout() {
     if (location.pathname.startsWith('/report/')) return 'Interview Report'
     if (location.pathname === '/settings') return 'Settings'
     if (location.pathname === '/users') return 'Users'
+    if (location.pathname === '/activity') return 'Activity'
     return 'Recruitment Hub'
   })()
 
@@ -123,6 +124,21 @@ export default function Layout() {
 
             {isAdmin && (
               <>
+                <NavLink
+                  to="/activity"
+                  onClick={() => setSidebarOpen(false)}
+                  className={({ isActive }) =>
+                    cn(
+                      'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                      isActive
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
+                    )
+                  }
+                >
+                  <Activity className="h-4 w-4 shrink-0" />
+                  Activity
+                </NavLink>
                 <NavLink
                   to="/users"
                   onClick={() => setSidebarOpen(false)}

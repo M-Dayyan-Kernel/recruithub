@@ -8,9 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
-from app.core.deps import require_roles
+from app.core.deps import RequireAdminOrHr, require_roles
 from app.models.models import Job
 from app.schemas.schemas import JobCreate, JobUpdate, JobResponse, JobParseResponse, InterviewQuestionPublic, ScreeningQuestion
+from app.services.audit_service import log_change, log_field_changes
 from app.services.document_extractor import ALLOWED_EXTENSIONS, extract_text_from_bytes
 from app.services.jd_parser import parse_job_description
 from app.services.screening_defaults import get_default_screening_questions
@@ -24,6 +25,20 @@ ALLOWED_CONTENT_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
+_JOB_AUDIT_FIELDS = (
+    "title",
+    "description",
+    "required_skills",
+    "experience_min",
+    "experience_max",
+    "screening_questions",
+    "interview_questions",
+    "screening_call_from",
+    "screening_call_to",
+    "screening_timezone",
+    "status",
+)
+
 
 def _is_allowed_jd_file(file: UploadFile) -> bool:
     ct_ok = file.content_type in ALLOWED_CONTENT_TYPES
@@ -31,8 +46,18 @@ def _is_allowed_jd_file(file: UploadFile) -> bool:
     return ct_ok or ext_ok
 
 
+def _serialize_job_field(value):
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
-async def create_job(payload: JobCreate, db: AsyncSession = Depends(get_db)):
+async def create_job(
+    payload: JobCreate,
+    actor: RequireAdminOrHr,
+    db: AsyncSession = Depends(get_db),
+):
     data = payload.model_dump()
     if not data.get("screening_questions"):
         data["screening_questions"] = get_default_screening_questions(data.get("title") or "")
@@ -51,6 +76,19 @@ async def create_job(payload: JobCreate, db: AsyncSession = Depends(get_db)):
         )
     job = Job(**data)
     db.add(job)
+    await db.flush()
+    await log_change(
+        db,
+        actor=actor,
+        action="job.created",
+        entity_type="job",
+        entity_id=job.id,
+        subject_label=job.title,
+        feature="job",
+        before=None,
+        after={"title": job.title, "status": job.status},
+        job_id=job.id,
+    )
     await db.commit()
     await db.refresh(job)
     return job
@@ -146,7 +184,12 @@ async def get_job(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/{job_id}", response_model=JobResponse)
-async def update_job(job_id: uuid.UUID, payload: JobUpdate, db: AsyncSession = Depends(get_db)):
+async def update_job(
+    job_id: uuid.UUID,
+    payload: JobUpdate,
+    actor: RequireAdminOrHr,
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
     if not job:
@@ -158,15 +201,39 @@ async def update_job(job_id: uuid.UUID, payload: JobUpdate, db: AsyncSession = D
             existing=job.interview_questions,
             job=job,
         )
+
+    changes = {}
+    for field in _JOB_AUDIT_FIELDS:
+        if field not in updates:
+            continue
+        before_val = _serialize_job_field(getattr(job, field))
+        after_val = _serialize_job_field(updates[field])
+        changes[field] = (before_val, after_val)
+
     for field, value in updates.items():
         setattr(job, field, value)
+
+    await log_field_changes(
+        db,
+        actor=actor,
+        action="job.updated",
+        entity_type="job",
+        entity_id=job.id,
+        subject_label=job.title,
+        changes=changes,
+        job_id=job.id,
+    )
     await db.commit()
     await db.refresh(job)
     return job
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_job(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_job(
+    job_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    db: AsyncSession = Depends(get_db),
+):
     """
     Delete a job and all related records.
 
@@ -177,6 +244,20 @@ async def delete_job(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    title = job.title
+    status_before = job.status
+    await log_change(
+        db,
+        actor=actor,
+        action="job.deleted",
+        entity_type="job",
+        entity_id=job.id,
+        subject_label=title,
+        feature="job",
+        before={"title": title, "status": status_before},
+        after=None,
+        job_id=job.id,
+    )
     await db.delete(job)
     await db.commit()
     return None
