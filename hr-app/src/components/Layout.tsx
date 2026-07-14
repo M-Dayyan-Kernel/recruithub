@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, Archive, LayoutDashboard, LogOut, Menu, Settings, Users, X, Zap } from 'lucide-react'
@@ -8,6 +8,30 @@ import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { filterArchivedJobs } from '@/lib/jobStatus'
 import { useAuth } from '@/context/AuthContext'
+
+function navLinkClass({ isActive }: { isActive: boolean }) {
+  return cn(
+    'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors',
+    isActive
+      ? 'bg-indigo-600 text-white'
+      : 'text-slate-400 hover:bg-slate-800/80 hover:text-slate-100',
+  )
+}
+
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+      {children}
+    </p>
+  )
+}
+
+function userInitials(name?: string | null, email?: string | null) {
+  const source = name?.trim() || email?.trim() || '?'
+  const parts = source.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
+  return source.slice(0, 2).toUpperCase()
+}
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -20,6 +44,7 @@ export default function Layout() {
   })
 
   const archivedCount = filterArchivedJobs(jobs ?? []).length
+  const closeSidebar = () => setSidebarOpen(false)
 
   const pageTitle = (() => {
     if (location.pathname === '/') return 'Dashboard'
@@ -39,158 +64,119 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-50">
-      <>
-        {sidebarOpen && (
-          <div
-            className="fixed inset-0 z-20 bg-black/60 lg:hidden"
-            onClick={() => setSidebarOpen(false)}
-          />
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-black/60 lg:hidden"
+          onClick={closeSidebar}
+        />
+      )}
+
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-30 flex w-60 flex-col bg-slate-900 transition-transform duration-200',
+          'lg:static lg:translate-x-0',
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full',
         )}
-
-        <aside
-          className={cn(
-            'fixed inset-y-0 left-0 z-30 flex w-64 flex-col bg-slate-900 transition-transform duration-200',
-            'lg:static lg:translate-x-0',
-            sidebarOpen ? 'translate-x-0' : '-translate-x-full',
-          )}
-        >
-          <div className="flex items-center gap-2.5 border-b border-slate-700 px-5 py-5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600">
-              <Zap className="h-4 w-4 text-white" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold leading-tight text-slate-50">Recruitment Hub</p>
-              <p className="text-xs leading-tight text-slate-400">HR Portal</p>
-            </div>
-            <button
-              type="button"
-              className="ml-auto text-slate-400 hover:text-slate-100 lg:hidden"
-              onClick={() => setSidebarOpen(false)}
-              aria-label="Close sidebar"
-            >
-              <X className="h-5 w-5" />
-            </button>
+      >
+        {/* Brand */}
+        <div className="flex items-center gap-2.5 border-b border-slate-800 px-4 py-4">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600">
+            <Zap className="h-4 w-4 text-white" />
           </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-slate-50">Recruitment Hub</p>
+            <p className="text-[11px] text-slate-500">HR Portal</p>
+          </div>
+          <button
+            type="button"
+            className="shrink-0 text-slate-500 hover:text-slate-200 lg:hidden"
+            onClick={closeSidebar}
+            aria-label="Close sidebar"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
 
-          <nav className="scrollbar-thin flex-1 space-y-4 overflow-y-auto px-3 py-4">
-            <NavLink
-              to="/"
-              end
-              onClick={() => setSidebarOpen(false)}
-              className={({ isActive }) =>
-                cn(
-                  'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                  isActive
-                    ? 'bg-indigo-600 text-white'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
-                )
-              }
-            >
-              <LayoutDashboard className="h-4 w-4 shrink-0" />
-              Dashboard
-            </NavLink>
+        {/* Primary nav */}
+        <nav className="scrollbar-thin flex-1 overflow-y-auto px-2.5 py-3">
+          <SectionLabel>Overview</SectionLabel>
+          <NavLink to="/" end onClick={closeSidebar} className={navLinkClass}>
+            <LayoutDashboard className="h-4 w-4 shrink-0 opacity-80" />
+            Dashboard
+          </NavLink>
 
-            <SidebarJobsNav onNavigate={() => setSidebarOpen(false)} />
-          </nav>
+          <div className="mt-4">
+            <SidebarJobsNav onNavigate={closeSidebar} />
+          </div>
+        </nav>
 
-          <div className="space-y-1 border-t border-slate-700 px-3 py-3">
-            <NavLink
-              to="/jobs/archived"
-              onClick={() => setSidebarOpen(false)}
-              className={({ isActive }) =>
-                cn(
-                  'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                  isActive
-                    ? 'bg-indigo-600 text-white'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
-                )
-              }
-            >
-              <Archive className="h-4 w-4 shrink-0" />
-              Archived
+        {/* Secondary links */}
+        <div className="space-y-3 border-t border-slate-800 px-2.5 py-3">
+          <div>
+            <SectionLabel>Library</SectionLabel>
+            <NavLink to="/jobs/archived" onClick={closeSidebar} className={navLinkClass}>
+              <Archive className="h-4 w-4 shrink-0 opacity-80" />
+              <span className="flex-1">Archived</span>
               {archivedCount > 0 && (
                 <span
                   className={cn(
-                    'ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+                    'rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
                     location.pathname === '/jobs/archived'
-                      ? 'bg-indigo-500 text-white'
-                      : 'bg-slate-700 text-slate-300',
+                      ? 'bg-indigo-500/80 text-white'
+                      : 'bg-slate-800 text-slate-400',
                   )}
                 >
                   {archivedCount}
                 </span>
               )}
             </NavLink>
-
-            {isAdmin && (
-              <>
-                <NavLink
-                  to="/activity"
-                  onClick={() => setSidebarOpen(false)}
-                  className={({ isActive }) =>
-                    cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                      isActive
-                        ? 'bg-indigo-600 text-white'
-                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
-                    )
-                  }
-                >
-                  <Activity className="h-4 w-4 shrink-0" />
-                  Activity
-                </NavLink>
-                <NavLink
-                  to="/users"
-                  onClick={() => setSidebarOpen(false)}
-                  className={({ isActive }) =>
-                    cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                      isActive
-                        ? 'bg-indigo-600 text-white'
-                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
-                    )
-                  }
-                >
-                  <Users className="h-4 w-4 shrink-0" />
-                  Users
-                </NavLink>
-                <NavLink
-                  to="/settings"
-                  onClick={() => setSidebarOpen(false)}
-                  className={({ isActive }) =>
-                    cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                      isActive
-                        ? 'bg-indigo-600 text-white'
-                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
-                    )
-                  }
-                >
-                  <Settings className="h-4 w-4 shrink-0" />
-                  Settings
-                </NavLink>
-              </>
-            )}
           </div>
 
-          <div className="border-t border-slate-700 px-4 py-4">
-            <div className="mb-3">
+          {isAdmin && (
+            <div>
+              <SectionLabel>Admin</SectionLabel>
+              <div className="space-y-0.5">
+                <NavLink to="/activity" onClick={closeSidebar} className={navLinkClass}>
+                  <Activity className="h-4 w-4 shrink-0 opacity-80" />
+                  Activity
+                </NavLink>
+                <NavLink to="/users" onClick={closeSidebar} className={navLinkClass}>
+                  <Users className="h-4 w-4 shrink-0 opacity-80" />
+                  Users
+                </NavLink>
+                <NavLink to="/settings" onClick={closeSidebar} className={navLinkClass}>
+                  <Settings className="h-4 w-4 shrink-0 opacity-80" />
+                  Settings
+                </NavLink>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Account */}
+        <div className="border-t border-slate-800 p-3">
+          <div className="flex items-center gap-2.5 rounded-lg px-1.5 py-1">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-700 text-[11px] font-semibold text-slate-100">
+              {userInitials(user?.full_name, user?.email)}
+            </div>
+            <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium text-slate-100">
                 {user?.full_name ?? 'User'}
               </p>
-              <p className="truncate text-xs capitalize text-slate-400">{user?.role}</p>
+              <p className="truncate text-[11px] capitalize text-slate-500">{user?.role}</p>
             </div>
             <button
               type="button"
               onClick={logout}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100"
+              title="Sign out"
+              aria-label="Sign out"
+              className="shrink-0 rounded-md p-1.5 text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-100"
             >
               <LogOut className="h-4 w-4" />
-              Sign out
             </button>
           </div>
-        </aside>
-      </>
+        </div>
+      </aside>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex shrink-0 items-center gap-4 border-b border-zinc-200 bg-white px-6 py-4">
@@ -202,7 +188,6 @@ export default function Layout() {
           >
             <Menu className="h-5 w-5" />
           </button>
-
           <h1 className="truncate text-lg font-semibold text-slate-800">{pageTitle}</h1>
         </header>
 
