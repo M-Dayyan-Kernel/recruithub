@@ -47,8 +47,8 @@ export default function App() {
             <Route path="jobs/:jobId/candidates/:candidateId/report" element={<ReportPage />} />
             <Route path="jobs/:jobId/shortlist/:shortlistId" element={<ShortlistReportPage />} />
             <Route element={<AdminRoute />}>
-              <Route path="settings" element={<SettingsPage />} />
               <Route path="users" element={<UsersPage />} />
+              <Route path="settings" element={<SettingsPage />} />
             </Route>
             <Route path="*" element={<NotFoundPage />} />
           </Route>

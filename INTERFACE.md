@@ -17,7 +17,8 @@
 - **Users (admin only):** `GET/POST /api/users`, `PATCH/DELETE /api/users/{id}`
 - HR App sends `Authorization: Bearer <token>` on all protected calls
 - Candidate interview token routes and webhooks remain unauthenticated
-- `GET /api/settings` readable by admin and HR; mutations and email templates are admin-only
+- `GET /api/settings` readable by admin and HR; mutations and email templates are **admin-only**
+- Users management and Settings UI are **admin-only**
 
 ---
 

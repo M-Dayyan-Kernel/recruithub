@@ -140,7 +140,7 @@ backend/
 
 ## Development Notes
 
-- **Authentication** — JWT email/password for the HR App. Roles: `admin` (full access + settings/users) and `hr` (hiring pipeline). Candidate App still uses UUID interview tokens.
+- **Authentication** — JWT email/password for the HR App. Roles: `admin` (Settings + Users) and `hr` (hiring pipeline + archive). Candidate App still uses UUID interview tokens.
 - Set `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` in `.env` to create the first admin on startup.
 - Route handlers in `api/routes/` are stubbed with `501 Not Implemented`. They get filled sprint by sprint.
 - The pgvector column `resume_embedding` uses `text-embedding-3-small` (1536 dimensions).
