@@ -3,14 +3,13 @@ import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
   ArrowRight,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Search,
   X,
 } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { AuditLog, AuditLogListResponse } from '@/types/api'
+import type { AuditLogListResponse } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
 import { WORKFLOW_CARD_CLASS, WORKFLOW_INPUT_CLASS } from '@/lib/workflow'
 import { cn } from '@/lib/utils'
@@ -149,16 +148,6 @@ function formatState(state: Record<string, unknown> | null | undefined): string 
     .join(' · ')
 }
 
-function formatStateDetail(
-  state: Record<string, unknown> | null | undefined,
-): Array<{ label: string; value: string }> {
-  if (!state || Object.keys(state).length === 0) return []
-  return Object.entries(state).map(([key, value]) => ({
-    label: humanFeature(key),
-    value: formatValue(value),
-  }))
-}
-
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
     dateStyle: 'medium',
@@ -180,134 +169,10 @@ function StateCell({ value, muted }: { value: string; muted?: boolean }) {
   )
 }
 
-function AuditRow({
-  row,
-  expanded,
-  onToggle,
-}: {
-  row: AuditLog
-  expanded: boolean
-  onToggle: () => void
-}) {
-  const before = formatState(row.before_state)
-  const after = formatState(row.after_state)
-  const beforeDetail = formatStateDetail(row.before_state)
-  const afterDetail = formatStateDetail(row.after_state)
-
-  return (
-    <>
-      <tr
-        className={cn(
-          'cursor-pointer border-b border-zinc-100 transition-colors',
-          expanded ? 'bg-slate-50' : 'hover:bg-zinc-50',
-        )}
-        onClick={onToggle}
-      >
-        <td className="px-3 py-3">
-          <ChevronDown
-            className={cn(
-              'h-4 w-4 text-zinc-400 transition-transform',
-              expanded && 'rotate-180 text-indigo-600',
-            )}
-          />
-        </td>
-        <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">
-          {formatTime(row.created_at)}
-        </td>
-        <td className="px-3 py-3">
-          <div className="font-medium text-slate-900">{row.actor_name}</div>
-          <span
-            className={cn(
-              'mt-0.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-              row.actor_role === 'admin'
-                ? 'bg-indigo-50 text-indigo-700'
-                : 'bg-zinc-100 text-zinc-600',
-            )}
-          >
-            {row.actor_role}
-          </span>
-        </td>
-        <td className="max-w-[10rem] px-3 py-3">
-          <div className="truncate font-medium text-slate-800" title={row.subject_label}>
-            {row.subject_label}
-          </div>
-          <span
-            className={cn(
-              'mt-1 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize',
-              ENTITY_BADGE[row.entity_type] ?? 'bg-zinc-100 text-zinc-600',
-            )}
-          >
-            {row.entity_type}
-          </span>
-        </td>
-        <td className="px-3 py-3 text-sm text-slate-700">{humanFeature(row.feature)}</td>
-        <td className="px-3 py-3">
-          <StateCell value={before} muted />
-        </td>
-        <td className="px-3 py-3">
-          <div className="flex items-start gap-1.5">
-            <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-300" />
-            <StateCell value={after} />
-          </div>
-        </td>
-        <td className="px-3 py-3 text-sm text-slate-700">{humanAction(row.action)}</td>
-      </tr>
-      {expanded && (
-        <tr className="border-b border-zinc-100 bg-slate-50/80">
-          <td colSpan={8} className="px-4 py-4 sm:px-6">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-lg border border-zinc-200 bg-white p-3">
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
-                  Before
-                </p>
-                {beforeDetail.length === 0 ? (
-                  <p className="text-sm text-zinc-400">No previous value</p>
-                ) : (
-                  <dl className="space-y-1.5">
-                    {beforeDetail.map((item) => (
-                      <div key={`b-${item.label}`} className="flex gap-2 text-sm">
-                        <dt className="shrink-0 text-zinc-500">{item.label}</dt>
-                        <dd className="min-w-0 break-words font-medium text-zinc-800">
-                          {item.value}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                )}
-              </div>
-              <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3">
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-emerald-700/70">
-                  After
-                </p>
-                {afterDetail.length === 0 ? (
-                  <p className="text-sm text-zinc-400">No new value</p>
-                ) : (
-                  <dl className="space-y-1.5">
-                    {afterDetail.map((item) => (
-                      <div key={`a-${item.label}`} className="flex gap-2 text-sm">
-                        <dt className="shrink-0 text-emerald-800/70">{item.label}</dt>
-                        <dd className="min-w-0 break-words font-medium text-emerald-950">
-                          {item.value}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                )}
-              </div>
-            </div>
-            <p className="mt-2 text-xs text-zinc-400">{row.action}</p>
-          </td>
-        </tr>
-      )}
-    </>
-  )
-}
-
 export default function ActivityPage() {
   const [q, setQ] = useState('')
   const [search, setSearch] = useState('')
   const [offset, setOffset] = useState(0)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const params = useMemo(() => {
     const sp = new URLSearchParams()
@@ -332,7 +197,6 @@ export default function ActivityPage() {
   function applySearch(e: FormEvent) {
     e.preventDefault()
     setOffset(0)
-    setExpandedId(null)
     setSearch(q)
   }
 
@@ -340,7 +204,6 @@ export default function ActivityPage() {
     setQ('')
     setSearch('')
     setOffset(0)
-    setExpandedId(null)
   }
 
   if (isError) {
@@ -356,7 +219,7 @@ export default function ActivityPage() {
             Activity
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            Audit trail of changes. Click a row to expand before / after details.
+            Audit trail of changes across the recruitment pipeline.
           </p>
         </div>
         {hasSearch && (
@@ -396,7 +259,6 @@ export default function ActivityPage() {
           <table className="min-w-full text-left text-sm">
             <thead className="bg-zinc-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="w-8 px-3 py-3" aria-label="Expand" />
                 <th className="px-3 py-3 font-medium">When</th>
                 <th className="px-3 py-3 font-medium">Actor</th>
                 <th className="px-3 py-3 font-medium">Subject</th>
@@ -409,14 +271,14 @@ export default function ActivityPage() {
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={7} className="px-4 py-10 text-center text-slate-500">
                     Loading…
                   </td>
                 </tr>
               )}
               {!isLoading && items.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center">
+                  <td colSpan={7} className="px-4 py-12 text-center">
                     <Activity className="mx-auto mb-2 h-8 w-8 text-zinc-300" />
                     <p className="text-sm font-medium text-slate-700">No matching activity</p>
                     <p className="mt-1 text-sm text-slate-500">
@@ -429,14 +291,48 @@ export default function ActivityPage() {
               )}
               {!isLoading &&
                 items.map((row) => (
-                  <AuditRow
-                    key={row.id}
-                    row={row}
-                    expanded={expandedId === row.id}
-                    onToggle={() =>
-                      setExpandedId((id) => (id === row.id ? null : row.id))
-                    }
-                  />
+                  <tr key={row.id} className="border-b border-zinc-100 hover:bg-zinc-50">
+                    <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">
+                      {formatTime(row.created_at)}
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="font-medium text-slate-900">{row.actor_name}</div>
+                      <span
+                        className={cn(
+                          'mt-0.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                          row.actor_role === 'admin'
+                            ? 'bg-indigo-50 text-indigo-700'
+                            : 'bg-zinc-100 text-zinc-600',
+                        )}
+                      >
+                        {row.actor_role}
+                      </span>
+                    </td>
+                    <td className="max-w-[10rem] px-3 py-3">
+                      <div className="truncate font-medium text-slate-800" title={row.subject_label}>
+                        {row.subject_label}
+                      </div>
+                      <span
+                        className={cn(
+                          'mt-1 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize',
+                          ENTITY_BADGE[row.entity_type] ?? 'bg-zinc-100 text-zinc-600',
+                        )}
+                      >
+                        {row.entity_type}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-sm text-slate-700">{humanFeature(row.feature)}</td>
+                    <td className="px-3 py-3">
+                      <StateCell value={formatState(row.before_state)} muted />
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-start gap-1.5">
+                        <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-300" />
+                        <StateCell value={formatState(row.after_state)} />
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 text-sm text-slate-700">{humanAction(row.action)}</td>
+                  </tr>
                 ))}
             </tbody>
           </table>
@@ -451,10 +347,7 @@ export default function ActivityPage() {
             <button
               type="button"
               disabled={offset <= 0}
-              onClick={() => {
-                setOffset(Math.max(0, offset - PAGE_SIZE))
-                setExpandedId(null)
-              }}
+              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
               className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1.5 hover:bg-zinc-50 disabled:opacity-40"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -466,10 +359,7 @@ export default function ActivityPage() {
             <button
               type="button"
               disabled={offset + PAGE_SIZE >= total}
-              onClick={() => {
-                setOffset(offset + PAGE_SIZE)
-                setExpandedId(null)
-              }}
+              onClick={() => setOffset(offset + PAGE_SIZE)}
               className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1.5 hover:bg-zinc-50 disabled:opacity-40"
             >
               Next
