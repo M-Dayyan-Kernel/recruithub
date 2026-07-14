@@ -76,12 +76,13 @@ def classify_interview_tab(
         return "completed" if has_report else "pending"
     if session.status == "in_progress":
         return "ongoing"
-    if session.status == "pending":
-        return "scheduled"
+    # Interview finished (or assessment running/failed) → Completed, not Scheduled.
     if has_report or session.status in ("completed", "assessed", "assessment_failed"):
         if _session_hr_decision(session) == "approved":
             return "finalists"
         return "completed"
+    if session.status == "pending":
+        return "scheduled"
     return "scheduled"
 
 

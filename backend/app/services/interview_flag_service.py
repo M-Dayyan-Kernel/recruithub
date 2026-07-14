@@ -1,5 +1,9 @@
 """
 Interview flagging — classify sessions that never produced a meaningful interview.
+
+Flagged is only for interviews that were never actually attempted (or clearly never
+connected). Once a candidate has started an interview, the session belongs in
+Completed while the report generates — not Flagged.
 """
 
 from __future__ import annotations
@@ -17,9 +21,14 @@ def has_meaningful_transcript(transcript: str | None) -> bool:
     if len(text) < MIN_MEANINGFUL_TRANSCRIPT_CHARS:
         return False
     lower = text.lower()
-    # Require at least one agent and one candidate turn marker
-    has_agent = "agent:" in lower or "assistant:" in lower or "interviewer:" in lower
-    has_candidate = "candidate:" in lower or "user:" in lower
+    # Match labels used by the LiveKit interview agent (AI / Candidate) and common variants
+    has_agent = any(
+        token in lower
+        for token in ("ai:", "agent:", "assistant:", "interviewer:")
+    )
+    has_candidate = any(
+        token in lower for token in ("candidate:", "user:", "human:")
+    )
     if has_agent and has_candidate:
         return True
     # Fallback: long enough free-form transcript
@@ -46,6 +55,15 @@ def get_flag_reason(session: InterviewSession | None, *, has_report: bool = Fals
     if session.status == "pending" and not _is_expired(session):
         return None
 
+    # Candidate joined / interview started — keep in Completed (report may still be generating).
+    # Do not bounce these through Flagged while waiting for transcript or assessment.
+    if session.started_at and session.status in (
+        "completed",
+        "assessed",
+        "assessment_failed",
+    ):
+        return None
+
     if not session.started_at:
         if _is_expired(session) or session.status == "expired":
             return "Interview link expired — candidate never joined"
@@ -53,10 +71,7 @@ def get_flag_reason(session: InterviewSession | None, *, has_report: bool = Fals
             return "Interview marked complete but was never started"
         return "Interview was never attempted"
 
-    if session.status == "assessment_failed":
-        return "Assessment could not be generated — no usable transcript"
-
-    if session.status in ("completed", "expired"):
+    if session.status == "expired":
         transcript = (session.transcript or "").strip()
         if not transcript:
             return "No transcript recorded — interview may have failed before conversation started"
