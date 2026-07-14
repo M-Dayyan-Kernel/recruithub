@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, time
 from typing import Literal, Optional, List
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -556,3 +556,47 @@ class InterviewReportResponse(BaseModel):
     question_scores: Optional[List[InterviewQuestionScore]] = None
     rubric_total: Optional[int] = None
     transcript: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Auth / User schemas (RBAC)
+# ---------------------------------------------------------------------------
+
+RoleLiteral = Literal["admin", "hr"]
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=1)
+
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: EmailStr
+    full_name: str
+    role: RoleLiteral
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    full_name: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=6, max_length=128)
+    role: RoleLiteral = "hr"
+
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    role: Optional[RoleLiteral] = None
+    password: Optional[str] = Field(None, min_length=6, max_length=128)
+    is_active: Optional[bool] = None

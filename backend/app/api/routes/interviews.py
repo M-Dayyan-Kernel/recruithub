@@ -22,6 +22,7 @@ from sqlalchemy import select, update
 
 from app.core.database import get_db
 from app.core.config import settings
+from app.core.deps import require_roles
 from app.models.models import (
     Candidate,
     InterviewSession,
@@ -37,6 +38,8 @@ from app.schemas.schemas import (
     InterviewHrDecisionUpdate,
     FinalistsResponse,
 )
+
+_hr_auth = Depends(require_roles("admin", "hr"))
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -84,6 +87,7 @@ async def _mark_interview_queued(
 @router.post(
     "/candidates/{candidate_id}/interview/queue",
     status_code=status.HTTP_200_OK,
+    dependencies=[_hr_auth],
 )
 async def queue_candidate_for_interview(
     candidate_id: uuid.UUID,
@@ -114,6 +118,7 @@ async def queue_candidate_for_interview(
     "/candidates/{candidate_id}/interview/schedule",
     response_model=InterviewSessionResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[_hr_auth],
 )
 async def schedule_interview(
     candidate_id: uuid.UUID,
@@ -222,6 +227,7 @@ async def schedule_interview(
     "/candidates/{candidate_id}/interview/send",
     response_model=InterviewSessionResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[_hr_auth],
 )
 async def send_interview_link(
     candidate_id: uuid.UUID,
@@ -585,7 +591,7 @@ async def livekit_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 # GET /api/candidates/{candidate_id}/report
 # ---------------------------------------------------------------------------
 
-@router.get("/candidates/{candidate_id}/report", response_model=InterviewReportResponse)
+@router.get("/candidates/{candidate_id}/report", response_model=InterviewReportResponse, dependencies=[_hr_auth])
 async def get_interview_report(candidate_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """Fetch the most recent interview report for a candidate.
 
@@ -664,7 +670,7 @@ async def get_interview_report(candidate_id: uuid.UUID, db: AsyncSession = Depen
 # GET /api/jobs/{job_id}/interviews  (Task A-4)
 # ---------------------------------------------------------------------------
 
-@router.get("/jobs/{job_id}/interviews", response_model=list[InterviewSessionResponse])
+@router.get("/jobs/{job_id}/interviews", response_model=list[InterviewSessionResponse], dependencies=[_hr_auth])
 async def list_job_interviews(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -715,6 +721,7 @@ async def list_job_interviews(
 @router.get(
     "/jobs/{job_id}/interviews/pipeline",
     response_model=InterviewPipelineResponse,
+    dependencies=[_hr_auth],
 )
 async def get_interview_pipeline(
     job_id: uuid.UUID,
@@ -747,7 +754,7 @@ async def get_interview_pipeline(
         raise
 
 
-@router.get("/jobs/{job_id}/finalists", response_model=FinalistsResponse)
+@router.get("/jobs/{job_id}/finalists", response_model=FinalistsResponse, dependencies=[_hr_auth])
 async def get_finalists(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """List HR-approved finalists for a job (post-interview)."""
     from app.services.interview_finalist_service import list_finalists
@@ -763,6 +770,7 @@ async def get_finalists(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 @router.patch(
     "/candidates/{candidate_id}/interview/decision",
     response_model=InterviewSessionResponse,
+    dependencies=[_hr_auth],
 )
 async def update_interview_hr_decision(
     candidate_id: uuid.UUID,
@@ -789,6 +797,7 @@ async def update_interview_hr_decision(
     "/candidates/{candidate_id}/interview/reschedule",
     response_model=InterviewSessionResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[_hr_auth],
 )
 async def reschedule_interview_endpoint(
     candidate_id: uuid.UUID,
@@ -818,6 +827,7 @@ async def reschedule_interview_endpoint(
 @router.post(
     "/candidates/{candidate_id}/interview/retry-assessment",
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[_hr_auth],
 )
 async def retry_interview_assessment(
     candidate_id: uuid.UUID,

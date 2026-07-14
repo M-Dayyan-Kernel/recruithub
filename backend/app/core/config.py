@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     MAX_RESUMES_PER_ZIP: int = 200
     MAX_ZIP_UNCOMPRESSED_BYTES: int = 500 * 1024 * 1024  # 500 MB
 
+    # JWT auth / RBAC
+    JWT_SECRET_KEY: str = "change-me-in-production-use-a-long-random-string"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 480
+    SEED_ADMIN_EMAIL: str = ""
+    SEED_ADMIN_PASSWORD: str = ""
+    SEED_ADMIN_NAME: str = "Admin"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

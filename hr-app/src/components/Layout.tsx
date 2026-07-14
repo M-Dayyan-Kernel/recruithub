@@ -1,16 +1,18 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Archive, LayoutDashboard, Menu, Settings, X, Zap } from 'lucide-react'
+import { Archive, LayoutDashboard, LogOut, Menu, Settings, Users, X, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SidebarJobsNav } from '@/components/SidebarJobsNav'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { filterArchivedJobs } from '@/lib/jobStatus'
+import { useAuth } from '@/context/AuthContext'
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
+  const { user, isAdmin, logout } = useAuth()
 
   const { data: jobs } = useQuery<Job[]>({
     queryKey: ['jobs'],
@@ -30,6 +32,7 @@ export default function Layout() {
     if (location.pathname.match(/^\/jobs\/[^/]+$/)) return 'Job details'
     if (location.pathname.startsWith('/report/')) return 'Interview Report'
     if (location.pathname === '/settings') return 'Settings'
+    if (location.pathname === '/users') return 'Users'
     return 'Recruitment Hub'
   })()
 
@@ -118,21 +121,57 @@ export default function Layout() {
               )}
             </NavLink>
 
-            <NavLink
-              to="/settings"
-              onClick={() => setSidebarOpen(false)}
-              className={({ isActive }) =>
-                cn(
-                  'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                  isActive
-                    ? 'bg-indigo-600 text-white'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
-                )
-              }
+            {isAdmin && (
+              <>
+                <NavLink
+                  to="/users"
+                  onClick={() => setSidebarOpen(false)}
+                  className={({ isActive }) =>
+                    cn(
+                      'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                      isActive
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
+                    )
+                  }
+                >
+                  <Users className="h-4 w-4 shrink-0" />
+                  Users
+                </NavLink>
+                <NavLink
+                  to="/settings"
+                  onClick={() => setSidebarOpen(false)}
+                  className={({ isActive }) =>
+                    cn(
+                      'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                      isActive
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
+                    )
+                  }
+                >
+                  <Settings className="h-4 w-4 shrink-0" />
+                  Settings
+                </NavLink>
+              </>
+            )}
+          </div>
+
+          <div className="border-t border-slate-700 px-4 py-4">
+            <div className="mb-3">
+              <p className="truncate text-sm font-medium text-slate-100">
+                {user?.full_name ?? 'User'}
+              </p>
+              <p className="truncate text-xs capitalize text-slate-400">{user?.role}</p>
+            </div>
+            <button
+              type="button"
+              onClick={logout}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100"
             >
-              <Settings className="h-4 w-4 shrink-0" />
-              Settings
-            </NavLink>
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </button>
           </div>
         </aside>
       </>

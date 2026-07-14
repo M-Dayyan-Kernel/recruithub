@@ -303,3 +303,44 @@ export interface Candidate {
     | 'parse_failed'
   created_at: string
 }
+
+// ---------------------------------------------------------------------------
+// Auth / Users
+// ---------------------------------------------------------------------------
+
+export type UserRole = 'admin' | 'hr'
+
+export interface User {
+  id: string
+  email: string
+  full_name: string
+  role: UserRole
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface LoginRequest {
+  email: string
+  password: string
+}
+
+export interface TokenResponse {
+  access_token: string
+  token_type: string
+  user: User
+}
+
+export interface UserCreate {
+  email: string
+  full_name: string
+  password: string
+  role: UserRole
+}
+
+export interface UserUpdate {
+  full_name?: string
+  role?: UserRole
+  password?: string
+  is_active?: boolean
+}

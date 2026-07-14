@@ -1,14 +1,38 @@
+from contextlib import asynccontextmanager
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import logging
 
-from app.api.routes import jobs, candidates, shortlist, screening, interviews, settings
+from app.api.routes import (
+    auth,
+    jobs,
+    candidates,
+    shortlist,
+    screening,
+    interviews,
+    settings,
+    users,
+)
+from app.core.database import AsyncSessionLocal
 from app.services.mock_external import active_mock_services
+from app.services.user_seed_service import seed_admin_user
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="AI Recruitment POC", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    async with AsyncSessionLocal() as session:
+        try:
+            await seed_admin_user(session)
+        except Exception:
+            logger.exception("Failed to seed admin user")
+    yield
+
+
+app = FastAPI(title="AI Recruitment POC", version="1.0.0", lifespan=lifespan)
 
 _mock_services = active_mock_services()
 if _mock_services:
@@ -53,6 +77,8 @@ async def health():
     }
 
 
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(candidates.router, prefix="/api", tags=["candidates"])
 app.include_router(shortlist.router, prefix="/api", tags=["shortlist"])

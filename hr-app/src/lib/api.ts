@@ -5,10 +5,24 @@ import { QueryClient } from '@tanstack/react-query'
 // Axios instance
 // ---------------------------------------------------------------------------
 
+export const AUTH_TOKEN_KEY = 'hr_access_token'
+
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:8000',
   timeout: 30_000,
 })
+
+export function getStoredToken(): string | null {
+  return localStorage.getItem(AUTH_TOKEN_KEY)
+}
+
+export function setStoredToken(token: string | null): void {
+  if (token) {
+    localStorage.setItem(AUTH_TOKEN_KEY, token)
+  } else {
+    localStorage.removeItem(AUTH_TOKEN_KEY)
+  }
+}
 
 function formatApiErrorDetail(detail: unknown): string {
   if (typeof detail === 'string') return detail
@@ -27,19 +41,33 @@ function formatApiErrorDetail(detail: unknown): string {
   return 'An unexpected error occurred'
 }
 
-// Request interceptor — set Content-Type
-// Skip for FormData: axios computes multipart/form-data + boundary automatically
+// Request interceptor — attach JWT + Content-Type
 api.interceptors.request.use((config) => {
+  const token = getStoredToken()
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
   if (!(config.data instanceof FormData)) {
     config.headers['Content-Type'] = config.headers['Content-Type'] ?? 'application/json'
   }
   return config
 })
 
-// Response interceptor — unwrap data, normalise errors
+// Response interceptor — unwrap data, normalise errors, redirect on 401
 api.interceptors.response.use(
   (response) => response.data,
   (error: AxiosError<{ detail?: unknown; message?: string }>) => {
+    if (error.response?.status === 401) {
+      const url = error.config?.url ?? ''
+      const isAuthEndpoint = url.includes('/api/auth/login')
+      if (!isAuthEndpoint) {
+        setStoredToken(null)
+        if (window.location.pathname !== '/login') {
+          window.location.assign('/login')
+        }
+      }
+    }
+
     const detail =
       error.response?.data?.detail ??
       error.response?.data?.message ??

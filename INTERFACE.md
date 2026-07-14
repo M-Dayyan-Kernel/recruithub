@@ -10,8 +10,14 @@
 - **Candidate App:** `http://localhost:5174`
 
 ## Auth
-- **Type:** None (POC — no authentication layer)
-- All endpoints are open
+- **Type:** JWT Bearer (email/password)
+- **Roles:** `admin` | `hr`
+- **Login:** `POST /api/auth/login` → `{ access_token, token_type, user }`
+- **Current user:** `GET /api/auth/me` (authenticated)
+- **Users (admin only):** `GET/POST /api/users`, `PATCH/DELETE /api/users/{id}`
+- HR App sends `Authorization: Bearer <token>` on all protected calls
+- Candidate interview token routes and webhooks remain unauthenticated
+- `GET /api/settings` readable by admin and HR; mutations and email templates are admin-only
 
 ---
 

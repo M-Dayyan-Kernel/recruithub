@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import require_roles
 from app.models.models import SystemSettings
 from app.schemas.schemas import (
     SystemSettingsResponse,
@@ -23,6 +24,9 @@ from app.services.settings_service import (
     normalize_max_retries,
     normalize_retry_delay_seconds,
 )
+
+_hr_auth = Depends(require_roles("admin", "hr"))
+_admin_auth = Depends(require_roles("admin"))
 
 router = APIRouter()
 
@@ -47,18 +51,26 @@ async def _get_or_create_settings(db: AsyncSession) -> SystemSettings:
     return row
 
 
-@router.get("/settings", response_model=SystemSettingsResponse)
+@router.get(
+    "/settings",
+    response_model=SystemSettingsResponse,
+    dependencies=[_hr_auth],
+)
 async def get_settings(db: AsyncSession = Depends(get_db)):
-    """Return system-wide settings (geography, etc.)."""
+    """Return system-wide settings (geography, etc.). Readable by admin and HR."""
     return await _get_or_create_settings(db)
 
 
-@router.patch("/settings", response_model=SystemSettingsResponse)
+@router.patch(
+    "/settings",
+    response_model=SystemSettingsResponse,
+    dependencies=[_admin_auth],
+)
 async def update_settings(
     payload: SystemSettingsUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    """Update system-wide settings."""
+    """Update system-wide settings. Admin only."""
     row = await _get_or_create_settings(db)
     data = payload.model_dump(exclude_unset=True)
 
@@ -105,7 +117,11 @@ async def update_settings(
     return row
 
 
-@router.get("/settings/email-templates", response_model=EmailTemplatesResponse)
+@router.get(
+    "/settings/email-templates",
+    response_model=EmailTemplatesResponse,
+    dependencies=[_admin_auth],
+)
 async def get_email_templates(db: AsyncSession = Depends(get_db)):
     from app.services.email_template_service import (
         REQUIRED_PLACEHOLDERS,
@@ -128,7 +144,11 @@ async def get_email_templates(db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.patch("/settings/email-templates/{template_id}", response_model=EmailTemplatesResponse)
+@router.patch(
+    "/settings/email-templates/{template_id}",
+    response_model=EmailTemplatesResponse,
+    dependencies=[_admin_auth],
+)
 async def update_email_template(
     template_id: str,
     payload: EmailTemplateUpdate,
@@ -164,6 +184,7 @@ async def update_email_template(
 @router.post(
     "/settings/email-templates/{template_id}/restore",
     response_model=EmailTemplatesResponse,
+    dependencies=[_admin_auth],
 )
 async def restore_email_template(template_id: str, db: AsyncSession = Depends(get_db)):
     from app.services.email_template_service import (
@@ -195,6 +216,7 @@ async def restore_email_template(template_id: str, db: AsyncSession = Depends(ge
 @router.post(
     "/settings/email-templates/{template_id}/preview",
     response_model=EmailTemplatePreviewResponse,
+    dependencies=[_admin_auth],
 )
 async def preview_email_template(
     template_id: str,
@@ -209,7 +231,11 @@ async def preview_email_template(
     return EmailTemplatePreviewResponse(**rendered)
 
 
-@router.post("/settings/email-templates/{template_id}/test", status_code=status.HTTP_200_OK)
+@router.post(
+    "/settings/email-templates/{template_id}/test",
+    status_code=status.HTTP_200_OK,
+    dependencies=[_admin_auth],
+)
 async def test_email_template(
     template_id: str,
     payload: EmailTemplateTestRequest,

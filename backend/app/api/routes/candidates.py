@@ -10,12 +10,13 @@ from sqlalchemy import select, exists
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.deps import require_roles
 from app.models.models import Candidate, Job, ShortlistResult
 from app.schemas.schemas import CandidateResponse, CandidateUpdate, ResumeUploadResponse
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_roles("admin", "hr"))])
 
 ALLOWED_CONTENT_TYPES = {
     "application/pdf",

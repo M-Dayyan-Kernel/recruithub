@@ -20,6 +20,7 @@ from sqlalchemy import select, exists
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.deps import require_roles
 from app.models.models import Candidate, Job, ShortlistResult
 from app.services.candidate_contact_service import (
     resolve_candidate_email,
@@ -35,7 +36,7 @@ from app.schemas.schemas import (
     ShortlistTriggerRequest,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_roles("admin", "hr"))])
 logger = logging.getLogger(__name__)
 
 SHORTLIST_BATCH_TTL = 600  # 10 minutes

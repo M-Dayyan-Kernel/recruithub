@@ -583,7 +583,8 @@ pending → in_progress → completed → assessed
 
 | Actor | Access | Notes |
 |-------|--------|-------|
-| **HR user** | Full access to entire HR App | No login, no RBAC — POC is intentionally open |
+| **Admin** | Full HR App + Settings + Users | JWT login; manages accounts and system config |
+| **HR user** | Hiring pipeline (jobs → finalists) | JWT login; no Settings/Users write access |
 | **Candidate** | Token-based interview access only | UUID in URL; no account required |
 | **Webhooks** | Unauthenticated callbacks | Vapi and LiveKit webhooks have no auth |
 | **LiveKit** | Short-lived JWT tokens | Generated server-side per session |

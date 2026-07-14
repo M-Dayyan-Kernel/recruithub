@@ -11,10 +11,13 @@ import JobInterviewsPage from '@/pages/JobInterviewsPage'
 import JobFinalistsPage from '@/pages/JobFinalistsPage'
 import ArchivedJobsPage from '@/pages/ArchivedJobsPage'
 import SettingsPage from '@/pages/SettingsPage'
+import UsersPage from '@/pages/UsersPage'
 import ReportPage from '@/pages/ReportPage'
 import ShortlistReportPage from '@/pages/ShortlistReportPage'
 import NotFoundPage from '@/pages/NotFoundPage'
+import LoginPage from '@/pages/LoginPage'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { AdminRoute, ProtectedRoute } from '@/components/ProtectedRoute'
 
 export default function App() {
   return (
@@ -27,22 +30,28 @@ export default function App() {
         }}
       />
       <Routes>
-        <Route element={<Layout />}>
-          <Route index element={<DashboardPage />} />
-          <Route path="jobs" element={<Navigate to="/" replace />} />
-          <Route path="jobs/new" element={<CreateJobPage />} />
-          <Route path="jobs/archived" element={<ArchivedJobsPage />} />
-          <Route path="jobs/:jobId" element={<JobLayout />}>
-            <Route index element={<JobDetailsPage />} />
-            <Route path="shortlist" element={<JobShortlistPage />} />
-            <Route path="screening" element={<JobScreeningPage />} />
-            <Route path="interviews" element={<JobInterviewsPage />} />
-            <Route path="finalists" element={<JobFinalistsPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route element={<ProtectedRoute />}>
+          <Route element={<Layout />}>
+            <Route index element={<DashboardPage />} />
+            <Route path="jobs" element={<Navigate to="/" replace />} />
+            <Route path="jobs/new" element={<CreateJobPage />} />
+            <Route path="jobs/archived" element={<ArchivedJobsPage />} />
+            <Route path="jobs/:jobId" element={<JobLayout />}>
+              <Route index element={<JobDetailsPage />} />
+              <Route path="shortlist" element={<JobShortlistPage />} />
+              <Route path="screening" element={<JobScreeningPage />} />
+              <Route path="interviews" element={<JobInterviewsPage />} />
+              <Route path="finalists" element={<JobFinalistsPage />} />
+            </Route>
+            <Route path="jobs/:jobId/candidates/:candidateId/report" element={<ReportPage />} />
+            <Route path="jobs/:jobId/shortlist/:shortlistId" element={<ShortlistReportPage />} />
+            <Route element={<AdminRoute />}>
+              <Route path="settings" element={<SettingsPage />} />
+              <Route path="users" element={<UsersPage />} />
+            </Route>
+            <Route path="*" element={<NotFoundPage />} />
           </Route>
-          <Route path="jobs/:jobId/candidates/:candidateId/report" element={<ReportPage />} />
-          <Route path="jobs/:jobId/shortlist/:shortlistId" element={<ShortlistReportPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-          <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
     </ErrorBoundary>

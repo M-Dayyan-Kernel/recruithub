@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
+from app.core.deps import require_roles
 from app.models.models import Candidate, InterviewSession, Job, ScreeningCall
 from app.schemas.schemas import (
     ScreeningCallResponse,
@@ -24,6 +25,8 @@ from app.schemas.schemas import (
 )
 from app.services.celery_health import CELERY_UNAVAILABLE_MSG, celery_workers_available
 from app.services.screening_trigger_service import dispatch_screening_for_candidates
+
+_hr_auth = Depends(require_roles("admin", "hr"))
 
 router = APIRouter()
 
@@ -58,6 +61,7 @@ async def _candidate_ids_with_interview_sessions(
     "/jobs/{job_id}/screening/trigger",
     status_code=status.HTTP_202_ACCEPTED,
     response_model=ScreeningTriggerResponse,
+    dependencies=[_hr_auth],
 )
 async def trigger_screening(
     job_id: uuid.UUID,
@@ -287,6 +291,7 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 @router.get(
     "/jobs/{job_id}/screening",
     response_model=List[ScreeningCallResponse],
+    dependencies=[_hr_auth],
 )
 async def get_screening_results(
     job_id: uuid.UUID,
@@ -358,6 +363,7 @@ async def get_screening_results(
 @router.post(
     "/screening/{screening_id}/refresh",
     response_model=ScreeningCallResponse,
+    dependencies=[_hr_auth],
 )
 async def refresh_screening_call(
     screening_id: uuid.UUID,
@@ -396,6 +402,7 @@ async def refresh_screening_call(
 @router.patch(
     "/screening/{screening_id}/result",
     response_model=ScreeningCallResponse,
+    dependencies=[_hr_auth],
 )
 async def update_screening_result(
     screening_id: uuid.UUID,
