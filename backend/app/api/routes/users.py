@@ -8,15 +8,17 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import RequireAdmin
 from app.core.security import hash_password
-from app.models.models import TenantInvite, User
+from app.models.models import Tenant, TenantInvite, User
 from app.schemas.schemas import (
     InviteCreateRequest,
+    InviteListItem,
     InviteResponse,
     UserCreate,
     UserResponse,
     UserUpdate,
 )
 from app.services.audit_service import log_change, log_field_changes
+from app.services.email_service import send_org_invite_email
 from app.services.tenant_service import create_invite
 
 router = APIRouter()
@@ -80,6 +82,79 @@ async def create_user(
     return UserResponse.model_validate(user)
 
 
+@router.get("/invites", response_model=list[InviteListItem])
+async def list_invites(
+    admin: RequireAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """Pending and expired (not yet accepted) invites for this organization."""
+    result = await db.execute(
+        select(TenantInvite)
+        .where(
+            TenantInvite.tenant_id == admin.tenant_id,
+            TenantInvite.accepted_at.is_(None),
+        )
+        .order_by(TenantInvite.created_at.desc())
+    )
+    now = datetime.now(timezone.utc)
+    items: list[InviteListItem] = []
+    for invite in result.scalars().all():
+        expires = invite.expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        items.append(
+            InviteListItem(
+                id=invite.id,
+                email=invite.email,
+                role=invite.role,  # type: ignore[arg-type]
+                invite_url=_invite_url(invite.token),
+                expires_at=invite.expires_at,
+                created_at=invite.created_at,
+                status="pending" if expires > now else "expired",
+            )
+        )
+    return items
+
+
+@router.delete("/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_invite(
+    invite_id: str,
+    admin: RequireAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    import uuid
+
+    try:
+        iid = uuid.UUID(invite_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Invite not found")
+
+    invite = await db.get(TenantInvite, iid)
+    if invite is None or invite.tenant_id != admin.tenant_id:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    if invite.accepted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invite already accepted",
+        )
+
+    label = invite.email
+    await log_change(
+        db,
+        actor=admin,
+        action="user.invite_revoked",
+        entity_type="invite",
+        entity_id=invite.id,
+        subject_label=label,
+        feature="user",
+        before={"email": label, "role": invite.role},
+        after=None,
+    )
+    await db.delete(invite)
+    await db.commit()
+    return None
+
+
 @router.post("/invites", response_model=InviteResponse, status_code=status.HTTP_201_CREATED)
 async def invite_user(
     body: InviteCreateRequest,
@@ -128,14 +203,31 @@ async def invite_user(
     )
     await db.commit()
     await db.refresh(invite)
+
+    invite_url = _invite_url(invite.token)
+    tenant = await db.get(Tenant, admin.tenant_id)
+    org_name = (
+        getattr(admin, "active_tenant_name", None)
+        or (tenant.name if tenant else None)
+        or "your organization"
+    )
+    email_sent = await send_org_invite_email(
+        email,
+        organization_name=org_name,
+        role=invite.role,
+        invite_url=invite_url,
+        invited_by_name=admin.full_name,
+    )
+
     return InviteResponse(
         id=invite.id,
         email=invite.email,
         role=invite.role,  # type: ignore[arg-type]
         token=invite.token,
-        invite_url=_invite_url(invite.token),
+        invite_url=invite_url,
         expires_at=invite.expires_at,
         created_at=invite.created_at,
+        email_sent=email_sent,
     )
 
 

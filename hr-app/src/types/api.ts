@@ -367,6 +367,17 @@ export interface InviteResponse {
   invite_url: string
   expires_at: string
   created_at: string
+  email_sent?: boolean
+}
+
+export interface InviteListItem {
+  id: string
+  email: string
+  role: TenantMemberRole
+  invite_url: string
+  expires_at: string
+  created_at: string
+  status: 'pending' | 'expired'
 }
 
 export interface TokenResponse {

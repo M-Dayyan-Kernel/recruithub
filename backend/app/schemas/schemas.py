@@ -624,6 +624,17 @@ class InviteResponse(BaseModel):
     invite_url: str
     expires_at: datetime
     created_at: datetime
+    email_sent: bool = False
+
+
+class InviteListItem(BaseModel):
+    id: uuid.UUID
+    email: EmailStr
+    role: TenantMemberRoleLiteral
+    invite_url: str
+    expires_at: datetime
+    created_at: datetime
+    status: Literal["pending", "expired"]
 
 
 class InvitePublicResponse(BaseModel):

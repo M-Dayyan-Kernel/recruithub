@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import type {
   InviteCreate,
+  InviteListItem,
   InviteResponse,
   User,
   UserCreate,
@@ -23,9 +24,25 @@ export default function UsersPage() {
   const queryClient = useQueryClient()
   const { user: currentUser } = useAuth()
 
-  const { data: users, isLoading, isError, refetch } = useQuery<User[]>({
+  const {
+    data: users,
+    isLoading: usersLoading,
+    isError: usersError,
+    refetch: refetchUsers,
+  } = useQuery<User[]>({
     queryKey: ['users', currentUser?.tenant_id],
     queryFn: () => api.get('/api/users') as unknown as Promise<User[]>,
+  })
+
+  const {
+    data: invites,
+    isLoading: invitesLoading,
+    isError: invitesError,
+    refetch: refetchInvites,
+  } = useQuery<InviteListItem[]>({
+    queryKey: ['user-invites', currentUser?.tenant_id],
+    queryFn: () =>
+      api.get('/api/users/invites') as unknown as Promise<InviteListItem[]>,
   })
 
   const [email, setEmail] = useState('')
@@ -56,7 +73,14 @@ export default function UsersPage() {
       api.post('/api/users/invites', payload) as unknown as Promise<InviteResponse>,
     onSuccess: (result) => {
       setLastInviteUrl(result.invite_url)
-      toast.success('Invite created — copy the link below')
+      queryClient.invalidateQueries({ queryKey: ['user-invites'] })
+      if (result.email_sent) {
+        toast.success(`Invite email sent to ${result.email}`)
+      } else {
+        toast.error(
+          'Invite created, but email could not be sent. Copy the link below and share it manually.',
+        )
+      }
       setInviteEmail('')
       setInviteRole('hr')
     },
@@ -82,6 +106,15 @@ export default function UsersPage() {
     onError: (err: Error) => toast.error(err.message || 'Failed to delete user'),
   })
 
+  const revokeInviteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/api/users/invites/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['user-invites'] })
+      toast.success('Invite revoked')
+    },
+    onError: (err: Error) => toast.error(err.message || 'Failed to revoke invite'),
+  })
+
   function onDelete(user: User) {
     if (
       !window.confirm(
@@ -92,6 +125,21 @@ export default function UsersPage() {
     }
     deleteMutation.mutate(user.id)
   }
+
+  function onRevokeInvite(invite: InviteListItem) {
+    if (!window.confirm(`Revoke invite for ${invite.email}?`)) return
+    revokeInviteMutation.mutate(invite.id)
+  }
+
+  async function copyUrl(url: string) {
+    try {
+      await navigator.clipboard.writeText(url)
+      toast.success('Invite link copied')
+    } catch {
+      toast.error('Could not copy — select the link manually')
+    }
+  }
+
   function onCreate(e: FormEvent) {
     e.preventDefault()
     createMutation.mutate({
@@ -109,20 +157,25 @@ export default function UsersPage() {
 
   async function copyInviteUrl() {
     if (!lastInviteUrl) return
-    try {
-      await navigator.clipboard.writeText(lastInviteUrl)
-      toast.success('Invite link copied')
-    } catch {
-      toast.error('Could not copy — select the link manually')
-    }
+    await copyUrl(lastInviteUrl)
   }
+
+  const isLoading = usersLoading || invitesLoading
+  const isError = usersError || invitesError
 
   if (isLoading) {
     return <div className="h-48 animate-pulse rounded-xl bg-slate-200" />
   }
 
-  if (isError || !users) {
-    return <BackendError onRetry={refetch} />
+  if (isError || !users || !invites) {
+    return (
+      <BackendError
+        onRetry={() => {
+          void refetchUsers()
+          void refetchInvites()
+        }}
+      />
+    )
   }
 
   return (
@@ -140,6 +193,9 @@ export default function UsersPage() {
           <Mail className="h-5 w-5 text-slate-500" />
           <h3 className="font-semibold text-slate-800">Invite by email</h3>
         </div>
+        <p className="mb-4 text-sm text-slate-500">
+          Sends an invitation email with a link to join your organization.
+        </p>
         <form onSubmit={onInvite} className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
@@ -169,13 +225,15 @@ export default function UsersPage() {
               disabled={inviteMutation.isPending}
               className={`${WORKFLOW_PRIMARY_BUTTON_CLASS} disabled:opacity-60`}
             >
-              {inviteMutation.isPending ? 'Creating invite…' : 'Create invite link'}
+              {inviteMutation.isPending ? 'Sending invite…' : 'Send invite email'}
             </button>
           </div>
         </form>
         {lastInviteUrl && (
           <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <p className="mb-1 text-xs font-medium text-slate-600">Share this link</p>
+            <p className="mb-1 text-xs font-medium text-slate-600">
+              Backup invite link (share manually if email didn&apos;t arrive)
+            </p>
             <div className="flex flex-wrap items-center gap-2">
               <code className="min-w-0 flex-1 break-all text-xs text-slate-700">{lastInviteUrl}</code>
               <button
@@ -255,6 +313,12 @@ export default function UsersPage() {
         <div className="flex items-center gap-2 border-b border-zinc-200 px-6 py-4">
           <Users className="h-5 w-5 text-slate-500" />
           <h3 className="font-semibold text-slate-800">All users</h3>
+          <span className="text-xs text-slate-400">
+            {users.length} member{users.length === 1 ? '' : 's'}
+            {invites.length > 0
+              ? ` · ${invites.length} invite${invites.length === 1 ? '' : 's'}`
+              : ''}
+          </span>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
@@ -268,6 +332,45 @@ export default function UsersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
+              {invites.map((invite) => (
+                <tr key={`invite-${invite.id}`} className="text-slate-700">
+                  <td className="px-6 py-3 font-medium text-slate-400">—</td>
+                  <td className="px-6 py-3">{invite.email}</td>
+                  <td className="px-6 py-3 capitalize">{invite.role}</td>
+                  <td className="px-6 py-3">
+                    <span
+                      className={
+                        invite.status === 'pending'
+                          ? 'rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700'
+                          : 'rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600'
+                      }
+                    >
+                      {invite.status === 'pending' ? 'Invited' : 'Invite expired'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      {invite.status === 'pending' && (
+                        <button
+                          type="button"
+                          onClick={() => void copyUrl(invite.invite_url)}
+                          className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+                        >
+                          Copy link
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={revokeInviteMutation.isPending}
+                        onClick={() => onRevokeInvite(invite)}
+                        className="text-sm font-medium text-red-600 hover:text-red-500 disabled:opacity-50"
+                      >
+                        Revoke
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
               {users.map((u) => {
                 const isSelf = u.id === currentUser?.id
                 return (
@@ -318,6 +421,13 @@ export default function UsersPage() {
                   </tr>
                 )
               })}
+              {users.length === 0 && invites.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-sm text-slate-400">
+                    No users or invites yet.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

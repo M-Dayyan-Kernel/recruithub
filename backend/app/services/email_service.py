@@ -319,3 +319,84 @@ async def send_rejection_email(
             job_title,
         )
     return sent
+
+
+def _build_org_invite_email_html(
+    organization_name: str,
+    role: str,
+    invite_url: str,
+    invited_by_name: str | None,
+) -> str:
+    role_label = "Admin" if role == "admin" else "HR"
+    inviter = f" by <strong>{invited_by_name}</strong>" if invited_by_name else ""
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Organization invite</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; background-color: #f4f4f7; margin: 0; padding: 0; }}
+    .container {{ max-width: 560px; margin: 40px auto; background: #ffffff; border-radius: 8px;
+                  padding: 40px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }}
+    h1 {{ font-size: 22px; color: #1a1a2e; margin-bottom: 8px; }}
+    p {{ font-size: 15px; color: #444; line-height: 1.6; }}
+    .btn {{ display: inline-block; margin: 24px 0; padding: 14px 32px;
+            background-color: #0d9488; color: #ffffff; text-decoration: none;
+            border-radius: 6px; font-size: 15px; font-weight: bold; }}
+    .footer {{ font-size: 12px; color: #999; margin-top: 32px; text-align: center; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>You're invited to join {organization_name}</h1>
+    <p>
+      You've been invited{inviter} to join
+      <strong>{organization_name}</strong> as <strong>{role_label}</strong>
+      on the AI Recruitment platform.
+    </p>
+    <a href="{invite_url}" class="btn">Accept invitation</a>
+    <p>Or copy and paste this link into your browser:</p>
+    <p style="word-break: break-all; font-size: 13px; color: #666;">{invite_url}</p>
+    <div class="footer">
+      <p>If you weren't expecting this email, you can ignore it.</p>
+    </div>
+  </div>
+</body>
+</html>"""
+
+
+async def send_org_invite_email(
+    to_email: str,
+    *,
+    organization_name: str,
+    role: str,
+    invite_url: str,
+    invited_by_name: str | None = None,
+) -> bool:
+    """Send an organization membership invite via Gmail. Returns False on failure (never raises)."""
+    role_label = "Admin" if role == "admin" else "HR"
+    subject = f"You're invited to join {organization_name}"
+    html_body = _build_org_invite_email_html(
+        organization_name=organization_name,
+        role=role,
+        invite_url=invite_url,
+        invited_by_name=invited_by_name,
+    )
+    try:
+        sent = gmail_service.send_html_email(
+            to_email=to_email,
+            subject=subject,
+            html_body=html_body,
+        )
+    except Exception:
+        logger.exception("Failed to send org invite email to %s", to_email)
+        return False
+    if sent:
+        logger.info(
+            "Org invite sent to %s (org=%s role=%s)",
+            to_email,
+            organization_name,
+            role_label,
+        )
+    return bool(sent)
