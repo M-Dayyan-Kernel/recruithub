@@ -679,6 +679,8 @@ class TenantListItem(BaseModel):
     company_registration_number: Optional[str] = None
     gst_document_filename: Optional[str] = None
     has_gst_document: bool = False
+    admin_email: Optional[str] = None
+    admin_full_name: Optional[str] = None
     created_at: datetime
     user_count: int = 0
     job_count: int = 0

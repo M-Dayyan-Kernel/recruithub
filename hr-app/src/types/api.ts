@@ -418,6 +418,8 @@ export interface TenantListItem {
   company_registration_number?: string | null
   gst_document_filename?: string | null
   has_gst_document?: boolean
+  admin_email?: string | null
+  admin_full_name?: string | null
   created_at: string
   user_count: number
   job_count: number

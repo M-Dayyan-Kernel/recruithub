@@ -5,6 +5,7 @@ import {
   Check,
   FileText,
   LogIn,
+  Mail,
   Plus,
   Power,
   Search,
@@ -140,7 +141,9 @@ export default function OrganizationsPage() {
       (t) =>
         t.name.toLowerCase().includes(q) ||
         t.slug.toLowerCase().includes(q) ||
-        (t.company_registration_number || '').toLowerCase().includes(q),
+        (t.company_registration_number || '').toLowerCase().includes(q) ||
+        (t.admin_email || '').toLowerCase().includes(q) ||
+        (t.admin_full_name || '').toLowerCase().includes(q),
     )
   }, [data, search])
 
@@ -340,6 +343,15 @@ export default function OrganizationsPage() {
               </div>
 
               <div className="mt-4 space-y-1.5 text-xs text-slate-400">
+                {t.admin_email && (
+                  <p className="inline-flex min-w-0 items-center gap-1.5">
+                    <Mail className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate text-slate-300">
+                      {t.admin_full_name ? `${t.admin_full_name} · ` : ''}
+                      {t.admin_email}
+                    </span>
+                  </p>
+                )}
                 <div className="flex gap-4">
                   <span className="inline-flex items-center gap-1.5">
                     <Users className="h-3.5 w-3.5" />

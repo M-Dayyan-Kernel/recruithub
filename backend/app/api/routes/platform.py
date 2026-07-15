@@ -26,7 +26,14 @@ from app.services.tenant_service import create_tenant_with_admin
 router = APIRouter()
 
 
-def _tenant_list_item(t: Tenant, user_count: int, job_count: int) -> TenantListItem:
+def _tenant_list_item(
+    t: Tenant,
+    user_count: int,
+    job_count: int,
+    *,
+    admin_email: str | None = None,
+    admin_full_name: str | None = None,
+) -> TenantListItem:
     return TenantListItem(
         id=t.id,
         name=t.name,
@@ -36,6 +43,8 @@ def _tenant_list_item(t: Tenant, user_count: int, job_count: int) -> TenantListI
         company_registration_number=t.company_registration_number,
         gst_document_filename=t.gst_document_filename,
         has_gst_document=bool(t.gst_document_path),
+        admin_email=admin_email,
+        admin_full_name=admin_full_name,
         created_at=t.created_at,
         user_count=user_count,
         job_count=job_count,
@@ -60,14 +69,36 @@ async def list_tenants(
     users_by_tenant = {tid: n for tid, n in user_counts}
     jobs_by_tenant = {tid: n for tid, n in job_counts}
 
+    # Earliest admin per tenant = the person who registered / was set as first admin
+    admin_rows = (
+        await db.execute(
+            select(User.tenant_id, User.email, User.full_name, User.created_at)
+            .where(User.role == "admin")
+            .order_by(User.created_at.asc())
+        )
+    ).all()
+    admin_by_tenant: dict = {}
+    for tenant_id, email, full_name, _created in admin_rows:
+        if tenant_id not in admin_by_tenant:
+            admin_by_tenant[tenant_id] = (email, full_name)
+
     result = await db.execute(
         select(Tenant).where(Tenant.slug != PLATFORM_TENANT_SLUG).order_by(Tenant.created_at.desc())
     )
     tenants = result.scalars().all()
-    return [
-        _tenant_list_item(t, users_by_tenant.get(t.id, 0), jobs_by_tenant.get(t.id, 0))
-        for t in tenants
-    ]
+    items: list[TenantListItem] = []
+    for t in tenants:
+        admin = admin_by_tenant.get(t.id)
+        items.append(
+            _tenant_list_item(
+                t,
+                users_by_tenant.get(t.id, 0),
+                jobs_by_tenant.get(t.id, 0),
+                admin_email=admin[0] if admin else None,
+                admin_full_name=admin[1] if admin else None,
+            )
+        )
+    return items
 
 
 @router.post("/tenants", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)
