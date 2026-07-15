@@ -41,8 +41,6 @@ class Settings(BaseSettings):
     SEED_ADMIN_EMAIL: str = ""
     SEED_ADMIN_PASSWORD: str = ""
     SEED_ADMIN_NAME: str = "Admin"
-    # Fernet key material for encrypting per-tenant API secrets (falls back to JWT_SECRET_KEY)
-    INTEGRATIONS_ENCRYPTION_KEY: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

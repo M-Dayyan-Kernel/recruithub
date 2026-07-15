@@ -19,7 +19,6 @@ from app.api.routes import (
 from app.core.database import AsyncSessionLocal
 from app.services.mock_external import active_mock_services
 from app.services.user_seed_service import seed_admin_user
-from app.services.tenant_integrations_service import seed_default_tenant_integrations_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +30,6 @@ async def lifespan(_app: FastAPI):
             await seed_admin_user(session)
         except Exception:
             logger.exception("Failed to seed admin user")
-        try:
-            await seed_default_tenant_integrations_from_env(session)
-        except Exception:
-            logger.exception("Failed to seed default tenant integrations")
     yield
 
 

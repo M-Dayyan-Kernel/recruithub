@@ -18,8 +18,6 @@ from app.schemas.schemas import (
     EmailTemplatePreviewRequest,
     EmailTemplatePreviewResponse,
     EmailTemplateTestRequest,
-    TenantIntegrationsResponse,
-    TenantIntegrationsUpdate,
 )
 from app.services.audit_service import log_change, log_field_changes
 from app.services.settings_service import (
@@ -323,7 +321,6 @@ async def test_email_template(
 ):
     from app.services.email_template_service import get_company_name, preview_template
     from app.services import gmail_service
-    from app.services.tenant_integrations_service import load_tenant_integrations
 
     try:
         rendered = preview_template(
@@ -339,63 +336,7 @@ async def test_email_template(
         to_email=payload.to_email,
         subject=f"[TEST] {rendered['subject']}",
         html_body=rendered["body_html"],
-        integrations=await load_tenant_integrations(db, admin.tenant_id),
     )
     if not sent:
         raise HTTPException(status_code=500, detail="Failed to send test email")
     return {"ok": True, "to_email": payload.to_email}
-
-
-@router.get(
-    "/settings/integrations",
-    response_model=TenantIntegrationsResponse,
-    dependencies=[_admin_auth],
-)
-async def get_integrations(
-    admin: RequireAdmin,
-    db: AsyncSession = Depends(get_db),
-):
-    from app.services.tenant_integrations_service import (
-        load_tenant_integrations,
-        public_status,
-    )
-
-    integrations = await load_tenant_integrations(db, admin.tenant_id)
-    return TenantIntegrationsResponse(**public_status(integrations))
-
-
-@router.patch(
-    "/settings/integrations",
-    response_model=TenantIntegrationsResponse,
-    dependencies=[_admin_auth],
-)
-async def update_integrations(
-    payload: TenantIntegrationsUpdate,
-    admin: RequireAdmin,
-    db: AsyncSession = Depends(get_db),
-):
-    from app.services.tenant_integrations_service import (
-        encode_for_storage,
-        get_or_create_settings_row,
-        load_tenant_integrations,
-        public_status,
-    )
-
-    row = await get_or_create_settings_row(db, admin.tenant_id)
-    updates = payload.model_dump(exclude_unset=True)
-    row.integrations = encode_for_storage(updates, row.integrations)
-    await log_change(
-        db,
-        actor=admin,
-        action="settings.integrations_updated",
-        entity_type="settings",
-        entity_id=None,
-        subject_label="Integrations",
-        feature="integrations",
-        before=None,
-        after={"updated_fields": sorted(updates.keys())},
-    )
-    await db.commit()
-    invalidate_settings_cache(admin.tenant_id)
-    integrations = await load_tenant_integrations(db, admin.tenant_id)
-    return TenantIntegrationsResponse(**public_status(integrations))

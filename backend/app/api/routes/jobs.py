@@ -17,7 +17,6 @@ from app.services.document_extractor import ALLOWED_EXTENSIONS, extract_text_fro
 from app.services.jd_parser import parse_job_description
 from app.services.screening_defaults import get_default_screening_questions
 from app.services.expected_answer_service import enrich_interview_questions
-from app.services.tenant_integrations_service import load_tenant_integrations
 
 router = APIRouter(dependencies=[Depends(require_roles("admin", "hr"))])
 
@@ -64,8 +63,6 @@ async def create_job(
     if not data.get("screening_questions"):
         data["screening_questions"] = get_default_screening_questions(data.get("title") or "")
     if data.get("interview_questions"):
-        integrations = await load_tenant_integrations(db, actor.tenant_id)
-        integrations.require("openai_api_key")
         context_job = Job(
             title=data["title"],
             description=data["description"],
@@ -77,7 +74,6 @@ async def create_job(
             data["interview_questions"],
             existing=None,
             job=context_job,
-            api_key=integrations.openai_api_key,
         )
     job = Job(**data, tenant_id=actor.tenant_id)
     db.add(job)
@@ -113,11 +109,7 @@ async def list_jobs(
 
 
 @router.post("/parse-jd", response_model=JobParseResponse)
-async def parse_jd(
-    actor: RequireAdminOrHr,
-    db: AsyncSession = Depends(get_db),
-    file: UploadFile = File(...),
-):
+async def parse_jd(file: UploadFile = File(...)):
     """Extract and parse a job description from an uploaded PDF or DOCX file."""
     if not _is_allowed_jd_file(file):
         return JSONResponse(
@@ -156,9 +148,7 @@ async def parse_jd(
         )
 
     try:
-        integrations = await load_tenant_integrations(db, actor.tenant_id)
-        integrations.require("openai_api_key")
-        parsed = await parse_job_description(raw_text, integrations.openai_api_key)
+        parsed = await parse_job_description(raw_text)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -205,13 +195,10 @@ async def update_job(
     job = await get_tenant_job(db, job_id, actor.tenant_id)
     updates = payload.model_dump(exclude_unset=True)
     if "interview_questions" in updates and updates["interview_questions"] is not None:
-        integrations = await load_tenant_integrations(db, actor.tenant_id)
-        integrations.require("openai_api_key")
         updates["interview_questions"] = await enrich_interview_questions(
             updates["interview_questions"],
             existing=job.interview_questions,
             job=job,
-            api_key=integrations.openai_api_key,
         )
 
     changes = {}

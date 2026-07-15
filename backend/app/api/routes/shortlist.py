@@ -371,11 +371,9 @@ async def update_decision(
             job_title = job.title if job else "the position"
             from app.services.email_service import send_rejection_email
             from app.services.email_template_service import get_company_name, get_merged_templates
-            from app.services.tenant_integrations_service import load_tenant_integrations
 
             templates = await get_merged_templates(db, actor.tenant_id)
             company_name = await get_company_name(db, actor.tenant_id)
-            integrations = await load_tenant_integrations(db, actor.tenant_id)
             logger.info(
                 "Sending rejection email to %s for shortlist=%s",
                 candidate_email,
@@ -387,7 +385,6 @@ async def update_decision(
                 job_title,
                 templates=templates,
                 company_name=company_name,
-                integrations=integrations,
             ):
                 logger.warning(
                     "Rejection decision saved but email failed for shortlist=%s candidate=%s",

@@ -584,9 +584,7 @@ pending → in_progress → completed → assessed
 
 ## Security & Access Model
 
-Shared-database multi-tenancy: each organization is a **Tenant**. Users, jobs, settings, and audit logs are scoped by `tenant_id`.
-
-**Integrations are per-tenant** (OpenAI, Vapi, LiveKit, Gmail OAuth JSON) — configured under Settings → Integrations and stored encrypted. Platform `.env` is only used to bootstrap the default tenant once and for infrastructure (DB, Redis, JWT). The LiveKit interview agent worker process still reads `LIVEKIT_*` / `OPENAI_API_KEY` from its own environment (run a dedicated agent per LiveKit project if tenants use different LiveKit clouds).
+Shared-database multi-tenancy: each organization is a **Tenant**. Users, jobs, settings, and audit logs are scoped by `tenant_id`. External integrations (VAPI, Gmail, LiveKit, OpenAI) remain shared from `.env`.
 
 | Actor | Access | Notes |
 |-------|--------|-------|

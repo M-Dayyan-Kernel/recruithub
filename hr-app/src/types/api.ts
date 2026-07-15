@@ -155,27 +155,6 @@ export interface SystemSettings {
   updated_at: string
 }
 
-export interface TenantIntegrationsFieldStatus {
-  configured: boolean
-  source: string
-  hint?: string | null
-}
-
-export interface TenantIntegrationsResponse {
-  fields: Record<string, TenantIntegrationsFieldStatus>
-}
-
-export interface TenantIntegrationsUpdate {
-  openai_api_key?: string
-  vapi_api_key?: string
-  vapi_phone_number_id?: string
-  livekit_url?: string
-  livekit_api_key?: string
-  livekit_api_secret?: string
-  gmail_credentials_json?: string
-  gmail_token_json?: string
-}
-
 export interface EmailTemplateEntry {
   subject: string
   body_html: string

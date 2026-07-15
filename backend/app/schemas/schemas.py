@@ -252,21 +252,6 @@ class EmailTemplateTestRequest(BaseModel):
     body_html: str
 
 
-class TenantIntegrationsUpdate(BaseModel):
-    openai_api_key: Optional[str] = None
-    vapi_api_key: Optional[str] = None
-    vapi_phone_number_id: Optional[str] = None
-    livekit_url: Optional[str] = None
-    livekit_api_key: Optional[str] = None
-    livekit_api_secret: Optional[str] = None
-    gmail_credentials_json: Optional[str] = None
-    gmail_token_json: Optional[str] = None
-
-
-class TenantIntegrationsResponse(BaseModel):
-    fields: dict[str, dict]
-
-
 class SystemSettingsUpdate(BaseModel):
     allowed_phone_regions: Optional[List[str]] = None
     enforce_phone_geography: Optional[bool] = None
