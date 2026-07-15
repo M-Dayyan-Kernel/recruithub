@@ -23,7 +23,6 @@ import type {
   InterviewPipelineResponse,
   FinalistsResponse,
 } from '@/types/api'
-import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
 import { ScheduleInterviewModal } from '@/components/screening/ScheduleInterviewModal'
 import { InterviewPipelineTable } from '@/components/InterviewPipelineTable'
 import type { InterviewPipelineTab } from '@/types/api'
@@ -668,7 +667,6 @@ export function InterviewsTab({ job, jobId }: Props) {
   if (isLoading) {
     return (
       <div className="space-y-4">
-        <InterviewRubricPanel job={job} />
         {tabBar}
         {[1, 2].map((i) => (
           <div
@@ -698,7 +696,6 @@ export function InterviewsTab({ job, jobId }: Props) {
   // ── Normal view (tabs always visible) ─────────────────────────────────────
   return (
     <div>
-      <InterviewRubricPanel job={job} />
       {tabBar}
       {filterBar}
 

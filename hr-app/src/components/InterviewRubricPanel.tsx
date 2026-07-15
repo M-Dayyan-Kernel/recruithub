@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, Loader2, ListChecks, Plus, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -12,9 +12,10 @@ import { cn } from '@/lib/utils'
 
 interface Props {
   job: Job
+  headerEnd?: ReactNode
 }
 
-export function InterviewRubricPanel({ job }: Props) {
+export function InterviewRubricPanel({ job, headerEnd }: Props) {
   const queryClient = useQueryClient()
   const normalize = (qs: InterviewQuestion[]) =>
     JSON.stringify(qs.filter((q) => q.question.trim()))
@@ -65,13 +66,13 @@ export function InterviewRubricPanel({ job }: Props) {
   const toggleExpanded = () => setExpanded((open) => !open)
 
   return (
-    <section className="mb-5 overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/50 px-4 py-2.5">
+    <section className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm">
+      <div className="flex h-14 flex-nowrap items-center gap-3 bg-slate-50/50 px-4">
         <button
           type="button"
           onClick={toggleExpanded}
           aria-expanded={expanded ? 'true' : 'false'}
-          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left transition-colors hover:bg-white/60 -mx-1 px-1 py-0.5"
+          className="-mx-1 flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 py-0.5 text-left transition-colors hover:bg-white/60"
         >
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white text-slate-500 shadow-sm ring-1 ring-slate-200/60">
             <ListChecks size={15} />
@@ -114,7 +115,7 @@ export function InterviewRubricPanel({ job }: Props) {
               setQuestions((prev) => [...prev, createInterviewQuestion()])
             }}
             disabled={saveMutation.isPending}
-            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:border-indigo-200 hover:text-indigo-700 disabled:opacity-50"
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-medium text-slate-600 transition-colors hover:border-indigo-200 hover:text-indigo-700 disabled:opacity-50"
           >
             <Plus size={12} />
             Add
@@ -125,7 +126,7 @@ export function InterviewRubricPanel({ job }: Props) {
                 type="button"
                 onClick={handleDiscard}
                 disabled={saveMutation.isPending}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-slate-500 transition-colors hover:bg-white hover:text-slate-700 disabled:opacity-50"
+                className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-slate-500 transition-colors hover:bg-white hover:text-slate-700 disabled:opacity-50"
               >
                 <RotateCcw size={11} />
                 Discard
@@ -134,7 +135,7 @@ export function InterviewRubricPanel({ job }: Props) {
                 type="button"
                 onClick={handleSave}
                 disabled={saveMutation.isPending}
-                className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+                className="inline-flex h-8 items-center gap-1 rounded-md bg-indigo-600 px-2.5 text-[11px] font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
               >
                 {saveMutation.isPending ? (
                   <Loader2 size={11} className="animate-spin" />
@@ -144,6 +145,7 @@ export function InterviewRubricPanel({ job }: Props) {
               </button>
             </>
           )}
+          {headerEnd}
         </div>
       </div>
 

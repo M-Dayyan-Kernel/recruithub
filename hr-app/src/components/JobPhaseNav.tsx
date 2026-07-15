@@ -7,6 +7,7 @@ import type { Job, SystemSettings } from '@/types/api'
 import { cn } from '@/lib/utils'
 import { ScreeningStatusTabs } from '@/components/screening/ScreeningStatusTabs'
 import { ShortlistStatusTabs } from '@/components/shortlist/ShortlistStatusTabs'
+import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
 
 const PHASES = [
   {
@@ -93,26 +94,35 @@ export function JobPhaseNav({ job }: Props) {
     }
   }, [panelOpen])
 
+  const pipelineButton = (
+    <button
+      type="button"
+      onClick={() => setPanelOpen(true)}
+      className="inline-flex h-8 shrink-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+      aria-label="Open pipeline"
+      aria-haspopup="dialog"
+      aria-expanded={panelOpen}
+    >
+      <Menu className="h-4 w-4" />
+      <span className="hidden sm:inline">Pipeline</span>
+      <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500 sm:hidden">
+        {phaseLabel(phase, phases)}
+      </span>
+    </button>
+  )
+
   return (
     <>
       <div className="flex flex-wrap items-center gap-3">
         {phase === 'shortlist' && <ShortlistStatusTabs />}
         {phase === 'screening' && <ScreeningStatusTabs jobId={job.id} />}
-
-        <button
-          type="button"
-          onClick={() => setPanelOpen(true)}
-          className="ml-auto inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
-          aria-label="Open pipeline"
-          aria-haspopup="dialog"
-          aria-expanded={panelOpen}
-        >
-          <Menu className="h-4 w-4" />
-          <span className="hidden sm:inline">Pipeline</span>
-          <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500 sm:hidden">
-            {phaseLabel(phase, phases)}
-          </span>
-        </button>
+        {phase === 'interviews' ? (
+          <div className="w-full min-w-0">
+            <InterviewRubricPanel job={job} headerEnd={pipelineButton} />
+          </div>
+        ) : (
+          <div className="ml-auto">{pipelineButton}</div>
+        )}
       </div>
 
       {panelOpen && (
