@@ -249,7 +249,11 @@ async def _async_sync_status(screening_call_id: str, poll_attempt: int) -> None:
             return
 
         finalized = await _finalize_screening_call_from_vapi(session, screening_call, force=False)
-        if finalized:
+        await session.refresh(screening_call)
+
+        # Parking for transcript enrichment leaves the call in_progress — keep polling
+        # until it becomes terminal (completed/failed) or we hit max polls.
+        if finalized and screening_call.call_status in ("completed", "failed"):
             return
 
         if poll_attempt < SCREENING_SYNC_MAX_POLLS:
@@ -398,11 +402,17 @@ async def _finalize_screening_call_from_vapi(
             screening_call.id,
             exc,
         )
+        # Force = give up waiting. Classify with the best known reason so we don't
+        # invent a fresh no-answer that emails "unable to connect" incorrectly when
+        # we already know the call connected (e.g. customer-ended-call).
         await apply_screening_call_end(
             session,
             screening_call,
-            ended_reason="customer-did-not-answer",
-            transcript="",
+            ended_reason=screening_call.ended_reason or "customer-did-not-answer",
+            transcript=screening_call.transcript or "",
+            schedule_retry=True,
+            send_failure_email=True,
+            awaiting_transcript=False,
         )
         return True
 
@@ -426,9 +436,13 @@ async def _finalize_screening_call_from_vapi(
         has_transcript=bool(transcript.strip()),
     )
 
-    needs_transcript_wait = not transcript.strip() and (
-        bool(started_at)
-        or (resolved_reason or "").lower() in CONNECTED_END_REASONS
+    needs_transcript_wait = (
+        not force
+        and not transcript.strip()
+        and (
+            bool(started_at)
+            or (resolved_reason or "").lower() in CONNECTED_END_REASONS
+        )
     )
 
     finalized = await apply_screening_call_end(
