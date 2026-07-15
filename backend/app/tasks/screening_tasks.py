@@ -438,6 +438,8 @@ async def _finalize_screening_call_from_vapi(
         transcript=transcript,
         # Conversation started but transcript not ready yet — enrich later, don't redial.
         schedule_retry=not needs_transcript_wait,
+        send_failure_email=not needs_transcript_wait,
+        awaiting_transcript=needs_transcript_wait,
     )
     if not finalized:
         return False
@@ -564,25 +566,21 @@ async def _async_enrich_transcript(screening_call_id: str, attempt: int) -> None
             TRANSCRIPT_ENRICH_MAX_ATTEMPTS,
             screening_call_id,
         )
-        outcome, should_retry = classify_call_outcome(
-            ended_reason,
-            len((screening_call.transcript or "").strip()),
+        # Transcript never arrived — now safe to classify as a real connect failure and notify.
+        finalized = await apply_screening_call_end(
+            session,
+            screening_call,
+            ended_reason=ended_reason,
+            transcript=screening_call.transcript or "",
+            schedule_retry=True,
+            send_failure_email=True,
+            awaiting_transcript=False,
         )
-        screening_call.call_outcome = outcome
-        if should_retry:
-            from app.models.models import Job
-            from app.services.settings_service import can_schedule_retry, load_system_settings
+        if not finalized:
+            # Already terminal (e.g. concurrent finalize) — send deferred failure email if needed.
+            from app.services.failed_screening_email_service import maybe_send_failed_screening_email
 
-            job_result = await session.execute(
-                select(Job).where(Job.id == screening_call.job_id)
-            )
-            job = job_result.scalars().first()
-            settings = await load_system_settings(
-                session, tenant_id=job.tenant_id if job else None
-            )
-            if can_schedule_retry(screening_call.retry_count, settings.screening_max_retries):
-                await _schedule_retry(session, screening_call)
-        await session.commit()
+            await maybe_send_failed_screening_email(session, screening_call)
 
 
 async def refresh_live_screening_calls_from_vapi(session, screening_calls) -> bool:
@@ -676,14 +674,26 @@ async def apply_screening_call_end(
     ended_reason: str | None,
     transcript: str = "",
     schedule_retry: bool = True,
+    send_failure_email: bool = True,
+    awaiting_transcript: bool = False,
 ) -> bool:
     """
     Immediately mark a ScreeningCall as finished (no GPT).
 
-    Returns True if the call was finalized, False if already terminal.
+    When awaiting_transcript=True the phone conversation likely connected but Vapi has
+    not delivered the transcript yet — keep the call non-terminal so we do not flash
+    "Unable to Connect" or email a false failure before enrichment completes.
+
+    Returns True if the call was finalized (or parked for enrichment), False if already terminal.
     """
     if screening_call.call_status in ("completed", "failed"):
         return False
+
+    if awaiting_transcript and not (transcript or "").strip():
+        screening_call.ended_reason = ended_reason or screening_call.ended_reason
+        screening_call.call_status = "in_progress"
+        await session.commit()
+        return True
 
     transcript_length = len((transcript or "").strip())
     outcome, should_retry = classify_call_outcome(ended_reason, transcript_length)
@@ -698,9 +708,10 @@ async def apply_screening_call_end(
         screening_call.result = None
         screening_call.summary = describe_screening_failure(ended_reason)
         await session.commit()
-        from app.services.failed_screening_email_service import maybe_send_failed_screening_email
+        if send_failure_email:
+            from app.services.failed_screening_email_service import maybe_send_failed_screening_email
 
-        await maybe_send_failed_screening_email(session, screening_call)
+            await maybe_send_failed_screening_email(session, screening_call)
         return True
 
     screening_call.call_status = "completed"
@@ -747,11 +758,9 @@ async def apply_screening_call_end(
 
     await session.commit()
 
-    from app.services.failed_screening_email_service import maybe_send_failed_screening_email
+    if send_failure_email and outcome in ("no_answer", "voicemail", "dropped"):
+        from app.services.failed_screening_email_service import maybe_send_failed_screening_email
 
-    if outcome in ("no_answer", "voicemail", "dropped") or (
-        outcome == "failed" and screening_call.call_status == "failed"
-    ):
         await maybe_send_failed_screening_email(session, screening_call)
 
     return True

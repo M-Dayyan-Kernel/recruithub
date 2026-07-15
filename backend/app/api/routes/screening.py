@@ -213,6 +213,8 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 ended_reason=ended_reason,
                 transcript=transcript,
                 schedule_retry=not needs_transcript_wait and not transcript.strip(),
+                send_failure_email=not needs_transcript_wait,
+                awaiting_transcript=needs_transcript_wait,
             )
             if transcript.strip():
                 _process_task.delay(body)
@@ -251,6 +253,8 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             ended_reason=ended_reason,
             transcript=transcript,
             schedule_retry=not needs_transcript_wait and not transcript.strip(),
+            send_failure_email=not needs_transcript_wait,
+            awaiting_transcript=needs_transcript_wait,
         )
         if transcript.strip():
             _process_task.delay(body)
@@ -287,6 +291,8 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             ended_reason=ended_reason,
             transcript=transcript,
             schedule_retry=not needs_transcript_wait and not transcript.strip(),
+            send_failure_email=not needs_transcript_wait,
+            awaiting_transcript=needs_transcript_wait,
         )
         if transcript.strip():
             _process_task.delay(body)
