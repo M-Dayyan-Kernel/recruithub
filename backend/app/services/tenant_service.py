@@ -48,11 +48,27 @@ async def create_tenant_with_admin(
     email: str,
     password: str,
     full_name: str,
+    verification_status: str = "approved",
+    is_active: bool | None = None,
+    company_registration_number: str | None = None,
+    gst_document_path: str | None = None,
+    gst_document_filename: str | None = None,
 ) -> tuple[Tenant, User]:
     """Create a tenant, default settings, and first admin user."""
     name = organization_name.strip()
     slug = await ensure_unique_slug(db, name)
-    tenant = Tenant(name=name, slug=slug)
+    active = is_active if is_active is not None else verification_status == "approved"
+    tenant = Tenant(
+        name=name,
+        slug=slug,
+        is_active=active,
+        verification_status=verification_status,
+        company_registration_number=(
+            company_registration_number.strip() if company_registration_number else None
+        ),
+        gst_document_path=gst_document_path,
+        gst_document_filename=gst_document_filename,
+    )
     db.add(tenant)
     await db.flush()
 

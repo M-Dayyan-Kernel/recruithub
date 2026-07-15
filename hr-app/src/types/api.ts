@@ -339,6 +339,15 @@ export interface SignupRequest {
   email: string
   password: string
   full_name: string
+  company_registration_number?: string
+  gst_document: File
+}
+
+export interface SignupPendingResponse {
+  message: string
+  organization_name: string
+  email: string
+  verification_status: 'pending'
 }
 
 export interface AcceptInviteRequest {
@@ -405,6 +414,10 @@ export interface TenantListItem {
   name: string
   slug: string
   is_active: boolean
+  verification_status: 'pending' | 'approved' | 'rejected'
+  company_registration_number?: string | null
+  gst_document_filename?: string | null
+  has_gst_document?: boolean
   created_at: string
   user_count: number
   job_count: number

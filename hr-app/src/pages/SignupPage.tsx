@@ -13,6 +13,8 @@ export default function SignupPage() {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [companyRegistrationNumber, setCompanyRegistrationNumber] = useState('')
+  const [gstDocument, setGstDocument] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   if (isLoading) {
@@ -29,16 +31,26 @@ export default function SignupPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
+    if (!gstDocument) {
+      toast.error('GST document (PDF) is required')
+      return
+    }
+    if (!gstDocument.name.toLowerCase().endsWith('.pdf')) {
+      toast.error('GST document must be a PDF')
+      return
+    }
     setSubmitting(true)
     try {
-      await signup({
+      const result = await signup({
         organization_name: organizationName.trim(),
         full_name: fullName.trim(),
         email: email.trim(),
         password,
+        company_registration_number: companyRegistrationNumber.trim() || undefined,
+        gst_document: gstDocument,
       })
-      toast.success('Organization created')
-      navigate('/', { replace: true })
+      toast.success(result.message)
+      navigate('/login', { replace: true })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Signup failed')
     } finally {
@@ -47,7 +59,7 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 via-zinc-50 to-slate-200 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 via-zinc-50 to-slate-200 px-4 py-10">
       <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
         <div className="mb-8 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-600">
@@ -55,7 +67,9 @@ export default function SignupPage() {
           </div>
           <div>
             <h1 className="text-lg font-semibold text-slate-900">Create organization</h1>
-            <p className="text-sm text-slate-500">Start hiring under your company account</p>
+            <p className="text-sm text-slate-500">
+              Submit GST documents for verification before access
+            </p>
           </div>
         </div>
 
@@ -117,12 +131,39 @@ export default function SignupPage() {
               placeholder="••••••••"
             />
           </div>
+          <div>
+            <label htmlFor="gst" className="mb-1.5 block text-sm font-medium text-slate-700">
+              GST document <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="gst"
+              type="file"
+              accept="application/pdf,.pdf"
+              required
+              onChange={(e) => setGstDocument(e.target.files?.[0] ?? null)}
+              className={`${WORKFLOW_INPUT_CLASS} cursor-pointer file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-sm file:font-medium file:text-slate-700`}
+            />
+            <p className="mt-1 text-xs text-slate-500">PDF only, max 10 MB. Required for verification.</p>
+          </div>
+          <div>
+            <label htmlFor="regNo" className="mb-1.5 block text-sm font-medium text-slate-700">
+              Company registration number{' '}
+              <span className="font-normal text-slate-400">(optional)</span>
+            </label>
+            <input
+              id="regNo"
+              value={companyRegistrationNumber}
+              onChange={(e) => setCompanyRegistrationNumber(e.target.value)}
+              className={WORKFLOW_INPUT_CLASS}
+              placeholder="e.g. CIN / registration no."
+            />
+          </div>
           <button
             type="submit"
             disabled={submitting}
             className={`${WORKFLOW_PRIMARY_BUTTON_CLASS} w-full justify-center disabled:opacity-60`}
           >
-            {submitting ? 'Creating…' : 'Create account'}
+            {submitting ? 'Submitting…' : 'Submit for verification'}
           </button>
         </form>
 

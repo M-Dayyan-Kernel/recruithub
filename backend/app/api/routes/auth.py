@@ -1,17 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import RequireSuperAdmin, get_current_user
+from app.core.deps import PLATFORM_TENANT_SLUG, RequireSuperAdmin, get_current_user
 from app.core.security import create_access_token, verify_password
 from app.models.models import Tenant, User
 from app.schemas.schemas import (
     AcceptInviteRequest,
     InvitePublicResponse,
     LoginRequest,
-    SignupRequest,
+    SignupPendingResponse,
     SwitchTenantRequest,
     TokenResponse,
     UserResponse,
@@ -19,6 +23,8 @@ from app.schemas.schemas import (
 from app.services.tenant_service import create_tenant_with_admin, get_valid_invite
 
 router = APIRouter()
+
+MAX_GST_DOC_SIZE = settings.MAX_ORG_DOC_SIZE
 
 
 def _user_response(user: User, tenant_name: str | None = None) -> UserResponse:
@@ -48,7 +54,6 @@ def _issue_token(
     if active_tenant_id and user.role == "superadmin":
         claims["active_tenant_id"] = active_tenant_id
 
-    # Align response tenant fields with token
     if active_tenant_id and user.role == "superadmin":
         from uuid import UUID
 
@@ -64,26 +69,122 @@ def _issue_token(
     )
 
 
-@router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-async def signup(body: SignupRequest, db: AsyncSession = Depends(get_db)):
-    email = body.email.strip().lower()
-    existing = await db.execute(select(User).where(User.email == email))
+def _assert_tenant_can_access(tenant: Tenant | None) -> None:
+    if tenant is None:
+        return
+    status_value = getattr(tenant, "verification_status", "approved") or "approved"
+    if status_value == "pending":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Organization is pending platform approval. "
+                "You will get access once approved."
+            ),
+        )
+    if status_value == "rejected":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization registration was rejected. Contact support if you need help.",
+        )
+    if not tenant.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization is inactive",
+        )
+
+
+async def _read_and_validate_gst_pdf(upload: UploadFile) -> tuple[bytes, str]:
+    filename = (upload.filename or "gst.pdf").strip()
+    suffix = Path(filename).suffix.lower()
+    if suffix != ".pdf":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GST document must be a PDF file",
+        )
+
+    data = await upload.read()
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GST document is empty",
+        )
+    if len(data) > MAX_GST_DOC_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"GST document must be under {MAX_GST_DOC_SIZE // (1024 * 1024)} MB",
+        )
+    if not data.startswith(b"%PDF"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GST document must be a valid PDF",
+        )
+    return data, filename[:255]
+
+
+def _persist_gst_document(tenant_id, data: bytes) -> str:
+    dest_dir = Path(settings.ORG_DOCS_DIR) / str(tenant_id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / f"gst-{uuid4().hex}.pdf"
+    dest_path.write_bytes(data)
+    return str(dest_path)
+
+
+@router.post(
+    "/signup",
+    response_model=SignupPendingResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def signup(
+    organization_name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    full_name: str = Form(...),
+    company_registration_number: str | None = Form(None),
+    gst_document: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    org = organization_name.strip()
+    if not org:
+        raise HTTPException(status_code=400, detail="Organization name is required")
+    full = full_name.strip()
+    if not full:
+        raise HTTPException(status_code=400, detail="Full name is required")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    email_norm = email.strip().lower()
+    existing = await db.execute(select(User).where(User.email == email_norm))
     if existing.scalars().first() is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A user with this email already exists",
         )
 
+    pdf_bytes, original_name = await _read_and_validate_gst_pdf(gst_document)
+
     tenant, admin = await create_tenant_with_admin(
         db,
-        organization_name=body.organization_name,
-        email=email,
-        password=body.password,
-        full_name=body.full_name,
+        organization_name=org,
+        email=email_norm,
+        password=password,
+        full_name=full,
+        verification_status="pending",
+        is_active=False,
+        company_registration_number=company_registration_number,
     )
+    tenant.gst_document_path = _persist_gst_document(tenant.id, pdf_bytes)
+    tenant.gst_document_filename = original_name
     await db.commit()
-    await db.refresh(admin)
-    return _issue_token(admin, tenant_name=tenant.name)
+
+    return SignupPendingResponse(
+        message=(
+            "Organization submitted for verification. "
+            "You can sign in after a platform admin approves your GST document."
+        ),
+        organization_name=tenant.name,
+        email=admin.email,
+        verification_status="pending",
+    )
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -104,11 +205,8 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive",
         )
-    if user.role != "superadmin" and user.tenant and not user.tenant.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Organization is inactive",
-        )
+    if user.role != "superadmin":
+        _assert_tenant_can_access(user.tenant)
 
     return _issue_token(user, tenant_name=user.tenant.name if user.tenant else None)
 
@@ -124,15 +222,19 @@ async def switch_tenant(
     admin: RequireSuperAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    from app.core.deps import PLATFORM_TENANT_SLUG
-
     tenant = await db.get(Tenant, body.tenant_id)
     if tenant is None:
         raise HTTPException(status_code=404, detail="Organization not found")
-    if not tenant.is_active:
-        raise HTTPException(status_code=400, detail="Organization is inactive")
     if tenant.slug == PLATFORM_TENANT_SLUG:
         raise HTTPException(status_code=400, detail="Cannot switch into the platform tenant")
+    status_value = getattr(tenant, "verification_status", "approved") or "approved"
+    if status_value != "approved":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization is not approved yet",
+        )
+    if not tenant.is_active:
+        raise HTTPException(status_code=400, detail="Organization is inactive")
 
     home_id = getattr(admin, "home_tenant_id", None) or admin.tenant_id
     admin.home_tenant_id = home_id  # type: ignore[attr-defined]
@@ -179,6 +281,9 @@ async def accept_invite(body: AcceptInviteRequest, db: AsyncSession = Depends(ge
     if invite is None:
         raise HTTPException(status_code=404, detail="Invite not found or expired")
 
+    tenant = await db.get(Tenant, invite.tenant_id)
+    _assert_tenant_can_access(tenant)
+
     email = invite.email.strip().lower()
     existing = await db.execute(select(User).where(User.email == email))
     if existing.scalars().first() is not None:
@@ -203,5 +308,4 @@ async def accept_invite(body: AcceptInviteRequest, db: AsyncSession = Depends(ge
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    tenant = await db.get(Tenant, user.tenant_id)
     return _issue_token(user, tenant_name=tenant.name if tenant else None)

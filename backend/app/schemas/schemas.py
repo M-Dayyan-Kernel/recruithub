@@ -605,6 +605,15 @@ class SignupRequest(BaseModel):
     full_name: str = Field(..., min_length=1, max_length=255)
 
 
+class SignupPendingResponse(BaseModel):
+    """Returned after self-signup — account exists but access waits for approval."""
+
+    message: str
+    organization_name: str
+    email: EmailStr
+    verification_status: Literal["pending"] = "pending"
+
+
 class AcceptInviteRequest(BaseModel):
     token: str = Field(..., min_length=10, max_length=128)
     password: str = Field(..., min_length=6, max_length=128)
@@ -655,6 +664,9 @@ class TenantResponse(BaseModel):
     name: str
     slug: str
     is_active: bool = True
+    verification_status: Literal["pending", "approved", "rejected"] = "approved"
+    company_registration_number: Optional[str] = None
+    gst_document_filename: Optional[str] = None
     created_at: datetime
 
 
@@ -663,6 +675,10 @@ class TenantListItem(BaseModel):
     name: str
     slug: str
     is_active: bool
+    verification_status: Literal["pending", "approved", "rejected"] = "approved"
+    company_registration_number: Optional[str] = None
+    gst_document_filename: Optional[str] = None
+    has_gst_document: bool = False
     created_at: datetime
     user_count: int = 0
     job_count: int = 0

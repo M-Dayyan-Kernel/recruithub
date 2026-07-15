@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +24,22 @@ from app.services.audit_service import log_change
 from app.services.tenant_service import create_tenant_with_admin
 
 router = APIRouter()
+
+
+def _tenant_list_item(t: Tenant, user_count: int, job_count: int) -> TenantListItem:
+    return TenantListItem(
+        id=t.id,
+        name=t.name,
+        slug=t.slug,
+        is_active=t.is_active,
+        verification_status=t.verification_status,  # type: ignore[arg-type]
+        company_registration_number=t.company_registration_number,
+        gst_document_filename=t.gst_document_filename,
+        has_gst_document=bool(t.gst_document_path),
+        created_at=t.created_at,
+        user_count=user_count,
+        job_count=job_count,
+    )
 
 
 @router.get("/tenants", response_model=list[TenantListItem])
@@ -47,15 +65,7 @@ async def list_tenants(
     )
     tenants = result.scalars().all()
     return [
-        TenantListItem(
-            id=t.id,
-            name=t.name,
-            slug=t.slug,
-            is_active=t.is_active,
-            created_at=t.created_at,
-            user_count=users_by_tenant.get(t.id, 0),
-            job_count=jobs_by_tenant.get(t.id, 0),
-        )
+        _tenant_list_item(t, users_by_tenant.get(t.id, 0), jobs_by_tenant.get(t.id, 0))
         for t in tenants
     ]
 
@@ -80,6 +90,8 @@ async def create_tenant(
         email=email,
         password=body.admin_password,
         full_name=body.admin_full_name,
+        verification_status="approved",
+        is_active=True,
     )
     await log_change(
         db,
@@ -109,10 +121,19 @@ async def update_tenant(
         raise HTTPException(status_code=404, detail="Organization not found")
 
     data = body.model_dump(exclude_unset=True)
-    before = {"name": tenant.name, "is_active": tenant.is_active}
+    before = {
+        "name": tenant.name,
+        "is_active": tenant.is_active,
+        "verification_status": tenant.verification_status,
+    }
     if "name" in data and data["name"] is not None:
         tenant.name = data["name"].strip()
     if "is_active" in data and data["is_active"] is not None:
+        if data["is_active"] and tenant.verification_status != "approved":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Approve the organization before activating it",
+            )
         tenant.is_active = data["is_active"]
 
     await log_change(
@@ -124,11 +145,100 @@ async def update_tenant(
         subject_label=tenant.name,
         feature="platform",
         before=before,
-        after={"name": tenant.name, "is_active": tenant.is_active},
+        after={
+            "name": tenant.name,
+            "is_active": tenant.is_active,
+            "verification_status": tenant.verification_status,
+        },
     )
     await db.commit()
     await db.refresh(tenant)
     return TenantResponse.model_validate(tenant)
+
+
+@router.post("/tenants/{tenant_id}/approve", response_model=TenantResponse)
+async def approve_tenant(
+    tenant_id: uuid.UUID,
+    admin: RequireSuperAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await db.get(Tenant, tenant_id)
+    if tenant is None or tenant.slug == PLATFORM_TENANT_SLUG:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    before = {
+        "verification_status": tenant.verification_status,
+        "is_active": tenant.is_active,
+    }
+    tenant.verification_status = "approved"
+    tenant.is_active = True
+    await log_change(
+        db,
+        actor=admin,
+        action="tenant.approved",
+        entity_type="tenant",
+        entity_id=tenant.id,
+        subject_label=tenant.name,
+        feature="platform",
+        before=before,
+        after={"verification_status": "approved", "is_active": True},
+    )
+    await db.commit()
+    await db.refresh(tenant)
+    return TenantResponse.model_validate(tenant)
+
+
+@router.post("/tenants/{tenant_id}/reject", response_model=TenantResponse)
+async def reject_tenant(
+    tenant_id: uuid.UUID,
+    admin: RequireSuperAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await db.get(Tenant, tenant_id)
+    if tenant is None or tenant.slug == PLATFORM_TENANT_SLUG:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    before = {
+        "verification_status": tenant.verification_status,
+        "is_active": tenant.is_active,
+    }
+    tenant.verification_status = "rejected"
+    tenant.is_active = False
+    await log_change(
+        db,
+        actor=admin,
+        action="tenant.rejected",
+        entity_type="tenant",
+        entity_id=tenant.id,
+        subject_label=tenant.name,
+        feature="platform",
+        before=before,
+        after={"verification_status": "rejected", "is_active": False},
+    )
+    await db.commit()
+    await db.refresh(tenant)
+    return TenantResponse.model_validate(tenant)
+
+
+@router.get("/tenants/{tenant_id}/gst-document")
+async def download_gst_document(
+    tenant_id: uuid.UUID,
+    _admin: RequireSuperAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await db.get(Tenant, tenant_id)
+    if tenant is None or tenant.slug == PLATFORM_TENANT_SLUG:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    if not tenant.gst_document_path:
+        raise HTTPException(status_code=404, detail="No GST document uploaded")
+    path = Path(tenant.gst_document_path)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="GST document file missing on disk")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=tenant.gst_document_filename or path.name,
+    )
 
 
 @router.get("/tenants/{tenant_id}/users", response_model=list[UserResponse])
@@ -162,6 +272,7 @@ async def delete_tenant(
 
     label = tenant.name
     slug = tenant.slug
+    doc_path = tenant.gst_document_path
     await log_change(
         db,
         actor=admin,
@@ -173,8 +284,15 @@ async def delete_tenant(
         before={"name": label, "slug": slug, "is_active": tenant.is_active},
         after=None,
     )
-    # Clear settings first — ORM default is to nullify FKs, which violates NOT NULL
     await db.execute(delete(SystemSettings).where(SystemSettings.tenant_id == tenant_id))
     await db.delete(tenant)
     await db.commit()
+
+    if doc_path:
+        path = Path(doc_path)
+        if path.is_file():
+            path.unlink(missing_ok=True)
+        parent = path.parent
+        if parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
     return None

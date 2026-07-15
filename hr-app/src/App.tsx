@@ -1,4 +1,4 @@
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import DashboardPage from '@/pages/DashboardPage'
 import JobsPage from '@/pages/JobsPage'
@@ -41,7 +41,8 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<AppShellRoute />}>
             <Route index element={<DashboardPage />} />
-            <Route path="organizations" element={<OrganizationsPage />} />
+            <Route path="admin" element={<OrganizationsPage />} />
+            <Route path="organizations" element={<Navigate to="/admin" replace />} />
 
             <Route path="jobs" element={<JobsPage />} />
             <Route path="jobs/new" element={<CreateJobPage />} />

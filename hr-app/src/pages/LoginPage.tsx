@@ -35,7 +35,7 @@ export default function LoginPage() {
       toast.success('Signed in')
       const dest =
         signedIn.role === 'superadmin' && (from === '/' || from === '/login')
-          ? '/organizations'
+          ? '/admin'
           : from
       navigate(dest, { replace: true })
     } catch (err) {

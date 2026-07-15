@@ -218,7 +218,7 @@ export default function Layout() {
               type="button"
               onClick={() => {
                 void clearTenantSwitch().then(() => {
-                  window.location.assign('/organizations')
+                  window.location.assign('/admin')
                 })
               }}
               className="font-medium text-teal-200 underline-offset-2 hover:underline"

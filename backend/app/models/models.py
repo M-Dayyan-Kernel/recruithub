@@ -19,6 +19,13 @@ class Tenant(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    # pending | approved | rejected — self-signup orgs start as pending until superadmin reviews
+    verification_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="approved", server_default="approved"
+    )
+    company_registration_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    gst_document_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    gst_document_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # passive_deletes: DB ON DELETE CASCADE clears children; without it SQLAlchemy

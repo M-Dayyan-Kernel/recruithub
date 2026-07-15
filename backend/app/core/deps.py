@@ -51,11 +51,26 @@ async def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive",
         )
-    if user.role != "superadmin" and user.tenant and not user.tenant.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Organization is inactive",
-        )
+    if user.role != "superadmin" and user.tenant:
+        status_value = getattr(user.tenant, "verification_status", "approved") or "approved"
+        if status_value == "pending":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Organization is pending platform approval. "
+                    "You will get access once approved."
+                ),
+            )
+        if status_value == "rejected":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Organization registration was rejected",
+            )
+        if not user.tenant.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Organization is inactive",
+            )
 
     home_tenant_id = user.tenant_id
     home_tenant_name = user.tenant.name if user.tenant else None

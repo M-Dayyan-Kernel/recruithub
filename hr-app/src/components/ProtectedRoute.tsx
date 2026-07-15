@@ -43,14 +43,14 @@ export function AppShellRoute() {
 
   if (onPlatform) {
     // Keep superadmin on the platform console — no jobs/dashboard/archived
-    if (location.pathname !== '/organizations') {
-      return <Navigate to="/organizations" replace />
+    if (location.pathname !== '/admin') {
+      return <Navigate to="/admin" replace />
     }
     return <PlatformLayout />
   }
 
-  // Acting superadmin or tenant user — block bare /organizations (send to jobs)
-  if (location.pathname === '/organizations') {
+  // Acting superadmin or tenant user — block bare /admin (send to jobs)
+  if (location.pathname === '/admin') {
     return <Navigate to="/jobs" replace />
   }
 
@@ -69,7 +69,7 @@ export function AdminRoute() {
   }
 
   if (!isAdmin) {
-    return <Navigate to={isSuperAdmin ? '/organizations' : '/'} replace />
+    return <Navigate to={isSuperAdmin ? '/admin' : '/'} replace />
   }
 
   return <Outlet />

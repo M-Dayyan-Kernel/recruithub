@@ -11,6 +11,7 @@ import { api, getStoredToken, queryClient, setStoredToken } from '@/lib/api'
 import type {
   AcceptInviteRequest,
   LoginRequest,
+  SignupPendingResponse,
   SignupRequest,
   TokenResponse,
   User,
@@ -24,7 +25,7 @@ interface AuthContextValue {
   isSuperAdmin: boolean
   isActingInTenant: boolean
   login: (credentials: LoginRequest) => Promise<User>
-  signup: (payload: SignupRequest) => Promise<void>
+  signup: (payload: SignupRequest) => Promise<SignupPendingResponse>
   acceptInvite: (payload: AcceptInviteRequest) => Promise<void>
   switchTenant: (tenantId: string) => Promise<void>
   clearTenantSwitch: () => Promise<void>
@@ -86,13 +87,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [applyAuth],
   )
 
-  const signup = useCallback(
-    async (payload: SignupRequest) => {
-      const result = (await api.post('/api/auth/signup', payload)) as unknown as TokenResponse
-      applyAuth(result)
-    },
-    [applyAuth],
-  )
+  const signup = useCallback(async (payload: SignupRequest) => {
+    const form = new FormData()
+    form.append('organization_name', payload.organization_name)
+    form.append('full_name', payload.full_name)
+    form.append('email', payload.email)
+    form.append('password', payload.password)
+    if (payload.company_registration_number?.trim()) {
+      form.append(
+        'company_registration_number',
+        payload.company_registration_number.trim(),
+      )
+    }
+    form.append('gst_document', payload.gst_document)
+    return (await api.post(
+      '/api/auth/signup',
+      form,
+    )) as unknown as SignupPendingResponse
+  }, [])
 
   const acceptInvite = useCallback(
     async (payload: AcceptInviteRequest) => {

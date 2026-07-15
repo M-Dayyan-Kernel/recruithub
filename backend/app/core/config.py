@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     GMAIL_TOKEN_PATH: str = "token.json"
 
     UPLOAD_DIR: str = "uploads/resumes"
+    ORG_DOCS_DIR: str = "uploads/org-docs"
+    MAX_ORG_DOC_SIZE: int = 10 * 1024 * 1024  # 10 MB
     MAX_CONCURRENT_PARSES: int = 10
     MAX_CONCURRENT_SHORTLISTS: int = 10
     MAX_ZIP_FILE_SIZE: int = 100 * 1024 * 1024  # 100 MB
