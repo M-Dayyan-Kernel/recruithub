@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
-from app.core.deps import RequireAdminOrHr, require_roles
+from app.core.deps import RequireAdminOrHr, hr_roles
 from app.core.tenancy import get_tenant_job, get_tenant_screening_call
 from app.models.models import Candidate, InterviewSession, ScreeningCall
 from app.schemas.schemas import (
@@ -28,7 +28,7 @@ from app.services.audit_service import log_change
 from app.services.celery_health import CELERY_UNAVAILABLE_MSG, celery_workers_available
 from app.services.screening_trigger_service import dispatch_screening_for_candidates
 
-_hr_auth = Depends(require_roles("admin", "hr"))
+_hr_auth = Depends(hr_roles)
 
 router = APIRouter()
 

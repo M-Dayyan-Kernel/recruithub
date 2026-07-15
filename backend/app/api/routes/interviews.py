@@ -22,7 +22,7 @@ from sqlalchemy import select, update
 
 from app.core.database import get_db
 from app.core.config import settings
-from app.core.deps import RequireAdminOrHr, require_roles
+from app.core.deps import RequireAdminOrHr, hr_roles
 from app.core.tenancy import get_tenant_candidate, get_tenant_job
 from app.models.models import (
     Candidate,
@@ -41,7 +41,7 @@ from app.schemas.schemas import (
 )
 from app.services.audit_service import log_change
 
-_hr_auth = Depends(require_roles("admin", "hr"))
+_hr_auth = Depends(hr_roles)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

@@ -18,15 +18,29 @@ class Tenant(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    users: Mapped[List["User"]] = relationship("User", back_populates="tenant")
-    jobs: Mapped[List["Job"]] = relationship("Job", back_populates="tenant")
+    # passive_deletes: DB ON DELETE CASCADE clears children; without it SQLAlchemy
+    # tries to SET NULL on non-nullable FKs (e.g. system_settings.tenant_id).
+    users: Mapped[List["User"]] = relationship(
+        "User", back_populates="tenant", cascade="all, delete-orphan", passive_deletes=True
+    )
+    jobs: Mapped[List["Job"]] = relationship(
+        "Job", back_populates="tenant", cascade="all, delete-orphan", passive_deletes=True
+    )
     settings: Mapped[Optional["SystemSettings"]] = relationship(
-        "SystemSettings", back_populates="tenant", uselist=False
+        "SystemSettings",
+        back_populates="tenant",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     invites: Mapped[List["TenantInvite"]] = relationship(
-        "TenantInvite", back_populates="tenant", cascade="all, delete-orphan"
+        "TenantInvite",
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 
@@ -60,7 +74,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(20), nullable=False)  # "admin" | "hr"
+    role: Mapped[str] = mapped_column(String(20), nullable=False)  # "superadmin" | "admin" | "hr"
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

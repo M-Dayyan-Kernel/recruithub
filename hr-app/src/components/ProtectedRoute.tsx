@@ -1,5 +1,7 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import Layout from '@/components/Layout'
+import PlatformLayout from '@/components/PlatformLayout'
 
 export function ProtectedRoute() {
   const { isAuthenticated, isLoading } = useAuth()
@@ -20,8 +22,43 @@ export function ProtectedRoute() {
   return <Outlet />
 }
 
+/**
+ * Picks platform console vs HR workspace shell for the signed-in user.
+ * Superadmin (not acting in a tenant) → PlatformLayout only.
+ * Everyone else (including superadmin after Enter) → HR Layout.
+ */
+export function AppShellRoute() {
+  const { isSuperAdmin, isActingInTenant, isLoading } = useAuth()
+  const location = useLocation()
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-50">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-slate-800" />
+      </div>
+    )
+  }
+
+  const onPlatform = isSuperAdmin && !isActingInTenant
+
+  if (onPlatform) {
+    // Keep superadmin on the platform console — no jobs/dashboard/archived
+    if (location.pathname !== '/organizations') {
+      return <Navigate to="/organizations" replace />
+    }
+    return <PlatformLayout />
+  }
+
+  // Acting superadmin or tenant user — block bare /organizations (send to jobs)
+  if (location.pathname === '/organizations') {
+    return <Navigate to="/jobs" replace />
+  }
+
+  return <Layout />
+}
+
 export function AdminRoute() {
-  const { isAdmin, isLoading } = useAuth()
+  const { isAdmin, isSuperAdmin, isLoading } = useAuth()
 
   if (isLoading) {
     return (
@@ -32,7 +69,7 @@ export function AdminRoute() {
   }
 
   if (!isAdmin) {
-    return <Navigate to="/" replace />
+    return <Navigate to={isSuperAdmin ? '/organizations' : '/'} replace />
   }
 
   return <Outlet />

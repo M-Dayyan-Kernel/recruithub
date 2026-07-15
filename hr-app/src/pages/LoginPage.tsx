@@ -31,9 +31,13 @@ export default function LoginPage() {
     e.preventDefault()
     setSubmitting(true)
     try {
-      await login({ email: email.trim(), password })
+      const signedIn = await login({ email: email.trim(), password })
       toast.success('Signed in')
-      navigate(from, { replace: true })
+      const dest =
+        signedIn.role === 'superadmin' && (from === '/' || from === '/login')
+          ? '/organizations'
+          : from
+      navigate(dest, { replace: true })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Login failed')
     } finally {

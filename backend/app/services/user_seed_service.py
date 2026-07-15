@@ -6,13 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.security import hash_password
 from app.models.models import User
-from app.services.tenant_service import get_or_create_default_tenant
+from app.services.tenant_service import ensure_platform_tenant, get_or_create_default_tenant
 
 logger = logging.getLogger(__name__)
 
 
 async def seed_admin_user(db: AsyncSession) -> None:
-    """Create the seeded admin if SEED_ADMIN_* env vars are set and no admin exists."""
+    """Create the seeded tenant admin if SEED_ADMIN_* env vars are set and no admin exists."""
     email = (settings.SEED_ADMIN_EMAIL or "").strip().lower()
     password = settings.SEED_ADMIN_PASSWORD or ""
     if not email or not password:
@@ -41,3 +41,39 @@ async def seed_admin_user(db: AsyncSession) -> None:
     db.add(admin)
     await db.commit()
     logger.info("Seeded admin user: %s (tenant=%s)", email, tenant.slug)
+
+
+async def seed_superadmin_user(db: AsyncSession) -> None:
+    """Create platform superadmin if SEED_SUPERADMIN_* env vars are set."""
+    email = (settings.SEED_SUPERADMIN_EMAIL or "").strip().lower()
+    password = settings.SEED_SUPERADMIN_PASSWORD or ""
+    if not email or not password:
+        return
+
+    existing = await db.execute(select(User).where(User.role == "superadmin").limit(1))
+    if existing.scalars().first() is not None:
+        return
+
+    by_email = await db.execute(select(User).where(User.email == email))
+    existing_user = by_email.scalars().first()
+    if existing_user is not None:
+        if existing_user.role != "superadmin":
+            existing_user.role = "superadmin"
+            platform = await ensure_platform_tenant(db)
+            existing_user.tenant_id = platform.id
+            await db.commit()
+            logger.info("Promoted existing user to superadmin: %s", email)
+        return
+
+    platform = await ensure_platform_tenant(db)
+    user = User(
+        tenant_id=platform.id,
+        email=email,
+        full_name=(settings.SEED_SUPERADMIN_NAME or "Super Admin").strip() or "Super Admin",
+        hashed_password=hash_password(password),
+        role="superadmin",
+        is_active=True,
+    )
+    db.add(user)
+    await db.commit()
+    logger.info("Seeded superadmin user: %s", email)

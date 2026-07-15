@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import RequireAdmin, RequireAdminOrHr, require_roles
+from app.core.deps import RequireAdmin, RequireAdminOrHr, admin_roles, hr_roles
 from app.models.models import SystemSettings
 from app.schemas.schemas import (
     SystemSettingsResponse,
@@ -26,8 +26,8 @@ from app.services.settings_service import (
     normalize_retry_delay_seconds,
 )
 
-_hr_auth = Depends(require_roles("admin", "hr"))
-_admin_auth = Depends(require_roles("admin"))
+_hr_auth = Depends(hr_roles)
+_admin_auth = Depends(admin_roles)
 
 router = APIRouter()
 

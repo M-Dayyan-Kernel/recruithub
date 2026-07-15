@@ -1,6 +1,5 @@
 import { Route, Routes } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
-import Layout from '@/components/Layout'
 import DashboardPage from '@/pages/DashboardPage'
 import JobsPage from '@/pages/JobsPage'
 import CreateJobPage from '@/pages/CreateJobPage'
@@ -20,8 +19,9 @@ import NotFoundPage from '@/pages/NotFoundPage'
 import LoginPage from '@/pages/LoginPage'
 import SignupPage from '@/pages/SignupPage'
 import AcceptInvitePage from '@/pages/AcceptInvitePage'
+import OrganizationsPage from '@/pages/OrganizationsPage'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { AdminRoute, ProtectedRoute } from '@/components/ProtectedRoute'
+import { AdminRoute, AppShellRoute, ProtectedRoute } from '@/components/ProtectedRoute'
 
 export default function App() {
   return (
@@ -37,9 +37,12 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/accept-invite" element={<AcceptInvitePage />} />
+
         <Route element={<ProtectedRoute />}>
-          <Route element={<Layout />}>
+          <Route element={<AppShellRoute />}>
             <Route index element={<DashboardPage />} />
+            <Route path="organizations" element={<OrganizationsPage />} />
+
             <Route path="jobs" element={<JobsPage />} />
             <Route path="jobs/new" element={<CreateJobPage />} />
             <Route path="jobs/archived" element={<ArchivedJobsPage />} />
@@ -50,8 +53,15 @@ export default function App() {
               <Route path="interviews" element={<JobInterviewsPage />} />
               <Route path="finalists" element={<JobFinalistsPage />} />
             </Route>
-            <Route path="jobs/:jobId/candidates/:candidateId/report" element={<ReportPage />} />
-            <Route path="jobs/:jobId/shortlist/:shortlistId" element={<ShortlistReportPage />} />
+            <Route
+              path="jobs/:jobId/candidates/:candidateId/report"
+              element={<ReportPage />}
+            />
+            <Route
+              path="jobs/:jobId/shortlist/:shortlistId"
+              element={<ShortlistReportPage />}
+            />
+
             <Route element={<AdminRoute />}>
               <Route path="activity" element={<ActivityPage />} />
               <Route path="users" element={<UsersPage />} />

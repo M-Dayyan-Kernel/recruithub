@@ -311,7 +311,8 @@ export interface Candidate {
 // Auth / Users
 // ---------------------------------------------------------------------------
 
-export type UserRole = 'admin' | 'hr'
+export type UserRole = 'superadmin' | 'admin' | 'hr'
+export type TenantMemberRole = 'admin' | 'hr'
 
 export interface User {
   id: string
@@ -323,6 +324,9 @@ export interface User {
   created_at: string
   updated_at: string
   tenant_name?: string | null
+  home_tenant_id?: string | null
+  active_tenant_id?: string | null
+  active_tenant_name?: string | null
 }
 
 export interface LoginRequest {
@@ -345,20 +349,20 @@ export interface AcceptInviteRequest {
 
 export interface InvitePublic {
   email: string
-  role: UserRole
+  role: TenantMemberRole
   organization_name: string
   expires_at: string
 }
 
 export interface InviteCreate {
   email: string
-  role: UserRole
+  role: TenantMemberRole
 }
 
 export interface InviteResponse {
   id: string
   email: string
-  role: UserRole
+  role: TenantMemberRole
   token: string
   invite_url: string
   expires_at: string
@@ -375,13 +379,35 @@ export interface UserCreate {
   email: string
   full_name: string
   password: string
-  role: UserRole
+  role: TenantMemberRole
 }
 
 export interface UserUpdate {
   full_name?: string
-  role?: UserRole
+  role?: TenantMemberRole
   password?: string
+  is_active?: boolean
+}
+
+export interface TenantListItem {
+  id: string
+  name: string
+  slug: string
+  is_active: boolean
+  created_at: string
+  user_count: number
+  job_count: number
+}
+
+export interface TenantCreateRequest {
+  name: string
+  admin_email: string
+  admin_full_name: string
+  admin_password: string
+}
+
+export interface TenantUpdateRequest {
+  name?: string
   is_active?: boolean
 }
 

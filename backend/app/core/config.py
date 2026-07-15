@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     SEED_ADMIN_EMAIL: str = ""
     SEED_ADMIN_PASSWORD: str = ""
     SEED_ADMIN_NAME: str = "Admin"
+    SEED_SUPERADMIN_EMAIL: str = ""
+    SEED_SUPERADMIN_PASSWORD: str = ""
+    SEED_SUPERADMIN_NAME: str = "Super Admin"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

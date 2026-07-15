@@ -566,7 +566,8 @@ class InterviewReportResponse(BaseModel):
 # Auth / User schemas (RBAC)
 # ---------------------------------------------------------------------------
 
-RoleLiteral = Literal["admin", "hr"]
+RoleLiteral = Literal["superadmin", "admin", "hr"]
+TenantMemberRoleLiteral = Literal["admin", "hr"]
 
 
 class LoginRequest(BaseModel):
@@ -586,6 +587,9 @@ class UserResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     tenant_name: Optional[str] = None
+    home_tenant_id: Optional[uuid.UUID] = None
+    active_tenant_id: Optional[uuid.UUID] = None
+    active_tenant_name: Optional[str] = None
 
 
 class TokenResponse(BaseModel):
@@ -609,13 +613,13 @@ class AcceptInviteRequest(BaseModel):
 
 class InviteCreateRequest(BaseModel):
     email: EmailStr
-    role: RoleLiteral = "hr"
+    role: TenantMemberRoleLiteral = "hr"
 
 
 class InviteResponse(BaseModel):
     id: uuid.UUID
     email: EmailStr
-    role: RoleLiteral
+    role: TenantMemberRoleLiteral
     token: str
     invite_url: str
     expires_at: datetime
@@ -624,9 +628,13 @@ class InviteResponse(BaseModel):
 
 class InvitePublicResponse(BaseModel):
     email: EmailStr
-    role: RoleLiteral
+    role: TenantMemberRoleLiteral
     organization_name: str
     expires_at: datetime
+
+
+class SwitchTenantRequest(BaseModel):
+    tenant_id: uuid.UUID
 
 
 class TenantResponse(BaseModel):
@@ -635,19 +643,42 @@ class TenantResponse(BaseModel):
     id: uuid.UUID
     name: str
     slug: str
+    is_active: bool = True
     created_at: datetime
+
+
+class TenantListItem(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    is_active: bool
+    created_at: datetime
+    user_count: int = 0
+    job_count: int = 0
+
+
+class TenantCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    admin_email: EmailStr
+    admin_full_name: str = Field(..., min_length=1, max_length=255)
+    admin_password: str = Field(..., min_length=6, max_length=128)
+
+
+class TenantUpdateRequest(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    is_active: Optional[bool] = None
 
 
 class UserCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(..., min_length=1, max_length=255)
     password: str = Field(..., min_length=6, max_length=128)
-    role: RoleLiteral = "hr"
+    role: TenantMemberRoleLiteral = "hr"
 
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = Field(None, min_length=1, max_length=255)
-    role: Optional[RoleLiteral] = None
+    role: Optional[TenantMemberRoleLiteral] = None
     password: Optional[str] = Field(None, min_length=6, max_length=128)
     is_active: Optional[bool] = None
 

@@ -588,6 +588,7 @@ Shared-database multi-tenancy: each organization is a **Tenant**. Users, jobs, s
 
 | Actor | Access | Notes |
 |-------|--------|-------|
+| **Superadmin** | Organizations console + enter any org | Platform role; seed via `SEED_SUPERADMIN_*`; switch tenant to act as that org’s admin |
 | **Admin** | Full HR App + Users + Settings + Activity | JWT login; tenant-scoped accounts, settings, and audit trail |
 | **HR user** | Full hiring pipeline (including archive) | JWT login; no Users, Settings, or Activity access |
 | **Self-signup** | Creates a new tenant + first admin | `POST /api/auth/signup`; invite via Users → invite link |

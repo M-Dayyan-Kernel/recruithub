@@ -3,9 +3,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import RequireSuperAdmin, get_current_user
 from app.core.security import create_access_token, verify_password
 from app.models.models import Tenant, User
 from app.schemas.schemas import (
@@ -13,6 +12,7 @@ from app.schemas.schemas import (
     InvitePublicResponse,
     LoginRequest,
     SignupRequest,
+    SwitchTenantRequest,
     TokenResponse,
     UserResponse,
 )
@@ -23,25 +23,44 @@ router = APIRouter()
 
 def _user_response(user: User, tenant_name: str | None = None) -> UserResponse:
     data = UserResponse.model_validate(user)
-    if tenant_name is not None:
-        data.tenant_name = tenant_name
-    elif user.tenant is not None:
-        data.tenant_name = user.tenant.name
+    data.tenant_name = tenant_name or getattr(user, "active_tenant_name", None) or (
+        user.tenant.name if getattr(user, "tenant", None) else None
+    )
+    data.home_tenant_id = getattr(user, "home_tenant_id", None) or user.tenant_id
+    data.active_tenant_id = getattr(user, "active_tenant_id", None) or user.tenant_id
+    data.active_tenant_name = getattr(user, "active_tenant_name", None) or data.tenant_name
     return data
 
 
-def _issue_token(user: User, tenant_name: str | None = None) -> TokenResponse:
-    token = create_access_token(
-        subject=str(user.id),
-        extra_claims={
-            "role": user.role,
-            "email": user.email,
-            "tenant_id": str(user.tenant_id),
-        },
-    )
+def _issue_token(
+    user: User,
+    *,
+    tenant_name: str | None = None,
+    active_tenant_id: str | None = None,
+    active_tenant_name: str | None = None,
+) -> TokenResponse:
+    home_tenant_id = getattr(user, "home_tenant_id", None) or user.tenant_id
+    claims = {
+        "role": user.role,
+        "email": user.email,
+        "tenant_id": str(home_tenant_id),
+    }
+    if active_tenant_id and user.role == "superadmin":
+        claims["active_tenant_id"] = active_tenant_id
+
+    # Align response tenant fields with token
+    if active_tenant_id and user.role == "superadmin":
+        from uuid import UUID
+
+        user.tenant_id = UUID(active_tenant_id)
+        user.active_tenant_id = UUID(active_tenant_id)  # type: ignore[attr-defined]
+        user.active_tenant_name = active_tenant_name  # type: ignore[attr-defined]
+        user.home_tenant_id = home_tenant_id  # type: ignore[attr-defined]
+
+    token = create_access_token(subject=str(user.id), extra_claims=claims)
     return TokenResponse(
         access_token=token,
-        user=_user_response(user, tenant_name=tenant_name),
+        user=_user_response(user, tenant_name=active_tenant_name or tenant_name),
     )
 
 
@@ -85,18 +104,59 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive",
         )
+    if user.role != "superadmin" and user.tenant and not user.tenant.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization is inactive",
+        )
 
-    return _issue_token(user)
+    return _issue_token(user, tenant_name=user.tenant.name if user.tenant else None)
 
 
 @router.get("/me", response_model=UserResponse)
-async def me(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    tenant_name = None
-    if current_user.tenant_id:
-        tenant = await db.get(Tenant, current_user.tenant_id)
-        if tenant:
-            tenant_name = tenant.name
-    return _user_response(current_user, tenant_name=tenant_name)
+async def me(current_user: User = Depends(get_current_user)):
+    return _user_response(current_user)
+
+
+@router.post("/switch-tenant", response_model=TokenResponse)
+async def switch_tenant(
+    body: SwitchTenantRequest,
+    admin: RequireSuperAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.core.deps import PLATFORM_TENANT_SLUG
+
+    tenant = await db.get(Tenant, body.tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    if not tenant.is_active:
+        raise HTTPException(status_code=400, detail="Organization is inactive")
+    if tenant.slug == PLATFORM_TENANT_SLUG:
+        raise HTTPException(status_code=400, detail="Cannot switch into the platform tenant")
+
+    home_id = getattr(admin, "home_tenant_id", None) or admin.tenant_id
+    admin.home_tenant_id = home_id  # type: ignore[attr-defined]
+    return _issue_token(
+        admin,
+        tenant_name=tenant.name,
+        active_tenant_id=str(tenant.id),
+        active_tenant_name=tenant.name,
+    )
+
+
+@router.post("/clear-tenant-switch", response_model=TokenResponse)
+async def clear_tenant_switch(
+    admin: RequireSuperAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    home_id = getattr(admin, "home_tenant_id", None) or admin.tenant_id
+    tenant = await db.get(Tenant, home_id)
+    admin.home_tenant_id = home_id  # type: ignore[attr-defined]
+    admin.tenant_id = home_id
+    return _issue_token(
+        admin,
+        tenant_name=tenant.name if tenant else "Platform",
+    )
 
 
 @router.get("/invites/{token}", response_model=InvitePublicResponse)

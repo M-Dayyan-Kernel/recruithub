@@ -15,10 +15,11 @@ from app.api.routes import (
     interviews,
     settings,
     users,
+    platform,
 )
 from app.core.database import AsyncSessionLocal
 from app.services.mock_external import active_mock_services
-from app.services.user_seed_service import seed_admin_user
+from app.services.user_seed_service import seed_admin_user, seed_superadmin_user
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,10 @@ async def lifespan(_app: FastAPI):
             await seed_admin_user(session)
         except Exception:
             logger.exception("Failed to seed admin user")
+        try:
+            await seed_superadmin_user(session)
+        except Exception:
+            logger.exception("Failed to seed superadmin user")
     yield
 
 
@@ -79,6 +84,7 @@ async def health():
 
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(platform.router, prefix="/api/platform", tags=["platform"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(audit.router, prefix="/api/audit-logs", tags=["audit"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])

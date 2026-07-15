@@ -8,7 +8,7 @@ import type {
   InviteResponse,
   User,
   UserCreate,
-  UserRole,
+  TenantMemberRole,
   UserUpdate,
 } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
@@ -31,10 +31,10 @@ export default function UsersPage() {
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState<UserRole>('hr')
+  const [role, setRole] = useState<TenantMemberRole>('hr')
 
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState<UserRole>('hr')
+  const [inviteRole, setInviteRole] = useState<TenantMemberRole>('hr')
   const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null)
 
   const createMutation = useMutation({
@@ -156,7 +156,7 @@ export default function UsersPage() {
             <label className="mb-1.5 block text-sm font-medium text-slate-700">Role</label>
             <select
               value={inviteRole}
-              onChange={(e) => setInviteRole(e.target.value as UserRole)}
+              onChange={(e) => setInviteRole(e.target.value as TenantMemberRole)}
               className={WORKFLOW_INPUT_CLASS}
             >
               <option value="hr">HR</option>
@@ -232,7 +232,7 @@ export default function UsersPage() {
             <label className="mb-1.5 block text-sm font-medium text-slate-700">Role</label>
             <select
               value={role}
-              onChange={(e) => setRole(e.target.value as UserRole)}
+              onChange={(e) => setRole(e.target.value as TenantMemberRole)}
               className={WORKFLOW_INPUT_CLASS}
             >
               <option value="hr">HR</option>

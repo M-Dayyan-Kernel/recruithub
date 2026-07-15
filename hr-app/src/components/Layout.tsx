@@ -53,7 +53,7 @@ function isJobsNavActive(pathname: string): boolean {
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
-  const { user, isAdmin, logout } = useAuth()
+  const { user, isAdmin, isActingInTenant, clearTenantSwitch, logout } = useAuth()
 
   const { data: jobs } = useQuery<Job[]>({
     queryKey: ['jobs'],
@@ -185,7 +185,11 @@ export default function Layout() {
                 {user?.full_name ?? 'User'}
               </p>
               <p className="truncate text-[11px] text-slate-500">
-                {user?.tenant_name ? `${user.tenant_name} · ` : ''}
+                {isActingInTenant && user?.active_tenant_name
+                  ? `${user.active_tenant_name} · `
+                  : user?.tenant_name
+                    ? `${user.tenant_name} · `
+                    : ''}
                 <span className="capitalize">{user?.role}</span>
               </p>
             </div>
@@ -203,6 +207,26 @@ export default function Layout() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {isActingInTenant && (
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-teal-800/40 bg-teal-950 px-6 py-2 text-xs text-teal-100">
+            <span>
+              Viewing as{' '}
+              <strong className="font-semibold">{user?.active_tenant_name ?? 'organization'}</strong>
+              {' '}(superadmin)
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                void clearTenantSwitch().then(() => {
+                  window.location.assign('/organizations')
+                })
+              }}
+              className="font-medium text-teal-200 underline-offset-2 hover:underline"
+            >
+              Back to platform console
+            </button>
+          </div>
+        )}
         <header className="flex shrink-0 items-center gap-4 border-b border-zinc-200 bg-white px-6 py-4">
           <button
             type="button"

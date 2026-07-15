@@ -20,7 +20,7 @@ from sqlalchemy import select, exists
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import RequireAdminOrHr, require_roles
+from app.core.deps import RequireAdminOrHr, hr_roles
 from app.core.tenancy import get_tenant_job, get_tenant_shortlist_result
 from app.models.models import Candidate, Job, ShortlistResult
 from app.services.audit_service import log_change, log_field_changes
@@ -38,7 +38,7 @@ from app.schemas.schemas import (
     ShortlistTriggerRequest,
 )
 
-router = APIRouter(dependencies=[Depends(require_roles("admin", "hr"))])
+router = APIRouter(dependencies=[Depends(hr_roles)])
 logger = logging.getLogger(__name__)
 
 SHORTLIST_BATCH_TTL = 600  # 10 minutes

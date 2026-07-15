@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
-from app.core.deps import RequireAdminOrHr, require_roles
+from app.core.deps import RequireAdminOrHr, hr_roles
 from app.core.tenancy import get_tenant_job
 from app.models.models import Job
 from app.schemas.schemas import JobCreate, JobUpdate, JobResponse, JobParseResponse, InterviewQuestionPublic, ScreeningQuestion
@@ -18,7 +18,7 @@ from app.services.jd_parser import parse_job_description
 from app.services.screening_defaults import get_default_screening_questions
 from app.services.expected_answer_service import enrich_interview_questions
 
-router = APIRouter(dependencies=[Depends(require_roles("admin", "hr"))])
+router = APIRouter(dependencies=[Depends(hr_roles)])
 
 MAX_JD_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 ALLOWED_CONTENT_TYPES = {

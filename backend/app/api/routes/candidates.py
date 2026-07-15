@@ -10,7 +10,7 @@ from sqlalchemy import select, exists
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import RequireAdminOrHr, require_roles
+from app.core.deps import RequireAdminOrHr, hr_roles
 from app.core.tenancy import get_tenant_candidate, get_tenant_job
 from app.models.models import Candidate, ShortlistResult
 from app.schemas.schemas import CandidateResponse, CandidateUpdate, ResumeUploadResponse
@@ -18,7 +18,7 @@ from app.services.audit_service import log_change, log_field_changes
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(dependencies=[Depends(require_roles("admin", "hr"))])
+router = APIRouter(dependencies=[Depends(hr_roles)])
 
 ALLOWED_CONTENT_TYPES = {
     "application/pdf",

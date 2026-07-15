@@ -21,9 +21,13 @@ interface AuthContextValue {
   isLoading: boolean
   isAuthenticated: boolean
   isAdmin: boolean
-  login: (credentials: LoginRequest) => Promise<void>
+  isSuperAdmin: boolean
+  isActingInTenant: boolean
+  login: (credentials: LoginRequest) => Promise<User>
   signup: (payload: SignupRequest) => Promise<void>
   acceptInvite: (payload: AcceptInviteRequest) => Promise<void>
+  switchTenant: (tenantId: string) => Promise<void>
+  clearTenantSwitch: () => Promise<void>
   logout: () => void
   refreshUser: () => Promise<void>
 }
@@ -77,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (credentials: LoginRequest) => {
       const result = (await api.post('/api/auth/login', credentials)) as unknown as TokenResponse
       applyAuth(result)
+      return result.user
     },
     [applyAuth],
   )
@@ -100,6 +105,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [applyAuth],
   )
 
+  const switchTenant = useCallback(
+    async (tenantId: string) => {
+      const result = (await api.post('/api/auth/switch-tenant', {
+        tenant_id: tenantId,
+      })) as unknown as TokenResponse
+      applyAuth(result)
+    },
+    [applyAuth],
+  )
+
+  const clearTenantSwitch = useCallback(async () => {
+    const result = (await api.post(
+      '/api/auth/clear-tenant-switch',
+      {},
+    )) as unknown as TokenResponse
+    applyAuth(result)
+  }, [applyAuth])
+
   const logout = useCallback(() => {
     setStoredToken(null)
     setUser(null)
@@ -107,19 +130,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.assign('/login')
   }, [])
 
+  const isSuperAdmin = user?.role === 'superadmin'
+  const isActingInTenant =
+    !!isSuperAdmin &&
+    !!user?.active_tenant_id &&
+    !!user?.home_tenant_id &&
+    user.active_tenant_id !== user.home_tenant_id
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
       isLoading,
       isAuthenticated: !!user,
-      isAdmin: user?.role === 'admin',
+      isAdmin: user?.role === 'admin' || isActingInTenant,
+      isSuperAdmin: !!isSuperAdmin,
+      isActingInTenant,
       login,
       signup,
       acceptInvite,
+      switchTenant,
+      clearTenantSwitch,
       logout,
       refreshUser,
     }),
-    [user, isLoading, login, signup, acceptInvite, logout, refreshUser],
+    [
+      user,
+      isLoading,
+      isSuperAdmin,
+      isActingInTenant,
+      login,
+      signup,
+      acceptInvite,
+      switchTenant,
+      clearTenantSwitch,
+      logout,
+      refreshUser,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

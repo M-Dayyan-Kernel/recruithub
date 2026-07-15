@@ -14,6 +14,31 @@ from app.core.tenancy import ensure_unique_slug
 from app.models.models import SystemSettings, Tenant, TenantInvite, User
 
 INVITE_TTL_DAYS = 7
+PLATFORM_TENANT_SLUG = "platform"
+
+
+async def ensure_platform_tenant(db: AsyncSession) -> Tenant:
+    """Home organization for platform superadmins (not a customer org)."""
+    result = await db.execute(select(Tenant).where(Tenant.slug == PLATFORM_TENANT_SLUG).limit(1))
+    tenant = result.scalars().first()
+    if tenant:
+        return tenant
+    tenant = Tenant(name="Platform", slug=PLATFORM_TENANT_SLUG, is_active=True)
+    db.add(tenant)
+    await db.flush()
+    db.add(
+        SystemSettings(
+            tenant_id=tenant.id,
+            allowed_phone_regions=["IN"],
+            enforce_phone_geography=True,
+            screening_enabled=False,
+            screening_max_retries=3,
+            screening_retry_delay_seconds=1800,
+            company_name="Platform",
+        )
+    )
+    await db.flush()
+    return tenant
 
 
 async def create_tenant_with_admin(
