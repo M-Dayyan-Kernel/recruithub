@@ -25,7 +25,7 @@ function resolveTab(raw: string | null): ScreeningTabId {
 
 function activeClass(tab: ScreeningTabId, isActive: boolean): string {
   if (!isActive) {
-    return 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
+    return 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
   }
   if (tab === 'pending') return 'bg-emerald-600 text-white'
   if (tab === 'completed') return 'bg-indigo-600 text-white'
@@ -81,14 +81,14 @@ export function ScreeningStatusTabs({ jobId }: Props) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
       {TABS.map((tab) => (
         <button
           key={tab}
           type="button"
           onClick={() => setTab(tab)}
           className={cn(
-            'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+            'rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors',
             activeClass(tab, activeTab === tab),
           )}
         >

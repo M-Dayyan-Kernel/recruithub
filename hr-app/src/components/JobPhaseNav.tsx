@@ -1,13 +1,23 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ListChecks, Menu, Phone, Trophy, Video, X } from 'lucide-react'
+import {
+  Download,
+  FileText,
+  ListChecks,
+  Menu,
+  Phone,
+  Trophy,
+  Video,
+  X,
+} from 'lucide-react'
 import { api } from '@/lib/api'
-import type { Job, SystemSettings } from '@/types/api'
+import type { FinalistsResponse, Job, SystemSettings } from '@/types/api'
 import { cn } from '@/lib/utils'
 import { ScreeningStatusTabs } from '@/components/screening/ScreeningStatusTabs'
 import { ShortlistStatusTabs } from '@/components/shortlist/ShortlistStatusTabs'
 import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
+import { downloadFinalistsExcel } from '@/lib/finalistsExport'
 
 const PHASES = [
   {
@@ -52,6 +62,48 @@ function phaseLabel(phase: string, phases: Array<(typeof PHASES)[number]>): stri
   return phases.find((p) => p.segment === phase)?.label ?? 'Pipeline'
 }
 
+function PhaseToolbar({
+  children,
+  end,
+}: {
+  children: ReactNode
+  end: ReactNode
+}) {
+  return (
+    <div className="flex h-14 w-full min-w-0 items-center gap-3 rounded-xl border border-slate-200/80 bg-white px-3 shadow-sm sm:px-4">
+      <div className="min-w-0 flex-1 overflow-x-auto">{children}</div>
+      <div className="flex shrink-0 items-center gap-2 border-l border-slate-100 pl-3">{end}</div>
+    </div>
+  )
+}
+
+function PhaseTitle({
+  icon: Icon,
+  title,
+  subtitle,
+  badge,
+}: {
+  icon: typeof Trophy
+  title: string
+  subtitle: string
+  badge?: ReactNode
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-50 text-slate-500 ring-1 ring-slate-200/70">
+        <Icon size={15} />
+      </div>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <h2 className="truncate text-sm font-semibold text-slate-900">{title}</h2>
+          {badge}
+        </div>
+        <p className="truncate text-[11px] text-slate-500">{subtitle}</p>
+      </div>
+    </div>
+  )
+}
+
 interface Props {
   job: Job
 }
@@ -66,7 +118,15 @@ export function JobPhaseNav({ job }: Props) {
     queryFn: () => api.get('/api/settings') as unknown as Promise<SystemSettings>,
   })
 
+  const { data: finalistsData } = useQuery<FinalistsResponse>({
+    queryKey: ['finalists', job.id],
+    queryFn: () =>
+      api.get(`/api/jobs/${job.id}/finalists`) as unknown as Promise<FinalistsResponse>,
+    enabled: phase === 'finalists',
+  })
+
   const screeningEnabled = settings?.screening_enabled !== false
+  const finalists = finalistsData?.candidates ?? []
 
   const phases = useMemo(() => {
     if (!screeningEnabled) {
@@ -111,19 +171,58 @@ export function JobPhaseNav({ job }: Props) {
     </button>
   )
 
+  const toolbar =
+    phase === 'interviews' ? (
+      <InterviewRubricPanel job={job} headerEnd={pipelineButton} />
+    ) : phase === 'shortlist' ? (
+      <PhaseToolbar end={pipelineButton}>
+        <ShortlistStatusTabs />
+      </PhaseToolbar>
+    ) : phase === 'screening' ? (
+      <PhaseToolbar end={pipelineButton}>
+        <ScreeningStatusTabs jobId={job.id} />
+      </PhaseToolbar>
+    ) : phase === 'finalists' ? (
+      <PhaseToolbar
+        end={
+          <>
+            <button
+              type="button"
+              disabled={finalists.length === 0}
+              onClick={() => downloadFinalistsExcel(job.title, finalists)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Download size={14} />
+              <span className="hidden sm:inline">Export Excel</span>
+            </button>
+            {pipelineButton}
+          </>
+        }
+      >
+        <PhaseTitle
+          icon={Trophy}
+          title="Finalists"
+          subtitle="Approved after interview — ready for offer discussions"
+          badge={
+            <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-indigo-600">
+              {finalists.length}
+            </span>
+          }
+        />
+      </PhaseToolbar>
+    ) : (
+      <PhaseToolbar end={pipelineButton}>
+        <PhaseTitle
+          icon={FileText}
+          title="Job overview"
+          subtitle={job.title}
+        />
+      </PhaseToolbar>
+    )
+
   return (
     <>
-      <div className="flex flex-wrap items-center gap-3">
-        {phase === 'shortlist' && <ShortlistStatusTabs />}
-        {phase === 'screening' && <ScreeningStatusTabs jobId={job.id} />}
-        {phase === 'interviews' ? (
-          <div className="w-full min-w-0">
-            <InterviewRubricPanel job={job} headerEnd={pipelineButton} />
-          </div>
-        ) : (
-          <div className="ml-auto">{pipelineButton}</div>
-        )}
-      </div>
+      <div className="w-full min-w-0">{toolbar}</div>
 
       {panelOpen && (
         <div className="fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label="Hiring pipeline">

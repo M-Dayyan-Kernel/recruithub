@@ -1,14 +1,13 @@
 import { useOutletContext } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Download, Loader2, Users } from 'lucide-react'
+import { Loader2, Users } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { FinalistsResponse } from '@/types/api'
 import type { JobOutletContext } from '@/components/JobLayout'
-import { downloadFinalistsExcel } from '@/lib/finalistsExport'
 import { WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
 
 export default function JobFinalistsPage() {
-  const { job, jobId } = useOutletContext<JobOutletContext>()
+  const { jobId } = useOutletContext<JobOutletContext>()
 
   const { data, isLoading, isError, refetch } = useQuery<FinalistsResponse>({
     queryKey: ['finalists', jobId],
@@ -21,24 +20,6 @@ export default function JobFinalistsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">Finalists</h2>
-          <p className="mt-0.5 text-sm text-slate-500">
-            Candidates approved after interview. Export for offer discussions.
-          </p>
-        </div>
-        <button
-          type="button"
-          disabled={candidates.length === 0}
-          onClick={() => downloadFinalistsExcel(job.title, candidates)}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Download size={15} />
-          Export Excel
-        </button>
-      </div>
-
       {isError && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           Failed to load finalists.{' '}
