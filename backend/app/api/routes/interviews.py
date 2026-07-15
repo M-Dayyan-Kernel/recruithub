@@ -393,7 +393,9 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
     - pending → creates room, dispatches AI agent, returns candidate token
     - in_progress → reissues candidate token for the existing room (rejoin)
     """
+    from app.models.models import Job
     from app.services.livekit_service import create_room, generate_candidate_token
+    from app.services.tenant_integrations_service import load_tenant_integrations
 
     result = await db.execute(
         select(InterviewSession).where(InterviewSession.unique_token == token)
@@ -413,11 +415,24 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
     candidate = candidate_result.scalars().first()
     candidate_name = candidate.name if candidate else "Candidate"
 
+    job_result = await db.execute(select(Job).where(Job.id == session.job_id))
+    job = job_result.scalars().first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found for this interview")
+
+    try:
+        integrations = await load_tenant_integrations(db, job.tenant_id)
+        integrations.require("livekit_url", "livekit_api_key", "livekit_api_secret")
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    livekit_url = integrations.livekit_url
+
     # Rejoin — session already started, return a new access token
     if session.status == "in_progress" and session.livekit_room_name:
         try:
             candidate_token = generate_candidate_token(
-                session.livekit_room_name, candidate_name
+                session.livekit_room_name, candidate_name, integrations
             )
         except Exception as exc:
             logger.error("Failed to generate rejoin token: %s", exc)
@@ -433,7 +448,7 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
         return InterviewStartResponse(
             room_name=session.livekit_room_name,
             token=candidate_token,
-            livekit_url=settings.LIVEKIT_URL,
+            livekit_url=livekit_url,
         )
 
     if session.status != "pending":
@@ -463,7 +478,7 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
     # Create LiveKit room + dispatch agent + start recording
     egress_id: Optional[str] = None
     try:
-        _, egress_id = await create_room(room_name)
+        _, egress_id = await create_room(room_name, integrations)
     except Exception as exc:
         logger.error("Failed to create LiveKit room %s: %s", room_name, exc)
         raise HTTPException(status_code=502, detail=f"Failed to create interview room: {exc}")
@@ -477,7 +492,7 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
         await db.commit()
 
     try:
-        candidate_token = generate_candidate_token(room_name, candidate_name)
+        candidate_token = generate_candidate_token(room_name, candidate_name, integrations)
     except Exception as exc:
         logger.error("Failed to generate LiveKit token: %s", exc)
         raise HTTPException(status_code=502, detail=f"Failed to generate access token: {exc}")
@@ -492,7 +507,7 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
     return InterviewStartResponse(
         room_name=room_name,
         token=candidate_token,
-        livekit_url=settings.LIVEKIT_URL,
+        livekit_url=livekit_url,
     )
 
 

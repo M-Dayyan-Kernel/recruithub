@@ -54,7 +54,6 @@ export default function JobFinalistsPage() {
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Email</th>
                 <th className="px-4 py-3">Phone</th>
-                <th className="px-4 py-3">CCTC</th>
                 <th className="px-4 py-3">ECTC</th>
                 <th className="px-4 py-3">Experience</th>
                 <th className="px-4 py-3">Score</th>
@@ -68,7 +67,6 @@ export default function JobFinalistsPage() {
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-600">{c.email ?? '—'}</td>
                   <td className="px-4 py-3 text-sm text-slate-600">{c.phone ?? '—'}</td>
-                  <td className="px-4 py-3 text-sm text-slate-600">{c.current_ctc ?? '—'}</td>
                   <td className="px-4 py-3 text-sm text-slate-600">{c.expected_ctc ?? '—'}</td>
                   <td className="px-4 py-3 text-sm text-slate-600">
                     {c.total_experience_years != null ? `${c.total_experience_years} yrs` : '—'}
