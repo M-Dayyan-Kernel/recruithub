@@ -6,7 +6,6 @@ import {
   Plus,
   Power,
   Search,
-  Trash2,
   Users,
   Briefcase,
 } from 'lucide-react'
@@ -60,15 +59,6 @@ export default function OrganizationsPage() {
     onError: (err: Error) => toast.error(err.message || 'Failed to update organization'),
   })
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/api/platform/tenants/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['platform-tenants'] })
-      toast.success('Organization deleted')
-    },
-    onError: (err: Error) => toast.error(err.message || 'Failed to delete organization'),
-  })
-
   const filtered = useMemo(() => {
     const list = data ?? []
     const q = search.trim().toLowerCase()
@@ -102,14 +92,6 @@ export default function OrganizationsPage() {
     }
   }
 
-  function onDelete(tenant: TenantListItem) {
-    const ok = window.confirm(
-      `Delete "${tenant.name}" permanently?\n\nThis removes all users, jobs, candidates, and settings for this organization. This cannot be undone.`,
-    )
-    if (!ok) return
-    deleteMutation.mutate(tenant.id)
-  }
-
   function onCreate(e: FormEvent) {
     e.preventDefault()
     createMutation.mutate({
@@ -134,7 +116,7 @@ export default function OrganizationsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-white">Organizations</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Create, enter, deactivate, or delete tenant organizations on this platform.
+            Create, enter, or activate/deactivate tenant organizations on this platform.
           </p>
         </div>
         <button
@@ -302,15 +284,6 @@ export default function OrganizationsPage() {
               >
                 <Power className="h-3.5 w-3.5" />
                 {t.is_active ? 'Deactivate' : 'Activate'}
-              </button>
-              <button
-                type="button"
-                disabled={deleteMutation.isPending}
-                onClick={() => onDelete(t)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-red-900/60 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950/50 disabled:opacity-50"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Delete
               </button>
             </div>
           </div>
