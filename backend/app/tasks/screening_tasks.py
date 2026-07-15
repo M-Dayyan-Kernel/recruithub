@@ -34,6 +34,10 @@ MIN_RETRY_CALL_GRACE_SECONDS = 20
 # is available. Wait/re-poll before treating the call as dropped and scheduling a retry.
 TRANSCRIPT_ENRICH_MAX_ATTEMPTS = 8
 TRANSCRIPT_ENRICH_DELAY_SEC = 5
+# Wait for enrich to finish (plus buffer) before emailing "unable to connect".
+FAILED_EMAIL_DELAY_SEC = TRANSCRIPT_ENRICH_MAX_ATTEMPTS * TRANSCRIPT_ENRICH_DELAY_SEC + 15
+# Transcript shorter than this is treated as partial — wait for Vapi artifact.
+MIN_SUBSTANTIVE_TRANSCRIPT_CHARS = 50
 
 LIVE_CALL_STATUSES = ("initiated", "in_progress")
 
@@ -46,6 +50,56 @@ CONNECTED_END_REASONS = (
     "silence-timed-out",
     "max-duration-reached",
 )
+
+PURE_MISS_END_REASONS = frozenset(
+    {
+        "customer-did-not-answer",
+        "no-answer",
+        "customer-busy",
+        "call-forwarded",
+        "busy",
+    }
+)
+
+
+def should_wait_for_transcript(
+    *,
+    transcript: str,
+    started_at,
+    ended_reason: str | None,
+    call_status: str | None = None,
+    force: bool = False,
+) -> bool:
+    """
+    True when the call likely connected and the Vapi transcript may still be incomplete.
+
+    Parks the call instead of classifying dropped/no_answer (and emailing) too early.
+    """
+    if force:
+        return False
+
+    text = (transcript or "").strip()
+    reason = (ended_reason or "").lower()
+    connected = bool(started_at) or reason in CONNECTED_END_REASONS
+    # in_progress includes ringing; still wait unless this is a clear miss end-reason.
+    was_live = (call_status or "") == "in_progress"
+    clear_miss = reason in PURE_MISS_END_REASONS
+
+    if clear_miss and not started_at and not text:
+        return False
+
+    if connected or (was_live and not clear_miss):
+        return len(text) < MIN_SUBSTANTIVE_TRANSCRIPT_CHARS
+
+    return False
+
+
+def schedule_deferred_failed_screening_email(screening_call_id) -> None:
+    """Queue a delayed re-check so success after late transcript does not email a false failure."""
+    send_failed_screening_email_deferred.apply_async(
+        args=[str(screening_call_id)],
+        countdown=FAILED_EMAIL_DELAY_SEC,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -436,13 +490,12 @@ async def _finalize_screening_call_from_vapi(
         has_transcript=bool(transcript.strip()),
     )
 
-    needs_transcript_wait = (
-        not force
-        and not transcript.strip()
-        and (
-            bool(started_at)
-            or (resolved_reason or "").lower() in CONNECTED_END_REASONS
-        )
+    needs_transcript_wait = should_wait_for_transcript(
+        transcript=transcript,
+        started_at=started_at,
+        ended_reason=resolved_reason,
+        call_status=screening_call.call_status,
+        force=force,
     )
 
     finalized = await apply_screening_call_end(
@@ -587,14 +640,73 @@ async def _async_enrich_transcript(screening_call_id: str, attempt: int) -> None
             ended_reason=ended_reason,
             transcript=screening_call.transcript or "",
             schedule_retry=True,
-            send_failure_email=True,
+            # Enrichment already waited; send immediately if still a failure.
+            send_failure_email=False,
             awaiting_transcript=False,
         )
-        if not finalized:
-            # Already terminal (e.g. concurrent finalize) — send deferred failure email if needed.
-            from app.services.failed_screening_email_service import maybe_send_failed_screening_email
+        from app.services.failed_screening_email_service import maybe_send_failed_screening_email
 
-            await maybe_send_failed_screening_email(session, screening_call)
+        if not finalized:
+            await session.refresh(screening_call)
+        await maybe_send_failed_screening_email(session, screening_call)
+
+
+@celery_app.task(name="tasks.send_failed_screening_email_deferred", bind=True, max_retries=0)
+def send_failed_screening_email_deferred(self, screening_call_id: str):
+    """
+    Re-check after enrichment window before sending "unable to connect".
+
+    Prevents false emails when Vapi briefly reports dropped/no_answer and then
+    delivers the full transcript a few seconds later.
+    """
+    try:
+        asyncio.run(_async_send_failed_screening_email_deferred(screening_call_id))
+    except Exception as exc:
+        logger.error(
+            "send_failed_screening_email_deferred failed for %s: %s",
+            screening_call_id,
+            exc,
+        )
+
+
+async def _async_send_failed_screening_email_deferred(screening_call_id: str) -> None:
+    from app.models.models import ScreeningCall
+    from app.services.failed_screening_email_service import (
+        FAILED_OUTCOMES,
+        maybe_send_failed_screening_email,
+    )
+
+    async with get_celery_db() as session:
+        result = await session.execute(
+            select(ScreeningCall).where(ScreeningCall.id == uuid.UUID(screening_call_id))
+        )
+        screening_call = result.scalars().first()
+        if not screening_call:
+            return
+
+        outcome = (screening_call.call_outcome or "").lower()
+        transcript = (screening_call.transcript or "").strip()
+        if outcome == "completed" or len(transcript) > MIN_SUBSTANTIVE_TRANSCRIPT_CHARS:
+            logger.info(
+                "Skipping deferred failure email for %s — call succeeded (outcome=%s, transcript=%d)",
+                screening_call_id,
+                outcome,
+                len(transcript),
+            )
+            return
+        if screening_call.result in ("pass", "fail"):
+            return
+        if outcome not in FAILED_OUTCOMES and screening_call.call_status != "failed":
+            # Still in progress / parking — do not email.
+            logger.info(
+                "Skipping deferred failure email for %s — not a failure yet (status=%s outcome=%s)",
+                screening_call_id,
+                screening_call.call_status,
+                outcome,
+            )
+            return
+
+        await maybe_send_failed_screening_email(session, screening_call)
 
 
 async def refresh_live_screening_calls_from_vapi(session, screening_calls) -> bool:
@@ -703,9 +815,14 @@ async def apply_screening_call_end(
     if screening_call.call_status in ("completed", "failed"):
         return False
 
-    if awaiting_transcript and not (transcript or "").strip():
+    if awaiting_transcript and len((transcript or "").strip()) < MIN_SUBSTANTIVE_TRANSCRIPT_CHARS:
         screening_call.ended_reason = ended_reason or screening_call.ended_reason
+        if transcript and transcript.strip():
+            # Keep any early fragment while waiting for the full artifact.
+            screening_call.transcript = transcript
         screening_call.call_status = "in_progress"
+        # Clear any provisional failure outcome so the UI does not flash "Unable to Connect".
+        screening_call.call_outcome = None
         await session.commit()
         return True
 
@@ -723,9 +840,7 @@ async def apply_screening_call_end(
         screening_call.summary = describe_screening_failure(ended_reason)
         await session.commit()
         if send_failure_email:
-            from app.services.failed_screening_email_service import maybe_send_failed_screening_email
-
-            await maybe_send_failed_screening_email(session, screening_call)
+            schedule_deferred_failed_screening_email(screening_call.id)
         return True
 
     screening_call.call_status = "completed"
@@ -772,10 +887,10 @@ async def apply_screening_call_end(
 
     await session.commit()
 
+    # Never email "unable to connect" synchronously — a late transcript often flips
+    # dropped/no_answer → completed a few seconds later. Deferred task re-checks.
     if send_failure_email and outcome in ("no_answer", "voicemail", "dropped"):
-        from app.services.failed_screening_email_service import maybe_send_failed_screening_email
-
-        await maybe_send_failed_screening_email(session, screening_call)
+        schedule_deferred_failed_screening_email(screening_call.id)
 
     return True
 
@@ -793,7 +908,7 @@ def classify_call_outcome(ended_reason: str | None, transcript_length: int) -> t
             return ("voicemail", True)
 
     # Substantive conversation — completed even if carrier reports no-answer/dropped.
-    if transcript_length > 50:
+    if transcript_length > MIN_SUBSTANTIVE_TRANSCRIPT_CHARS:
         return ("completed", False)
 
     if not ended_reason:
@@ -809,8 +924,9 @@ def classify_call_outcome(ended_reason: str | None, transcript_length: int) -> t
     if any(token in r for token in assistant_end_reasons):
         return ("completed", False)
 
+    # Any spoken content after a customer hangup means the call connected.
     if r == "customer-ended-call":
-        if transcript_length > 50:
+        if transcript_length > 0:
             return ("completed", False)
         return ("dropped", True)
 

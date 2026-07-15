@@ -198,14 +198,16 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
         if status_value in ("ended", "completed", "failed", "busy", "no-answer") or ended_at:
             from app.tasks.screening_tasks import (
-                CONNECTED_END_REASONS,
                 TRANSCRIPT_ENRICH_DELAY_SEC,
                 enrich_screening_transcript as _enrich_task,
+                should_wait_for_transcript,
             )
 
-            needs_transcript_wait = not transcript.strip() and (
-                bool(started_at)
-                or (ended_reason or "").lower() in CONNECTED_END_REASONS
+            needs_transcript_wait = should_wait_for_transcript(
+                transcript=transcript,
+                started_at=started_at,
+                ended_reason=ended_reason,
+                call_status=screening_call.call_status,
             )
             await apply_screening_call_end(
                 db,
@@ -216,9 +218,19 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 send_failure_email=not needs_transcript_wait,
                 awaiting_transcript=needs_transcript_wait,
             )
-            if transcript.strip():
+            if (
+                transcript.strip()
+                and len(transcript.strip()) >= 50
+                and not needs_transcript_wait
+            ):
                 _process_task.delay(body)
             elif needs_transcript_wait:
+                _enrich_task.apply_async(
+                    args=[str(screening_call.id), 0],
+                    countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
+                )
+            elif transcript.strip():
+                # Thin transcript still processing — enrich may recover fuller artifact.
                 _enrich_task.apply_async(
                     args=[str(screening_call.id), 0],
                     countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
@@ -238,14 +250,16 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
         started_at = call_data.get("startedAt") or message.get("startedAt")
         from app.tasks.screening_tasks import (
-            CONNECTED_END_REASONS,
             TRANSCRIPT_ENRICH_DELAY_SEC,
             enrich_screening_transcript as _enrich_task,
+            should_wait_for_transcript,
         )
 
-        needs_transcript_wait = not transcript.strip() and (
-            bool(started_at)
-            or (ended_reason or "").lower() in CONNECTED_END_REASONS
+        needs_transcript_wait = should_wait_for_transcript(
+            transcript=transcript,
+            started_at=started_at,
+            ended_reason=ended_reason,
+            call_status=screening_call.call_status,
         )
         await apply_screening_call_end(
             db,
@@ -256,9 +270,13 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             send_failure_email=not needs_transcript_wait,
             awaiting_transcript=needs_transcript_wait,
         )
-        if transcript.strip():
+        if (
+            transcript.strip()
+            and len(transcript.strip()) >= 50
+            and not needs_transcript_wait
+        ):
             _process_task.delay(body)
-        elif needs_transcript_wait:
+        elif needs_transcript_wait or transcript.strip():
             _enrich_task.apply_async(
                 args=[str(screening_call.id), 0],
                 countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
@@ -276,14 +294,16 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         transcript = artifact.get("transcript") or artifact.get("transcriptText", "") or ""
         started_at = call_data.get("startedAt") or message.get("startedAt")
         from app.tasks.screening_tasks import (
-            CONNECTED_END_REASONS,
             TRANSCRIPT_ENRICH_DELAY_SEC,
             enrich_screening_transcript as _enrich_task,
+            should_wait_for_transcript,
         )
 
-        needs_transcript_wait = not transcript.strip() and (
-            bool(started_at)
-            or (ended_reason or "").lower() in CONNECTED_END_REASONS
+        needs_transcript_wait = should_wait_for_transcript(
+            transcript=transcript,
+            started_at=started_at,
+            ended_reason=ended_reason,
+            call_status=screening_call.call_status,
         )
         await apply_screening_call_end(
             db,
@@ -294,9 +314,13 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             send_failure_email=not needs_transcript_wait,
             awaiting_transcript=needs_transcript_wait,
         )
-        if transcript.strip():
+        if (
+            transcript.strip()
+            and len(transcript.strip()) >= 50
+            and not needs_transcript_wait
+        ):
             _process_task.delay(body)
-        elif needs_transcript_wait:
+        elif needs_transcript_wait or transcript.strip():
             _enrich_task.apply_async(
                 args=[str(screening_call.id), 0],
                 countdown=TRANSCRIPT_ENRICH_DELAY_SEC,

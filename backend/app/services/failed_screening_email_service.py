@@ -78,7 +78,9 @@ async def maybe_send_failed_screening_email(
         return
 
     outcome = (screening_call.call_outcome or "").lower()
-    if outcome == "completed":
+    transcript = (screening_call.transcript or "").strip()
+    # Late transcript recovery often flips outcome → completed after a provisional failure.
+    if outcome == "completed" or len(transcript) > 50:
         return
     if outcome not in FAILED_OUTCOMES and screening_call.call_status != "failed":
         return
