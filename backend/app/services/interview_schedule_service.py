@@ -67,10 +67,11 @@ async def send_interview_invitation_email(
     job_title: str,
 ) -> bool:
     from app.services.email_service import send_interview_link
-    from app.services.email_template_service import get_merged_templates
+    from app.services.email_template_service import get_company_name, get_merged_templates
 
     interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{session.unique_token}"
     templates = await get_merged_templates(db)
+    company_name = await get_company_name(db)
     candidate_email = resolve_candidate_email(candidate)
     if not candidate_email:
         logger.warning(
@@ -85,6 +86,7 @@ async def send_interview_invitation_email(
         job_title=job_title,
         interview_url=interview_url,
         templates=templates,
+        company_name=company_name,
     )
     if sent:
         session.email_sent_at = datetime.now(timezone.utc)

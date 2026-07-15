@@ -142,6 +142,9 @@ class SystemSettings(Base):
         Integer, nullable=False, default=1800, server_default="1800"
     )
     email_templates: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    company_name: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="Webknot Technologies", server_default="Webknot Technologies"
+    )
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 

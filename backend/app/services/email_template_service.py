@@ -15,6 +15,8 @@ from app.models.models import SystemSettings
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_COMPANY_NAME = "Webknot Technologies"
+
 TEMPLATE_IDS = (
     "failed_screening_attempt",
     "interview_invitation",
@@ -29,22 +31,25 @@ REQUIRED_PLACEHOLDERS: dict[str, tuple[str, ...]] = {
     "rejection": ("{{candidate_name}}", "{{job_title}}"),
 }
 
+# Shown in the editor for every template; filled from Settings → company name.
+COMMON_PLACEHOLDERS: tuple[str, ...] = ("{{company_name}}",)
+
 _DEFAULT_TEMPLATES: dict[str, dict[str, Any]] = {
     "failed_screening_attempt": {
-        "subject": "We tried reaching you — {{job_title}} at Webknot Technologies",
+        "subject": "We tried reaching you — {{job_title}} at {{company_name}}",
         "body_html": """<!DOCTYPE html>
 <html lang="en">
 <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
   <p>Hi <strong>{{candidate_name}}</strong>,</p>
   <p>
-    This is <strong>Webknot Technologies</strong>. We recently tried to reach you by phone
+    This is <strong>{{company_name}}</strong>. We recently tried to reach you by phone
     regarding the <strong>{{job_title}}</strong> opportunity.
   </p>
   <p>
     We called <strong>{{phone_number}}</strong> but were unable to connect. Please keep this
     number available — our team will try again soon.
   </p>
-  <p>Thank you for your interest in Webknot Technologies.</p>
+  <p>Thank you for your interest in {{company_name}}.</p>
 </body>
 </html>""",
         "version": 1,
@@ -57,7 +62,7 @@ _DEFAULT_TEMPLATES: dict[str, dict[str, Any]] = {
   <p>Hi <strong>{{candidate_name}}</strong>,</p>
   <p>
     Congratulations — you have been shortlisted for the <strong>{{job_title}}</strong> role at
-    Webknot Technologies. Please complete your AI interview using the link below:
+    {{company_name}}. Please complete your AI interview using the link below:
   </p>
   <p><a href="{{interview_url}}">{{interview_url}}</a></p>
   <p>Good luck!</p>
@@ -72,7 +77,7 @@ _DEFAULT_TEMPLATES: dict[str, dict[str, Any]] = {
 <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
   <p>Hi <strong>{{candidate_name}}</strong>,</p>
   <p>
-    Your interview for the <strong>{{job_title}}</strong> role at Webknot Technologies has been
+    Your interview for the <strong>{{job_title}}</strong> role at {{company_name}} has been
     rescheduled. Your previous link is no longer valid.
   </p>
   <p>Please use this new link to join:</p>
@@ -90,7 +95,7 @@ _DEFAULT_TEMPLATES: dict[str, dict[str, Any]] = {
   <p>Hi <strong>{{candidate_name}}</strong>,</p>
   <p>
     Thank you for your interest in the <strong>{{job_title}}</strong> position at
-    Webknot Technologies.
+    {{company_name}}.
   </p>
   <p>
     After careful review, we will not be moving forward with your application at this time.
@@ -183,7 +188,13 @@ def render_template(
         subject = entry["subject"]
         body = entry["body_html"]
 
-    for key, value in variables.items():
+    vars_with_company = dict(variables)
+    vars_with_company.setdefault(
+        "company_name",
+        variables.get("company_name") or DEFAULT_COMPANY_NAME,
+    )
+
+    for key, value in vars_with_company.items():
         token = "{{" + key + "}}"
         subject = subject.replace(token, value)
         body = body.replace(token, value)
@@ -194,11 +205,14 @@ def preview_template(
     template_id: str,
     subject: str,
     body_html: str,
+    *,
+    company_name: str | None = None,
 ) -> dict[str, str]:
     errors = validate_template(template_id, subject, body_html)
     if errors:
         raise ValueError("; ".join(errors))
-    samples = _PREVIEW_SAMPLES.get(template_id, {})
+    samples = dict(_PREVIEW_SAMPLES.get(template_id, {}))
+    samples["company_name"] = (company_name or DEFAULT_COMPANY_NAME).strip() or DEFAULT_COMPANY_NAME
     rendered_subject = subject
     rendered_body = body_html
     for key, value in samples.items():
@@ -206,6 +220,15 @@ def preview_template(
         rendered_subject = rendered_subject.replace(token, value)
         rendered_body = rendered_body.replace(token, value)
     return {"subject": rendered_subject, "body_html": rendered_body}
+
+
+async def get_company_name(db: AsyncSession) -> str:
+    from sqlalchemy import select
+
+    result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+    row = result.scalar_one_or_none()
+    name = (row.company_name if row else None) or DEFAULT_COMPANY_NAME
+    return name.strip() or DEFAULT_COMPANY_NAME
 
 
 async def get_merged_templates(db: AsyncSession) -> dict[str, dict[str, Any]]:
@@ -232,7 +255,12 @@ async def save_template(
     result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
     row = result.scalar_one_or_none()
     if not row:
-        row = SystemSettings(id=1, allowed_phone_regions=["IN"], enforce_phone_geography=True)
+        row = SystemSettings(
+            id=1,
+            allowed_phone_regions=["IN"],
+            enforce_phone_geography=True,
+            company_name=DEFAULT_COMPANY_NAME,
+        )
         db.add(row)
 
     stored = dict(row.email_templates or {})

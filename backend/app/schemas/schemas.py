@@ -213,6 +213,7 @@ class SystemSettingsResponse(BaseModel):
     screening_enabled: bool
     screening_max_retries: int
     screening_retry_delay_seconds: int
+    company_name: str = "Webknot Technologies"
     updated_at: datetime
 
 
@@ -226,6 +227,8 @@ class EmailTemplateEntry(BaseModel):
 class EmailTemplatesResponse(BaseModel):
     templates: dict[str, EmailTemplateEntry]
     required_placeholders: dict[str, List[str]]
+    common_placeholders: List[str] = ["{{company_name}}"]
+    company_name: str = "Webknot Technologies"
 
 
 class EmailTemplateUpdate(BaseModel):
@@ -255,6 +258,7 @@ class SystemSettingsUpdate(BaseModel):
     screening_enabled: Optional[bool] = None
     screening_max_retries: Optional[int] = None
     screening_retry_delay_seconds: Optional[int] = None
+    company_name: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

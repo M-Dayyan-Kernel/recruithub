@@ -151,6 +151,7 @@ export interface SystemSettings {
   screening_enabled: boolean
   screening_max_retries: number
   screening_retry_delay_seconds: number
+  company_name: string
   updated_at: string
 }
 
@@ -164,6 +165,8 @@ export interface EmailTemplateEntry {
 export interface EmailTemplatesResponse {
   templates: Record<string, EmailTemplateEntry>
   required_placeholders: Record<string, string[]>
+  common_placeholders: string[]
+  company_name: string
 }
 
 export interface ScreeningTriggerResponse {

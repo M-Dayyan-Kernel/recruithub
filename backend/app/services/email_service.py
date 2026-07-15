@@ -100,6 +100,7 @@ async def send_interview_link(
     interview_url: str,
     *,
     templates: dict[str, dict[str, Any]] | None = None,
+    company_name: str | None = None,
 ) -> bool:
     """Send an immediate interview invitation (join at your convenience)."""
     if templates:
@@ -110,6 +111,7 @@ async def send_interview_link(
                 "candidate_name": candidate_name,
                 "job_title": job_title,
                 "interview_url": interview_url,
+                "company_name": company_name or "Webknot Technologies",
             },
         )
     else:
@@ -223,6 +225,7 @@ async def send_reschedule_notification(
     interview_url: str,
     *,
     templates: dict[str, dict[str, Any]],
+    company_name: str | None = None,
 ) -> bool:
     subject, html_body = render_template(
         "interview_reschedule",
@@ -231,6 +234,7 @@ async def send_reschedule_notification(
             "candidate_name": candidate_name,
             "job_title": job_title,
             "interview_url": interview_url,
+            "company_name": company_name or "Webknot Technologies",
         },
     )
     sent = gmail_service.send_html_email(
@@ -254,6 +258,7 @@ async def send_failed_screening_attempt_email(
     phone_number: str,
     *,
     templates: dict[str, dict[str, Any]],
+    company_name: str | None = None,
 ) -> bool:
     subject, html_body = render_template(
         "failed_screening_attempt",
@@ -262,6 +267,7 @@ async def send_failed_screening_attempt_email(
             "candidate_name": candidate_name,
             "job_title": job_title,
             "phone_number": phone_number,
+            "company_name": company_name or "Webknot Technologies",
         },
     )
     sent = gmail_service.send_html_email(
@@ -284,13 +290,18 @@ async def send_rejection_email(
     job_title: str,
     *,
     templates: dict[str, dict[str, Any]] | None = None,
+    company_name: str | None = None,
 ) -> bool:
     """Send a polite application rejection email via Gmail."""
     if templates:
         subject, html_body = render_template(
             "rejection",
             templates,
-            {"candidate_name": candidate_name, "job_title": job_title},
+            {
+                "candidate_name": candidate_name,
+                "job_title": job_title,
+                "company_name": company_name or "Webknot Technologies",
+            },
         )
     else:
         subject = f"Update on your application — {job_title}"

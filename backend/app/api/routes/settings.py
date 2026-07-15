@@ -45,6 +45,7 @@ async def _get_or_create_settings(db: AsyncSession) -> SystemSettings:
         screening_enabled=True,
         screening_max_retries=3,
         screening_retry_delay_seconds=1800,
+        company_name="Webknot Technologies",
     )
     db.add(row)
     await db.commit()
@@ -130,6 +131,21 @@ async def update_settings(
         )
         row.screening_retry_delay_seconds = new_val
 
+    if "company_name" in data and data["company_name"] is not None:
+        new_name = str(data["company_name"]).strip()
+        if not new_name:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="company_name cannot be empty",
+            )
+        if len(new_name) > 255:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="company_name must be at most 255 characters",
+            )
+        changes["company_name"] = (row.company_name, new_name)
+        row.company_name = new_name
+
     await log_field_changes(
         db,
         actor=admin,
@@ -145,18 +161,16 @@ async def update_settings(
     return row
 
 
-@router.get(
-    "/settings/email-templates",
-    response_model=EmailTemplatesResponse,
-    dependencies=[_admin_auth],
-)
-async def get_email_templates(db: AsyncSession = Depends(get_db)):
+async def _email_templates_response(db: AsyncSession) -> EmailTemplatesResponse:
     from app.services.email_template_service import (
+        COMMON_PLACEHOLDERS,
         REQUIRED_PLACEHOLDERS,
+        get_company_name,
         get_merged_templates,
     )
 
     merged = await get_merged_templates(db)
+    company_name = await get_company_name(db)
     templates = {
         tid: EmailTemplateEntry(
             subject=entry["subject"],
@@ -169,7 +183,18 @@ async def get_email_templates(db: AsyncSession = Depends(get_db)):
     return EmailTemplatesResponse(
         templates=templates,
         required_placeholders={k: list(v) for k, v in REQUIRED_PLACEHOLDERS.items()},
+        common_placeholders=list(COMMON_PLACEHOLDERS),
+        company_name=company_name,
     )
+
+
+@router.get(
+    "/settings/email-templates",
+    response_model=EmailTemplatesResponse,
+    dependencies=[_admin_auth],
+)
+async def get_email_templates(db: AsyncSession = Depends(get_db)):
+    return await _email_templates_response(db)
 
 
 @router.patch(
@@ -184,7 +209,6 @@ async def update_email_template(
     db: AsyncSession = Depends(get_db),
 ):
     from app.services.email_template_service import (
-        REQUIRED_PLACEHOLDERS,
         save_template,
         get_merged_templates,
     )
@@ -213,19 +237,7 @@ async def update_email_template(
     )
     await db.commit()
     invalidate_settings_cache()
-    templates = {
-        tid: EmailTemplateEntry(
-            subject=entry["subject"],
-            body_html=entry["body_html"],
-            version=entry.get("version", 1),
-            updated_at=entry.get("updated_at"),
-        )
-        for tid, entry in merged.items()
-    }
-    return EmailTemplatesResponse(
-        templates=templates,
-        required_placeholders={k: list(v) for k, v in REQUIRED_PLACEHOLDERS.items()},
-    )
+    return await _email_templates_response(db)
 
 
 @router.post(
@@ -238,13 +250,10 @@ async def restore_email_template(
     admin: RequireAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    from app.services.email_template_service import (
-        REQUIRED_PLACEHOLDERS,
-        restore_template,
-    )
+    from app.services.email_template_service import restore_template
 
     try:
-        merged = await restore_template(db, template_id)
+        await restore_template(db, template_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -261,19 +270,7 @@ async def restore_email_template(
     )
     await db.commit()
     invalidate_settings_cache()
-    templates = {
-        tid: EmailTemplateEntry(
-            subject=entry["subject"],
-            body_html=entry["body_html"],
-            version=entry.get("version", 1),
-            updated_at=entry.get("updated_at"),
-        )
-        for tid, entry in merged.items()
-    }
-    return EmailTemplatesResponse(
-        templates=templates,
-        required_placeholders={k: list(v) for k, v in REQUIRED_PLACEHOLDERS.items()},
-    )
+    return await _email_templates_response(db)
 
 
 @router.post(
@@ -284,11 +281,17 @@ async def restore_email_template(
 async def preview_email_template(
     template_id: str,
     payload: EmailTemplatePreviewRequest,
+    db: AsyncSession = Depends(get_db),
 ):
-    from app.services.email_template_service import preview_template
+    from app.services.email_template_service import get_company_name, preview_template
 
     try:
-        rendered = preview_template(template_id, payload.subject, payload.body_html)
+        rendered = preview_template(
+            template_id,
+            payload.subject,
+            payload.body_html,
+            company_name=await get_company_name(db),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return EmailTemplatePreviewResponse(**rendered)
@@ -302,20 +305,26 @@ async def preview_email_template(
 async def test_email_template(
     template_id: str,
     payload: EmailTemplateTestRequest,
+    db: AsyncSession = Depends(get_db),
 ):
-    from app.services.email_template_service import preview_template
+    from app.services.email_template_service import get_company_name, preview_template
     from app.services import gmail_service
 
     try:
-        rendered = preview_template(template_id, payload.subject, payload.body_html)
+        rendered = preview_template(
+            template_id,
+            payload.subject,
+            payload.body_html,
+            company_name=await get_company_name(db),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     sent = gmail_service.send_html_email(
         to_email=payload.to_email,
-        subject=rendered["subject"],
+        subject=f"[TEST] {rendered['subject']}",
         html_body=rendered["body_html"],
     )
     if not sent:
-        raise HTTPException(status_code=502, detail="Failed to send test email")
-    return {"message": f"Test email sent to {payload.to_email}"}
+        raise HTTPException(status_code=500, detail="Failed to send test email")
+    return {"ok": True, "to_email": payload.to_email}

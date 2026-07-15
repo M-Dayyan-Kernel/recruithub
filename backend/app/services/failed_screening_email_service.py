@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Candidate, Job, ScreeningCall
 from app.services.email_service import send_failed_screening_attempt_email
-from app.services.email_template_service import get_merged_templates
+from app.services.email_template_service import get_company_name, get_merged_templates
 from app.services.settings_service import load_system_settings
 
 logger = logging.getLogger(__name__)
@@ -117,6 +117,7 @@ async def maybe_send_failed_screening_email(
     job = await db.get(Job, screening_call.job_id)
     job_title = job.title if job else "the position"
     templates = await get_merged_templates(db)
+    company_name = await get_company_name(db)
 
     try:
         sent = await send_failed_screening_attempt_email(
@@ -125,6 +126,7 @@ async def maybe_send_failed_screening_email(
             job_title=job_title,
             phone_number=phone or "your number on file",
             templates=templates,
+            company_name=company_name,
         )
     except Exception as exc:
         logger.error(
