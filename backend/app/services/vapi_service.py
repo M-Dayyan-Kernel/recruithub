@@ -10,7 +10,7 @@ does not hit "Event loop is closed" during AsyncClient transport teardown.
 import asyncio
 import logging
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import httpx
 
@@ -18,6 +18,7 @@ from app.core.config import settings
 
 if TYPE_CHECKING:
     from app.models.models import Candidate, Job
+    from app.services.tenant_integrations_service import TenantIntegrations
 
 logger = logging.getLogger(__name__)
 
@@ -63,18 +64,41 @@ Guidelines:
 """
 
 
-def _vapi_headers() -> dict[str, str]:
+def _vapi_headers(api_key: str) -> dict[str, str]:
     return {
-        "Authorization": f"Bearer {settings.VAPI_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
 
 
-def _get_vapi_call_sync(vapi_call_id: str, timeout: float) -> dict:
+def _resolve_vapi_credentials(
+    integrations: Optional["TenantIntegrations"] = None,
+    *,
+    api_key: str | None = None,
+) -> tuple[str, str]:
+    """Return (api_key, phone_number_id), preferring tenant integrations then platform .env."""
+    key = (api_key or "").strip()
+    phone_id = ""
+    if integrations is not None:
+        integrations.require("vapi_api_key", "vapi_phone_number_id")
+        key = key or integrations.vapi_api_key
+        phone_id = integrations.vapi_phone_number_id
+    if not key:
+        key = settings.VAPI_API_KEY or ""
+    if not phone_id:
+        phone_id = settings.VAPI_PHONE_NUMBER_ID or ""
+    if not key:
+        raise ValueError("VAPI API key is not configured")
+    if not phone_id:
+        raise ValueError("VAPI phone number ID is not configured")
+    return key, phone_id
+
+
+def _get_vapi_call_sync(vapi_call_id: str, timeout: float, api_key: str) -> dict:
     with httpx.Client(timeout=timeout) as client:
         response = client.get(
             f"{VAPI_API_BASE}/call/{vapi_call_id}",
-            headers=_vapi_headers(),
+            headers=_vapi_headers(api_key),
         )
         if response.status_code != 200:
             raise Exception(
@@ -83,14 +107,21 @@ def _get_vapi_call_sync(vapi_call_id: str, timeout: float) -> dict:
         return response.json()
 
 
-async def get_vapi_call(vapi_call_id: str, *, timeout: float = 5.0) -> dict:
+async def get_vapi_call(
+    vapi_call_id: str,
+    *,
+    timeout: float = 5.0,
+    api_key: str | None = None,
+    integrations: Optional["TenantIntegrations"] = None,
+) -> dict:
     """Fetch call details from Vapi REST API."""
     from app.services.mock_external import mock_vapi_enabled, mock_vapi_get_call
 
     if mock_vapi_enabled():
         return mock_vapi_get_call(vapi_call_id)
 
-    return await asyncio.to_thread(_get_vapi_call_sync, vapi_call_id, timeout)
+    key, _ = _resolve_vapi_credentials(integrations, api_key=api_key)
+    return await asyncio.to_thread(_get_vapi_call_sync, vapi_call_id, timeout, key)
 
 
 def is_vapi_call_ended(vapi_call: dict) -> bool:
@@ -145,6 +176,8 @@ def _initiate_screening_call_sync(
     screening_questions: list | None,
     required_skills: list | None,
     screening_call_id: uuid.UUID,
+    api_key: str,
+    phone_number_id: str,
 ) -> str:
     screening_prompt = _build_screening_prompt(
         candidate_name=candidate_name,
@@ -156,7 +189,7 @@ def _initiate_screening_call_sync(
 
     payload = {
         "type": "outboundPhoneCall",
-        "phoneNumberId": settings.VAPI_PHONE_NUMBER_ID,
+        "phoneNumberId": phone_number_id,
         "customer": {
             "number": candidate_phone,
         },
@@ -213,7 +246,7 @@ def _initiate_screening_call_sync(
         response = client.post(
             f"{VAPI_API_BASE}/call",
             json=payload,
-            headers=_vapi_headers(),
+            headers=_vapi_headers(api_key),
         )
         if response.status_code not in (200, 201):
             raise Exception(
@@ -238,6 +271,8 @@ async def initiate_screening_call(
     candidate: "Candidate",
     job: "Job",
     screening_call_id: uuid.UUID,
+    *,
+    integrations: Optional["TenantIntegrations"] = None,
 ) -> str:
     """
     Initiate an outbound AI voice screening call via Vapi.ai.
@@ -257,6 +292,8 @@ async def initiate_screening_call(
         )
         return call_id
 
+    api_key, phone_number_id = _resolve_vapi_credentials(integrations)
+
     return await asyncio.to_thread(
         _initiate_screening_call_sync,
         candidate_name=candidate.name,
@@ -266,4 +303,6 @@ async def initiate_screening_call(
         screening_questions=job.screening_questions,
         required_skills=job.required_skills,
         screening_call_id=screening_call_id,
+        api_key=api_key,
+        phone_number_id=phone_number_id,
     )

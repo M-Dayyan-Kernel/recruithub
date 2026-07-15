@@ -1,6 +1,7 @@
+import asyncio
 import json
 import logging
-from openai import AsyncOpenAI
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,6 @@ Return ONLY valid JSON with exactly these fields:
 If any field cannot be found in the resume, use null for that field.
 Skills must be a flat array of individual skill strings (e.g. ["Python", "React", "PostgreSQL"])."""
 
-
 # Minimum resume text length before we attempt GPT parsing
 MIN_RESUME_LENGTH = 50
 
@@ -28,6 +28,26 @@ _EMPTY_RESUME: dict = {
     "experience": [], "education": [],
     "current_company": None, "current_role": None,
 }
+
+
+def _parse_resume_sync(raw_text: str, api_key: str) -> dict:
+    """Sync OpenAI call — safe under Celery asyncio.run() on Windows."""
+    client = OpenAI(api_key=api_key)
+    truncated_text = raw_text[:8000] if len(raw_text) > 8000 else raw_text
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": PARSE_SYSTEM_PROMPT},
+            {"role": "user", "content": f"Parse this resume and return structured JSON:\n\n{truncated_text}"},
+        ],
+        temperature=0,
+        max_tokens=2000,
+    )
+    content = response.choices[0].message.content
+    parsed = json.loads(content)
+    logger.info("Successfully parsed resume. Skills found: %d", len(parsed.get("skills") or []))
+    return parsed
 
 
 async def parse_resume(raw_text: str, api_key: str) -> dict:
@@ -45,23 +65,4 @@ async def parse_resume(raw_text: str, api_key: str) -> dict:
     if mock_openai_enabled():
         return mock_resume_parse(raw_text)
 
-    client = AsyncOpenAI(api_key=api_key)
-
-    # Truncate to ~8000 chars to stay within context limits
-    truncated_text = raw_text[:8000] if len(raw_text) > 8000 else raw_text
-
-    response = await client.chat.completions.create(
-        model="gpt-4o",
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": PARSE_SYSTEM_PROMPT},
-            {"role": "user", "content": f"Parse this resume and return structured JSON:\n\n{truncated_text}"},
-        ],
-        temperature=0,
-        max_tokens=2000,
-    )
-
-    content = response.choices[0].message.content
-    parsed = json.loads(content)
-    logger.info(f"Successfully parsed resume. Skills found: {len(parsed.get('skills') or [])}")
-    return parsed
+    return await asyncio.to_thread(_parse_resume_sync, raw_text, api_key)

@@ -1,7 +1,21 @@
+import asyncio
 import logging
-from openai import AsyncOpenAI
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
+
+
+def _generate_embedding_sync(text: str, api_key: str) -> list[float]:
+    """Sync OpenAI call — safe under Celery asyncio.run() on Windows."""
+    client = OpenAI(api_key=api_key)
+    truncated = text[:6000] if len(text) > 6000 else text
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=truncated,
+    )
+    embedding = response.data[0].embedding
+    logger.info("Generated embedding vector of length %d", len(embedding))
+    return embedding
 
 
 async def generate_embedding(text: str, api_key: str) -> list[float]:
@@ -12,16 +26,4 @@ async def generate_embedding(text: str, api_key: str) -> list[float]:
         truncated = text[:6000] if len(text) > 6000 else text
         return mock_embedding(truncated)
 
-    client = AsyncOpenAI(api_key=api_key)
-
-    # Truncate to ~6000 chars to stay well within 8191 token limit
-    truncated = text[:6000] if len(text) > 6000 else text
-
-    response = await client.embeddings.create(
-        model="text-embedding-3-small",
-        input=truncated,
-    )
-
-    embedding = response.data[0].embedding
-    logger.info(f"Generated embedding vector of length {len(embedding)}")
-    return embedding
+    return await asyncio.to_thread(_generate_embedding_sync, text, api_key)
