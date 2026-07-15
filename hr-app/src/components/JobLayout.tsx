@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { JobHeader, JobHeaderSkeleton } from '@/components/JobHeader'
+import { JobPhaseNav } from '@/components/JobPhaseNav'
 import { isArchivedJobStatus } from '@/lib/jobStatus'
 
 export interface JobOutletContext {
@@ -46,8 +47,12 @@ export default function JobLayout() {
     <div className="mx-auto max-w-7xl space-y-6">
       {isLoading && (
         <>
+          <div className="flex items-center gap-3">
+            <div className="h-5 w-12 animate-pulse rounded bg-slate-200" />
+            <div className="h-9 w-48 animate-pulse rounded-lg bg-slate-200" />
+            <div className="ml-auto h-9 w-28 animate-pulse rounded-lg bg-slate-200" />
+          </div>
           {showJobHeader && <JobHeaderSkeleton />}
-          {!showJobHeader && <div className="mb-6 h-10 w-80 animate-pulse rounded bg-slate-200" />}
         </>
       )}
 
@@ -58,11 +63,11 @@ export default function JobLayout() {
             This job may have been deleted or the URL is incorrect.
           </p>
           <Link
-            to="/"
+            to="/jobs"
             className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-800"
           >
             <ArrowLeft size={14} />
-            Back to Dashboard
+            Back to Jobs
           </Link>
         </div>
       )}
@@ -75,6 +80,7 @@ export default function JobLayout() {
 
       {!isLoading && job && jobId && (
         <>
+          <JobPhaseNav job={job} />
           {showJobHeader && isArchivedJobStatus(job.status) && (
             <Link
               to="/jobs/archived"
