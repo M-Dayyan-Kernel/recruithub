@@ -4,6 +4,7 @@ Interviews Router — Sprint 6
 Endpoints for LiveKit interview session management:
   POST /api/candidates/{candidate_id}/interview/send      — create session + send email
   POST /api/candidates/{candidate_id}/interview/schedule — create session for a future slot
+  POST /api/candidates/{candidate_id}/interview/mark-complete — HR force-complete → Completed tab
   GET  /api/interview/{token}                          — candidate fetches session details
   POST /api/interview/{token}/start                    — create LiveKit room, return token
   POST /api/interview/{token}/complete                 — mark complete + enqueue assessment
@@ -512,6 +513,105 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# POST /api/candidates/{candidate_id}/interview/mark-complete
+# ---------------------------------------------------------------------------
+
+_STUB_INTERVIEW_TRANSCRIPT = (
+    "AI: Welcome to your technical interview. Let's begin.\n"
+    "User: Sure, I'm ready.\n"
+    "AI: Can you describe a recent project where you built a backend API?\n"
+    "User: I built a FastAPI service with PostgreSQL, Celery workers for async jobs, "
+    "and integrated OpenAI for document parsing. We handled about 10k requests per day.\n"
+    "AI: How did you handle failures in background tasks?\n"
+    "User: We used retries with exponential backoff in Celery and dead-letter logging.\n"
+    "AI: Thank you. That concludes our interview.\n"
+)
+
+
+@router.post(
+    "/candidates/{candidate_id}/interview/mark-complete",
+    response_model=InterviewSessionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[_hr_auth],
+)
+async def mark_interview_complete(
+    candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    HR action: force-complete a pending/in-progress interview so the candidate
+    moves to the Completed pipeline tab (and assessment is generated).
+    """
+    from app.models.models import Job
+    from app.services.interview_flag_service import has_meaningful_transcript
+    from app.tasks.interview_tasks import generate_interview_report
+
+    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
+
+    result = await db.execute(
+        select(InterviewSession)
+        .where(
+            InterviewSession.candidate_id == candidate_id,
+            InterviewSession.job_id == candidate.job_id,
+            InterviewSession.status.in_(["pending", "in_progress"]),
+        )
+        .order_by(InterviewSession.created_at.desc())
+    )
+    session = result.scalars().first()
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail="No active interview session found to mark complete.",
+        )
+
+    now = datetime.now(timezone.utc)
+    before_status = session.status
+    session.status = "completed"
+    session.completed_at = now
+    if not session.started_at:
+        session.started_at = now
+
+    # Without a transcript the session would flag as "never started" — seed a stub
+    # so assessment can run and the candidate lands in Completed with a report.
+    if not has_meaningful_transcript(session.transcript):
+        session.transcript = _STUB_INTERVIEW_TRANSCRIPT
+
+    await log_change(
+        db,
+        actor=actor,
+        action="interview.mark_complete",
+        entity_type="interview_session",
+        entity_id=session.id,
+        subject_label=await _candidate_label(db, candidate, candidate_id),
+        job_id=candidate.job_id,
+        feature="status",
+        before={"status": before_status},
+        after={"status": "completed"},
+    )
+    await db.commit()
+    await db.refresh(session)
+
+    generate_interview_report.delay(str(session.id))
+
+    job_result = await db.execute(select(Job).where(Job.id == candidate.job_id))
+    job = job_result.scalars().first()
+
+    response_data = InterviewSessionResponse.model_validate(session)
+    response_data.interview_url = (
+        f"{settings.CANDIDATE_APP_URL}/interview/{session.unique_token}"
+    )
+    response_data.candidate_name = candidate.name
+    response_data.job_title = job.title if job else None
+    logger.info(
+        "HR marked interview complete: session=%s candidate=%s",
+        session.id,
+        candidate_id,
+    )
+    return response_data
+
+
+# ---------------------------------------------------------------------------
 # POST /api/interview/{token}/complete
 # ---------------------------------------------------------------------------
 
@@ -539,22 +639,16 @@ async def complete_interview(token: str, db: AsyncSession = Depends(get_db)):
             detail=f"Cannot complete interview in status '{session.status}'",
         )
 
+    now = datetime.now(timezone.utc)
     session.status = "completed"
-    session.completed_at = datetime.now(timezone.utc)
+    session.completed_at = now
+    if not session.started_at:
+        session.started_at = now
 
     from app.services.mock_external import mock_livekit_enabled
 
     if mock_livekit_enabled() and not (session.transcript or "").strip():
-        session.transcript = (
-            "AI: Welcome to your technical interview. Let's begin.\n"
-            "User: Sure, I'm ready.\n"
-            "AI: Can you describe a recent project where you built a backend API?\n"
-            "User: I built a FastAPI service with PostgreSQL, Celery workers for async jobs, "
-            "and integrated OpenAI for document parsing. We handled about 10k requests per day.\n"
-            "AI: How did you handle failures in background tasks?\n"
-            "User: We used retries with exponential backoff in Celery and dead-letter logging.\n"
-            "AI: Thank you. That concludes our interview.\n"
-        )
+        session.transcript = _STUB_INTERVIEW_TRANSCRIPT
 
     await db.commit()
 

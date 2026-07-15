@@ -230,7 +230,6 @@ interface CandidateInterviewCardProps {
   jobId: string
   jobTimezone?: string
   hasReport: boolean
-  mockMode?: boolean
   /** Session pre-loaded from backend (source of truth) */
   initialSession?: InterviewSession | null
 }
@@ -242,7 +241,6 @@ function CandidateInterviewCard({
   jobId,
   jobTimezone,
   hasReport,
-  mockMode = false,
   initialSession = null,
 }: CandidateInterviewCardProps) {
   const queryClient = useQueryClient()
@@ -280,22 +278,25 @@ function CandidateInterviewCard({
     },
   })
 
-  const mockCompleteMutation = useMutation({
-    mutationFn: () => api.post(`/api/interview/${session!.unique_token}/complete`),
-    onSuccess: () => {
+  const markCompleteMutation = useMutation<InterviewSession, Error>({
+    mutationFn: () =>
+      api.post(
+        `/api/candidates/${candidateId}/interview/mark-complete`,
+      ) as Promise<InterviewSession>,
+    onSuccess: (data) => {
+      setLocalSession(data)
       invalidatePipeline()
-      toast.success(`Mock interview completed for ${candidateName}`)
+      toast.success(`${candidateName} moved to Completed`)
     },
     onError: (err: Error) => {
-      toast.error(err.message || 'Failed to complete mock interview')
+      toast.error(err.message || 'Failed to mark interview complete')
     },
   })
 
-  const canMockComplete =
-    mockMode &&
-    session?.unique_token &&
+  const canMarkComplete =
     !hasReport &&
-    (session.status === 'pending' || session.status === 'in_progress')
+    Boolean(session) &&
+    (session?.status === 'pending' || session?.status === 'in_progress')
 
   const statusHint =
     interviewStatus === 'not_sent'
@@ -377,19 +378,19 @@ function CandidateInterviewCard({
           </Link>
         )}
 
-        {canMockComplete && (
+        {canMarkComplete && (
           <button
             type="button"
-            onClick={() => mockCompleteMutation.mutate()}
-            disabled={mockCompleteMutation.isPending}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-50"
+            onClick={() => markCompleteMutation.mutate()}
+            disabled={markCompleteMutation.isPending}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {mockCompleteMutation.isPending ? (
+            {markCompleteMutation.isPending ? (
               <Loader2 size={13} className="animate-spin" />
             ) : (
               <CheckCircle2 size={13} />
             )}
-            Complete mock interview
+            Mark as completed
           </button>
         )}
       </div>
@@ -548,14 +549,6 @@ export function InterviewsTab({ job, jobId }: Props) {
       api.get(`/api/jobs/${jobId}/finalists`) as unknown as Promise<FinalistsResponse>,
     enabled: !!jobId && activeTab === 'finalists',
   })
-
-  const { data: health } = useQuery<{ mock_mode?: boolean }>({
-    queryKey: ['health'],
-    queryFn: () => api.get('/health') as Promise<{ mock_mode?: boolean }>,
-    staleTime: 60_000,
-  })
-
-  const mockMode = Boolean(health?.mock_mode)
 
   const tabCounts = pipeline?.counts ?? {
     pending: 0,
@@ -739,7 +732,6 @@ export function InterviewsTab({ job, jobId }: Props) {
               jobId={jobId}
               jobTimezone={job.screening_timezone}
               hasReport={row.has_report}
-              mockMode={mockMode}
               initialSession={row.session ?? null}
             />
           ))}
