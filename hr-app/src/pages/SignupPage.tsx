@@ -1,13 +1,30 @@
-import { type FormEvent, useState } from 'react'
+import { type ChangeEvent, type DragEvent, type FormEvent, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { Zap } from 'lucide-react'
+import { FileText, Upload, X, Zap } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/context/AuthContext'
 import { WORKFLOW_INPUT_CLASS, WORKFLOW_PRIMARY_BUTTON_CLASS } from '@/lib/workflow'
 
+const MAX_GST_BYTES = 10 * 1024 * 1024
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function isPdfFile(file: File): boolean {
+  return (
+    file.type === 'application/pdf' ||
+    file.type === 'application/x-pdf' ||
+    file.name.toLowerCase().endsWith('.pdf')
+  )
+}
+
 export default function SignupPage() {
   const { signup, isAuthenticated, isLoading } = useAuth()
   const navigate = useNavigate()
+  const gstInputRef = useRef<HTMLInputElement>(null)
 
   const [organizationName, setOrganizationName] = useState('')
   const [fullName, setFullName] = useState('')
@@ -15,6 +32,7 @@ export default function SignupPage() {
   const [password, setPassword] = useState('')
   const [companyRegistrationNumber, setCompanyRegistrationNumber] = useState('')
   const [gstDocument, setGstDocument] = useState<File | null>(null)
+  const [dragOver, setDragOver] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   if (isLoading) {
@@ -29,13 +47,45 @@ export default function SignupPage() {
     return <Navigate to="/" replace />
   }
 
+  function applyGstFile(file: File | null) {
+    if (!file) {
+      setGstDocument(null)
+      return
+    }
+    if (!isPdfFile(file)) {
+      toast.error('GST document must be a PDF')
+      return
+    }
+    if (file.size > MAX_GST_BYTES) {
+      toast.error('GST document must be under 10 MB')
+      return
+    }
+    setGstDocument(file)
+  }
+
+  function onGstInputChange(e: ChangeEvent<HTMLInputElement>) {
+    applyGstFile(e.target.files?.[0] ?? null)
+    e.target.value = ''
+  }
+
+  function onGstDrop(e: DragEvent<HTMLLabelElement>) {
+    e.preventDefault()
+    setDragOver(false)
+    applyGstFile(e.dataTransfer.files?.[0] ?? null)
+  }
+
+  function clearGst() {
+    setGstDocument(null)
+    if (gstInputRef.current) gstInputRef.current.value = ''
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     if (!gstDocument) {
       toast.error('GST document (PDF) is required')
       return
     }
-    if (!gstDocument.name.toLowerCase().endsWith('.pdf')) {
+    if (!isPdfFile(gstDocument)) {
       toast.error('GST document must be a PDF')
       return
     }
@@ -131,20 +181,84 @@ export default function SignupPage() {
               placeholder="••••••••"
             />
           </div>
+
           <div>
-            <label htmlFor="gst" className="mb-1.5 block text-sm font-medium text-slate-700">
-              GST document <span className="text-red-500">*</span>
-            </label>
+            <div className="mb-1.5 flex items-baseline justify-between gap-2">
+              <span className="block text-sm font-medium text-slate-700">
+                GST document <span className="text-red-500">*</span>
+              </span>
+              <span className="text-xs text-slate-400">PDF · max 10 MB</span>
+            </div>
+
             <input
+              ref={gstInputRef}
               id="gst"
               type="file"
               accept="application/pdf,.pdf"
-              required
-              onChange={(e) => setGstDocument(e.target.files?.[0] ?? null)}
-              className={`${WORKFLOW_INPUT_CLASS} cursor-pointer file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-sm file:font-medium file:text-slate-700`}
+              className="sr-only"
+              onChange={onGstInputChange}
             />
-            <p className="mt-1 text-xs text-slate-500">PDF only, max 10 MB. Required for verification.</p>
+
+            {gstDocument ? (
+              <div className="flex items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50/60 px-3 py-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-indigo-100">
+                  <FileText className="h-5 w-5 text-indigo-600" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-slate-800">{gstDocument.name}</p>
+                  <p className="text-xs text-slate-500">{formatFileSize(gstDocument.size)}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => gstInputRef.current?.click()}
+                  className="shrink-0 text-xs font-medium text-indigo-600 hover:text-indigo-500"
+                >
+                  Replace
+                </button>
+                <button
+                  type="button"
+                  onClick={clearGst}
+                  aria-label="Remove GST document"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-white hover:text-slate-700"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <label
+                htmlFor="gst"
+                onDragEnter={(e) => {
+                  e.preventDefault()
+                  setDragOver(true)
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  setDragOver(true)
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault()
+                  setDragOver(false)
+                }}
+                onDrop={onGstDrop}
+                className={[
+                  'flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed px-4 py-7 text-center transition-colors',
+                  dragOver
+                    ? 'border-indigo-400 bg-indigo-50'
+                    : 'border-slate-300 bg-slate-50 hover:border-indigo-300 hover:bg-indigo-50/40',
+                ].join(' ')}
+              >
+                <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-slate-200">
+                  <Upload className="h-4 w-4 text-slate-500" />
+                </div>
+                <p className="text-sm font-medium text-slate-700">
+                  Drop your GST PDF here, or{' '}
+                  <span className="text-indigo-600">browse</span>
+                </p>
+                <p className="mt-1 text-xs text-slate-500">Required for organization verification</p>
+              </label>
+            )}
           </div>
+
           <div>
             <label htmlFor="regNo" className="mb-1.5 block text-sm font-medium text-slate-700">
               Company registration number{' '}
