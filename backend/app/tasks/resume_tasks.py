@@ -141,7 +141,9 @@ def parse_resume(self, candidate_id: str):
 async def _async_parse(candidate_id: str) -> None:
     import openai  # local import — not installed at task discovery time
 
+    from app.models.models import Job
     from app.services.resume_parser import parse_resume as parse_resume_service
+    from app.services.tenant_integrations_service import load_tenant_integrations
 
     async with get_celery_db() as session:
         result = await session.execute(
@@ -168,7 +170,23 @@ async def _async_parse(candidate_id: str) -> None:
             return
 
         try:
-            parsed_data = await parse_resume_service(candidate.resume_raw_text)
+            job_result = await session.execute(
+                select(Job).where(Job.id == job_id)
+            )
+            job = job_result.scalar_one_or_none()
+            if not job:
+                logger.error("parse_resume: job %s not found for candidate %s", job_id, candidate_id)
+                candidate.parse_status = "parse_failed"
+                await session.commit()
+                await dispatch_parse_slots(session, job_id)
+                return
+
+            integrations = await load_tenant_integrations(session, job.tenant_id)
+            integrations.require("openai_api_key")
+
+            parsed_data = await parse_resume_service(
+                candidate.resume_raw_text, integrations.openai_api_key
+            )
 
             candidate.parsed_data = parsed_data
             candidate.parse_status = "parsed"
@@ -236,7 +254,9 @@ def generate_candidate_embedding(self, candidate_id: str):
 async def _async_embed(candidate_id: str) -> None:
     import openai  # local import
 
+    from app.models.models import Job
     from app.services.embedding_service import generate_embedding
+    from app.services.tenant_integrations_service import load_tenant_integrations
 
     async with get_celery_db() as session:
         result = await session.execute(
@@ -265,7 +285,27 @@ async def _async_embed(candidate_id: str) -> None:
             return
 
         try:
-            embedding = await generate_embedding(candidate.resume_raw_text)
+            job_result = await session.execute(
+                select(Job).where(Job.id == job_id)
+            )
+            job = job_result.scalar_one_or_none()
+            if not job:
+                logger.error(
+                    "generate_candidate_embedding: job %s not found for candidate %s",
+                    job_id,
+                    candidate_id,
+                )
+                candidate.parse_status = "parse_failed"
+                await session.commit()
+                await dispatch_parse_slots(session, job_id)
+                return
+
+            integrations = await load_tenant_integrations(session, job.tenant_id)
+            integrations.require("openai_api_key")
+
+            embedding = await generate_embedding(
+                candidate.resume_raw_text, integrations.openai_api_key
+            )
             candidate.resume_embedding = embedding
             candidate.parse_status = "ready"
             await session.commit()

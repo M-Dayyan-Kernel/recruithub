@@ -222,19 +222,29 @@ def preview_template(
     return {"subject": rendered_subject, "body_html": rendered_body}
 
 
-async def get_company_name(db: AsyncSession) -> str:
+async def get_company_name(db: AsyncSession, tenant_id) -> str:
     from sqlalchemy import select
 
-    result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+    if tenant_id is None:
+        return DEFAULT_COMPANY_NAME
+
+    result = await db.execute(
+        select(SystemSettings).where(SystemSettings.tenant_id == tenant_id)
+    )
     row = result.scalar_one_or_none()
     name = (row.company_name if row else None) or DEFAULT_COMPANY_NAME
     return name.strip() or DEFAULT_COMPANY_NAME
 
 
-async def get_merged_templates(db: AsyncSession) -> dict[str, dict[str, Any]]:
+async def get_merged_templates(db: AsyncSession, tenant_id) -> dict[str, dict[str, Any]]:
     from sqlalchemy import select
 
-    result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+    if tenant_id is None:
+        return default_templates()
+
+    result = await db.execute(
+        select(SystemSettings).where(SystemSettings.tenant_id == tenant_id)
+    )
     row = result.scalar_one_or_none()
     stored = row.email_templates if row else None
     return merge_templates(stored)
@@ -242,6 +252,7 @@ async def get_merged_templates(db: AsyncSession) -> dict[str, dict[str, Any]]:
 
 async def save_template(
     db: AsyncSession,
+    tenant_id,
     template_id: str,
     subject: str,
     body_html: str,
@@ -252,11 +263,13 @@ async def save_template(
     if errors:
         raise ValueError("; ".join(errors))
 
-    result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+    result = await db.execute(
+        select(SystemSettings).where(SystemSettings.tenant_id == tenant_id)
+    )
     row = result.scalar_one_or_none()
     if not row:
         row = SystemSettings(
-            id=1,
+            tenant_id=tenant_id,
             allowed_phone_regions=["IN"],
             enforce_phone_geography=True,
             company_name=DEFAULT_COMPANY_NAME,
@@ -277,13 +290,17 @@ async def save_template(
     return merge_templates(row.email_templates)
 
 
-async def restore_template(db: AsyncSession, template_id: str) -> dict[str, dict[str, Any]]:
+async def restore_template(
+    db: AsyncSession, tenant_id, template_id: str
+) -> dict[str, dict[str, Any]]:
     from sqlalchemy import select
 
     if template_id not in TEMPLATE_IDS:
         raise ValueError(f"Unknown template: {template_id}")
 
-    result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+    result = await db.execute(
+        select(SystemSettings).where(SystemSettings.tenant_id == tenant_id)
+    )
     row = result.scalar_one_or_none()
     if row and row.email_templates:
         stored = dict(row.email_templates)

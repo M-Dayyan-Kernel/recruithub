@@ -155,6 +155,27 @@ export interface SystemSettings {
   updated_at: string
 }
 
+export interface TenantIntegrationsFieldStatus {
+  configured: boolean
+  source: string
+  hint?: string | null
+}
+
+export interface TenantIntegrationsResponse {
+  fields: Record<string, TenantIntegrationsFieldStatus>
+}
+
+export interface TenantIntegrationsUpdate {
+  openai_api_key?: string
+  vapi_api_key?: string
+  vapi_phone_number_id?: string
+  livekit_url?: string
+  livekit_api_key?: string
+  livekit_api_secret?: string
+  gmail_credentials_json?: string
+  gmail_token_json?: string
+}
+
 export interface EmailTemplateEntry {
   subject: string
   body_html: string
@@ -315,17 +336,54 @@ export type UserRole = 'admin' | 'hr'
 
 export interface User {
   id: string
+  tenant_id: string
   email: string
   full_name: string
   role: UserRole
   is_active: boolean
   created_at: string
   updated_at: string
+  tenant_name?: string | null
 }
 
 export interface LoginRequest {
   email: string
   password: string
+}
+
+export interface SignupRequest {
+  organization_name: string
+  email: string
+  password: string
+  full_name: string
+}
+
+export interface AcceptInviteRequest {
+  token: string
+  password: string
+  full_name: string
+}
+
+export interface InvitePublic {
+  email: string
+  role: UserRole
+  organization_name: string
+  expires_at: string
+}
+
+export interface InviteCreate {
+  email: string
+  role: UserRole
+}
+
+export interface InviteResponse {
+  id: string
+  email: string
+  role: UserRole
+  token: string
+  invite_url: string
+  expires_at: string
+  created_at: string
 }
 
 export interface TokenResponse {
@@ -355,6 +413,7 @@ export interface UserUpdate {
 export interface AuditLog {
   id: string
   created_at: string
+  tenant_id?: string | null
   actor_user_id: string | null
   actor_name: string
   actor_role: string

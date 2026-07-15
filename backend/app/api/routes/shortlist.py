@@ -21,6 +21,7 @@ from sqlalchemy import select, exists
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import RequireAdminOrHr, require_roles
+from app.core.tenancy import get_tenant_job, get_tenant_shortlist_result
 from app.models.models import Candidate, Job, ShortlistResult
 from app.services.audit_service import log_change, log_field_changes
 from app.services.candidate_contact_service import (
@@ -56,22 +57,15 @@ def _shortlist_batch_key(job_id: uuid.UUID) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Helper — fetch ShortlistResult or 404
+# Helper — fetch ShortlistResult or 404 (tenant-scoped)
 # ---------------------------------------------------------------------------
 
 async def _get_shortlist_or_404(
-    shortlist_id: uuid.UUID, db: AsyncSession
+    shortlist_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    db: AsyncSession,
 ) -> ShortlistResult:
-    result = await db.execute(
-        select(ShortlistResult).where(ShortlistResult.id == shortlist_id)
-    )
-    record = result.scalar_one_or_none()
-    if not record:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Shortlist result not found",
-        )
-    return record
+    return await get_tenant_shortlist_result(db, shortlist_id, tenant_id)
 
 
 async def _candidate_has_shortlist_result(
@@ -147,13 +141,7 @@ async def trigger_shortlist(
     Optional body: { "candidate_ids": ["uuid", ...] }
     If omitted, all eligible ready candidates (without ShortlistResult) are scored.
     """
-    job_result = await db.execute(select(Job).where(Job.id == job_id))
-    job = job_result.scalar_one_or_none()
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found",
-        )
+    job = await get_tenant_job(db, job_id, actor.tenant_id)
 
     requested_ids = body.candidate_ids if body else None
     eligible_ids, skipped = await _resolve_eligible_candidate_ids(
@@ -220,15 +208,11 @@ async def trigger_shortlist(
 )
 async def get_shortlist_status(
     job_id: uuid.UUID,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """Return progress for the current or most recent shortlist batch."""
-    job_result = await db.execute(select(Job).where(Job.id == job_id))
-    if not job_result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found",
-        )
+    await get_tenant_job(db, job_id, actor.tenant_id)
 
     _r = _redis_client()
     try:
@@ -278,17 +262,16 @@ async def get_shortlist_status(
     "/jobs/{job_id}/shortlist",
     response_model=List[ShortlistResultWithCandidateResponse],
 )
-async def get_shortlist(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_shortlist(
+    job_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    db: AsyncSession = Depends(get_db),
+):
     """
     Return all ShortlistResult records for a job, ordered by match_score desc.
     Each record is enriched with candidate name and email.
     """
-    job_result = await db.execute(select(Job).where(Job.id == job_id))
-    if not job_result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found",
-        )
+    await get_tenant_job(db, job_id, actor.tenant_id)
 
     result = await db.execute(
         select(ShortlistResult)
@@ -360,7 +343,7 @@ async def update_decision(
             detail=f"hr_decision must be one of: {', '.join(sorted(valid_decisions))}",
         )
 
-    record = await _get_shortlist_or_404(shortlist_id, db)
+    record = await _get_shortlist_or_404(shortlist_id, actor.tenant_id, db)
     previous_decision = record.hr_decision
     record.hr_decision = payload.hr_decision
     candidate = await db.get(Candidate, record.candidate_id)
@@ -388,9 +371,11 @@ async def update_decision(
             job_title = job.title if job else "the position"
             from app.services.email_service import send_rejection_email
             from app.services.email_template_service import get_company_name, get_merged_templates
+            from app.services.tenant_integrations_service import load_tenant_integrations
 
-            templates = await get_merged_templates(db)
-            company_name = await get_company_name(db)
+            templates = await get_merged_templates(db, actor.tenant_id)
+            company_name = await get_company_name(db, actor.tenant_id)
+            integrations = await load_tenant_integrations(db, actor.tenant_id)
             logger.info(
                 "Sending rejection email to %s for shortlist=%s",
                 candidate_email,
@@ -402,6 +387,7 @@ async def update_decision(
                 job_title,
                 templates=templates,
                 company_name=company_name,
+                integrations=integrations,
             ):
                 logger.warning(
                     "Rejection decision saved but email failed for shortlist=%s candidate=%s",
@@ -423,7 +409,7 @@ async def update_decision(
     if payload.hr_decision == "approved":
         from app.services.settings_service import load_system_settings
 
-        system_settings = await load_system_settings(db)
+        system_settings = await load_system_settings(db, tenant_id=actor.tenant_id)
         if not system_settings.screening_enabled:
             from app.services.interview_skip_screening_service import (
                 advance_approved_candidate_to_interview,
@@ -474,7 +460,7 @@ async def submit_feedback(
     Submit HR feedback on a shortlist result.
     Body: { "hr_feedback_type": str, "hr_comments": str | null }
     """
-    record = await _get_shortlist_or_404(shortlist_id, db)
+    record = await _get_shortlist_or_404(shortlist_id, actor.tenant_id, db)
     changes = {
         "hr_feedback_type": (record.hr_feedback_type, payload.hr_feedback_type),
         "hr_comments": (record.hr_comments, payload.hr_comments),

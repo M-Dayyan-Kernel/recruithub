@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.security import hash_password
 from app.models.models import User
+from app.services.tenant_service import get_or_create_default_tenant
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,9 @@ async def seed_admin_user(db: AsyncSession) -> None:
         logger.warning("SEED_ADMIN_EMAIL already exists with a non-admin role; skipping seed")
         return
 
+    tenant = await get_or_create_default_tenant(db)
     admin = User(
+        tenant_id=tenant.id,
         email=email,
         full_name=(settings.SEED_ADMIN_NAME or "Admin").strip() or "Admin",
         hashed_password=hash_password(password),
@@ -37,4 +40,4 @@ async def seed_admin_user(db: AsyncSession) -> None:
     )
     db.add(admin)
     await db.commit()
-    logger.info("Seeded admin user: %s", email)
+    logger.info("Seeded admin user: %s (tenant=%s)", email, tenant.slug)

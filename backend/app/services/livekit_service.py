@@ -4,26 +4,40 @@ LiveKit Service — Sprint 6
 Creates LiveKit rooms and generates participant access tokens via the livekit-api SDK.
 
 Functions:
-  - create_room(room_name): Creates a LiveKit room via REST API
-  - generate_candidate_token(room_name, candidate_name): JWT token for candidate
-  - generate_agent_token(room_name): JWT token for AI agent participant
+  - create_room(room_name, integrations): Creates a LiveKit room via REST API
+  - generate_candidate_token(room_name, candidate_name, integrations): JWT token for candidate
+  - generate_agent_token(room_name, integrations): JWT token for AI agent participant
 """
 
 import logging
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
-from app.core.config import settings
+if TYPE_CHECKING:
+    from app.services.tenant_integrations_service import TenantIntegrations
 
 logger = logging.getLogger(__name__)
 
 
-def _livekit_http_url() -> str:
+def _livekit_http_url(livekit_url: str) -> str:
     """REST API expects https:// — candidates still use wss:// in LIVEKIT_URL."""
-    url = settings.LIVEKIT_URL.rstrip("/")
+    url = livekit_url.rstrip("/")
     return url.replace("wss://", "https://").replace("ws://", "http://")
 
 
-async def create_room(room_name: str) -> tuple[str, str | None]:
+def _livekit_credentials(integrations: "TenantIntegrations") -> tuple[str, str, str]:
+    integrations.require("livekit_url", "livekit_api_key", "livekit_api_secret")
+    return (
+        integrations.livekit_url,
+        integrations.livekit_api_key,
+        integrations.livekit_api_secret,
+    )
+
+
+async def create_room(
+    room_name: str,
+    integrations: "TenantIntegrations",
+) -> tuple[str, str | None]:
     """
     Create a LiveKit room, dispatch the AI agent, and start egress recording.
 
@@ -38,10 +52,12 @@ async def create_room(room_name: str) -> tuple[str, str | None]:
 
     from livekit import api
 
+    livekit_url, api_key, api_secret = _livekit_credentials(integrations)
+
     lkapi = api.LiveKitAPI(
-        url=_livekit_http_url(),
-        api_key=settings.LIVEKIT_API_KEY,
-        api_secret=settings.LIVEKIT_API_SECRET,
+        url=_livekit_http_url(livekit_url),
+        api_key=api_key,
+        api_secret=api_secret,
     )
 
     try:
@@ -98,7 +114,11 @@ async def create_room(room_name: str) -> tuple[str, str | None]:
         await lkapi.aclose()
 
 
-def generate_candidate_token(room_name: str, candidate_name: str) -> str:
+def generate_candidate_token(
+    room_name: str,
+    candidate_name: str,
+    integrations: "TenantIntegrations",
+) -> str:
     """
     Generate a signed JWT access token for a candidate participant.
 
@@ -112,10 +132,12 @@ def generate_candidate_token(room_name: str, candidate_name: str) -> str:
 
     from livekit.api import AccessToken, VideoGrants
 
+    _, api_key, api_secret = _livekit_credentials(integrations)
+
     token = (
         AccessToken(
-            api_key=settings.LIVEKIT_API_KEY,
-            api_secret=settings.LIVEKIT_API_SECRET,
+            api_key=api_key,
+            api_secret=api_secret,
         )
         .with_identity(f"candidate-{candidate_name.replace(' ', '-').lower()}")
         .with_name(candidate_name)
@@ -132,7 +154,10 @@ def generate_candidate_token(room_name: str, candidate_name: str) -> str:
     return token.to_jwt()
 
 
-def generate_agent_token(room_name: str) -> str:
+def generate_agent_token(
+    room_name: str,
+    integrations: "TenantIntegrations",
+) -> str:
     """
     Generate a signed JWT access token for the AI agent participant.
 
@@ -145,10 +170,12 @@ def generate_agent_token(room_name: str) -> str:
 
     from livekit.api import AccessToken, VideoGrants
 
+    _, api_key, api_secret = _livekit_credentials(integrations)
+
     token = (
         AccessToken(
-            api_key=settings.LIVEKIT_API_KEY,
-            api_secret=settings.LIVEKIT_API_SECRET,
+            api_key=api_key,
+            api_secret=api_secret,
         )
         .with_identity("ai-interviewer-agent")
         .with_name("AI Interviewer")

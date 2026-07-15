@@ -66,15 +66,16 @@ async def validate_phone(
     phone: str,
     *,
     session: AsyncSession | None = None,
+    tenant_id=None,
 ) -> tuple[bool, str]:
     """
-    Validate and normalise a phone number using current system settings.
+    Validate and normalise a phone number using current tenant settings.
 
     Returns:
         (True, "+919876543210")  — valid number, normalised
         (False, "")              — invalid number
     """
-    settings = await load_system_settings(session)
+    settings = await load_system_settings(session, tenant_id=tenant_id)
     is_valid, normalized, _reason = validate_phone_sync(
         phone,
         enforce_geography=settings.enforce_phone_geography,
@@ -87,9 +88,10 @@ async def validate_phone_with_reason(
     phone: str,
     *,
     session: AsyncSession | None = None,
+    tenant_id=None,
 ) -> tuple[bool, str, str | None]:
     """Like validate_phone but includes human-readable reject reason."""
-    settings = await load_system_settings(session)
+    settings = await load_system_settings(session, tenant_id=tenant_id)
     return validate_phone_sync(
         phone,
         enforce_geography=settings.enforce_phone_geography,

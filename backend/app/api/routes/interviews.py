@@ -23,10 +23,12 @@ from sqlalchemy import select, update
 from app.core.database import get_db
 from app.core.config import settings
 from app.core.deps import RequireAdminOrHr, require_roles
+from app.core.tenancy import get_tenant_candidate, get_tenant_job
 from app.models.models import (
     Candidate,
     InterviewSession,
     InterviewReport,
+    Job,
     ScreeningCall,
 )
 from app.schemas.schemas import (
@@ -107,9 +109,7 @@ async def queue_candidate_for_interview(
     HR action: add a passed screening candidate to the interview pipeline (Pending tab)
     without sending the interview link yet.
     """
-    candidate = await db.get(Candidate, candidate_id)
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidate not found")
+    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
 
     await _mark_interview_queued(db, candidate_id, candidate.job_id)
     await log_change(
@@ -172,12 +172,7 @@ async def schedule_interview(
             detail="Scheduled time must be in the future.",
         )
 
-    candidate_result = await db.execute(
-        select(Candidate).where(Candidate.id == candidate_id)
-    )
-    candidate = candidate_result.scalars().first()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidate not found")
+    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
 
     screening_result = await db.execute(
         select(ScreeningCall).where(
@@ -284,12 +279,7 @@ async def send_interview_link(
     from app.services.interview_session_service import create_pending_interview_session
 
     # Load candidate
-    candidate_result = await db.execute(
-        select(Candidate).where(Candidate.id == candidate_id)
-    )
-    candidate = candidate_result.scalars().first()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidate not found")
+    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
 
     # Validate screening result = 'pass'
     screening_result = await db.execute(
@@ -405,6 +395,7 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
     - in_progress → reissues candidate token for the existing room (rejoin)
     """
     from app.services.livekit_service import create_room, generate_candidate_token
+    from app.services.tenant_integrations_service import load_tenant_integrations
 
     result = await db.execute(
         select(InterviewSession).where(InterviewSession.unique_token == token)
@@ -412,6 +403,14 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
     session = result.scalar_one_or_none()
     if not session:
         raise HTTPException(status_code=404, detail="Interview session not found")
+
+    job_result = await db.execute(select(Job).where(Job.id == session.job_id))
+    job = job_result.scalars().first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found for interview session")
+    integrations = await load_tenant_integrations(db, job.tenant_id)
+    integrations.require("livekit_url", "livekit_api_key", "livekit_api_secret")
+    livekit_url = integrations.livekit_url
 
     if session.status == "completed":
         raise HTTPException(status_code=409, detail="Interview already completed.")
@@ -428,7 +427,7 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
     if session.status == "in_progress" and session.livekit_room_name:
         try:
             candidate_token = generate_candidate_token(
-                session.livekit_room_name, candidate_name
+                session.livekit_room_name, candidate_name, integrations
             )
         except Exception as exc:
             logger.error("Failed to generate rejoin token: %s", exc)
@@ -444,7 +443,7 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
         return InterviewStartResponse(
             room_name=session.livekit_room_name,
             token=candidate_token,
-            livekit_url=settings.LIVEKIT_URL,
+            livekit_url=livekit_url,
         )
 
     if session.status != "pending":
@@ -474,7 +473,7 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
     # Create LiveKit room + dispatch agent + start recording
     egress_id: Optional[str] = None
     try:
-        _, egress_id = await create_room(room_name)
+        _, egress_id = await create_room(room_name, integrations)
     except Exception as exc:
         logger.error("Failed to create LiveKit room %s: %s", room_name, exc)
         raise HTTPException(status_code=502, detail=f"Failed to create interview room: {exc}")
@@ -488,7 +487,7 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
         await db.commit()
 
     try:
-        candidate_token = generate_candidate_token(room_name, candidate_name)
+        candidate_token = generate_candidate_token(room_name, candidate_name, integrations)
     except Exception as exc:
         logger.error("Failed to generate LiveKit token: %s", exc)
         raise HTTPException(status_code=502, detail=f"Failed to generate access token: {exc}")
@@ -503,7 +502,7 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
     return InterviewStartResponse(
         room_name=room_name,
         token=candidate_token,
-        livekit_url=settings.LIVEKIT_URL,
+        livekit_url=livekit_url,
     )
 
 
@@ -640,12 +639,18 @@ async def livekit_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.get("/candidates/{candidate_id}/report", response_model=InterviewReportResponse, dependencies=[_hr_auth])
-async def get_interview_report(candidate_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_interview_report(
+    candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    db: AsyncSession = Depends(get_db),
+):
     """Fetch the most recent interview report for a candidate.
 
     Returns 404 with 'Report not ready yet' when no report exists (assessment may still be running).
     Enriches response with candidate_name and job_title via joins.
     """
+    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
+
     result = await db.execute(
         select(InterviewReport)
         .where(InterviewReport.candidate_id == candidate_id)
@@ -656,11 +661,6 @@ async def get_interview_report(candidate_id: uuid.UUID, db: AsyncSession = Depen
         raise HTTPException(status_code=404, detail="Report not ready yet")
 
     # Enrich with candidate name and job title via joins
-    candidate_result = await db.execute(
-        select(Candidate).where(Candidate.id == candidate_id)
-    )
-    candidate = candidate_result.scalars().first()
-
     from app.models.models import Job as _Job
     job_result = await db.execute(
         select(_Job).where(_Job.id == report.job_id)
@@ -721,17 +721,14 @@ async def get_interview_report(candidate_id: uuid.UUID, db: AsyncSession = Depen
 @router.get("/jobs/{job_id}/interviews", response_model=list[InterviewSessionResponse], dependencies=[_hr_auth])
 async def list_job_interviews(
     job_id: uuid.UUID,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """
     HR view: list all interview sessions for a job, enriched with candidate_name
     and interview_url. Ordered newest-first.
     """
-    from app.models.models import Job as _Job
-
-    job = await db.get(_Job, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = await get_tenant_job(db, job_id, actor.tenant_id)
 
     result = await db.execute(
         select(InterviewSession)
@@ -773,6 +770,7 @@ async def list_job_interviews(
 )
 async def get_interview_pipeline(
     job_id: uuid.UUID,
+    actor: RequireAdminOrHr,
     tab: Optional[
         Literal["pending", "scheduled", "ongoing", "completed", "flagged", "finalists"]
     ] = Query(
@@ -794,6 +792,7 @@ async def get_interview_pipeline(
     """
     from app.services.interview_pipeline_service import get_interview_pipeline as build_pipeline
 
+    await get_tenant_job(db, job_id, actor.tenant_id)
     try:
         return await build_pipeline(db, job_id, tab=tab)
     except ValueError as exc:
@@ -803,10 +802,15 @@ async def get_interview_pipeline(
 
 
 @router.get("/jobs/{job_id}/finalists", response_model=FinalistsResponse, dependencies=[_hr_auth])
-async def get_finalists(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_finalists(
+    job_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    db: AsyncSession = Depends(get_db),
+):
     """List HR-approved finalists for a job (post-interview)."""
     from app.services.interview_finalist_service import list_finalists
 
+    await get_tenant_job(db, job_id, actor.tenant_id)
     try:
         return await list_finalists(db, job_id)
     except ValueError as exc:
@@ -829,7 +833,7 @@ async def update_interview_hr_decision(
     """Approve (move to Finalists) or reject (keep in Completed) after interview."""
     from app.services.interview_finalist_service import set_interview_hr_decision
 
-    candidate = await db.get(Candidate, candidate_id)
+    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
     try:
         # Capture before from latest completed session if present
         before_decision = None
@@ -887,7 +891,7 @@ async def reschedule_interview_endpoint(
     from app.services.interview_reschedule_service import reschedule_interview
 
     try:
-        candidate = await db.get(Candidate, candidate_id)
+        candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
         result = await reschedule_interview(db, candidate_id, schedule=body)
         await log_change(
             db,
@@ -929,6 +933,8 @@ async def retry_interview_assessment(
     """Re-enqueue assessment generation for the latest failed interview session."""
     from app.tasks.interview_tasks import generate_interview_report
 
+    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
+
     result = await db.execute(
         select(InterviewSession)
         .where(InterviewSession.candidate_id == candidate_id)
@@ -946,7 +952,6 @@ async def retry_interview_assessment(
 
     before_status = session.status
     session.status = "completed"
-    candidate = await db.get(Candidate, candidate_id)
     await log_change(
         db,
         actor=actor,

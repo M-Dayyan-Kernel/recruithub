@@ -1,25 +1,42 @@
-import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import RequireAdmin
 from app.core.security import hash_password
-from app.models.models import User
-from app.schemas.schemas import UserCreate, UserResponse, UserUpdate
+from app.models.models import TenantInvite, User
+from app.schemas.schemas import (
+    InviteCreateRequest,
+    InviteResponse,
+    UserCreate,
+    UserResponse,
+    UserUpdate,
+)
 from app.services.audit_service import log_change, log_field_changes
+from app.services.tenant_service import create_invite
 
 router = APIRouter()
 
 
+def _invite_url(token: str) -> str:
+    base = settings.HR_APP_URL.rstrip("/")
+    return f"{base}/accept-invite?token={token}"
+
+
 @router.get("", response_model=list[UserResponse])
 async def list_users(
-    _admin: RequireAdmin,
+    admin: RequireAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(User).order_by(User.created_at.asc()))
+    result = await db.execute(
+        select(User)
+        .where(User.tenant_id == admin.tenant_id)
+        .order_by(User.created_at.asc())
+    )
     return [UserResponse.model_validate(u) for u in result.scalars().all()]
 
 
@@ -38,6 +55,7 @@ async def create_user(
         )
 
     user = User(
+        tenant_id=admin.tenant_id,
         email=email,
         full_name=body.full_name.strip(),
         hashed_password=hash_password(body.password),
@@ -62,15 +80,81 @@ async def create_user(
     return UserResponse.model_validate(user)
 
 
+@router.post("/invites", response_model=InviteResponse, status_code=status.HTTP_201_CREATED)
+async def invite_user(
+    body: InviteCreateRequest,
+    admin: RequireAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    email = body.email.strip().lower()
+    existing = await db.execute(select(User).where(User.email == email))
+    if existing.scalars().first() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user with this email already exists",
+        )
+
+    pending = await db.execute(
+        select(TenantInvite).where(
+            TenantInvite.tenant_id == admin.tenant_id,
+            TenantInvite.email == email,
+            TenantInvite.accepted_at.is_(None),
+            TenantInvite.expires_at > datetime.now(timezone.utc),
+        )
+    )
+    if pending.scalars().first() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An active invite already exists for this email",
+        )
+
+    invite = await create_invite(
+        db,
+        tenant_id=admin.tenant_id,
+        email=email,
+        role=body.role,
+        invited_by=admin,
+    )
+    await log_change(
+        db,
+        actor=admin,
+        action="user.invited",
+        entity_type="invite",
+        entity_id=invite.id,
+        subject_label=email,
+        feature="user",
+        before=None,
+        after={"email": email, "role": body.role},
+    )
+    await db.commit()
+    await db.refresh(invite)
+    return InviteResponse(
+        id=invite.id,
+        email=invite.email,
+        role=invite.role,  # type: ignore[arg-type]
+        token=invite.token,
+        invite_url=_invite_url(invite.token),
+        expires_at=invite.expires_at,
+        created_at=invite.created_at,
+    )
+
+
 @router.patch("/{user_id}", response_model=UserResponse)
 async def update_user(
-    user_id: uuid.UUID,
+    user_id: str,
     body: UserUpdate,
     admin: RequireAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    user = await db.get(User, user_id)
-    if user is None:
+    import uuid
+
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user = await db.get(User, uid)
+    if user is None or user.tenant_id != admin.tenant_id:
         raise HTTPException(status_code=404, detail="User not found")
 
     data = body.model_dump(exclude_unset=True)
@@ -120,12 +204,19 @@ async def update_user(
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
-    user_id: uuid.UUID,
+    user_id: str,
     admin: RequireAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    user = await db.get(User, user_id)
-    if user is None:
+    import uuid
+
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user = await db.get(User, uid)
+    if user is None or user.tenant_id != admin.tenant_id:
         raise HTTPException(status_code=404, detail="User not found")
     if user.id == admin.id:
         raise HTTPException(

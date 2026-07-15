@@ -27,7 +27,7 @@ async def list_audit_logs(
     from_ts: Optional[datetime] = Query(None, alias="from"),
     to_ts: Optional[datetime] = Query(None, alias="to"),
 ):
-    filters = []
+    filters = [AuditLog.tenant_id == _admin.tenant_id]
     if entity_type:
         filters.append(AuditLog.entity_type == entity_type)
     if job_id:
@@ -51,9 +51,8 @@ async def list_audit_logs(
 
     count_q = select(func.count()).select_from(AuditLog)
     list_q = select(AuditLog).order_by(AuditLog.created_at.desc())
-    if filters:
-        count_q = count_q.where(*filters)
-        list_q = list_q.where(*filters)
+    count_q = count_q.where(*filters)
+    list_q = list_q.where(*filters)
 
     total = (await db.execute(count_q)).scalar_one()
     rows = (

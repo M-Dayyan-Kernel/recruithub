@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.models import Candidate, Job, ShortlistResult
 from app.services.embedding_service import generate_embedding
+from app.services.tenant_integrations_service import load_tenant_integrations
 
 logger = logging.getLogger(__name__)
 
@@ -314,6 +315,10 @@ async def shortlist_candidates(
     if not job:
         raise ValueError(f"Job {job_id} not found")
 
+    integrations = await load_tenant_integrations(db, job.tenant_id)
+    integrations.require("openai_api_key")
+    api_key = integrations.openai_api_key
+
     # --- Load ready candidates (optionally filtered to a subset) ---
     stmt = select(Candidate).where(
         Candidate.job_id == job_id,
@@ -364,12 +369,12 @@ async def shortlist_candidates(
     jd_embedding: list[float] = []
     try:
         jd_text = _build_jd_text(job)
-        jd_embedding = await generate_embedding(jd_text)
+        jd_embedding = await generate_embedding(jd_text, api_key)
     except Exception as exc:
         logger.warning("shortlist_candidates: failed to build JD embedding — will skip cosine similarity: %s", exc)
 
     jd_summary = _build_jd_summary(job)
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    client = AsyncOpenAI(api_key=api_key)
 
     semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_SHORTLISTS)
     db_lock = asyncio.Lock()

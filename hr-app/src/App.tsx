@@ -18,6 +18,8 @@ import ReportPage from '@/pages/ReportPage'
 import ShortlistReportPage from '@/pages/ShortlistReportPage'
 import NotFoundPage from '@/pages/NotFoundPage'
 import LoginPage from '@/pages/LoginPage'
+import SignupPage from '@/pages/SignupPage'
+import AcceptInvitePage from '@/pages/AcceptInvitePage'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AdminRoute, ProtectedRoute } from '@/components/ProtectedRoute'
 
@@ -33,6 +35,8 @@ export default function App() {
       />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/accept-invite" element={<AcceptInvitePage />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<Layout />}>
             <Route index element={<DashboardPage />} />

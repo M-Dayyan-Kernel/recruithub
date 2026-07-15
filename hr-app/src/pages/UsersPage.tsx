@@ -1,9 +1,16 @@
 import { type FormEvent, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { UserPlus, Users } from 'lucide-react'
+import { Mail, UserPlus, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { User, UserCreate, UserRole, UserUpdate } from '@/types/api'
+import type {
+  InviteCreate,
+  InviteResponse,
+  User,
+  UserCreate,
+  UserRole,
+  UserUpdate,
+} from '@/types/api'
 import { BackendError } from '@/components/BackendError'
 import {
   WORKFLOW_CARD_CLASS,
@@ -17,7 +24,7 @@ export default function UsersPage() {
   const { user: currentUser } = useAuth()
 
   const { data: users, isLoading, isError, refetch } = useQuery<User[]>({
-    queryKey: ['users'],
+    queryKey: ['users', currentUser?.tenant_id],
     queryFn: () => api.get('/api/users') as unknown as Promise<User[]>,
   })
 
@@ -25,6 +32,10 @@ export default function UsersPage() {
   const [fullName, setFullName] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<UserRole>('hr')
+
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState<UserRole>('hr')
+  const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null)
 
   const createMutation = useMutation({
     mutationFn: (payload: UserCreate) =>
@@ -38,6 +49,18 @@ export default function UsersPage() {
       setRole('hr')
     },
     onError: (err: Error) => toast.error(err.message || 'Failed to create user'),
+  })
+
+  const inviteMutation = useMutation({
+    mutationFn: (payload: InviteCreate) =>
+      api.post('/api/users/invites', payload) as unknown as Promise<InviteResponse>,
+    onSuccess: (result) => {
+      setLastInviteUrl(result.invite_url)
+      toast.success('Invite created — copy the link below')
+      setInviteEmail('')
+      setInviteRole('hr')
+    },
+    onError: (err: Error) => toast.error(err.message || 'Failed to create invite'),
   })
 
   const updateMutation = useMutation({
@@ -79,6 +102,21 @@ export default function UsersPage() {
     })
   }
 
+  function onInvite(e: FormEvent) {
+    e.preventDefault()
+    inviteMutation.mutate({ email: inviteEmail.trim(), role: inviteRole })
+  }
+
+  async function copyInviteUrl() {
+    if (!lastInviteUrl) return
+    try {
+      await navigator.clipboard.writeText(lastInviteUrl)
+      toast.success('Invite link copied')
+    } catch {
+      toast.error('Could not copy — select the link manually')
+    }
+  }
+
   if (isLoading) {
     return <div className="h-48 animate-pulse rounded-xl bg-slate-200" />
   }
@@ -92,8 +130,64 @@ export default function UsersPage() {
       <div>
         <h2 className="text-lg font-semibold text-slate-800">Users</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Create and manage Admin and HR accounts.
+          Invite teammates or create Admin and HR accounts for your organization
+          {currentUser?.tenant_name ? ` (${currentUser.tenant_name})` : ''}.
         </p>
+      </div>
+
+      <div className={`${WORKFLOW_CARD_CLASS} p-6`}>
+        <div className="mb-4 flex items-center gap-2">
+          <Mail className="h-5 w-5 text-slate-500" />
+          <h3 className="font-semibold text-slate-800">Invite by email</h3>
+        </div>
+        <form onSubmit={onInvite} className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
+            <input
+              type="email"
+              required
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              className={WORKFLOW_INPUT_CLASS}
+              placeholder="colleague@company.com"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Role</label>
+            <select
+              value={inviteRole}
+              onChange={(e) => setInviteRole(e.target.value as UserRole)}
+              className={WORKFLOW_INPUT_CLASS}
+            >
+              <option value="hr">HR</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div className="sm:col-span-2">
+            <button
+              type="submit"
+              disabled={inviteMutation.isPending}
+              className={`${WORKFLOW_PRIMARY_BUTTON_CLASS} disabled:opacity-60`}
+            >
+              {inviteMutation.isPending ? 'Creating invite…' : 'Create invite link'}
+            </button>
+          </div>
+        </form>
+        {lastInviteUrl && (
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="mb-1 text-xs font-medium text-slate-600">Share this link</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="min-w-0 flex-1 break-all text-xs text-slate-700">{lastInviteUrl}</code>
+              <button
+                type="button"
+                onClick={copyInviteUrl}
+                className="shrink-0 text-sm font-medium text-indigo-600 hover:text-indigo-500"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className={`${WORKFLOW_CARD_CLASS} p-6`}>

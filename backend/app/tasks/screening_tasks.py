@@ -91,9 +91,24 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
             )
             return
 
+        # Load Job (needed for tenant settings and call window)
+        job_result = await session.execute(
+            select(Job).where(Job.id == screening_call.job_id)
+        )
+        job = job_result.scalars().first()
+        if not job:
+            logger.error(
+                "Job %s not found for screening call %s — aborting",
+                screening_call.job_id,
+                screening_call_id,
+            )
+            screening_call.call_status = "failed"
+            await session.commit()
+            return
+
         from app.services.settings_service import load_system_settings
 
-        system_settings = await load_system_settings(session)
+        system_settings = await load_system_settings(session, tenant_id=job.tenant_id)
         if not system_settings.screening_enabled:
             logger.info(
                 "Screening disabled — aborting initiate for ScreeningCall %s",
@@ -138,21 +153,6 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
             await session.commit()
             return
 
-        # Load Job
-        job_result = await session.execute(
-            select(Job).where(Job.id == screening_call.job_id)
-        )
-        job = job_result.scalars().first()
-        if not job:
-            logger.error(
-                "Job %s not found for screening call %s — aborting",
-                screening_call.job_id,
-                screening_call_id,
-            )
-            screening_call.call_status = "failed"
-            await session.commit()
-            return
-
         from app.services.call_window_service import (
             is_within_call_window,
             seconds_until_next_window,
@@ -173,10 +173,14 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
 
         # Call Vapi
         try:
+            from app.services.tenant_integrations_service import load_tenant_integrations
+
+            integrations = await load_tenant_integrations(session, job.tenant_id)
             vapi_call_id = await vapi_initiate(
                 candidate=candidate,
                 job=job,
                 screening_call_id=screening_call.id,
+                integrations=integrations,
             )
             screening_call.vapi_call_id = vapi_call_id
             screening_call.call_status = "initiated"
@@ -344,6 +348,21 @@ def _infer_ended_reason(
     return "customer-did-not-answer"
 
 
+async def _vapi_api_key_for_screening_call(session, screening_call) -> str:
+    from app.models.models import Job
+    from app.services.tenant_integrations_service import load_tenant_integrations
+
+    job_result = await session.execute(
+        select(Job).where(Job.id == screening_call.job_id)
+    )
+    job = job_result.scalars().first()
+    if not job:
+        raise ValueError(f"Job {screening_call.job_id} not found for screening call")
+    integrations = await load_tenant_integrations(session, job.tenant_id)
+    integrations.require("vapi_api_key")
+    return integrations.vapi_api_key
+
+
 async def _finalize_screening_call_from_vapi(
     session,
     screening_call,
@@ -360,9 +379,11 @@ async def _finalize_screening_call_from_vapi(
 
     vapi_call: dict | None = None
     try:
+        api_key = await _vapi_api_key_for_screening_call(session, screening_call)
         vapi_call = await get_vapi_call(
             screening_call.vapi_call_id,
             timeout=VAPI_STATUS_TIMEOUT_SEC,
+            api_key=api_key,
         )
     except Exception as exc:
         if not force:
@@ -482,9 +503,11 @@ async def _async_enrich_transcript(screening_call_id: str, attempt: int) -> None
             return
 
         try:
+            api_key = await _vapi_api_key_for_screening_call(session, screening_call)
             vapi_call = await get_vapi_call(
                 screening_call.vapi_call_id,
                 timeout=VAPI_STATUS_TIMEOUT_SEC,
+                api_key=api_key,
             )
         except Exception as exc:
             logger.warning(
@@ -547,9 +570,16 @@ async def _async_enrich_transcript(screening_call_id: str, attempt: int) -> None
         )
         screening_call.call_outcome = outcome
         if should_retry:
+            from app.models.models import Job
             from app.services.settings_service import can_schedule_retry, load_system_settings
 
-            settings = await load_system_settings(session)
+            job_result = await session.execute(
+                select(Job).where(Job.id == screening_call.job_id)
+            )
+            job = job_result.scalars().first()
+            settings = await load_system_settings(
+                session, tenant_id=job.tenant_id if job else None
+            )
             if can_schedule_retry(screening_call.retry_count, settings.screening_max_retries):
                 await _schedule_retry(session, screening_call)
         await session.commit()
@@ -694,9 +724,16 @@ async def apply_screening_call_end(
         )
 
     if schedule_retry and should_retry and not transcript.strip():
+        from app.models.models import Job
         from app.services.settings_service import can_schedule_retry, load_system_settings
 
-        settings = await load_system_settings(session)
+        job_result = await session.execute(
+            select(Job).where(Job.id == screening_call.job_id)
+        )
+        job = job_result.scalars().first()
+        settings = await load_system_settings(
+            session, tenant_id=job.tenant_id if job else None
+        )
         if can_schedule_retry(screening_call.retry_count, settings.screening_max_retries):
             await _schedule_retry(session, screening_call)
 
@@ -796,7 +833,7 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
     import openai
 
     from app.models.models import ScreeningCall, Job
-    from app.core.config import settings
+    from app.services.tenant_integrations_service import load_tenant_integrations
 
     _, transcript, ended_reason = _extract_vapi_end_fields(payload)
     message = payload.get("message") or {}
@@ -839,12 +876,22 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
                 select(Job).where(Job.id == screening_call.job_id)
             )
             job = job_result.scalars().first()
+            if not job:
+                logger.warning(
+                    "process_screening_webhook: job %s not found for screening call %s",
+                    screening_call.job_id,
+                    screening_call.id,
+                )
+                return
+
+            integrations = await load_tenant_integrations(session, job.tenant_id)
+            integrations.require("openai_api_key")
 
             extracted = await _extract_screening_fields(
                 transcript,
-                settings.OPENAI_API_KEY,
-                job_title=job.title if job else None,
-                screening_questions=job.screening_questions if job else None,
+                integrations.openai_api_key,
+                job_title=job.title,
+                screening_questions=job.screening_questions,
             )
 
             screening_call.availability = extracted.get("availability")
@@ -960,7 +1007,7 @@ async def _schedule_retry(session, screening_call) -> None:
         )
         return
 
-    settings = await load_system_settings(session)
+    settings = await load_system_settings(session, tenant_id=job.tenant_id)
     if not can_schedule_retry(screening_call.retry_count, settings.screening_max_retries):
         logger.info(
             "Max retries (%d) reached for candidate=%s — not scheduling another retry",
@@ -1102,10 +1149,8 @@ async def _async_dispatch_pending() -> None:
     now = datetime.now(timezone.utc)
 
     async with get_celery_db() as session:
-        settings = await load_system_settings(session)
-        if not settings.screening_enabled:
-            logger.debug("dispatch_pending_screening_calls: screening disabled — skipping")
-            return
+        stale_active_cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+        now = datetime.now(timezone.utc)
 
         stale_active = await session.execute(
             select(ScreeningCall).where(
@@ -1137,6 +1182,12 @@ async def _async_dispatch_pending() -> None:
 
         dispatched = 0
         for screening_call, job in rows:
+            from app.services.settings_service import load_system_settings
+
+            settings = await load_system_settings(session, tenant_id=job.tenant_id)
+            if not settings.screening_enabled:
+                continue
+
             if not is_within_call_window(job):
                 continue
 

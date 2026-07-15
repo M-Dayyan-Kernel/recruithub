@@ -402,13 +402,16 @@ flowchart TD
 
 | Model | Table | Key Fields | Purpose |
 |-------|-------|------------|---------|
-| **Job** | `jobs` | title, description, required_skills, experience_min/max, screening_questions (JSON), interview_questions (JSON), screening_call_from/to, screening_timezone, status | Job posting and configuration |
+| **Job** | `jobs` | tenant_id, title, description, required_skills, experience_min/max, screening_questions (JSON), interview_questions (JSON), screening_call_from/to, screening_timezone, status | Job posting and configuration (tenant-scoped) |
 | **Candidate** | `candidates` | job_id, name, email, phone, resume_path, parsed_data (JSON), resume_embedding (Vector 1536), parse_status, original_filename | Resume and parsed profile |
 | **ShortlistResult** | `shortlist_results` | candidate_id, match_score, recommendation, strengths, gaps, hr_decision, hr_feedback | AI shortlist + HR decision |
 | **ScreeningCall** | `screening_calls` | candidate_id, vapi_call_id, call_status, transcript, extracted_fields (JSON), call_outcome, interview_queued_at | Voice screening record |
 | **InterviewSession** | `interview_sessions` | candidate_id, unique_token, livekit_room, status, transcript, scheduled_at, expires_at, egress_id | Interview session lifecycle |
 | **InterviewReport** | `interview_reports` | session_id, overall_score, dimension_scores (JSON), recommendation, raw_report (JSON) | GPT assessment output |
-| **SystemSettings** | `system_settings` | phone_regions, enforce_geography, max_screening_retries, retry_delay_minutes | Singleton system config |
+| **Tenant** | `tenants` | name, slug | Organization isolation boundary |
+| **TenantInvite** | `tenant_invites` | tenant_id, email, role, token, expires_at | Signup invite links |
+| **User** | `users` | tenant_id, email, role (admin/hr), hashed_password | Tenant-scoped HR accounts |
+| **SystemSettings** | `system_settings` | tenant_id (unique), phone_regions, enforce_geography, screening flags/retries, email_templates, company_name | Per-tenant config |
 
 ### Status Lifecycles
 
@@ -581,10 +584,15 @@ pending → in_progress → completed → assessed
 
 ## Security & Access Model
 
+Shared-database multi-tenancy: each organization is a **Tenant**. Users, jobs, settings, and audit logs are scoped by `tenant_id`.
+
+**Integrations are per-tenant** (OpenAI, Vapi, LiveKit, Gmail OAuth JSON) — configured under Settings → Integrations and stored encrypted. Platform `.env` is only used to bootstrap the default tenant once and for infrastructure (DB, Redis, JWT). The LiveKit interview agent worker process still reads `LIVEKIT_*` / `OPENAI_API_KEY` from its own environment (run a dedicated agent per LiveKit project if tenants use different LiveKit clouds).
+
 | Actor | Access | Notes |
 |-------|--------|-------|
-| **Admin** | Full HR App + Users + Settings + Activity | JWT login; manages accounts, system config, and audit trail |
+| **Admin** | Full HR App + Users + Settings + Activity | JWT login; tenant-scoped accounts, settings, and audit trail |
 | **HR user** | Full hiring pipeline (including archive) | JWT login; no Users, Settings, or Activity access |
+| **Self-signup** | Creates a new tenant + first admin | `POST /api/auth/signup`; invite via Users → invite link |
 | **Candidate** | Token-based interview access only | UUID in URL; no account required |
 | **Webhooks** | Unauthenticated callbacks | Vapi and LiveKit webhooks have no auth |
 | **LiveKit** | Short-lived JWT tokens | Generated server-side per session |

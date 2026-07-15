@@ -1,7 +1,6 @@
 import json
 import logging
 from openai import AsyncOpenAI
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +30,7 @@ _EMPTY_RESUME: dict = {
 }
 
 
-async def parse_resume(raw_text: str) -> dict:
+async def parse_resume(raw_text: str, api_key: str) -> dict:
     """Parse resume text into structured JSON using GPT-4o."""
     from app.services.mock_external import mock_openai_enabled, mock_resume_parse
 
@@ -46,7 +45,7 @@ async def parse_resume(raw_text: str) -> dict:
     if mock_openai_enabled():
         return mock_resume_parse(raw_text)
 
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    client = AsyncOpenAI(api_key=api_key)
 
     # Truncate to ~8000 chars to stay within context limits
     truncated_text = raw_text[:8000] if len(raw_text) > 8000 else raw_text

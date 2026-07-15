@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.deps import RequireAdminOrHr, require_roles
+from app.core.tenancy import get_tenant_job
 from app.models.models import Job
 from app.schemas.schemas import JobCreate, JobUpdate, JobResponse, JobParseResponse, InterviewQuestionPublic, ScreeningQuestion
 from app.services.audit_service import log_change, log_field_changes
@@ -16,6 +17,7 @@ from app.services.document_extractor import ALLOWED_EXTENSIONS, extract_text_fro
 from app.services.jd_parser import parse_job_description
 from app.services.screening_defaults import get_default_screening_questions
 from app.services.expected_answer_service import enrich_interview_questions
+from app.services.tenant_integrations_service import load_tenant_integrations
 
 router = APIRouter(dependencies=[Depends(require_roles("admin", "hr"))])
 
@@ -62,6 +64,8 @@ async def create_job(
     if not data.get("screening_questions"):
         data["screening_questions"] = get_default_screening_questions(data.get("title") or "")
     if data.get("interview_questions"):
+        integrations = await load_tenant_integrations(db, actor.tenant_id)
+        integrations.require("openai_api_key")
         context_job = Job(
             title=data["title"],
             description=data["description"],
@@ -73,8 +77,9 @@ async def create_job(
             data["interview_questions"],
             existing=None,
             job=context_job,
+            api_key=integrations.openai_api_key,
         )
-    job = Job(**data)
+    job = Job(**data, tenant_id=actor.tenant_id)
     db.add(job)
     await db.flush()
     await log_change(
@@ -96,10 +101,11 @@ async def create_job(
 
 @router.get("", response_model=List[JobResponse])
 async def list_jobs(
+    actor: RequireAdminOrHr,
     status: Optional[str] = Query(None, description="Filter by job status (e.g. active, closed, draft)"),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Job).order_by(Job.created_at.desc())
+    query = select(Job).where(Job.tenant_id == actor.tenant_id).order_by(Job.created_at.desc())
     if status:
         query = query.where(Job.status == status)
     result = await db.execute(query)
@@ -107,7 +113,11 @@ async def list_jobs(
 
 
 @router.post("/parse-jd", response_model=JobParseResponse)
-async def parse_jd(file: UploadFile = File(...)):
+async def parse_jd(
+    actor: RequireAdminOrHr,
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+):
     """Extract and parse a job description from an uploaded PDF or DOCX file."""
     if not _is_allowed_jd_file(file):
         return JSONResponse(
@@ -146,7 +156,9 @@ async def parse_jd(file: UploadFile = File(...)):
         )
 
     try:
-        parsed = await parse_job_description(raw_text)
+        integrations = await load_tenant_integrations(db, actor.tenant_id)
+        integrations.require("openai_api_key")
+        parsed = await parse_job_description(raw_text, integrations.openai_api_key)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -175,12 +187,12 @@ async def parse_jd(file: UploadFile = File(...)):
 
 
 @router.get("/{job_id}", response_model=JobResponse)
-async def get_job(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Job).where(Job.id == job_id))
-    job = result.scalar_one_or_none()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return job
+async def get_job(
+    job_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    db: AsyncSession = Depends(get_db),
+):
+    return await get_tenant_job(db, job_id, actor.tenant_id)
 
 
 @router.patch("/{job_id}", response_model=JobResponse)
@@ -190,16 +202,16 @@ async def update_job(
     actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Job).where(Job.id == job_id))
-    job = result.scalar_one_or_none()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = await get_tenant_job(db, job_id, actor.tenant_id)
     updates = payload.model_dump(exclude_unset=True)
     if "interview_questions" in updates and updates["interview_questions"] is not None:
+        integrations = await load_tenant_integrations(db, actor.tenant_id)
+        integrations.require("openai_api_key")
         updates["interview_questions"] = await enrich_interview_questions(
             updates["interview_questions"],
             existing=job.interview_questions,
             job=job,
+            api_key=integrations.openai_api_key,
         )
 
     changes = {}
@@ -240,10 +252,7 @@ async def delete_job(
     Job model has cascade='all, delete-orphan' on candidates, shortlist results,
     screening calls, and interview sessions.
     """
-    result = await db.execute(select(Job).where(Job.id == job_id))
-    job = result.scalar_one_or_none()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = await get_tenant_job(db, job_id, actor.tenant_id)
     title = job.title
     status_before = job.status
     await log_change(

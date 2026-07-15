@@ -57,9 +57,13 @@ async def send_reschedule_email(
 ) -> bool:
     from app.services.email_service import send_reschedule_notification
     from app.services.email_template_service import get_company_name, get_merged_templates
+    from app.services.tenant_integrations_service import load_tenant_integrations
 
-    templates = await get_merged_templates(db)
-    company_name = await get_company_name(db)
+    job = await db.get(Job, session.job_id)
+    tenant_id = job.tenant_id if job else None
+    templates = await get_merged_templates(db, tenant_id)
+    company_name = await get_company_name(db, tenant_id)
+    integrations = await load_tenant_integrations(db, tenant_id) if tenant_id else None
     interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{session.unique_token}"
     candidate_email = resolve_candidate_email(candidate)
     if not candidate_email:
@@ -76,6 +80,7 @@ async def send_reschedule_email(
         interview_url=interview_url,
         templates=templates,
         company_name=company_name,
+        integrations=integrations,
     )
     if sent:
         session.email_sent_at = datetime.now(timezone.utc)

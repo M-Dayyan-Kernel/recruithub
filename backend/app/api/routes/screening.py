@@ -16,7 +16,8 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.deps import RequireAdminOrHr, require_roles
-from app.models.models import Candidate, InterviewSession, Job, ScreeningCall
+from app.core.tenancy import get_tenant_job, get_tenant_screening_call
+from app.models.models import Candidate, InterviewSession, ScreeningCall
 from app.schemas.schemas import (
     ScreeningCallResponse,
     ScreeningResultUpdate,
@@ -90,17 +91,13 @@ async def trigger_screening(
 
     from app.services.settings_service import load_system_settings
 
-    system_settings = await load_system_settings(db)
+    job = await get_tenant_job(db, job_id, actor.tenant_id)
+    system_settings = await load_system_settings(db, tenant_id=job.tenant_id)
     if not system_settings.screening_enabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Voice screening is disabled in system settings",
         )
-
-    job_result = await db.execute(select(Job).where(Job.id == job_id))
-    job = job_result.scalars().first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
 
     parsed_ids: list[uuid.UUID] = []
     skipped: List[dict] = []
@@ -315,6 +312,7 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 )
 async def get_screening_results(
     job_id: uuid.UUID,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """Return all ScreeningCall records for a job, ordered by created_at desc."""
@@ -328,10 +326,7 @@ async def get_screening_results(
 
     logger = logging.getLogger(__name__)
 
-    job_result = await db.execute(select(Job).where(Job.id == job_id))
-    job = job_result.scalars().first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    await get_tenant_job(db, job_id, actor.tenant_id)
 
     result = await db.execute(
         select(ScreeningCall)
@@ -387,24 +382,17 @@ async def get_screening_results(
 )
 async def refresh_screening_call(
     screening_id: uuid.UUID,
+    actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
     """Poll Vapi for one in-flight screening call and return the latest DB state."""
     from app.tasks.screening_tasks import refresh_screening_call_from_vapi
 
-    result = await db.execute(
-        select(ScreeningCall).where(ScreeningCall.id == screening_id)
-    )
-    screening_call = result.scalars().first()
-    if not screening_call:
-        raise HTTPException(status_code=404, detail="Screening call not found")
+    screening_call = await get_tenant_screening_call(db, screening_id, actor.tenant_id)
 
     if screening_call.call_status in LIVE_CALL_STATUSES and screening_call.vapi_call_id:
         await refresh_screening_call_from_vapi(db, screening_call)
-        result = await db.execute(
-            select(ScreeningCall).where(ScreeningCall.id == screening_id)
-        )
-        screening_call = result.scalars().one()
+        screening_call = await get_tenant_screening_call(db, screening_id, actor.tenant_id)
 
     interview_candidate_ids = await _candidate_ids_with_interview_sessions(
         db, screening_call.job_id
@@ -438,15 +426,7 @@ async def update_screening_result(
             detail=f"result must be one of: {', '.join(sorted(valid_results))}",
         )
 
-    call_result = await db.execute(
-        select(ScreeningCall).where(ScreeningCall.id == screening_id)
-    )
-    screening_call = call_result.scalar_one_or_none()
-    if not screening_call:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Screening call not found",
-        )
+    screening_call = await get_tenant_screening_call(db, screening_id, actor.tenant_id)
 
     if screening_call.call_status != "completed":
         raise HTTPException(

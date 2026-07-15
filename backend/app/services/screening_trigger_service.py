@@ -107,7 +107,7 @@ async def dispatch_screening_for_candidates(
     """
     from app.services.settings_service import load_system_settings
 
-    system_settings = await load_system_settings(db)
+    system_settings = await load_system_settings(db, tenant_id=job.tenant_id)
     if not system_settings.screening_enabled:
         return 0, 0, [
             {"reason": "Voice screening is disabled in system settings"},
@@ -164,6 +164,7 @@ async def dispatch_screening_for_candidates(
         is_valid, normalized_phone, reject_reason = await validate_phone_with_reason(
             candidate.phone,
             session=db,
+            tenant_id=job.tenant_id,
         )
         if not is_valid:
             skipped.append({

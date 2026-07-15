@@ -102,10 +102,16 @@ async def _async_generate_report(task_self, interview_session_id: str) -> None:
             )
 
         # Run GPT-4o assessment (never raises — returns needs_review report on failure)
+        from app.services.tenant_integrations_service import load_tenant_integrations
+
+        integrations = await load_tenant_integrations(db, job.tenant_id)
+        integrations.require("openai_api_key")
+
         assessment = await generate_assessment(
             transcript=transcript,
             job=job,
             candidate=candidate,
+            api_key=integrations.openai_api_key,
         )
 
         # Check for an existing report (idempotent — don't double-create)

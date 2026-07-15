@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     LIVEKIT_API_SECRET: str = ""
     LIVEKIT_URL: str = ""
     CANDIDATE_APP_URL: str = "http://localhost:5174"
+    HR_APP_URL: str = "http://localhost:5173"
 
     GMAIL_CREDENTIALS_PATH: str = "credentials.json"
     GMAIL_TOKEN_PATH: str = "token.json"
@@ -40,6 +41,8 @@ class Settings(BaseSettings):
     SEED_ADMIN_EMAIL: str = ""
     SEED_ADMIN_PASSWORD: str = ""
     SEED_ADMIN_NAME: str = "Admin"
+    # Fernet key material for encrypting per-tenant API secrets (falls back to JWT_SECRET_KEY)
+    INTEGRATIONS_ENCRYPTION_KEY: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

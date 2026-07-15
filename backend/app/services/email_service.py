@@ -5,10 +5,13 @@ Functions return True on success, False on failure (never raise).
 """
 
 import logging
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.services import gmail_service
 from app.services.email_template_service import render_template
+
+if TYPE_CHECKING:
+    from app.services.tenant_integrations_service import TenantIntegrations
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +104,7 @@ async def send_interview_link(
     *,
     templates: dict[str, dict[str, Any]] | None = None,
     company_name: str | None = None,
+    integrations: "TenantIntegrations | None" = None,
 ) -> bool:
     """Send an immediate interview invitation (join at your convenience)."""
     if templates:
@@ -122,6 +126,7 @@ async def send_interview_link(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
+        integrations=integrations,
     )
     if sent:
         logger.info(
@@ -194,6 +199,7 @@ async def send_scheduled_interview_notification(
     scheduled_at_label: str,
     *,
     templates: dict[str, dict[str, Any]] | None = None,
+    integrations: "TenantIntegrations | None" = None,
 ) -> bool:
     """Notify candidate of a future interview slot with the join link."""
     subject = f"[Interview Scheduled] {job_title} — {scheduled_at_label}"
@@ -207,6 +213,7 @@ async def send_scheduled_interview_notification(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
+        integrations=integrations,
     )
     if sent:
         logger.info(
@@ -226,6 +233,7 @@ async def send_reschedule_notification(
     *,
     templates: dict[str, dict[str, Any]],
     company_name: str | None = None,
+    integrations: "TenantIntegrations | None" = None,
 ) -> bool:
     subject, html_body = render_template(
         "interview_reschedule",
@@ -241,6 +249,7 @@ async def send_reschedule_notification(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
+        integrations=integrations,
     )
     if sent:
         logger.info(
@@ -259,6 +268,7 @@ async def send_failed_screening_attempt_email(
     *,
     templates: dict[str, dict[str, Any]],
     company_name: str | None = None,
+    integrations: "TenantIntegrations | None" = None,
 ) -> bool:
     subject, html_body = render_template(
         "failed_screening_attempt",
@@ -274,6 +284,7 @@ async def send_failed_screening_attempt_email(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
+        integrations=integrations,
     )
     if sent:
         logger.info(
@@ -291,6 +302,7 @@ async def send_rejection_email(
     *,
     templates: dict[str, dict[str, Any]] | None = None,
     company_name: str | None = None,
+    integrations: "TenantIntegrations | None" = None,
 ) -> bool:
     """Send a polite application rejection email via Gmail."""
     if templates:
@@ -311,6 +323,7 @@ async def send_rejection_email(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
+        integrations=integrations,
     )
     if sent:
         logger.info(

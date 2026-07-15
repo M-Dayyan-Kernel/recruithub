@@ -1,13 +1,14 @@
 """
-System settings loader — single-row system_settings table (id=1).
+Per-tenant system settings loader with short-lived process cache.
 """
 
 from __future__ import annotations
 
 import threading
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import List
+from typing import Dict, List
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,7 @@ MAX_MAX_RETRIES = 10
 
 @dataclass
 class CachedSettings:
+    tenant_id: uuid.UUID | None
     allowed_phone_regions: List[str]
     enforce_phone_geography: bool
     screening_enabled: bool
@@ -34,13 +36,14 @@ class CachedSettings:
     fetched_at: datetime
 
 
-_cache: CachedSettings | None = None
+_cache: Dict[uuid.UUID, CachedSettings] = {}
 _cache_lock = threading.Lock()
 _CACHE_TTL = timedelta(seconds=30)
 
 
-def _defaults() -> CachedSettings:
+def _defaults(tenant_id: uuid.UUID | None = None) -> CachedSettings:
     return CachedSettings(
+        tenant_id=tenant_id,
         allowed_phone_regions=list(DEFAULT_REGIONS),
         enforce_phone_geography=True,
         screening_enabled=True,
@@ -87,12 +90,15 @@ def can_schedule_retry(retry_count: int, max_attempts: int) -> bool:
     return retry_count < max_attempts - 1
 
 
-def _settings_from_row(row: SystemSettings | None, fetched_at: datetime) -> CachedSettings:
+def _settings_from_row(
+    row: SystemSettings | None, fetched_at: datetime, tenant_id: uuid.UUID | None
+) -> CachedSettings:
     if not row:
-        cached = _defaults()
+        cached = _defaults(tenant_id)
         cached.fetched_at = fetched_at
         return cached
     return CachedSettings(
+        tenant_id=row.tenant_id,
         allowed_phone_regions=list(row.allowed_phone_regions or DEFAULT_REGIONS),
         enforce_phone_geography=bool(row.enforce_phone_geography),
         screening_enabled=bool(getattr(row, "screening_enabled", True)),
@@ -104,37 +110,53 @@ def _settings_from_row(row: SystemSettings | None, fetched_at: datetime) -> Cach
     )
 
 
-async def load_system_settings(session: AsyncSession | None = None) -> CachedSettings:
+async def load_system_settings(
+    session: AsyncSession | None = None,
+    *,
+    tenant_id: uuid.UUID | None = None,
+) -> CachedSettings:
     """
-    Load system settings, optionally using the caller's DB session.
+    Load system settings for a tenant.
 
     Pass the Celery task session when inside asyncio.run() to avoid reusing the
-  FastAPI connection pool across closed event loops (Windows Celery beat).
+    FastAPI connection pool across closed event loops (Windows Celery beat).
     """
+    if tenant_id is None:
+        return _defaults(None)
+
     global _cache
     now = datetime.utcnow()
     with _cache_lock:
-        if _cache and (now - _cache.fetched_at) < _CACHE_TTL:
-            return _cache
+        cached = _cache.get(tenant_id)
+        if cached and (now - cached.fetched_at) < _CACHE_TTL:
+            return cached
 
     if session is not None:
-        result = await session.execute(select(SystemSettings).where(SystemSettings.id == 1))
+        result = await session.execute(
+            select(SystemSettings).where(SystemSettings.tenant_id == tenant_id)
+        )
         row = result.scalar_one_or_none()
     else:
         async with AsyncSessionLocal() as owned:
-            result = await owned.execute(select(SystemSettings).where(SystemSettings.id == 1))
+            result = await owned.execute(
+                select(SystemSettings).where(SystemSettings.tenant_id == tenant_id)
+            )
             row = result.scalar_one_or_none()
 
-    cached = _settings_from_row(row, now)
+    cached = _settings_from_row(row, now, tenant_id)
     with _cache_lock:
-        _cache = cached
+        _cache[tenant_id] = cached
     return cached
 
 
-async def get_system_settings() -> CachedSettings:
-    return await load_system_settings(None)
+async def get_system_settings(tenant_id: uuid.UUID) -> CachedSettings:
+    return await load_system_settings(None, tenant_id=tenant_id)
 
 
-def invalidate_settings_cache() -> None:
+def invalidate_settings_cache(tenant_id: uuid.UUID | None = None) -> None:
     global _cache
-    _cache = None
+    with _cache_lock:
+        if tenant_id is None:
+            _cache = {}
+        else:
+            _cache.pop(tenant_id, None)

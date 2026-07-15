@@ -8,7 +8,13 @@ import {
   type ReactNode,
 } from 'react'
 import { api, getStoredToken, queryClient, setStoredToken } from '@/lib/api'
-import type { LoginRequest, TokenResponse, User } from '@/types/api'
+import type {
+  AcceptInviteRequest,
+  LoginRequest,
+  SignupRequest,
+  TokenResponse,
+  User,
+} from '@/types/api'
 
 interface AuthContextValue {
   user: User | null
@@ -16,6 +22,8 @@ interface AuthContextValue {
   isAuthenticated: boolean
   isAdmin: boolean
   login: (credentials: LoginRequest) => Promise<void>
+  signup: (payload: SignupRequest) => Promise<void>
+  acceptInvite: (payload: AcceptInviteRequest) => Promise<void>
   logout: () => void
   refreshUser: () => Promise<void>
 }
@@ -59,11 +67,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshUser])
 
-  const login = useCallback(async (credentials: LoginRequest) => {
-    const result = (await api.post('/api/auth/login', credentials)) as unknown as TokenResponse
+  const applyAuth = useCallback((result: TokenResponse) => {
     setStoredToken(result.access_token)
     setUser(result.user)
+    queryClient.clear()
   }, [])
+
+  const login = useCallback(
+    async (credentials: LoginRequest) => {
+      const result = (await api.post('/api/auth/login', credentials)) as unknown as TokenResponse
+      applyAuth(result)
+    },
+    [applyAuth],
+  )
+
+  const signup = useCallback(
+    async (payload: SignupRequest) => {
+      const result = (await api.post('/api/auth/signup', payload)) as unknown as TokenResponse
+      applyAuth(result)
+    },
+    [applyAuth],
+  )
+
+  const acceptInvite = useCallback(
+    async (payload: AcceptInviteRequest) => {
+      const result = (await api.post(
+        '/api/auth/accept-invite',
+        payload,
+      )) as unknown as TokenResponse
+      applyAuth(result)
+    },
+    [applyAuth],
+  )
 
   const logout = useCallback(() => {
     setStoredToken(null)
@@ -79,10 +114,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: !!user,
       isAdmin: user?.role === 'admin',
       login,
+      signup,
+      acceptInvite,
       logout,
       refreshUser,
     }),
-    [user, isLoading, login, logout, refreshUser],
+    [user, isLoading, login, signup, acceptInvite, logout, refreshUser],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -1,5 +1,5 @@
 """
-System settings API — geography and outbound call restrictions.
+System settings API — per-tenant geography and email templates.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import RequireAdmin, require_roles
+from app.core.deps import RequireAdmin, RequireAdminOrHr, require_roles
 from app.models.models import SystemSettings
 from app.schemas.schemas import (
     SystemSettingsResponse,
@@ -18,6 +18,8 @@ from app.schemas.schemas import (
     EmailTemplatePreviewRequest,
     EmailTemplatePreviewResponse,
     EmailTemplateTestRequest,
+    TenantIntegrationsResponse,
+    TenantIntegrationsUpdate,
 )
 from app.services.audit_service import log_change, log_field_changes
 from app.services.settings_service import (
@@ -32,14 +34,16 @@ _admin_auth = Depends(require_roles("admin"))
 router = APIRouter()
 
 
-async def _get_or_create_settings(db: AsyncSession) -> SystemSettings:
-    result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+async def _get_or_create_settings(db: AsyncSession, tenant_id) -> SystemSettings:
+    result = await db.execute(
+        select(SystemSettings).where(SystemSettings.tenant_id == tenant_id)
+    )
     row = result.scalar_one_or_none()
     if row:
         return row
 
     row = SystemSettings(
-        id=1,
+        tenant_id=tenant_id,
         allowed_phone_regions=["IN"],
         enforce_phone_geography=True,
         screening_enabled=True,
@@ -58,9 +62,12 @@ async def _get_or_create_settings(db: AsyncSession) -> SystemSettings:
     response_model=SystemSettingsResponse,
     dependencies=[_hr_auth],
 )
-async def get_settings(db: AsyncSession = Depends(get_db)):
-    """Return system-wide settings (geography, etc.). Readable by admin and HR."""
-    return await _get_or_create_settings(db)
+async def get_settings(
+    user: RequireAdminOrHr,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return tenant settings (geography, etc.). Readable by admin and HR."""
+    return await _get_or_create_settings(db, user.tenant_id)
 
 
 @router.patch(
@@ -73,8 +80,8 @@ async def update_settings(
     admin: RequireAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    """Update system-wide settings. Admin only."""
-    row = await _get_or_create_settings(db)
+    """Update tenant settings. Admin only."""
+    row = await _get_or_create_settings(db, admin.tenant_id)
     data = payload.model_dump(exclude_unset=True)
     changes: dict = {}
 
@@ -157,11 +164,11 @@ async def update_settings(
     )
     await db.commit()
     await db.refresh(row)
-    invalidate_settings_cache()
+    invalidate_settings_cache(admin.tenant_id)
     return row
 
 
-async def _email_templates_response(db: AsyncSession) -> EmailTemplatesResponse:
+async def _email_templates_response(db: AsyncSession, tenant_id) -> EmailTemplatesResponse:
     from app.services.email_template_service import (
         COMMON_PLACEHOLDERS,
         REQUIRED_PLACEHOLDERS,
@@ -169,8 +176,8 @@ async def _email_templates_response(db: AsyncSession) -> EmailTemplatesResponse:
         get_merged_templates,
     )
 
-    merged = await get_merged_templates(db)
-    company_name = await get_company_name(db)
+    merged = await get_merged_templates(db, tenant_id)
+    company_name = await get_company_name(db, tenant_id)
     templates = {
         tid: EmailTemplateEntry(
             subject=entry["subject"],
@@ -193,8 +200,11 @@ async def _email_templates_response(db: AsyncSession) -> EmailTemplatesResponse:
     response_model=EmailTemplatesResponse,
     dependencies=[_admin_auth],
 )
-async def get_email_templates(db: AsyncSession = Depends(get_db)):
-    return await _email_templates_response(db)
+async def get_email_templates(
+    admin: RequireAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    return await _email_templates_response(db, admin.tenant_id)
 
 
 @router.patch(
@@ -213,11 +223,13 @@ async def update_email_template(
         get_merged_templates,
     )
 
-    before_merged = await get_merged_templates(db)
+    before_merged = await get_merged_templates(db, admin.tenant_id)
     before_entry = before_merged.get(template_id) or {}
 
     try:
-        merged = await save_template(db, template_id, payload.subject, payload.body_html)
+        await save_template(
+            db, admin.tenant_id, template_id, payload.subject, payload.body_html
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -236,8 +248,8 @@ async def update_email_template(
         after={"subject": payload.subject, "template_id": template_id},
     )
     await db.commit()
-    invalidate_settings_cache()
-    return await _email_templates_response(db)
+    invalidate_settings_cache(admin.tenant_id)
+    return await _email_templates_response(db, admin.tenant_id)
 
 
 @router.post(
@@ -253,7 +265,7 @@ async def restore_email_template(
     from app.services.email_template_service import restore_template
 
     try:
-        await restore_template(db, template_id)
+        await restore_template(db, admin.tenant_id, template_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -269,8 +281,8 @@ async def restore_email_template(
         after={"template_id": template_id, "restored": True},
     )
     await db.commit()
-    invalidate_settings_cache()
-    return await _email_templates_response(db)
+    invalidate_settings_cache(admin.tenant_id)
+    return await _email_templates_response(db, admin.tenant_id)
 
 
 @router.post(
@@ -281,6 +293,7 @@ async def restore_email_template(
 async def preview_email_template(
     template_id: str,
     payload: EmailTemplatePreviewRequest,
+    admin: RequireAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     from app.services.email_template_service import get_company_name, preview_template
@@ -290,7 +303,7 @@ async def preview_email_template(
             template_id,
             payload.subject,
             payload.body_html,
-            company_name=await get_company_name(db),
+            company_name=await get_company_name(db, admin.tenant_id),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -305,17 +318,19 @@ async def preview_email_template(
 async def test_email_template(
     template_id: str,
     payload: EmailTemplateTestRequest,
+    admin: RequireAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     from app.services.email_template_service import get_company_name, preview_template
     from app.services import gmail_service
+    from app.services.tenant_integrations_service import load_tenant_integrations
 
     try:
         rendered = preview_template(
             template_id,
             payload.subject,
             payload.body_html,
-            company_name=await get_company_name(db),
+            company_name=await get_company_name(db, admin.tenant_id),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -324,7 +339,63 @@ async def test_email_template(
         to_email=payload.to_email,
         subject=f"[TEST] {rendered['subject']}",
         html_body=rendered["body_html"],
+        integrations=await load_tenant_integrations(db, admin.tenant_id),
     )
     if not sent:
         raise HTTPException(status_code=500, detail="Failed to send test email")
     return {"ok": True, "to_email": payload.to_email}
+
+
+@router.get(
+    "/settings/integrations",
+    response_model=TenantIntegrationsResponse,
+    dependencies=[_admin_auth],
+)
+async def get_integrations(
+    admin: RequireAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.tenant_integrations_service import (
+        load_tenant_integrations,
+        public_status,
+    )
+
+    integrations = await load_tenant_integrations(db, admin.tenant_id)
+    return TenantIntegrationsResponse(**public_status(integrations))
+
+
+@router.patch(
+    "/settings/integrations",
+    response_model=TenantIntegrationsResponse,
+    dependencies=[_admin_auth],
+)
+async def update_integrations(
+    payload: TenantIntegrationsUpdate,
+    admin: RequireAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.tenant_integrations_service import (
+        encode_for_storage,
+        get_or_create_settings_row,
+        load_tenant_integrations,
+        public_status,
+    )
+
+    row = await get_or_create_settings_row(db, admin.tenant_id)
+    updates = payload.model_dump(exclude_unset=True)
+    row.integrations = encode_for_storage(updates, row.integrations)
+    await log_change(
+        db,
+        actor=admin,
+        action="settings.integrations_updated",
+        entity_type="settings",
+        entity_id=None,
+        subject_label="Integrations",
+        feature="integrations",
+        before=None,
+        after={"updated_fields": sorted(updates.keys())},
+    )
+    await db.commit()
+    invalidate_settings_cache(admin.tenant_id)
+    integrations = await load_tenant_integrations(db, admin.tenant_id)
+    return TenantIntegrationsResponse(**public_status(integrations))

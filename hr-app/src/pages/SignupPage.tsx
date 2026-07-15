@@ -1,16 +1,16 @@
 import { type FormEvent, useState } from 'react'
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { Zap } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/context/AuthContext'
 import { WORKFLOW_INPUT_CLASS, WORKFLOW_PRIMARY_BUTTON_CLASS } from '@/lib/workflow'
 
-export default function LoginPage() {
-  const { login, isAuthenticated, isLoading } = useAuth()
+export default function SignupPage() {
+  const { signup, isAuthenticated, isLoading } = useAuth()
   const navigate = useNavigate()
-  const location = useLocation()
-  const from = (location.state as { from?: string } | null)?.from ?? '/'
 
+  const [organizationName, setOrganizationName] = useState('')
+  const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -24,18 +24,23 @@ export default function LoginPage() {
   }
 
   if (isAuthenticated) {
-    return <Navigate to={from} replace />
+    return <Navigate to="/" replace />
   }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setSubmitting(true)
     try {
-      await login({ email: email.trim(), password })
-      toast.success('Signed in')
-      navigate(from, { replace: true })
+      await signup({
+        organization_name: organizationName.trim(),
+        full_name: fullName.trim(),
+        email: email.trim(),
+        password,
+      })
+      toast.success('Organization created')
+      navigate('/', { replace: true })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Login failed')
+      toast.error(err instanceof Error ? err.message : 'Signup failed')
     } finally {
       setSubmitting(false)
     }
@@ -49,15 +54,41 @@ export default function LoginPage() {
             <Zap className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-slate-900">Recruitment Hub</h1>
-            <p className="text-sm text-slate-500">Sign in to continue</p>
+            <h1 className="text-lg font-semibold text-slate-900">Create organization</h1>
+            <p className="text-sm text-slate-500">Start hiring under your company account</p>
           </div>
         </div>
 
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
+            <label htmlFor="org" className="mb-1.5 block text-sm font-medium text-slate-700">
+              Organization name
+            </label>
+            <input
+              id="org"
+              required
+              value={organizationName}
+              onChange={(e) => setOrganizationName(e.target.value)}
+              className={WORKFLOW_INPUT_CLASS}
+              placeholder="Acme Corp"
+            />
+          </div>
+          <div>
+            <label htmlFor="fullName" className="mb-1.5 block text-sm font-medium text-slate-700">
+              Your name
+            </label>
+            <input
+              id="fullName"
+              required
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              className={WORKFLOW_INPUT_CLASS}
+              placeholder="Jane Doe"
+            />
+          </div>
+          <div>
             <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-slate-700">
-              Email
+              Work email
             </label>
             <input
               id="email"
@@ -77,8 +108,9 @@ export default function LoginPage() {
             <input
               id="password"
               type="password"
-              autoComplete="current-password"
+              autoComplete="new-password"
               required
+              minLength={6}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className={WORKFLOW_INPUT_CLASS}
@@ -90,14 +122,14 @@ export default function LoginPage() {
             disabled={submitting}
             className={`${WORKFLOW_PRIMARY_BUTTON_CLASS} w-full justify-center disabled:opacity-60`}
           >
-            {submitting ? 'Signing in…' : 'Sign in'}
+            {submitting ? 'Creating…' : 'Create account'}
           </button>
         </form>
 
         <p className="mt-6 text-center text-sm text-slate-500">
-          New organization?{' '}
-          <Link to="/signup" className="font-medium text-indigo-600 hover:text-indigo-500">
-            Create an account
+          Already have an account?{' '}
+          <Link to="/login" className="font-medium text-indigo-600 hover:text-indigo-500">
+            Sign in
           </Link>
         </p>
       </div>

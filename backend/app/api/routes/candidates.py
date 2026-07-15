@@ -11,7 +11,8 @@ from sqlalchemy import select, exists
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import RequireAdminOrHr, require_roles
-from app.models.models import Candidate, Job, ShortlistResult
+from app.core.tenancy import get_tenant_candidate, get_tenant_job
+from app.models.models import Candidate, ShortlistResult
 from app.schemas.schemas import CandidateResponse, CandidateUpdate, ResumeUploadResponse
 from app.services.audit_service import log_change, log_field_changes
 
@@ -31,14 +32,6 @@ ZIP_EXTENSIONS = {".zip"}
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
-
-async def _get_job_or_404(job_id: uuid.UUID, db: AsyncSession) -> Job:
-    result = await db.execute(select(Job).where(Job.id == job_id))
-    job = result.scalar_one_or_none()
-    if not job:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-    return job
-
 
 def _is_allowed_file(file: UploadFile) -> bool:
     """Return True if the file passes content-type AND extension checks."""
@@ -135,11 +128,11 @@ async def upload_resumes(
                 },
             )
 
-    # --- Verify job exists ---
-    await _get_job_or_404(job_id, db)
+    # --- Verify job exists for this tenant ---
+    job = await get_tenant_job(db, job_id, actor.tenant_id)
 
     # --- Prepare upload directory ---
-    upload_dir = Path(settings.UPLOAD_DIR) / str(job_id)
+    upload_dir = Path(settings.UPLOAD_DIR) / str(actor.tenant_id) / str(job_id)
     try:
         upload_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -253,6 +246,7 @@ async def upload_resumes(
 @router.get("/jobs/{job_id}/candidates", response_model=List[CandidateResponse])
 async def list_candidates(
     job_id: uuid.UUID,
+    actor: RequireAdminOrHr,
     parse_status: Optional[str] = Query(
         None,
         description="Comma-separated parse_status values, e.g. pending_parse or parsing,parsed",
@@ -264,7 +258,7 @@ async def list_candidates(
     db: AsyncSession = Depends(get_db),
 ):
     """List candidates for a job, optionally filtered by parse_status and shortlist state."""
-    await _get_job_or_404(job_id, db)
+    await get_tenant_job(db, job_id, actor.tenant_id)
 
     stmt = select(Candidate).where(Candidate.job_id == job_id)
 
@@ -294,15 +288,13 @@ async def list_candidates(
 # ---------------------------------------------------------------------------
 
 @router.get("/candidates/{candidate_id}", response_model=CandidateResponse)
-async def get_candidate(candidate_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_candidate(
+    candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    db: AsyncSession = Depends(get_db),
+):
     """Return a single candidate by ID."""
-    result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
-    candidate = result.scalar_one_or_none()
-    if not candidate:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found"
-        )
-    return candidate
+    return await get_tenant_candidate(db, candidate_id, actor.tenant_id)
 
 
 # ---------------------------------------------------------------------------
@@ -326,12 +318,8 @@ async def retry_parse(
     state ('parse_queued', 'parsing', 'parsed') after a worker crash.
     Returns 202 Accepted immediately — parse pipeline runs async.
     """
-    candidate = await db.get(Candidate, candidate_id)
-    if not candidate or candidate.job_id != job_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Candidate not found",
-        )
+    await get_tenant_job(db, job_id, actor.tenant_id)
+    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
     retryable = ("parse_failed", "ready", "parse_queued", "parsing", "parsed")
     if candidate.parse_status not in retryable:
         raise HTTPException(
@@ -377,12 +365,7 @@ async def delete_candidate(
     ScreeningCall, and InterviewSession relationships, so SQLAlchemy handles
     cascading deletes automatically.
     """
-    candidate = await db.get(Candidate, candidate_id)
-    if not candidate:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Candidate not found",
-        )
+    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
     job_id = candidate.job_id
     was_active = candidate.parse_status in ("parse_queued", "parsing", "parsed")
     label = candidate.original_filename or candidate.name or str(candidate_id)
@@ -423,12 +406,7 @@ async def update_candidate(
 
     Only provided (non-None) fields are updated. Returns the updated candidate.
     """
-    candidate = await db.get(Candidate, candidate_id)
-    if not candidate:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Candidate not found",
-        )
+    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
     changes = {}
     if body.phone is not None:
         changes["phone"] = (candidate.phone, body.phone)

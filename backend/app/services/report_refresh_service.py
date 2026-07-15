@@ -60,7 +60,7 @@ def apply_assessment_to_report(report: Any, assessment: dict) -> None:
     report.raw_report = assessment
 
 
-async def ensure_job_expected_points(job: Any, db: Any) -> bool:
+async def ensure_job_expected_points(job: Any, db: Any, api_key: str) -> bool:
     """Generate expected_points on the job rubric when missing. Returns True if job was updated."""
     rubric = job.interview_questions or []
     if not rubric or rubric_has_expected_points(rubric):
@@ -68,7 +68,7 @@ async def ensure_job_expected_points(job: Any, db: Any) -> bool:
 
     from app.services.expected_answer_service import enrich_interview_questions
 
-    job.interview_questions = await enrich_interview_questions(rubric, rubric, job)
+    job.interview_questions = await enrich_interview_questions(rubric, rubric, job, api_key)
     await db.flush()
     logger.info("Generated expected_points for job %s rubric", job.id)
     return True
@@ -92,7 +92,13 @@ async def ensure_report_has_coverage(
     if not transcript or len(transcript.strip()) < MIN_TRANSCRIPT_LENGTH:
         return False
 
-    await ensure_job_expected_points(job, db)
+    from app.services.tenant_integrations_service import load_tenant_integrations
+
+    integrations = await load_tenant_integrations(db, job.tenant_id)
+    integrations.require("openai_api_key")
+    api_key = integrations.openai_api_key
+
+    await ensure_job_expected_points(job, db, api_key)
 
     rubric = job.interview_questions or []
     if not rubric_has_expected_points(rubric):
@@ -111,6 +117,7 @@ async def ensure_report_has_coverage(
         transcript=transcript,
         job=job,
         candidate=candidate,
+        api_key=api_key,
     )
     apply_assessment_to_report(report, assessment)
     await db.commit()

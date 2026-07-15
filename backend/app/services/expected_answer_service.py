@@ -8,7 +8,6 @@ from typing import Any, Optional
 
 from openai import AsyncOpenAI
 
-from app.core.config import settings
 from app.services.interview_question_constraints import (
     DIFFICULTY_TIER_GUIDANCE,
     ORAL_ONLY_PROMPT_RULES,
@@ -55,7 +54,7 @@ Description:
 {(job.description or "")[:2500]}"""
 
 
-async def generate_expected_points(question_text: str, job: Any) -> list[str]:
+async def generate_expected_points(question_text: str, job: Any, api_key: str) -> list[str]:
     """Generate 3–6 expected answer bullet points for one interview question."""
     if not (question_text or "").strip():
         return []
@@ -65,11 +64,11 @@ async def generate_expected_points(question_text: str, job: Any) -> list[str]:
     if mock_openai_enabled():
         return mock_expected_points(question_text)
 
-    if not settings.OPENAI_API_KEY:
-        logger.warning("OPENAI_API_KEY not set; skipping expected_points generation")
+    if not (api_key or "").strip():
+        logger.warning("OpenAI API key not set; skipping expected_points generation")
         return []
 
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    client = AsyncOpenAI(api_key=api_key)
     user_content = f"""== JOB CONTEXT ==
 {_job_context(job)}
 
@@ -116,6 +115,7 @@ async def enrich_interview_questions(
     incoming: list[dict],
     existing: Optional[list[dict]],
     job: Any,
+    api_key: str,
 ) -> list[dict]:
     """
     Merge incoming rubric questions with stored expected_points.
@@ -138,13 +138,13 @@ async def enrich_interview_questions(
         is_new = qid not in prior
 
         if is_new or question_changed:
-            expected_points = await generate_expected_points(question, job)
+            expected_points = await generate_expected_points(question, job, api_key)
         else:
             raw_points = old.get("expected_points") if old else None
             if isinstance(raw_points, list):
                 expected_points = [str(p).strip() for p in raw_points if str(p).strip()]
             else:
-                expected_points = await generate_expected_points(question, job)
+                expected_points = await generate_expected_points(question, job, api_key)
 
         enriched.append({
             "id": qid,

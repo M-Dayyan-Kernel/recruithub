@@ -252,6 +252,21 @@ class EmailTemplateTestRequest(BaseModel):
     body_html: str
 
 
+class TenantIntegrationsUpdate(BaseModel):
+    openai_api_key: Optional[str] = None
+    vapi_api_key: Optional[str] = None
+    vapi_phone_number_id: Optional[str] = None
+    livekit_url: Optional[str] = None
+    livekit_api_key: Optional[str] = None
+    livekit_api_secret: Optional[str] = None
+    gmail_credentials_json: Optional[str] = None
+    gmail_token_json: Optional[str] = None
+
+
+class TenantIntegrationsResponse(BaseModel):
+    fields: dict[str, dict]
+
+
 class SystemSettingsUpdate(BaseModel):
     allowed_phone_regions: Optional[List[str]] = None
     enforce_phone_geography: Optional[bool] = None
@@ -578,18 +593,64 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    tenant_id: uuid.UUID
     email: EmailStr
     full_name: str
     role: RoleLiteral
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    tenant_name: Optional[str] = None
 
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class SignupRequest(BaseModel):
+    organization_name: str = Field(..., min_length=1, max_length=255)
+    email: EmailStr
+    password: str = Field(..., min_length=6, max_length=128)
+    full_name: str = Field(..., min_length=1, max_length=255)
+
+
+class AcceptInviteRequest(BaseModel):
+    token: str = Field(..., min_length=10, max_length=128)
+    password: str = Field(..., min_length=6, max_length=128)
+    full_name: str = Field(..., min_length=1, max_length=255)
+
+
+class InviteCreateRequest(BaseModel):
+    email: EmailStr
+    role: RoleLiteral = "hr"
+
+
+class InviteResponse(BaseModel):
+    id: uuid.UUID
+    email: EmailStr
+    role: RoleLiteral
+    token: str
+    invite_url: str
+    expires_at: datetime
+    created_at: datetime
+
+
+class InvitePublicResponse(BaseModel):
+    email: EmailStr
+    role: RoleLiteral
+    organization_name: str
+    expires_at: datetime
+
+
+class TenantResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    slug: str
+    created_at: datetime
 
 
 class UserCreate(BaseModel):
@@ -615,6 +676,7 @@ class AuditLogResponse(BaseModel):
 
     id: uuid.UUID
     created_at: datetime
+    tenant_id: Optional[uuid.UUID] = None
     actor_user_id: Optional[uuid.UUID] = None
     actor_name: str
     actor_role: str

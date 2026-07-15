@@ -184,7 +184,10 @@ export default function Layout() {
               <p className="truncate text-sm font-medium text-slate-100">
                 {user?.full_name ?? 'User'}
               </p>
-              <p className="truncate text-[11px] capitalize text-slate-500">{user?.role}</p>
+              <p className="truncate text-[11px] text-slate-500">
+                {user?.tenant_name ? `${user.tenant_name} · ` : ''}
+                <span className="capitalize">{user?.role}</span>
+              </p>
             </div>
             <button
               type="button"

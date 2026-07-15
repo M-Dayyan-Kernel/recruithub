@@ -66,12 +66,17 @@ async def send_interview_invitation_email(
     candidate: Candidate,
     job_title: str,
 ) -> bool:
+    from app.models.models import Job
     from app.services.email_service import send_interview_link
     from app.services.email_template_service import get_company_name, get_merged_templates
+    from app.services.tenant_integrations_service import load_tenant_integrations
 
+    job = await db.get(Job, session.job_id)
+    tenant_id = job.tenant_id if job else None
     interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{session.unique_token}"
-    templates = await get_merged_templates(db)
-    company_name = await get_company_name(db)
+    templates = await get_merged_templates(db, tenant_id)
+    company_name = await get_company_name(db, tenant_id)
+    integrations = await load_tenant_integrations(db, tenant_id) if tenant_id else None
     candidate_email = resolve_candidate_email(candidate)
     if not candidate_email:
         logger.warning(
@@ -87,6 +92,7 @@ async def send_interview_invitation_email(
         interview_url=interview_url,
         templates=templates,
         company_name=company_name,
+        integrations=integrations,
     )
     if sent:
         session.email_sent_at = datetime.now(timezone.utc)
@@ -106,18 +112,23 @@ async def send_scheduled_interview_notification_email(
     *,
     timezone_name: str,
 ) -> bool:
+    from app.models.models import Job
     from app.services.email_service import send_scheduled_interview_notification
     from app.services.email_template_service import get_merged_templates
+    from app.services.tenant_integrations_service import load_tenant_integrations
 
     if not session.scheduled_interview_at:
         return await send_interview_invitation_email(db, session, candidate, job_title)
 
+    job = await db.get(Job, session.job_id)
+    tenant_id = job.tenant_id if job else None
     interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{session.unique_token}"
     scheduled_label = format_scheduled_at_label(
         session.scheduled_interview_at,
         timezone_name,
     )
-    templates = await get_merged_templates(db)
+    templates = await get_merged_templates(db, tenant_id)
+    integrations = await load_tenant_integrations(db, tenant_id) if tenant_id else None
     candidate_email = resolve_candidate_email(candidate)
     if not candidate_email:
         logger.warning(
@@ -133,6 +144,7 @@ async def send_scheduled_interview_notification_email(
         interview_url=interview_url,
         scheduled_at_label=scheduled_label,
         templates=templates,
+        integrations=integrations,
     )
     if sent:
         session.email_sent_at = datetime.now(timezone.utc)

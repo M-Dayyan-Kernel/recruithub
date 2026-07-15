@@ -51,6 +51,7 @@ async def log_change(
 ) -> None:
     """Insert an audit row in the current transaction (caller commits)."""
     row = AuditLog(
+        tenant_id=actor.tenant_id,
         actor_user_id=actor.id,
         actor_name=actor.full_name,
         actor_role=actor.role,

@@ -11,8 +11,6 @@ Functions:
 import json
 import logging
 
-from app.core.config import settings
-
 logger = logging.getLogger(__name__)
 
 MIN_TRANSCRIPT_LENGTH = 100
@@ -304,10 +302,10 @@ def _merge_rubric_scores(rubric: list[dict], gpt_scores: list[dict]) -> tuple[li
     return merged, total_earned
 
 
-async def _run_gpt_assessment(system_prompt: str, user_content: str) -> dict:
+async def _run_gpt_assessment(system_prompt: str, user_content: str, api_key: str) -> dict:
     import openai
 
-    client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    client = openai.AsyncOpenAI(api_key=api_key)
     response = await client.chat.completions.create(
         model="gpt-4o",
         messages=[
@@ -351,7 +349,7 @@ Name: {candidate.name}
 """
 
 
-async def generate_assessment(transcript: str, job, candidate) -> dict:
+async def generate_assessment(transcript: str, job, candidate, api_key: str) -> dict:
     """
     Generate a structured interview assessment using GPT-4o.
     Uses rubric-based scoring when job.interview_questions is set; otherwise legacy 0-100 dimensions.
@@ -377,7 +375,7 @@ async def generate_assessment(transcript: str, job, candidate) -> dict:
     try:
         if rubric:
             system_prompt = _rubric_assessment_prompt(rubric)
-            result = await _run_gpt_assessment(system_prompt, user_content)
+            result = await _run_gpt_assessment(system_prompt, user_content, api_key)
             question_scores, total_earned = _merge_rubric_scores(
                 rubric, result.get("question_scores") or []
             )
@@ -400,7 +398,7 @@ async def generate_assessment(transcript: str, job, candidate) -> dict:
                 "transcript_summary": result.get("transcript_summary", ""),
             }
         else:
-            result = await _run_gpt_assessment(ASSESSMENT_SYSTEM_PROMPT, user_content)
+            result = await _run_gpt_assessment(ASSESSMENT_SYSTEM_PROMPT, user_content, api_key)
             required_keys = [
                 "technical_fit_score", "communication_score", "problem_solving_score",
                 "experience_score", "role_alignment_score", "overall_score",

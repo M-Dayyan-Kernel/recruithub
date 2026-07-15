@@ -12,10 +12,51 @@ from pgvector.sqlalchemy import Vector
 from app.core.database import Base
 
 
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    users: Mapped[List["User"]] = relationship("User", back_populates="tenant")
+    jobs: Mapped[List["Job"]] = relationship("Job", back_populates="tenant")
+    settings: Mapped[Optional["SystemSettings"]] = relationship(
+        "SystemSettings", back_populates="tenant", uselist=False
+    )
+    invites: Mapped[List["TenantInvite"]] = relationship(
+        "TenantInvite", back_populates="tenant", cascade="all, delete-orphan"
+    )
+
+
+class TenantInvite(Base):
+    __tablename__ = "tenant_invites"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="hr")  # "admin" | "hr"
+    token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    invited_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="invites")
+
+
 class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -24,11 +65,16 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+    tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="users")
+
 
 class Job(Base):
     __tablename__ = "jobs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     required_skills: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String), nullable=True)
@@ -44,6 +90,7 @@ class Job(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     # Relationships
+    tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="jobs")
     candidates: Mapped[List["Candidate"]] = relationship("Candidate", back_populates="job", cascade="all, delete-orphan")
     shortlist_results: Mapped[List["ShortlistResult"]] = relationship("ShortlistResult", back_populates="job", cascade="all, delete-orphan")
     screening_calls: Mapped[List["ScreeningCall"]] = relationship("ScreeningCall", back_populates="job", cascade="all, delete-orphan")
@@ -133,7 +180,10 @@ class ScreeningCall(Base):
 class SystemSettings(Base):
     __tablename__ = "system_settings"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
+    )
     allowed_phone_regions: Mapped[List[str]] = mapped_column(JSON, nullable=False, default=list)
     enforce_phone_geography: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     screening_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
@@ -145,7 +195,10 @@ class SystemSettings(Base):
     company_name: Mapped[str] = mapped_column(
         String(255), nullable=False, default="Webknot Technologies", server_default="Webknot Technologies"
     )
+    integrations: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="settings")
 
 
 class InterviewSession(Base):
@@ -207,6 +260,9 @@ class AuditLog(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    tenant_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     actor_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )

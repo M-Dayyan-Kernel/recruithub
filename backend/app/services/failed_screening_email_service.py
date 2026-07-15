@@ -14,6 +14,7 @@ from app.models.models import Candidate, Job, ScreeningCall
 from app.services.email_service import send_failed_screening_attempt_email
 from app.services.email_template_service import get_company_name, get_merged_templates
 from app.services.settings_service import load_system_settings
+from app.services.tenant_integrations_service import load_tenant_integrations
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +95,12 @@ async def maybe_send_failed_screening_email(
         )
         return
 
+    job = await db.get(Job, screening_call.job_id)
+    tenant_id = job.tenant_id if job else None
+    job_title = job.title if job else "the position"
+
     phone = candidate.phone
-    settings = await load_system_settings(db)
+    settings = await load_system_settings(db, tenant_id=tenant_id)
 
     if await _would_be_flagged_after_failure(screening_call, phone, settings):
         logger.info(
@@ -114,10 +119,9 @@ async def maybe_send_failed_screening_email(
         await db.commit()
         return
 
-    job = await db.get(Job, screening_call.job_id)
-    job_title = job.title if job else "the position"
-    templates = await get_merged_templates(db)
-    company_name = await get_company_name(db)
+    templates = await get_merged_templates(db, tenant_id)
+    company_name = await get_company_name(db, tenant_id)
+    integrations = await load_tenant_integrations(db, tenant_id) if tenant_id else None
 
     try:
         sent = await send_failed_screening_attempt_email(
@@ -127,6 +131,7 @@ async def maybe_send_failed_screening_email(
             phone_number=phone or "your number on file",
             templates=templates,
             company_name=company_name,
+            integrations=integrations,
         )
     except Exception as exc:
         logger.error(

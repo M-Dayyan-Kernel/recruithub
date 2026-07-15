@@ -13,6 +13,10 @@ Pattern:
 
 Usage:
     python interview_agent.py dev
+
+Note: This worker process still reads LiveKit/OpenAI credentials from process
+environment (.env). Per-tenant LiveKit projects require a dedicated agent per
+tenant; backend room/token creation uses tenant credentials from SystemSettings.
 """
 
 import asyncio

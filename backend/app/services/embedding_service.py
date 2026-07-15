@@ -1,11 +1,10 @@
 import logging
 from openai import AsyncOpenAI
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 
-async def generate_embedding(text: str) -> list[float]:
+async def generate_embedding(text: str, api_key: str) -> list[float]:
     """Generate text-embedding-3-small embedding vector (1536 dimensions)."""
     from app.services.mock_external import mock_embedding, mock_openai_enabled
 
@@ -13,7 +12,7 @@ async def generate_embedding(text: str) -> list[float]:
         truncated = text[:6000] if len(text) > 6000 else text
         return mock_embedding(truncated)
 
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    client = AsyncOpenAI(api_key=api_key)
 
     # Truncate to ~6000 chars to stay well within 8191 token limit
     truncated = text[:6000] if len(text) > 6000 else text

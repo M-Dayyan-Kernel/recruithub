@@ -4,7 +4,6 @@ import uuid
 
 from openai import AsyncOpenAI
 
-from app.core.config import settings
 from app.services.interview_question_constraints import (
     DIFFICULTY_TIER_GUIDANCE,
     TECHNICAL_ONLY_PROMPT_RULES,
@@ -123,7 +122,7 @@ def _normalize_parsed_questions(raw_questions: list | None) -> list[dict]:
     return _filter_technical_interview_questions(_filter_oral_interview_questions(normalized))
 
 
-async def parse_job_description(raw_text: str) -> dict:
+async def parse_job_description(raw_text: str, api_key: str) -> dict:
     """Parse job description text into structured JSON using GPT-4o."""
     if not raw_text or len(raw_text.strip()) < MIN_JD_LENGTH:
         logger.warning(
@@ -144,7 +143,7 @@ async def parse_job_description(raw_text: str) -> dict:
         )
         return parsed
 
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    client = AsyncOpenAI(api_key=api_key)
     truncated_text = raw_text[:12000] if len(raw_text) > 12000 else raw_text
 
     response = await client.chat.completions.create(
