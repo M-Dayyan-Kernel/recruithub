@@ -38,6 +38,8 @@ class Settings(BaseSettings):
 
     # JWT auth / RBAC
     JWT_SECRET_KEY: str = "change-me-in-production-use-a-long-random-string"
+    # Master key for system_settings.integrations Fernet secrets (falls back to JWT_SECRET_KEY)
+    INTEGRATIONS_ENCRYPTION_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 480
     SEED_ADMIN_EMAIL: str = ""
