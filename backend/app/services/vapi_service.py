@@ -2,9 +2,12 @@
 Vapi.ai Outbound Call Service — Sprint 5
 
 Initiates AI voice screening calls via Vapi.ai REST API.
-Uses httpx (async) for the HTTP call.
+
+Uses sync httpx.Client (via asyncio.to_thread) so Celery's asyncio.run() on Windows
+does not hit "Event loop is closed" during AsyncClient transport teardown.
 """
 
+import asyncio
 import logging
 import uuid
 from typing import TYPE_CHECKING
@@ -60,6 +63,26 @@ Guidelines:
 """
 
 
+def _vapi_headers() -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {settings.VAPI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+
+def _get_vapi_call_sync(vapi_call_id: str, timeout: float) -> dict:
+    with httpx.Client(timeout=timeout) as client:
+        response = client.get(
+            f"{VAPI_API_BASE}/call/{vapi_call_id}",
+            headers=_vapi_headers(),
+        )
+        if response.status_code != 200:
+            raise Exception(
+                f"Vapi API error {response.status_code}: {response.text[:500]}"
+            )
+        return response.json()
+
+
 async def get_vapi_call(vapi_call_id: str, *, timeout: float = 5.0) -> dict:
     """Fetch call details from Vapi REST API."""
     from app.services.mock_external import mock_vapi_enabled, mock_vapi_get_call
@@ -67,20 +90,7 @@ async def get_vapi_call(vapi_call_id: str, *, timeout: float = 5.0) -> dict:
     if mock_vapi_enabled():
         return mock_vapi_get_call(vapi_call_id)
 
-    headers = {
-        "Authorization": f"Bearer {settings.VAPI_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.get(
-            f"{VAPI_API_BASE}/call/{vapi_call_id}",
-            headers=headers,
-        )
-    if response.status_code != 200:
-        raise Exception(
-            f"Vapi API error {response.status_code}: {response.text[:500]}"
-        )
-    return response.json()
+    return await asyncio.to_thread(_get_vapi_call_sync, vapi_call_id, timeout)
 
 
 def is_vapi_call_ended(vapi_call: dict) -> bool:
@@ -126,50 +136,29 @@ def map_vapi_status_to_call_status(vapi_status: str | None) -> str | None:
     return None
 
 
-async def initiate_screening_call(
-    candidate: "Candidate",
-    job: "Job",
+def _initiate_screening_call_sync(
+    *,
+    candidate_name: str,
+    candidate_phone: str,
+    job_title: str,
+    job_description: str,
+    screening_questions: list | None,
+    required_skills: list | None,
     screening_call_id: uuid.UUID,
 ) -> str:
-    """
-    Initiate an outbound AI voice screening call via Vapi.ai.
-
-    Args:
-        candidate: Candidate ORM model (must have .phone, .name)
-        job: Job ORM model (must have .title, .description)
-        screening_call_id: UUID of the ScreeningCall record for metadata tracking
-
-    Returns:
-        vapi_call_id (str) — the call ID from Vapi response
-
-    Raises:
-        Exception: with status code and body if Vapi API returns a non-2xx response
-    """
-    from app.services.mock_external import mock_vapi_call_id, mock_vapi_enabled
-
-    if mock_vapi_enabled():
-        call_id = mock_vapi_call_id()
-        logger.info(
-            "Mock Vapi call initiated: vapi_call_id=%s screening_call_id=%s candidate=%s",
-            call_id,
-            screening_call_id,
-            candidate.name,
-        )
-        return call_id
-
     screening_prompt = _build_screening_prompt(
-        candidate_name=candidate.name,
-        job_title=job.title,
-        job_description=job.description or "",
-        screening_questions=job.screening_questions,
-        required_skills=job.required_skills,
+        candidate_name=candidate_name,
+        job_title=job_title,
+        job_description=job_description or "",
+        screening_questions=screening_questions,
+        required_skills=required_skills,
     )
 
     payload = {
         "type": "outboundPhoneCall",
         "phoneNumberId": settings.VAPI_PHONE_NUMBER_ID,
         "customer": {
-            "number": candidate.phone,
+            "number": candidate_phone,
         },
         "assistant": {
             "model": {
@@ -187,8 +176,8 @@ async def initiate_screening_call(
                 "voiceId": "asteria",
             },
             "firstMessage": (
-                f"Hello {candidate.name}, this is an AI assistant calling on behalf of the hiring team "
-                f"regarding the {job.title} position. Do you have a few minutes to speak?"
+                f"Hello {candidate_name}, this is an AI assistant calling on behalf of the hiring team "
+                f"regarding the {job_title} position. Do you have a few minutes to speak?"
             ),
             "firstMessageMode": "assistant-speaks-first",
             "endCallMessage": "Thank you for your time. We'll review your responses and be in touch soon. Goodbye!",
@@ -220,24 +209,18 @@ async def initiate_screening_call(
             "screening status relies on polling (slower updates)."
         )
 
-    headers = {
-        "Authorization": f"Bearer {settings.VAPI_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
+    with httpx.Client(timeout=30.0) as client:
+        response = client.post(
             f"{VAPI_API_BASE}/call",
             json=payload,
-            headers=headers,
+            headers=_vapi_headers(),
         )
+        if response.status_code not in (200, 201):
+            raise Exception(
+                f"Vapi API error {response.status_code}: {response.text[:500]}"
+            )
+        data = response.json()
 
-    if response.status_code not in (200, 201):
-        raise Exception(
-            f"Vapi API error {response.status_code}: {response.text[:500]}"
-        )
-
-    data = response.json()
     vapi_call_id = data.get("id")
     if not vapi_call_id:
         raise Exception(f"Vapi response missing call ID. Response: {data}")
@@ -246,6 +229,41 @@ async def initiate_screening_call(
         "Vapi call initiated: vapi_call_id=%s screening_call_id=%s candidate=%s",
         vapi_call_id,
         screening_call_id,
-        candidate.name,
+        candidate_name,
     )
     return vapi_call_id
+
+
+async def initiate_screening_call(
+    candidate: "Candidate",
+    job: "Job",
+    screening_call_id: uuid.UUID,
+) -> str:
+    """
+    Initiate an outbound AI voice screening call via Vapi.ai.
+
+    Returns:
+        vapi_call_id (str) — the call ID from Vapi response
+    """
+    from app.services.mock_external import mock_vapi_call_id, mock_vapi_enabled
+
+    if mock_vapi_enabled():
+        call_id = mock_vapi_call_id()
+        logger.info(
+            "Mock Vapi call initiated: vapi_call_id=%s screening_call_id=%s candidate=%s",
+            call_id,
+            screening_call_id,
+            candidate.name,
+        )
+        return call_id
+
+    return await asyncio.to_thread(
+        _initiate_screening_call_sync,
+        candidate_name=candidate.name,
+        candidate_phone=candidate.phone,
+        job_title=job.title,
+        job_description=job.description or "",
+        screening_questions=job.screening_questions,
+        required_skills=job.required_skills,
+        screening_call_id=screening_call_id,
+    )
