@@ -156,7 +156,7 @@ Legacy UI explorations with mock/stub data. Not connected to the live backend. S
 | View job details | Title, skills, status, screening/interview config | `JobHeader.tsx` |
 | Edit job | Update metadata, questions, call window, timezone | `EditJobModal.tsx` / API: `PATCH /api/jobs/{id}` |
 | Delete job | Cascades candidates, shortlist, screening, interviews | `JobHeader.tsx` / API: `DELETE /api/jobs/{id}` |
-| Job phase navigation | Jobs page card buttons + hamburger pipeline panel and job switcher | `JobsPage.tsx` / `JobPhaseNav.tsx` |
+| Job phase navigation | Jobs page card buttons + hamburger pipeline panel | `JobsPage.tsx` / `JobPhaseNav.tsx` |
 
 ### 2. Resume Upload & Parsing
 

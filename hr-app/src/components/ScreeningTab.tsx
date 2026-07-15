@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useEffect, useMemo, useRef } from 'react'
+import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Loader2, Mic, Phone } from 'lucide-react'
@@ -16,7 +16,6 @@ import { ScreeningSettingsCard } from '@/components/screening/ScreeningSettingsC
 import { CompletedScreeningList } from '@/components/screening/CompletedScreeningList'
 import {
   buildScreeningRows,
-  countByTab,
   SCREENING_ACTIVE_POLL_MS,
   type ScreeningRow,
   type ScreeningTabId,
@@ -31,6 +30,7 @@ import {
   WORKFLOW_TABLE_EMPTY_CELL_CLASS,
   WORKFLOW_TABLE_EMPTY_ROW_CLASS,
 } from '@/lib/workflow'
+import { resolveScreeningTab } from '@/components/screening/ScreeningStatusTabs'
 
 const TAB_LABELS: Record<ScreeningTabId, string> = {
   pending: 'Pending',
@@ -154,7 +154,8 @@ interface Props {
 export function ScreeningTab({ jobId }: Props) {
   const { job } = useOutletContext<JobOutletContext>()
   const queryClient = useQueryClient()
-  const [activeTab, setActiveTab] = useState<ScreeningTabId>('pending')
+  const [searchParams] = useSearchParams()
+  const activeTab = resolveScreeningTab(searchParams.get('tab'))
   const autoTriggeredRef = useRef<Set<string>>(new Set())
 
   const {
@@ -296,7 +297,6 @@ export function ScreeningTab({ jobId }: Props) {
     }
   }, [neverCalledPendingIds, isLoading, job, jobId, queryClient])
 
-  const tabCounts = useMemo(() => countByTab(rows), [rows])
   const filteredRows = rows.filter((r) => r.tab === activeTab)
 
   const eligibleForBulkCall = useMemo(
@@ -319,34 +319,9 @@ export function ScreeningTab({ jobId }: Props) {
 
   const showSettingsCard = activeTab === 'pending' || activeTab === 'flagged'
 
-  const tabBar = (
-    <div className="mb-4 flex flex-wrap items-center gap-2">
-      {(Object.keys(TAB_LABELS) as ScreeningTabId[]).map((tab) => (
-        <button
-          key={tab}
-          type="button"
-          onClick={() => setActiveTab(tab)}
-          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === tab
-              ? tab === 'pending'
-                ? 'bg-emerald-600 text-white'
-                : tab === 'completed'
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-amber-500 text-white'
-              : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
-          }`}
-        >
-          {TAB_LABELS[tab]}
-          <span className="ml-1.5 text-xs opacity-80">({tabCounts[tab]})</span>
-        </button>
-      ))}
-    </div>
-  )
-
   if (isLoading) {
     return (
       <div>
-        {tabBar}
         {showSettingsCard && settingsCard}
         <div className="h-64 animate-pulse rounded-xl bg-slate-200" />
       </div>
@@ -356,7 +331,6 @@ export function ScreeningTab({ jobId }: Props) {
   if (isError) {
     return (
       <div>
-        {tabBar}
         {showSettingsCard && settingsCard}
         <BackendError onRetry={refetch} />
       </div>
@@ -366,7 +340,6 @@ export function ScreeningTab({ jobId }: Props) {
   if (approvedShortlist.length === 0) {
     return (
       <div>
-        {tabBar}
         {showSettingsCard && settingsCard}
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
@@ -383,7 +356,6 @@ export function ScreeningTab({ jobId }: Props) {
 
   return (
     <div>
-      {tabBar}
       {showSettingsCard && settingsCard}
 
       <div className={WORKFLOW_CARD_CLASS}>

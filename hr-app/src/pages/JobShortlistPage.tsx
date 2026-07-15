@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import type { Candidate } from '@/types/api'
 import type { JobOutletContext } from '@/components/JobLayout'
@@ -9,25 +9,28 @@ import { UploadTab } from '@/components/UploadTab'
 import { ParsingTab } from '@/components/ParsingTab'
 import { AIShortlistingTab } from '@/components/AIShortlistingTab'
 import { useJobPipelineCandidates } from '@/hooks/useJobPipelineCandidates'
-
-const TABS = [
-  'AI Shortlisted',
-  'Upload',
-  'Parsing',
-  'Parsed Resumes',
-  'AI Shortlisting',
-] as const
-type Tab = (typeof TABS)[number]
+import {
+  resolveShortlistTab,
+  shortlistTabParam,
+  type ShortlistTabId,
+} from '@/components/shortlist/ShortlistStatusTabs'
 
 const WORKFLOW_SECTION_CLASS = 'space-y-3'
 
 export default function JobShortlistPage() {
   const { job, jobId } = useOutletContext<JobOutletContext>()
   const queryClient = useQueryClient()
-  const [activeTab, setActiveTab] = useState<Tab>('AI Shortlisted')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = resolveShortlistTab(searchParams.get('tab'))
   const [shortlistTriggered, setShortlistTriggered] = useState(false)
   const [shortlistBatchIds, setShortlistBatchIds] = useState<string[]>([])
   const [shortlistBatchCandidates, setShortlistBatchCandidates] = useState<Candidate[]>([])
+
+  const setActiveTab = (tab: ShortlistTabId) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', shortlistTabParam(tab))
+    setSearchParams(next, { replace: true })
+  }
 
   const handleShortlistTriggered = ({ candidateIds, candidates }: ShortlistTriggeredPayload) => {
     setShortlistBatchIds(candidateIds)
@@ -55,25 +58,6 @@ export default function JobShortlistPage() {
 
   return (
     <>
-      <div className="border-b border-slate-200">
-        <div className="flex gap-0">
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setActiveTab(tab)}
-              className={`flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
-                activeTab === tab
-                  ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {activeTab === 'AI Shortlisted' ? (
         <div className={WORKFLOW_SECTION_CLASS}>
           <ShortlistTab
