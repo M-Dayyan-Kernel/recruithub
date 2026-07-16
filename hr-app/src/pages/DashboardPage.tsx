@@ -170,13 +170,22 @@ export default function DashboardPage() {
     return jobList.map((job, i) => {
       const candidates = (candidateQueries[i]?.data ?? []) as Candidate[]
       const screeningCalls = (screeningQueries[i]?.data ?? []) as ScreeningCall[]
-      const screened = screeningCalls.filter((sc) => sc.call_status === 'completed').length
-      const passedScreening = screeningCalls.filter((sc) => sc.result === 'pass').length
+      // Count unique candidates (retries create multiple completed calls for one person)
+      const screenedCandidateIds = new Set(
+        screeningCalls
+          .filter((sc) => sc.call_status === 'completed')
+          .map((sc) => sc.candidate_id),
+      )
+      const passedCandidateIds = new Set(
+        screeningCalls
+          .filter((sc) => sc.result === 'pass')
+          .map((sc) => sc.candidate_id),
+      )
       return {
         job,
         candidateCount: candidates.length,
-        screened,
-        passedScreening,
+        screened: screenedCandidateIds.size,
+        passedScreening: passedCandidateIds.size,
         candidatesLoading: candidateQueries[i]?.isLoading ?? false,
         screeningLoading: screeningQueries[i]?.isLoading ?? false,
       }
@@ -282,7 +291,7 @@ export default function DashboardPage() {
           value={anyDataLoading ? '…' : totals.totalScreened}
           icon={<Phone size={17} className="text-emerald-600" />}
           iconBg="bg-emerald-50"
-          subtitle="AI voice calls completed"
+          subtitle="candidates with a completed call"
         />
         <SummaryCard
           title="Interview Ready"
