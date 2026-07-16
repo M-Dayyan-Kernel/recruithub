@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { exportTimestamp, slugifyFilename } from '@/lib/shortlistReportExport'
+import { displayField } from '@/components/screening/screeningUtils'
 import type { ScreeningCall, ScreeningResult } from '@/types/api'
 
 const PAGE_MARGIN = 14
@@ -205,14 +206,15 @@ export function downloadScreeningReportPdf(
   })
   y += 32
 
-  if (call.summary?.trim()) {
+  if (displayField(call.summary)) {
     y = drawSectionTitle(doc, 'AI Summary', y)
-    y = drawWrappedParagraph(doc, call.summary.trim(), y)
+    y = drawWrappedParagraph(doc, displayField(call.summary)!, y)
   }
 
   const detailRows: [string, string][] = []
   const addRow = (label: string, value?: string | null) => {
-    if (value?.trim()) detailRows.push([label, value.trim()])
+    const display = displayField(value)
+    if (display) detailRows.push([label, display])
   }
 
   addRow('Relevant experience', call.relevant_experience)

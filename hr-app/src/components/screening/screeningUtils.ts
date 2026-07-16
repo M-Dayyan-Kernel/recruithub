@@ -4,6 +4,74 @@ export function formatTimeForInput(value?: string | null, fallback = '09:00'): s
   return value.slice(0, 5)
 }
 
+/** True when a screening field has a real displayable value (not null/"null"/empty). */
+export function hasDisplayValue(value?: string | null | boolean): boolean {
+  if (value === true || value === false) return true
+  if (value == null) return false
+  const trimmed = String(value).trim()
+  if (!trimmed) return false
+  const lower = trimmed.toLowerCase()
+  return !['null', 'none', 'n/a', 'na', 'undefined', '-'].includes(lower)
+}
+
+/** Normalize API field for display — returns null when empty or literal "null". */
+export function displayField(value?: string | null): string | null {
+  if (!hasDisplayValue(value)) return null
+  return String(value).trim()
+}
+
+/**
+ * Screening call finished but GPT structured report is still being generated.
+ * Used to show "Generating…" and disable HR actions until fields populate.
+ */
+export function isScreeningReportGenerating(call: {
+  call_status?: string | null
+  call_outcome?: string | null
+  result?: string | null
+  transcript?: string | null
+  summary?: string | null
+  availability?: string | null
+  expected_ctc?: string | null
+  current_ctc?: string | null
+  notice_period?: string | null
+  relevant_experience?: string | null
+  employment_status?: string | null
+  location_preference?: string | null
+  communication_quality?: string | null
+}): boolean {
+  if (call.call_status !== 'completed') return false
+  if (call.result === 'pass' || call.result === 'fail') return false
+
+  const summary = (call.summary || '').trim()
+  if (summary.toLowerCase().includes('gpt extraction failed')) return false
+
+  const transcriptLen = (call.transcript || '').trim().length
+  const connected =
+    call.call_outcome === 'completed' ||
+    transcriptLen > 50
+
+  if (!connected) return false
+
+  const placeholderSummary =
+    !summary ||
+    summary.startsWith('Call ended with reason') ||
+    summary.includes('No transcript available') ||
+    summary.includes('hung up before the screening')
+
+  const hasStructured =
+    hasDisplayValue(call.availability) ||
+    hasDisplayValue(call.expected_ctc) ||
+    hasDisplayValue(call.current_ctc) ||
+    hasDisplayValue(call.notice_period) ||
+    hasDisplayValue(call.relevant_experience) ||
+    hasDisplayValue(call.employment_status) ||
+    hasDisplayValue(call.location_preference) ||
+    hasDisplayValue(call.communication_quality)
+
+  // Still generating when we lack both a real AI summary and structured fields.
+  return placeholderSummary && !hasStructured
+}
+
 function minutesFromTimeString(t: string): number {
   const [h, m] = t.split(':').map(Number)
   return h * 60 + m

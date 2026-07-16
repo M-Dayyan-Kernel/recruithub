@@ -23,6 +23,10 @@ import { api } from '@/lib/api'
 import type { ScreeningCall, ScreeningResult } from '@/types/api'
 import type { JobOutletContext } from '@/components/JobLayout'
 import { downloadScreeningReportPdf } from '@/lib/screeningReportPdf'
+import {
+  displayField,
+  isScreeningReportGenerating,
+} from '@/components/screening/screeningUtils'
 
 function formatCallDate(iso: string): string {
   try {
@@ -146,21 +150,23 @@ function parseTranscript(transcript: string): TranscriptTurn[] {
 }
 
 function DetailCard({ label, value }: { label: string; value?: string | null }) {
-  if (!value?.trim()) return null
+  const display = displayField(value)
+  if (!display) return null
   return (
     <div className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="mt-0.5 text-xs leading-snug text-slate-800">{value}</p>
+      <p className="mt-0.5 text-xs leading-snug text-slate-800">{display}</p>
     </div>
   )
 }
 
 function StatChip({ label, value }: { label: string; value?: string | null }) {
-  if (!value?.trim()) return null
+  const display = displayField(value)
+  if (!display) return null
   return (
     <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px]">
       <span className="text-slate-400">{label}</span>
-      <span className="font-medium text-slate-700">{value}</span>
+      <span className="font-medium text-slate-700">{display}</span>
     </span>
   )
 }
@@ -371,16 +377,18 @@ export function ScreeningCallDetails({
 
   const collapsedHighlights = useMemo(() => {
     const items: string[] = []
-    if (call.availability?.trim()) items.push(`Avail: ${truncateText(call.availability, 28)}`)
-    if (call.expected_ctc?.trim()) items.push(`CTC: ${call.expected_ctc}`)
-    else if (call.current_ctc?.trim()) items.push(`CTC: ${call.current_ctc}`)
-    if (call.notice_period?.trim()) items.push(`Notice: ${call.notice_period}`)
-    if (call.communication_quality) {
-      items.push(`Comm: ${call.communication_quality}`)
-    }
-    if (call.employment_status?.trim()) {
-      items.push(truncateText(call.employment_status, 24))
-    }
+    const availability = displayField(call.availability)
+    const expected = displayField(call.expected_ctc)
+    const current = displayField(call.current_ctc)
+    const notice = displayField(call.notice_period)
+    const quality = displayField(call.communication_quality)
+    const employment = displayField(call.employment_status)
+    if (availability) items.push(`Avail: ${truncateText(availability, 28)}`)
+    if (expected) items.push(`CTC: ${expected}`)
+    else if (current) items.push(`CTC: ${current}`)
+    if (notice) items.push(`Notice: ${notice}`)
+    if (quality) items.push(`Comm: ${quality}`)
+    if (employment) items.push(truncateText(employment, 24))
     return items
   }, [call])
 
@@ -441,9 +449,9 @@ export function ScreeningCallDetails({
                   </span>
                 )}
               </div>
-              {(call.summary || call.relevant_experience) && (
+              {(displayField(call.summary) || displayField(call.relevant_experience)) && (
                 <p className="mt-1 line-clamp-2 text-xs leading-snug text-slate-600">
-                  {call.summary?.trim() || call.relevant_experience?.trim()}
+                  {displayField(call.summary) || displayField(call.relevant_experience)}
                 </p>
               )}
               {collapsedHighlights.length > 0 && (
@@ -539,18 +547,37 @@ export function ScreeningCallDetails({
   )
 
   const quickStats = [
-    { label: 'Availability', value: call.availability },
-    { label: 'Notice', value: call.notice_period },
-    { label: 'Employment', value: call.employment_status },
-    { label: 'Location', value: call.location_preference },
-  ]
+    { label: 'Availability', value: displayField(call.availability) },
+    { label: 'Notice', value: displayField(call.notice_period) },
+    { label: 'Employment', value: displayField(call.employment_status) },
+    { label: 'Location', value: displayField(call.location_preference) },
+  ].filter((s) => s.value)
+
+  const relevantExperience = displayField(call.relevant_experience)
+  const employmentStatus = displayField(call.employment_status)
+  const locationPreference = displayField(call.location_preference)
+  const communicationQuality = displayField(call.communication_quality)
+  const currentCtc = displayField(call.current_ctc)
+  const expectedCtc = displayField(call.expected_ctc)
+  const availability = displayField(call.availability)
+  const noticePeriod = displayField(call.notice_period)
+  const summary = displayField(call.summary)
+  const isGenerating = isScreeningReportGenerating(call)
+
+  const hasBackground =
+    Boolean(relevantExperience) ||
+    Boolean(employmentStatus) ||
+    Boolean(locationPreference) ||
+    Boolean(communicationQuality)
+
+  const hasCompensation =
+    Boolean(currentCtc) ||
+    Boolean(expectedCtc) ||
+    Boolean(availability) ||
+    Boolean(noticePeriod)
 
   const hasDetailContent =
-    call.summary ||
-    call.relevant_experience ||
-    call.current_ctc ||
-    call.expected_ctc ||
-    quickStats.some((s) => s.value?.trim())
+    Boolean(summary) || hasBackground || hasCompensation || quickStats.length > 0
 
   const outerClass = hideHeader
     ? ''
@@ -570,7 +597,14 @@ export function ScreeningCallDetails({
 
       {(!isCollapsible || expanded) && (
         <div className={hideHeader ? 'space-y-3' : 'space-y-3 px-3.5 py-3'}>
-          {call.summary && (
+          {isGenerating && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+              <Loader2 size={14} className="animate-spin shrink-0" />
+              Generating screening report…
+            </div>
+          )}
+
+          {summary && (
             <section className="rounded-lg border border-indigo-100 bg-indigo-50/40 px-3 py-2.5">
               <div className="mb-1 flex items-center gap-1.5">
                 <Sparkles size={12} className="text-indigo-500" />
@@ -578,84 +612,90 @@ export function ScreeningCallDetails({
                   AI summary
                 </h4>
               </div>
-              <p className="text-xs leading-relaxed text-slate-700">{call.summary}</p>
+              <p className="text-xs leading-relaxed text-slate-700">{summary}</p>
             </section>
           )}
 
-          {quickStats.some((s) => s.value?.trim()) && (
+          {quickStats.length > 0 && (
             <section className="flex flex-wrap gap-1.5">
               {quickStats.map((s) => (
                 <StatChip key={s.label} label={s.label} value={s.value} />
               ))}
-              {call.communication_quality && (
+              {communicationQuality && (
                 <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px]">
                   <Mic size={11} className="text-slate-400" />
                   <span className="text-slate-400">Comm.</span>
-                  <span className="font-medium capitalize text-slate-700">{call.communication_quality}</span>
+                  <span className="font-medium capitalize text-slate-700">{communicationQuality}</span>
                 </span>
               )}
             </section>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <section className="space-y-2">
-              <h4 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                <Briefcase size={11} />
-                Background
-              </h4>
-              <DetailCard label="Relevant experience" value={call.relevant_experience} />
-              <DetailCard label="Employment status" value={call.employment_status} />
-              <DetailCard label="Location preference" value={call.location_preference} />
-              {call.communication_quality && (
-                <div className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                      Communication
-                    </p>
-                    <span className="text-[11px] font-semibold capitalize text-slate-700">
-                      {call.communication_quality}
-                    </span>
-                  </div>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                    <div
-                      className={`h-full rounded-full ${QUALITY_COLOR[call.communication_quality] ?? 'bg-slate-400'} ${QUALITY_WIDTH[call.communication_quality] ?? 'w-1/2'}`}
-                    />
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <section className="space-y-2">
-              <h4 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                <DollarSign size={11} />
-                Compensation & timing
-              </h4>
-              {(call.current_ctc || call.expected_ctc) && (
-                <div className="grid grid-cols-2 gap-2">
-                  {call.current_ctc && (
-                    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                        Current
-                      </p>
-                      <p className="mt-0.5 text-sm font-bold text-slate-900">{call.current_ctc}</p>
+          {(hasBackground || hasCompensation) && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {hasBackground && (
+                <section className="space-y-2">
+                  <h4 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    <Briefcase size={11} />
+                    Background
+                  </h4>
+                  <DetailCard label="Relevant experience" value={relevantExperience} />
+                  <DetailCard label="Employment status" value={employmentStatus} />
+                  <DetailCard label="Location preference" value={locationPreference} />
+                  {communicationQuality && (
+                    <div className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          Communication
+                        </p>
+                        <span className="text-[11px] font-semibold capitalize text-slate-700">
+                          {communicationQuality}
+                        </span>
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                        <div
+                          className={`h-full rounded-full ${QUALITY_COLOR[communicationQuality] ?? 'bg-slate-400'} ${QUALITY_WIDTH[communicationQuality] ?? 'w-1/2'}`}
+                        />
+                      </div>
                     </div>
                   )}
-                  {call.expected_ctc && (
-                    <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-2.5 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-500">
-                        Expected
-                      </p>
-                      <p className="mt-0.5 text-sm font-bold text-indigo-900">{call.expected_ctc}</p>
+                </section>
+              )}
+
+              {hasCompensation && (
+                <section className="space-y-2">
+                  <h4 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    <DollarSign size={11} />
+                    Compensation & timing
+                  </h4>
+                  {(currentCtc || expectedCtc) && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {currentCtc && (
+                        <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                            Current
+                          </p>
+                          <p className="mt-0.5 text-sm font-bold text-slate-900">{currentCtc}</p>
+                        </div>
+                      )}
+                      {expectedCtc && (
+                        <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-2.5 py-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-500">
+                            Expected
+                          </p>
+                          <p className="mt-0.5 text-sm font-bold text-indigo-900">{expectedCtc}</p>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
+                  <DetailCard label="Availability to join" value={availability} />
+                  <DetailCard label="Notice period" value={noticePeriod} />
+                </section>
               )}
-              <DetailCard label="Availability to join" value={call.availability} />
-              <DetailCard label="Notice period" value={call.notice_period} />
-            </section>
-          </div>
+            </div>
+          )}
 
-          {!hasDetailContent && (
+          {!hasDetailContent && !isGenerating && (
             <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-5 text-center">
               <Mic className="mx-auto mb-1.5 h-6 w-6 text-slate-300" />
               <p className="text-xs font-medium text-slate-600">Limited structured data</p>
@@ -665,7 +705,7 @@ export function ScreeningCallDetails({
             </div>
           )}
 
-          {showActions && (
+          {showActions && !isGenerating && (
             <ScreeningActionBar
               call={call}
               jobId={jobId}

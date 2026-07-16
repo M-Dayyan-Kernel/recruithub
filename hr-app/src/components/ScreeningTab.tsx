@@ -22,6 +22,7 @@ import {
 } from '@/components/screening/screeningRows'
 import {
   formatTimeForInput,
+  isScreeningReportGenerating,
   isWithinCallWindow,
 } from '@/components/screening/screeningUtils'
 import {
@@ -222,6 +223,14 @@ export function ScreeningTab({ jobId }: Props) {
     [rows],
   )
 
+  const generatingReportCount = useMemo(
+    () =>
+      rows.filter(
+        (row) => row.latestCall && isScreeningReportGenerating(row.latestCall),
+      ).length,
+    [rows],
+  )
+
   useEffect(() => {
     if (activeCallIds.length === 0) return
 
@@ -254,6 +263,15 @@ export function ScreeningTab({ jobId }: Props) {
       window.clearInterval(timer)
     }
   }, [activeCallIds, jobId, queryClient])
+
+  // Poll list while GPT screening report is still generating.
+  useEffect(() => {
+    if (generatingReportCount === 0) return
+    const timer = window.setInterval(() => {
+      void queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
+    }, 4000)
+    return () => window.clearInterval(timer)
+  }, [generatingReportCount, jobId, queryClient])
 
   const neverCalledPendingIds = useMemo(
     () =>

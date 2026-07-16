@@ -1033,14 +1033,14 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
                 screening_questions=job.screening_questions,
             )
 
-            screening_call.availability = extracted.get("availability")
-            screening_call.employment_status = extracted.get("employment_status")
-            screening_call.relevant_experience = extracted.get("relevant_experience")
-            screening_call.current_ctc = extracted.get("current_ctc")
-            screening_call.expected_ctc = extracted.get("expected_ctc")
-            screening_call.notice_period = extracted.get("notice_period")
-            screening_call.location_preference = extracted.get("location_preference")
-            screening_call.communication_quality = extracted.get("communication_quality")
+            screening_call.availability = _clean_extracted_str(extracted.get("availability"))
+            screening_call.employment_status = _clean_extracted_str(extracted.get("employment_status"))
+            screening_call.relevant_experience = _clean_extracted_str(extracted.get("relevant_experience"))
+            screening_call.current_ctc = _clean_extracted_str(extracted.get("current_ctc"))
+            screening_call.expected_ctc = _clean_extracted_str(extracted.get("expected_ctc"))
+            screening_call.notice_period = _clean_extracted_str(extracted.get("notice_period"))
+            screening_call.location_preference = _clean_extracted_str(extracted.get("location_preference"))
+            screening_call.communication_quality = _clean_extracted_str(extracted.get("communication_quality"))
             # willingness_to_proceed may be bool or "true"/"false" string from GPT
             wtp = extracted.get("willingness_to_proceed")
             if isinstance(wtp, bool):
@@ -1049,7 +1049,7 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
                 screening_call.willingness_to_proceed = wtp.lower() == "true"
             else:
                 screening_call.willingness_to_proceed = None
-            screening_call.summary = extracted.get("summary")
+            screening_call.summary = _clean_extracted_str(extracted.get("summary"))
             screening_call.result = extracted.get("result", "needs_review")
             screening_call.call_status = "completed"
             screening_call.call_outcome = "completed"
@@ -1183,6 +1183,20 @@ async def _schedule_retry(session, screening_call) -> None:
 # ---------------------------------------------------------------------------
 # GPT-4o extraction helper
 # ---------------------------------------------------------------------------
+
+def _clean_extracted_str(value) -> str | None:
+    """Coerce GPT null-ish string values to None so the UI never shows literal 'null'."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"null", "none", "n/a", "na", "undefined", "-"}:
+        return None
+    return text
+
 
 EXTRACTION_SYSTEM_PROMPT = """You are an expert HR analyst. You will be given a transcript of a phone screening call.
 Extract the following structured information from the conversation. If a field is not mentioned, use null.

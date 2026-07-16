@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { Loader2, Phone, Send } from 'lucide-react'
 import type { ScreeningRow } from '@/components/screening/screeningRows'
 import { ScreeningReportModal } from '@/components/screening/ScreeningReportModal'
+import { displayField, isScreeningReportGenerating } from '@/components/screening/screeningUtils'
 import type { JobOutletContext } from '@/components/JobLayout'
 import { api } from '@/lib/api'
 import {
@@ -36,6 +37,7 @@ function CompletedScreeningRow({
 
   const isRejected = call.result === 'fail'
   const hasSession = Boolean(call.has_interview_session)
+  const isGenerating = isScreeningReportGenerating(call)
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
@@ -73,21 +75,36 @@ function CompletedScreeningRow({
     onError: (err: Error) => toast.error(err.message || 'Failed to start call'),
   })
 
-  const busy = rejectMutation.isPending || scheduleMutation.isPending || recallMutation.isPending
+  const busy =
+    isGenerating ||
+    rejectMutation.isPending ||
+    scheduleMutation.isPending ||
+    recallMutation.isPending
 
   return (
     <tr className="hover:bg-slate-50/80">
       <td className="px-4 py-3 text-sm font-medium text-slate-800">{row.candidateName}</td>
-      <td className="px-4 py-3 text-sm text-slate-600">{call.notice_period?.trim() || '—'}</td>
-      <td className="px-4 py-3 text-sm text-slate-600">{call.expected_ctc?.trim() || '—'}</td>
+      <td className="px-4 py-3 text-sm text-slate-600">
+        {displayField(call.notice_period) ?? '—'}
+      </td>
+      <td className="px-4 py-3 text-sm text-slate-600">
+        {displayField(call.expected_ctc) ?? '—'}
+      </td>
       <td className="px-4 py-3">
-        <button
-          type="button"
-          onClick={() => onOpenReport(row)}
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-indigo-300 hover:text-indigo-600"
-        >
-          Report
-        </button>
+        {isGenerating ? (
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">
+            <Loader2 size={12} className="animate-spin" />
+            Generating…
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onOpenReport(row)}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-indigo-300 hover:text-indigo-600"
+          >
+            Report
+          </button>
+        )}
       </td>
       <td className="px-4 py-3">
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -167,7 +184,8 @@ export function CompletedScreeningList({
         (row) =>
           row.latestCall &&
           row.latestCall.result !== 'fail' &&
-          !row.latestCall.has_interview_session,
+          !row.latestCall.has_interview_session &&
+          !isScreeningReportGenerating(row.latestCall),
       ),
     [rows],
   )
