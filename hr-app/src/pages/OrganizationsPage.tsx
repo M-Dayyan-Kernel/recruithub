@@ -1,8 +1,9 @@
-import { type FormEvent, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Building2,
   Check,
+  Download,
   FileText,
   LogIn,
   Mail,
@@ -43,7 +44,15 @@ function verificationBadge(status: TenantListItem['verification_status'], isActi
   }
 }
 
-async function openGstDocument(tenantId: string, filename?: string | null) {
+interface GstViewerState {
+  tenantId: string
+  filename: string
+  url: string | null
+  loading: boolean
+  error: string | null
+}
+
+async function fetchGstDocumentBlob(tenantId: string): Promise<Blob> {
   const token = getStoredToken()
   const base = api.defaults.baseURL ?? 'http://localhost:8000'
   const response = await axios.get(
@@ -53,14 +62,95 @@ async function openGstDocument(tenantId: string, filename?: string | null) {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     },
   )
-  const url = URL.createObjectURL(response.data)
-  const a = document.createElement('a')
-  a.href = url
-  a.target = '_blank'
-  a.rel = 'noopener noreferrer'
-  a.download = filename || 'gst-document.pdf'
-  a.click()
-  URL.revokeObjectURL(url)
+  return response.data as Blob
+}
+
+function GstDocumentViewer({
+  viewer,
+  onClose,
+}: {
+  viewer: GstViewerState
+  onClose: () => void
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  function downloadCurrent() {
+    if (!viewer.url) return
+    const a = document.createElement('a')
+    a.href = viewer.url
+    a.download = viewer.filename || 'gst-document.pdf'
+    a.click()
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="GST document viewer"
+      onClick={onClose}
+    >
+      <div
+        className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-white">
+              {viewer.filename || 'GST document'}
+            </p>
+            <p className="text-xs text-slate-500">In-app preview</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {viewer.url && (
+              <button
+                type="button"
+                onClick={downloadCurrent}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Download
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
+              aria-label="Close document viewer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="relative min-h-0 flex-1 bg-slate-950">
+          {viewer.loading && (
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-400">
+              Loading document…
+            </div>
+          )}
+          {viewer.error && (
+            <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-red-400">
+              {viewer.error}
+            </div>
+          )}
+          {viewer.url && !viewer.loading && !viewer.error && (
+            <iframe
+              title={viewer.filename || 'GST document'}
+              src={viewer.url}
+              className="h-full w-full border-0"
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export default function OrganizationsPage() {
@@ -80,6 +170,52 @@ export default function OrganizationsPage() {
   const [adminEmail, setAdminEmail] = useState('')
   const [adminName, setAdminName] = useState('')
   const [adminPassword, setAdminPassword] = useState('')
+  const [gstViewer, setGstViewer] = useState<GstViewerState | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (gstViewer?.url) URL.revokeObjectURL(gstViewer.url)
+    }
+  }, [gstViewer?.url])
+
+  async function openGstDocument(tenantId: string, filename?: string | null) {
+    if (gstViewer?.url) URL.revokeObjectURL(gstViewer.url)
+    setGstViewer({
+      tenantId,
+      filename: filename || 'gst-document.pdf',
+      url: null,
+      loading: true,
+      error: null,
+    })
+    try {
+      const blob = await fetchGstDocumentBlob(tenantId)
+      const pdfBlob =
+        blob.type === 'application/pdf'
+          ? blob
+          : new Blob([blob], { type: 'application/pdf' })
+      const url = URL.createObjectURL(pdfBlob)
+      setGstViewer({
+        tenantId,
+        filename: filename || 'gst-document.pdf',
+        url,
+        loading: false,
+        error: null,
+      })
+    } catch (err) {
+      setGstViewer({
+        tenantId,
+        filename: filename || 'gst-document.pdf',
+        url: null,
+        loading: false,
+        error: err instanceof Error ? err.message : 'Could not open GST document',
+      })
+    }
+  }
+
+  function closeGstViewer() {
+    if (gstViewer?.url) URL.revokeObjectURL(gstViewer.url)
+    setGstViewer(null)
+  }
 
   const createMutation = useMutation({
     mutationFn: (payload: TenantCreateRequest) =>
@@ -371,17 +507,11 @@ export default function OrganizationsPage() {
                 {t.has_gst_document && (
                   <button
                     type="button"
-                    onClick={() =>
-                      void openGstDocument(t.id, t.gst_document_filename).catch((err) =>
-                        toast.error(
-                          err instanceof Error ? err.message : 'Could not download GST document',
-                        ),
-                      )
-                    }
+                    onClick={() => void openGstDocument(t.id, t.gst_document_filename)}
                     className="inline-flex items-center gap-1.5 text-teal-400 hover:text-teal-300"
                   >
                     <FileText className="h-3.5 w-3.5" />
-                    {t.gst_document_filename || 'Download GST PDF'}
+                    {t.gst_document_filename || 'View GST PDF'}
                   </button>
                 )}
               </div>
@@ -476,6 +606,10 @@ export default function OrganizationsPage() {
           </div>
         )}
       </div>
+
+      {gstViewer && (
+        <GstDocumentViewer viewer={gstViewer} onClose={closeGstViewer} />
+      )}
     </div>
   )
 }
