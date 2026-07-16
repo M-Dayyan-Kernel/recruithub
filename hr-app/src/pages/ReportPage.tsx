@@ -275,6 +275,35 @@ export default function ReportPage() {
       {/* Report loaded */}
       {report && (
         <div className="space-y-6">
+          {/* Interview recording */}
+          {report.recording_url && (
+            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+              <h2 className="mb-4 inline-flex items-center gap-2 text-base font-semibold text-slate-800">
+                <Video size={18} className="text-indigo-500" />
+                Interview Recording
+              </h2>
+              {report.recording_key?.endsWith('.ogg') ? (
+                <audio
+                  controls
+                  className="w-full"
+                  src={report.recording_url}
+                  preload="metadata"
+                >
+                  Your browser does not support audio playback.
+                </audio>
+              ) : (
+                <video
+                  controls
+                  className="w-full max-h-[32rem] rounded-lg bg-slate-900"
+                  src={report.recording_url}
+                  preload="metadata"
+                >
+                  Your browser does not support video playback.
+                </video>
+              )}
+            </div>
+          )}
+
           {/* Header card — candidate name + job title + recommendation */}
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
             <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -393,35 +422,6 @@ export default function ReportPage() {
                     ))}
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* Interview recording */}
-          {report.recording_url && (
-            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-              <h2 className="mb-4 inline-flex items-center gap-2 text-base font-semibold text-slate-800">
-                <Video size={18} className="text-indigo-500" />
-                Interview Recording
-              </h2>
-              {report.recording_key?.endsWith('.ogg') ? (
-                <audio
-                  controls
-                  className="w-full"
-                  src={report.recording_url}
-                  preload="metadata"
-                >
-                  Your browser does not support audio playback.
-                </audio>
-              ) : (
-                <video
-                  controls
-                  className="w-full max-h-[32rem] rounded-lg bg-slate-900"
-                  src={report.recording_url}
-                  preload="metadata"
-                >
-                  Your browser does not support video playback.
-                </video>
               )}
             </div>
           )}
