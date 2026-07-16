@@ -436,6 +436,7 @@ class InterviewSessionResponse(BaseModel):
     scheduled_interview_at: Optional[datetime] = None
     created_at: datetime
     egress_id: Optional[str] = None  # LiveKit egress recording ID
+    recording_key: Optional[str] = None  # S3 object key for egress recording
     expires_at: Optional[datetime] = None  # Link expiry timestamp
     # Enriched fields (not stored on the model — set in route handlers)
     interview_url: Optional[str] = None
@@ -560,6 +561,9 @@ class InterviewReportResponse(BaseModel):
     question_scores: Optional[List[InterviewQuestionScore]] = None
     rubric_total: Optional[int] = None
     transcript: Optional[str] = None
+    # Presigned Linode/S3 URL for LiveKit egress recording (short-lived; not stored)
+    recording_url: Optional[str] = None
+    recording_key: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

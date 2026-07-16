@@ -478,17 +478,18 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
 
     # Create LiveKit room + dispatch agent + start recording
     egress_id: Optional[str] = None
+    recording_key: Optional[str] = None
     try:
-        _, egress_id = await create_room(room_name, integrations)
+        _, egress_id, recording_key = await create_room(room_name, integrations)
     except Exception as exc:
         logger.error("Failed to create LiveKit room %s: %s", room_name, exc)
         raise HTTPException(status_code=502, detail=f"Failed to create interview room: {exc}")
 
-    if egress_id:
+    if egress_id or recording_key:
         await db.execute(
             update(InterviewSession)
             .where(InterviewSession.id == session.id)
-            .values(egress_id=egress_id)
+            .values(egress_id=egress_id, recording_key=recording_key)
         )
         await db.commit()
 
@@ -630,7 +631,20 @@ async def complete_interview(token: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Interview session not found")
 
     if session.status == "completed":
-        # Idempotent — already completed, don't re-queue
+        from app.models.models import InterviewReport
+        from app.tasks.interview_tasks import enqueue_interview_assessment
+
+        report_result = await db.execute(
+            select(InterviewReport).where(
+                InterviewReport.interview_session_id == session.id
+            )
+        )
+        if not report_result.scalars().first():
+            enqueue_interview_assessment(str(session.id))
+            return {
+                "message": "Interview already complete — assessment (re)scheduled.",
+                "session_id": str(session.id),
+            }
         return {"message": "Interview already marked complete", "session_id": str(session.id)}
 
     if session.status not in ("pending", "in_progress"):
@@ -652,6 +666,8 @@ async def complete_interview(token: str, db: AsyncSession = Depends(get_db)):
 
     await db.commit()
 
+    from app.tasks.interview_tasks import enqueue_interview_assessment
+
     if mock_livekit_enabled():
         from app.tasks.interview_tasks import generate_interview_report
 
@@ -665,14 +681,15 @@ async def complete_interview(token: str, db: AsyncSession = Depends(get_db)):
             "session_id": str(session.id),
         }
 
-    # NOTE: assessment is triggered by the interview agent AFTER it saves the transcript
-    # (avoids race condition where assessment ran before transcript was written to DB)
+    # Schedule assessment with retries — waits for agent to save transcript, does not block on agent.
+    enqueue_interview_assessment(str(session.id))
     logger.info(
-        "Interview completed: session=%s — waiting for agent to save transcript + trigger assessment", session.id
+        "Interview completed: session=%s — assessment scheduled (agent-independent)",
+        session.id,
     )
 
     return {
-        "message": "Interview marked complete. Assessment will be generated after transcript is saved.",
+        "message": "Interview marked complete. Assessment is being generated.",
         "session_id": str(session.id),
     }
 
@@ -689,8 +706,6 @@ async def livekit_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     Handles 'room_finished' event: if the session is still in_progress,
     mark it complete and trigger assessment.
     """
-    from app.tasks.interview_tasks import generate_interview_report
-
     try:
         body: Dict[str, Any] = await request.json()
     except Exception:
@@ -704,24 +719,35 @@ async def livekit_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     logger.info("LiveKit webhook received: event=%s room=%s", event, room_name)
 
     if event == "room_finished" and room_name:
-        # Find session by livekit_room_name
+        from app.models.models import InterviewReport
+
+        # Find session — may already be "completed" if candidate called /complete first
         result = await db.execute(
             select(InterviewSession).where(
                 InterviewSession.livekit_room_name == room_name,
-                InterviewSession.status == "in_progress",
+                InterviewSession.status.in_(["in_progress", "completed"]),
             )
         )
         session = result.scalars().first()
 
         if session:
-            session.status = "completed"
-            session.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if session.status == "in_progress":
+                session.status = "completed"
+                session.completed_at = datetime.now(timezone.utc)
+                await db.commit()
 
-            generate_interview_report.delay(str(session.id))
+            report_result = await db.execute(
+                select(InterviewReport).where(
+                    InterviewReport.interview_session_id == session.id
+                )
+            )
+            if not report_result.scalars().first():
+                from app.tasks.interview_tasks import enqueue_interview_assessment
+
+                enqueue_interview_assessment(str(session.id))
 
             logger.info(
-                "livekit_webhook: room_finished — session=%s completed and assessment enqueued",
+                "livekit_webhook: room_finished — session=%s assessment scheduled",
                 session.id,
             )
         else:
@@ -809,6 +835,15 @@ async def get_interview_report(
                 report_dict["question_scores"] = raw.get("question_scores")
                 report_dict["rubric_total"] = raw.get("rubric_total")
             report_dict["transcript"] = session.transcript if session else None
+
+    # Presigned playback URL for LiveKit egress recording (if uploaded to S3)
+    recording_key = session.recording_key if session else None
+    report_dict["recording_key"] = recording_key
+    report_dict["recording_url"] = None
+    if recording_key:
+        from app.services.s3_service import generate_presigned_get_url
+
+        report_dict["recording_url"] = generate_presigned_get_url(recording_key)
 
     return InterviewReportResponse.model_validate(report_dict)
 

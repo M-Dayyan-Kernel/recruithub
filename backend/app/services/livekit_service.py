@@ -13,6 +13,8 @@ import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from app.core.config import settings
+
 if TYPE_CHECKING:
     from app.services.tenant_integrations_service import TenantIntegrations
 
@@ -34,21 +36,30 @@ def _livekit_credentials(integrations: "TenantIntegrations") -> tuple[str, str, 
     )
 
 
+def _s3_configured() -> bool:
+    return bool(
+        settings.S3_BUCKET
+        and settings.S3_ACCESS_KEY
+        and settings.S3_SECRET_KEY
+        and settings.S3_ENDPOINT
+    )
+
+
 async def create_room(
     room_name: str,
     integrations: "TenantIntegrations",
-) -> tuple[str, str | None]:
+) -> tuple[str, str | None, str | None]:
     """
     Create a LiveKit room, dispatch the AI agent, and start egress recording.
 
-    Returns (room_name, egress_id). egress_id is None if recording could not
-    be started (e.g. egress not configured on this LiveKit project).
+    Returns (room_name, egress_id, recording_key). egress_id / recording_key
+    are None if recording could not be started (e.g. egress not configured).
     """
     from app.services.mock_external import mock_livekit_enabled, log_mock_usage
 
     if mock_livekit_enabled():
         log_mock_usage("livekit", f"create_room({room_name})")
-        return room_name, None
+        return room_name, None, None
 
     from livekit import api
 
@@ -83,25 +94,47 @@ async def create_room(
             logger.warning("Agent dispatch failed (agent may auto-join): %s", exc)
 
         # Start composite egress recording for the room.
-        # Recordings are saved as MP4 in the configured S3/storage bucket.
-        # This will fail gracefully if egress is not enabled on this LiveKit
-        # Cloud project or no storage bucket is configured.
+        # When S3_* is configured, upload to Linode Object Storage (S3-compatible).
+        # Otherwise attempt egress without an explicit s3 target (LiveKit project default).
         egress_id: str | None = None
+        recording_key: str | None = None
+        filepath = f"recordings/interview-{room_name}.mp4"
         try:
+            file_output_kwargs: dict = {
+                "file_type": api.EncodedFileType.MP4,
+                "filepath": filepath,
+            }
+            if _s3_configured():
+                file_output_kwargs["s3"] = api.S3Upload(
+                    access_key=settings.S3_ACCESS_KEY,
+                    secret=settings.S3_SECRET_KEY,
+                    region=settings.S3_REGION,
+                    endpoint=settings.S3_ENDPOINT,
+                    bucket=settings.S3_BUCKET,
+                    force_path_style=settings.S3_FORCE_PATH_STYLE,
+                )
+            else:
+                logger.warning(
+                    "S3 storage not fully configured — starting egress without "
+                    "explicit Linode upload target (set S3_BUCKET/S3_ACCESS_KEY/"
+                    "S3_SECRET_KEY/S3_ENDPOINT)"
+                )
+
             egress = await lkapi.egress.start_room_composite_egress(
                 api.RoomCompositeEgressRequest(
                     room_name=room_name,
                     layout="speaker",
-                    file_outputs=[
-                        api.EncodedFileOutput(
-                            file_type=api.EncodedFileType.OGG,
-                            filepath=f"recordings/interview-{room_name}.ogg",
-                        )
-                    ],
+                    file_outputs=[api.EncodedFileOutput(**file_output_kwargs)],
                 )
             )
             egress_id = egress.egress_id
-            logger.info("Recording started for room %s: egress_id=%s", room_name, egress_id)
+            recording_key = filepath
+            logger.info(
+                "Recording started for room %s: egress_id=%s recording_key=%s",
+                room_name,
+                egress_id,
+                recording_key,
+            )
         except Exception as exc:
             logger.warning(
                 "Could not start recording for room %s "
@@ -109,7 +142,7 @@ async def create_room(
                 room_name, exc,
             )
 
-        return room.name, egress_id
+        return room.name, egress_id, recording_key
     finally:
         await lkapi.aclose()
 

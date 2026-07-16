@@ -22,6 +22,107 @@ from app.core.database import get_celery_db
 
 logger = logging.getLogger(__name__)
 
+# Retry assessment until transcript is saved (agent may finish after /complete)
+ASSESSMENT_RETRY_DELAY_SEC = 15
+ASSESSMENT_MAX_ATTEMPTS = 12  # ~3 minutes
+
+
+def enqueue_interview_assessment(interview_session_id: str) -> None:
+    """Schedule assessment with retries — does not depend on the interview agent."""
+    schedule_interview_assessment.delay(str(interview_session_id))
+
+
+@celery_app.task(name="tasks.schedule_interview_assessment")
+def schedule_interview_assessment(interview_session_id: str, attempt: int = 0):
+    """
+    Wait for transcript (saved by interview agent), then run generate_interview_report.
+    Retries every ASSESSMENT_RETRY_DELAY_SEC until transcript exists or max attempts.
+    """
+    try:
+        should_retry = asyncio.run(
+            _async_maybe_start_assessment(interview_session_id, attempt)
+        )
+        if should_retry:
+            schedule_interview_assessment.apply_async(
+                args=[interview_session_id, attempt + 1],
+                countdown=ASSESSMENT_RETRY_DELAY_SEC,
+            )
+    except Exception as exc:
+        logger.error(
+            "schedule_interview_assessment failed for session %s (attempt %s): %s",
+            interview_session_id,
+            attempt,
+            exc,
+        )
+        if attempt < ASSESSMENT_MAX_ATTEMPTS:
+            schedule_interview_assessment.apply_async(
+                args=[interview_session_id, attempt + 1],
+                countdown=ASSESSMENT_RETRY_DELAY_SEC,
+            )
+
+
+async def _async_maybe_start_assessment(interview_session_id: str, attempt: int) -> bool:
+    """Return True to schedule another retry."""
+    from app.models.models import InterviewSession, InterviewReport
+    from app.services.assessment_service import MIN_TRANSCRIPT_LENGTH
+
+    session_uuid = uuid.UUID(interview_session_id)
+
+    async with get_celery_db() as db:
+        session_result = await db.execute(
+            select(InterviewSession).where(InterviewSession.id == session_uuid)
+        )
+        interview_session = session_result.scalars().first()
+        if not interview_session:
+            logger.warning(
+                "schedule_interview_assessment: session %s not found",
+                interview_session_id,
+            )
+            return False
+
+        report_result = await db.execute(
+            select(InterviewReport).where(
+                InterviewReport.interview_session_id == session_uuid
+            )
+        )
+        if report_result.scalars().first():
+            logger.info(
+                "schedule_interview_assessment: report already exists for session %s",
+                interview_session_id,
+            )
+            return False
+
+        if interview_session.status not in ("completed", "assessed", "assessment_failed"):
+            if attempt >= ASSESSMENT_MAX_ATTEMPTS:
+                logger.warning(
+                    "schedule_interview_assessment: session %s never completed — forcing assessment",
+                    interview_session_id,
+                )
+                generate_interview_report.delay(interview_session_id)
+                return False
+            return True
+
+        transcript = (interview_session.transcript or "").strip()
+        has_transcript = len(transcript) >= MIN_TRANSCRIPT_LENGTH
+
+        if has_transcript or attempt >= ASSESSMENT_MAX_ATTEMPTS:
+            logger.info(
+                "schedule_interview_assessment: starting report for session %s "
+                "(attempt=%s, transcript_chars=%d)",
+                interview_session_id,
+                attempt,
+                len(transcript),
+            )
+            generate_interview_report.delay(interview_session_id)
+            return False
+
+        logger.info(
+            "schedule_interview_assessment: waiting for transcript session=%s attempt=%s",
+            interview_session_id,
+            attempt,
+        )
+        return True
+
 
 @celery_app.task(name="tasks.generate_interview_report", bind=True, max_retries=2)
 def generate_interview_report(self, interview_session_id: str):

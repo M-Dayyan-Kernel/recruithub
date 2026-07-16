@@ -540,7 +540,11 @@ export function InterviewsTab({ job, jobId }: Props) {
         `/api/jobs/${jobId}/interviews/pipeline?tab=${activeTab}`,
       ) as unknown as Promise<InterviewPipelineResponse>,
     enabled: !!jobId,
-    refetchInterval: 15000,
+    refetchInterval: (query) => {
+      const rows = query.state.data?.candidates ?? []
+      const generating = rows.some((r) => r.assessment_status === 'generating')
+      return generating ? 4000 : 15000
+    },
   })
 
   const { data: finalistsData } = useQuery<FinalistsResponse>({

@@ -305,16 +305,18 @@ def _merge_rubric_scores(rubric: list[dict], gpt_scores: list[dict]) -> tuple[li
 async def _run_gpt_assessment(system_prompt: str, user_content: str, api_key: str) -> dict:
     import openai
 
+    from app.core.config import settings
+
     client = openai.AsyncOpenAI(api_key=api_key)
     response = await client.chat.completions.create(
-        model="gpt-4o",
+        model=settings.INTERVIEW_ASSESSMENT_MODEL,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ],
         response_format={"type": "json_object"},
         temperature=0,
-        max_tokens=3500,
+        max_tokens=2500,
     )
     return json.loads(response.choices[0].message.content)
 

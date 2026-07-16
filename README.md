@@ -99,6 +99,12 @@ See `.env.example` for all required variables.
 | `LIVEKIT_API_KEY` | Sprint 6+ | LiveKit Cloud |
 | `LIVEKIT_API_SECRET` | Sprint 6+ | LiveKit Cloud |
 | `LIVEKIT_URL` | Sprint 6+ | wss://your-project.livekit.cloud |
+| `S3_ACCESS_KEY` | Sprint 6+ | Linode Object Storage (egress recordings) |
+| `S3_SECRET_KEY` | Sprint 6+ | Linode Object Storage |
+| `S3_ENDPOINT` | Sprint 6+ | e.g. `https://in-maa-1.linodeobjects.com` |
+| `S3_REGION` | Sprint 6+ | e.g. `in-maa-1` |
+| `S3_BUCKET` | Sprint 6+ | Bucket for interview recordings |
+| `S3_FORCE_PATH_STYLE` | Sprint 6+ | `true` for Linode |
 | `RESEND_API_KEY` | Sprint 6+ | Interview link emails |
 
 ---

@@ -237,6 +237,7 @@ class InterviewSession(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     transcript: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     egress_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # LiveKit egress recording ID
+    recording_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)  # S3 object key for egress recording
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)  # Link expiry (7 days from send)
     scheduled_interview_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     rescheduled_from_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(

@@ -2,7 +2,7 @@ import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { ArrowLeft, AlertCircle, Check, Download, Loader2, MessageSquareText, X } from 'lucide-react'
+import { ArrowLeft, AlertCircle, Check, Download, Loader2, MessageSquareText, Video, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { InterviewReport, InterviewQuestionScore } from '@/types/api'
 import { downloadInterviewReportPdf } from '@/lib/interviewReportPdf'
@@ -393,6 +393,35 @@ export default function ReportPage() {
                     ))}
                   </div>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Interview recording */}
+          {report.recording_url && (
+            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+              <h2 className="mb-4 inline-flex items-center gap-2 text-base font-semibold text-slate-800">
+                <Video size={18} className="text-indigo-500" />
+                Interview Recording
+              </h2>
+              {report.recording_key?.endsWith('.ogg') ? (
+                <audio
+                  controls
+                  className="w-full"
+                  src={report.recording_url}
+                  preload="metadata"
+                >
+                  Your browser does not support audio playback.
+                </audio>
+              ) : (
+                <video
+                  controls
+                  className="w-full max-h-[32rem] rounded-lg bg-slate-900"
+                  src={report.recording_url}
+                  preload="metadata"
+                >
+                  Your browser does not support video playback.
+                </video>
               )}
             </div>
           )}

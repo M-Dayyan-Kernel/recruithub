@@ -26,4 +26,5 @@ dependencies = [
     "sqlalchemy[asyncio]==2.0.31",
     "uvicorn[standard]==0.30.1",
     "jose>=1.0.0",
+    "boto3>=1.43.49",
 ]

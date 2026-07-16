@@ -275,6 +275,8 @@ export interface InterviewReport {
   summary?: string
   transcript_summary?: string
   transcript?: string | null
+  recording_url?: string | null
+  recording_key?: string | null
   candidate_name?: string | null
   job_title?: string | null
   created_at: string

@@ -35,7 +35,6 @@ from livekit.agents import (
     JobContext,
     TurnHandlingOptions,
     cli,
-    inference,
     room_io,
 )
 from livekit.plugins import openai as lk_openai
@@ -63,6 +62,29 @@ except ImportError:
 AGENT_NAME = "interview-agent"
 MAX_FOLLOW_UPS_PER_TOPIC = 2
 THIN_ANSWER_WORD_LIMIT = 25
+
+
+def _validate_agent_env() -> None:
+    """Fail fast with a clear message when required env vars are missing."""
+    missing = [
+        name
+        for name in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "OPENAI_API_KEY")
+        if not (os.environ.get(name) or "").strip()
+    ]
+    if missing:
+        raise RuntimeError(
+            "Interview agent cannot start — set in backend/.env: "
+            + ", ".join(missing)
+            + ". Then run: python interview_agent.py dev"
+        )
+
+
+def _validate_agent_env_on_startup() -> None:
+    try:
+        _validate_agent_env()
+    except RuntimeError as exc:
+        logger.error(str(exc))
+        raise SystemExit(1) from exc
 
 
 def _is_thin_answer(text: str) -> bool:
@@ -274,6 +296,23 @@ async def _save_transcript(session_id: str, transcript: str) -> None:
         logger.error("Failed to save transcript: %s", exc)
 
 
+async def _finalize_session(session_id: str, transcript_lines: list[str]) -> None:
+    """Save transcript and schedule assessment (idempotent via Celery)."""
+    if not session_id:
+        return
+    if transcript_lines:
+        await _save_transcript(session_id, "\n".join(transcript_lines))
+    try:
+        import sys
+        sys.path.insert(0, os.path.dirname(__file__))
+        from app.tasks.interview_tasks import enqueue_interview_assessment
+
+        enqueue_interview_assessment(session_id)
+        logger.info("Assessment scheduled for session=%s", session_id)
+    except Exception as exc:
+        logger.error("Failed to schedule assessment for session=%s: %s", session_id, exc)
+
+
 # ---------------------------------------------------------------------------
 # AgentServer setup — correct pattern from official LiveKit docs
 # ---------------------------------------------------------------------------
@@ -290,129 +329,6 @@ async def interview_session(ctx: JobContext):
 
     logger.info("Interview agent dispatched: room=%s session_id=%s", room_name, session_id)
 
-    # Load candidate/job data from DB
-    system_prompt, candidate_name, greeting = (
-        await _load_session_data(session_id) if session_id
-        else (_default_prompt(), "Candidate", "Hello! I am your AI interviewer. Let us begin.")
-    )
-
-    logger.info("Starting interview for candidate=%s", candidate_name)
-
-    openai_key = os.environ.get("OPENAI_API_KEY", "")
-
-    # Create agent with instructions + per-turn follow-up coaching
-    class InterviewAgent(Agent):
-        def __init__(self):
-            super().__init__(
-                instructions=system_prompt,
-                llm=lk_openai.LLM(model="gpt-4o", api_key=openai_key),
-            )
-            self._follow_ups_this_topic = 0
-
-        async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
-            text = (getattr(new_message, "text_content", None) or "").strip()
-            if not text:
-                return
-
-            created_at = getattr(new_message, "created_at", None)
-            ts = (created_at - 0.001) if isinstance(created_at, (int, float)) else None
-
-            if _is_thin_answer(text) and self._follow_ups_this_topic < MAX_FOLLOW_UPS_PER_TOPIC:
-                self._follow_ups_this_topic += 1
-                turn_ctx.add_message(
-                    role="assistant",
-                    content=(
-                        "[Turn guidance] The candidate's last answer was thin or vague. "
-                        "Ask ONE short probing follow-up grounded in what they just said "
-                        "(specific example, their role, metrics, or trade-offs). "
-                        "Do not repeat the original question verbatim."
-                    ),
-                    created_at=ts,
-                )
-            elif _is_thin_answer(text):
-                self._follow_ups_this_topic = 0
-                turn_ctx.add_message(
-                    role="assistant",
-                    content=(
-                        "[Turn guidance] You have already probed this topic enough. "
-                        "Acknowledge briefly and move to the next interview question."
-                    ),
-                    created_at=ts,
-                )
-            else:
-                self._follow_ups_this_topic = 0
-                turn_ctx.add_message(
-                    role="assistant",
-                    content=(
-                        "[Turn guidance] The candidate gave a substantive answer. "
-                        "Acknowledge briefly, then advance to the next topic or rubric question."
-                    ),
-                    created_at=ts,
-                )
-
-    # ---------------------------------------------------------------------------
-    # Noise cancellation — build AudioInputOptions with ai_coustics enhancer.
-    # The enhancer runs locally using the ROOK_S model (smallest, lowest latency).
-    # Auth is optional; without AIC_API_KEY it operates in offline/trial mode.
-    # If the plugin is unavailable, auto_gain_control still provides basic cleanup.
-    # ---------------------------------------------------------------------------
-    noise_cancel = None
-    if _AIC_AVAILABLE:
-        try:
-            aic_api_key = os.environ.get("AIC_API_KEY")
-            aic_auth = (
-                ai_coustics.Auth(api_key=aic_api_key)
-                if aic_api_key
-                else None
-            )
-            noise_cancel = ai_coustics.AICousticsAudioEnhancer(
-                model=ai_coustics.EnhancerModel.ROOK_S,  # smallest/fastest
-                vad_settings=ai_coustics.VadSettings(
-                    speech_hold_duration=None,
-                    sensitivity=None,
-                    minimum_speech_duration=None,
-                ),
-                auth=aic_auth,
-            )
-            logger.info("ai_coustics noise cancellation enabled (model=ROOK_S, auth=%s)",
-                        "api_key" if aic_api_key else "offline/trial")
-        except Exception as exc:
-            logger.warning("Could not initialise ai_coustics enhancer: %s — proceeding without noise cancellation", exc)
-            noise_cancel = None
-
-    audio_input_opts = room_io.AudioInputOptions(
-        noise_cancellation=noise_cancel,  # None = AGC only if ai_coustics unavailable
-        auto_gain_control=True,
-    )
-
-    # ---------------------------------------------------------------------------
-    # Build session with STT + TTS pipeline + turn detection tuned for
-    # Indian English (TurnDetector uses a local ML model — no extra latency).
-    # preemptive_generation=True starts drafting the reply while the candidate
-    # is still finishing their sentence, reducing perceived response time.
-    # ---------------------------------------------------------------------------
-    session = AgentSession(
-        stt=lk_openai.STT(model="whisper-1", api_key=openai_key),
-        tts=lk_openai.TTS(model="tts-1", voice="nova", api_key=openai_key),
-        turn_handling=TurnHandlingOptions(
-            turn_detection=inference.TurnDetector(),
-        ),
-        preemptive_generation=True,
-    )
-
-    # Start the session (BEFORE ctx.connect() — per official pattern)
-    await session.start(
-        agent=InterviewAgent(),
-        room=ctx.room,
-        room_options=room_io.RoomOptions(
-            audio_input=audio_input_opts,
-        ),
-    )
-
-    # Connect to the room — framework manages lifecycle after this
-    await ctx.connect()
-
-    # Capture transcript in real-time via conversation_item_added event
     transcript_lines: list[str] = []
 
     def _on_conversation_item(event) -> None:
@@ -421,7 +337,6 @@ async def interview_session(ctx: JobContext):
             role = getattr(msg, 'role', 'unknown')
             text = getattr(msg, 'text_content', None) or ''
             if not text:
-                # fallback: check content list
                 content = getattr(msg, 'content', None)
                 if isinstance(content, list):
                     text = ' '.join(
@@ -437,45 +352,133 @@ async def interview_session(ctx: JobContext):
         except Exception as exc:
             logger.warning('Could not capture transcript item: %s', exc)
 
-    session.on('conversation_item_added', _on_conversation_item)
-
-    # Greet the candidate using generate_reply() — flows through normal conversation
-    # pipeline so interruptions resume properly, unlike session.say() which is raw injection.
-    await session.generate_reply(
-        instructions=f"Start the interview now. Begin with this exact greeting: '{greeting}'"
-    )
-
-    logger.info("Greeting initiated for candidate=%s", candidate_name)
-
-    # Keep agent alive until the room closes naturally
-    room_closed = asyncio.Event()
-
-    def _on_disconnected(*args):
-        room_closed.set()
-
-    ctx.room.on('disconnected', _on_disconnected)
-
     try:
-        await room_closed.wait()
-    except asyncio.CancelledError:
-        pass
-    finally:
-        ctx.room.off('disconnected', _on_disconnected)
-        session.off('conversation_item_added', _on_conversation_item)
+        # Load candidate/job data from DB
+        system_prompt, candidate_name, greeting = (
+            await _load_session_data(session_id) if session_id
+            else (_default_prompt(), "Candidate", "Hello! I am your AI interviewer. Let us begin.")
+        )
 
-    logger.info('Room closed — transcript has %d lines for session=%s', len(transcript_lines), session_id)
+        logger.info("Starting interview for candidate=%s", candidate_name)
 
-    if session_id and transcript_lines:
-        await _save_transcript(session_id, '\n'.join(transcript_lines))
-        # Trigger assessment AFTER transcript is saved (fixes race condition)
+        openai_key = os.environ.get("OPENAI_API_KEY", "")
+        if not openai_key.strip():
+            raise RuntimeError("OPENAI_API_KEY is not set — interview agent cannot run STT/TTS/LLM")
+
+        # Create agent — follow-up coaching is in system_prompt (on_user_turn_completed
+        # injected assistant messages were blocking the reply pipeline after greeting).
+        class InterviewAgent(Agent):
+            def __init__(self):
+                super().__init__(
+                    instructions=system_prompt,
+                    llm=lk_openai.LLM(model="gpt-4o-mini", api_key=openai_key),
+                )
+
+        # ---------------------------------------------------------------------------
+        # Noise cancellation — build AudioInputOptions with ai_coustics enhancer.
+        # ---------------------------------------------------------------------------
+        noise_cancel = None
+        if _AIC_AVAILABLE:
+            try:
+                aic_api_key = os.environ.get("AIC_API_KEY")
+                aic_auth = (
+                    ai_coustics.Auth(api_key=aic_api_key)
+                    if aic_api_key
+                    else None
+                )
+                noise_cancel = ai_coustics.AICousticsAudioEnhancer(
+                    model=ai_coustics.EnhancerModel.ROOK_S,
+                    vad_settings=ai_coustics.VadSettings(
+                        speech_hold_duration=None,
+                        sensitivity=None,
+                        minimum_speech_duration=None,
+                    ),
+                    auth=aic_auth,
+                )
+                logger.info("ai_coustics noise cancellation enabled (model=ROOK_S, auth=%s)",
+                            "api_key" if aic_api_key else "offline/trial")
+            except Exception as exc:
+                logger.warning("Could not initialise ai_coustics enhancer: %s — proceeding without noise cancellation", exc)
+                noise_cancel = None
+
+        audio_input_opts = room_io.AudioInputOptions(
+            noise_cancellation=noise_cancel,
+            auto_gain_control=True,
+            pre_connect_audio=True,
+            pre_connect_audio_timeout=30.0,
+        )
+
+        # Realtime STT with server VAD — whisper-1 batch mode often stalls after greeting.
+        session = AgentSession(
+            stt=lk_openai.STT(
+                model="gpt-4o-mini-transcribe",
+                use_realtime=True,
+                api_key=openai_key,
+            ),
+            tts=lk_openai.TTS(model="tts-1", voice="nova", api_key=openai_key),
+            turn_handling=TurnHandlingOptions(
+                endpointing={"min_delay": 0.5},
+                preemptive_generation={"preemptive_tts": True},
+                interruption={"enabled": True},
+            ),
+        )
+
+        await session.start(
+            agent=InterviewAgent(),
+            room=ctx.room,
+            room_options=room_io.RoomOptions(
+                audio_input=audio_input_opts,
+            ),
+        )
+
+        await ctx.connect()
+
+        session.on('conversation_item_added', _on_conversation_item)
+
+        def _on_user_transcribed(ev) -> None:
+            text = getattr(ev, "transcript", "") or ""
+            if text.strip():
+                logger.info(
+                    "Candidate speech transcribed (final=%s): %s",
+                    getattr(ev, "is_final", False),
+                    text.strip()[:120],
+                )
+
+        session.on('user_input_transcribed', _on_user_transcribed)
+
+        await session.generate_reply(
+            instructions=f"Start the interview now. Begin with this exact greeting: '{greeting}'"
+        )
+        await session.wait_for_idle()
+
+        logger.info("Greeting completed — listening for candidate=%s", candidate_name)
+
+        room_closed = asyncio.Event()
+
+        def _on_disconnected(*args):
+            room_closed.set()
+
+        ctx.room.on('disconnected', _on_disconnected)
+
         try:
-            import sys
-            sys.path.insert(0, os.path.dirname(__file__))
-            from app.tasks.interview_tasks import generate_interview_report
-            generate_interview_report.delay(session_id)
-            logger.info('Assessment task enqueued for session=%s', session_id)
-        except Exception as exc:
-            logger.error('Failed to enqueue assessment task: %s', exc)
+            await room_closed.wait()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            ctx.room.off('disconnected', _on_disconnected)
+            session.off('conversation_item_added', _on_conversation_item)
+            session.off('user_input_transcribed', _on_user_transcribed)
+
+    except Exception as exc:
+        logger.exception("Interview agent session error room=%s: %s", room_name, exc)
+        raise
+    finally:
+        logger.info(
+            'Room closed — transcript has %d lines for session=%s',
+            len(transcript_lines),
+            session_id,
+        )
+        await _finalize_session(session_id, transcript_lines)
 
 
 # ---------------------------------------------------------------------------
@@ -483,4 +486,5 @@ async def interview_session(ctx: JobContext):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    _validate_agent_env_on_startup()
     cli.run_app(server)

@@ -21,6 +21,18 @@ class Settings(BaseSettings):
     LIVEKIT_API_KEY: str = ""
     LIVEKIT_API_SECRET: str = ""
     LIVEKIT_URL: str = ""
+
+    # Interview assessment (GPT) — gpt-4o-mini is faster; use gpt-4o for higher quality
+    INTERVIEW_ASSESSMENT_MODEL: str = "gpt-4o-mini"
+
+    # Linode Object Storage (S3-compatible) — LiveKit egress recording uploads
+    S3_ACCESS_KEY: str = ""
+    S3_SECRET_KEY: str = ""
+    S3_ENDPOINT: str = "https://in-maa-1.linodeobjects.com"
+    S3_REGION: str = "in-maa-1"
+    S3_BUCKET: str = ""
+    S3_FORCE_PATH_STYLE: bool = True
+
     CANDIDATE_APP_URL: str = "http://localhost:5174"
     HR_APP_URL: str = "http://localhost:5173"
 
