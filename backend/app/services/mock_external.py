@@ -6,10 +6,8 @@ Enable with MOCK_EXTERNAL_APIS=true in backend/.env (or granular flags below).
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
-import math
 import uuid
 from datetime import datetime, timezone
 
@@ -60,25 +58,6 @@ def active_mock_services() -> list[str]:
 
 def log_mock_usage(service: str, action: str) -> None:
     logger.info("[MOCK %s] %s — no external API call made", service.upper(), action)
-
-
-def mock_embedding(text: str) -> list[float]:
-    """Deterministic 1536-dim vector from input text (same text → same vector)."""
-    log_mock_usage("openai", "text-embedding-3-small")
-    digest = hashlib.sha256(text.encode("utf-8")).digest()
-    values: list[float] = []
-    while len(values) < 1536:
-        for i in range(0, len(digest), 4):
-            chunk = digest[i : i + 4]
-            if len(chunk) < 4:
-                break
-            n = int.from_bytes(chunk, "big") / 2**32
-            values.append(n * 2 - 1)
-            if len(values) >= 1536:
-                break
-        digest = hashlib.sha256(digest).digest()
-    mag = math.sqrt(sum(v * v for v in values)) or 1.0
-    return [v / mag for v in values]
 
 
 def mock_resume_parse(raw_text: str) -> dict:
@@ -147,11 +126,10 @@ def mock_jd_parse(raw_text: str) -> dict:
     }
 
 
-def mock_shortlist_assessment(similarity: float = 0.0) -> tuple[float, str, list[str], list[str], str]:
+def mock_shortlist_assessment() -> tuple[float, str, list[str], list[str], str]:
     log_mock_usage("openai", "shortlist assessment (gpt-4o)")
-    score = max(55.0, min(88.0, round(similarity * 100, 1) + 62))
     return (
-        score,
+        72.0,
         "shortlisted",
         ["Relevant stack experience", "Reasonable tenure in similar roles"],
         ["Limited domain exposure (mock assessment)"],

@@ -7,7 +7,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship, mapped_column, Mapped
 from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSON
-from pgvector.sqlalchemy import Vector
 
 from app.core.database import Base
 
@@ -130,7 +129,6 @@ class Candidate(Base):
     original_filename: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Original upload filename — used for dedup check
     resume_raw_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     parsed_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    resume_embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(1536), nullable=True)
     parse_status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending_parse")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

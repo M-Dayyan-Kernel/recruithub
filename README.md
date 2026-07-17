@@ -22,7 +22,7 @@ docker compose up -d
 ```
 
 This starts:
-- **PostgreSQL 15** with pgvector extension on port 5432
+- **PostgreSQL 15** on port 5432
 - **Redis 7** on port 6379
 
 Health checks are configured. Wait ~15 seconds for both services to be ready.
@@ -63,7 +63,7 @@ cp .env.example .env
 alembic upgrade head
 ```
 
-This creates all 6 tables including the pgvector column on `candidates`.
+This creates all application tables.
 
 ### 4. Start the API Server
 
@@ -136,7 +136,7 @@ backend/
 │   ├── env.py               # Async Alembic env configuration
 │   ├── script.py.mako       # Migration file template
 │   └── versions/
-│       └── 0001_initial_schema.py  # All 6 tables + pgvector
+│       └── 0001_initial_schema.py  # Initial tables
 ├── alembic.ini
 ├── requirements.txt
 └── .env.example
@@ -149,4 +149,3 @@ backend/
 - **Authentication** — JWT email/password for the HR App. Roles: `admin` (Settings + Users) and `hr` (hiring pipeline + archive). Candidate App still uses UUID interview tokens.
 - Set `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` in `.env` to create the first admin on startup.
 - Route handlers in `api/routes/` are stubbed with `501 Not Implemented`. They get filled sprint by sprint.
-- The pgvector column `resume_embedding` uses `text-embedding-3-small` (1536 dimensions).

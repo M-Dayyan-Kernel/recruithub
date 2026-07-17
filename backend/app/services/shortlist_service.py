@@ -1,7 +1,7 @@
 """
 Shortlist Service — Sprint 4
 
-Cosine similarity + GPT-4o structured assessment for candidate shortlisting.
+GPT-4o structured assessment for candidate shortlisting.
 Called by both the Celery task (shortlist_tasks.py) and potentially directly
 from tests. Uses AsyncSession passed by the caller (NullPool for Celery,
 regular pool for FastAPI).
@@ -10,7 +10,6 @@ regular pool for FastAPI).
 import asyncio
 import json
 import logging
-import math
 import uuid
 
 from sqlalchemy import select
@@ -18,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.models import Candidate, Job, ShortlistResult
-from app.services.embedding_service import generate_embedding
 from app.services.tenant_integrations_service import load_tenant_integrations
 
 logger = logging.getLogger(__name__)
@@ -27,40 +25,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Pure-Python cosine similarity. Returns 0.0 on zero-magnitude vectors."""
-    dot = sum(x * y for x, y in zip(a, b))
-    mag_a = math.sqrt(sum(x ** 2 for x in a))
-    mag_b = math.sqrt(sum(x ** 2 for x in b))
-    if mag_a == 0.0 or mag_b == 0.0:
-        return 0.0
-    return dot / (mag_a * mag_b)
-
-
-def _build_jd_text(job: Job) -> str:
-    """Build a single text string representing the Job Description for embedding."""
-    parts = [job.title, job.description]
-    if job.required_skills:
-        parts.append("Required skills: " + ", ".join(job.required_skills))
-    if job.screening_questions:
-        q_lines = [
-            (q.get("question") or "").strip()
-            for q in job.screening_questions
-            if isinstance(q, dict) and (q.get("question") or "").strip()
-        ]
-        if q_lines:
-            parts.append("Screening questions: " + "; ".join(q_lines))
-    if job.interview_questions:
-        q_lines = [
-            (q.get("question") or "").strip()
-            for q in job.interview_questions
-            if isinstance(q, dict) and (q.get("question") or "").strip()
-        ]
-        if q_lines:
-            parts.append("Interview questions: " + "; ".join(q_lines))
-    return "\n\n".join(p for p in parts if p)
-
 
 def _build_candidate_summary(candidate: Candidate) -> dict:
     """Extract the subset of parsed_data relevant for GPT-4o assessment."""
@@ -97,7 +61,6 @@ async def _gpt4o_assess(
     client,
     jd_summary: dict,
     candidate_summary: dict,
-    similarity: float,
 ) -> tuple[float, str, list[str], list[str], str]:
     """
     Call GPT-4o for structured shortlist assessment.
@@ -108,7 +71,7 @@ async def _gpt4o_assess(
     from app.services.mock_external import mock_openai_enabled, mock_shortlist_assessment
 
     if mock_openai_enabled():
-        return mock_shortlist_assessment(similarity)
+        return mock_shortlist_assessment()
 
     response = await client.chat.completions.create(
         model="gpt-4o",
@@ -131,8 +94,7 @@ async def _gpt4o_assess(
                     "  80-100 → shortlisted (strong match)\n"
                     "  50-79  → review (partial match, HR should decide)\n"
                     "  0-49   → rejected (poor fit)\n\n"
-                    "Use the cosine similarity hint as supporting signal, "
-                    "but base your final score primarily on skill and experience fit."
+                    "Base your score on skill and experience fit against the job requirements."
                 ),
             },
             {
@@ -140,7 +102,6 @@ async def _gpt4o_assess(
                 "content": (
                     f"Job Description:\n{json.dumps(jd_summary, indent=2)}\n\n"
                     f"Candidate Profile:\n{json.dumps(candidate_summary, indent=2)}\n\n"
-                    f"Cosine similarity (resume vs JD, 0-1 scale): {similarity:.4f}\n\n"
                     "Return the JSON assessment."
                 ),
             },
@@ -150,7 +111,7 @@ async def _gpt4o_assess(
     raw = response.choices[0].message.content or "{}"
     assessment = json.loads(raw)
 
-    match_score = float(assessment.get("match_score", round(similarity * 100, 1)))
+    match_score = float(assessment.get("match_score", 50.0))
     # Clamp to [0, 100]
     match_score = max(0.0, min(100.0, match_score))
 
@@ -163,25 +124,6 @@ async def _gpt4o_assess(
     reason = assessment.get("reason") or ""
 
     return match_score, recommendation, strengths, gaps, reason
-
-
-def _cosine_similarity_for_candidate(
-    candidate: Candidate,
-    jd_embedding: list[float],
-) -> float:
-    """Cosine similarity between JD and candidate resume embedding (0.0 if unavailable)."""
-    if not jd_embedding or candidate.resume_embedding is None:
-        logger.info(
-            "shortlist_candidates: no embedding for candidate %s (resume_embedding=%r) — skipping cosine, using GPT-4o only",
-            candidate.id,
-            type(candidate.resume_embedding).__name__,
-        )
-        return 0.0
-    try:
-        return _cosine_similarity(jd_embedding, list(candidate.resume_embedding))
-    except Exception as exc:
-        logger.warning("Cosine similarity failed for candidate %s: %s", candidate.id, exc)
-        return 0.0
 
 
 async def _upsert_shortlist_result(
@@ -230,7 +172,6 @@ async def _upsert_shortlist_result(
 async def _score_and_persist_candidate(
     candidate: Candidate,
     job_id: uuid.UUID,
-    jd_embedding: list[float],
     jd_summary: dict,
     client,
     semaphore: asyncio.Semaphore,
@@ -240,13 +181,12 @@ async def _score_and_persist_candidate(
     """Score one candidate (GPT under semaphore) and upsert ShortlistResult."""
     import openai  # local import — avoids circular at task discovery time
 
-    similarity = _cosine_similarity_for_candidate(candidate, jd_embedding)
     candidate_summary = _build_candidate_summary(candidate)
 
     async with semaphore:
         try:
             match_score, recommendation, strengths, gaps, reason = await _gpt4o_assess(
-                client, jd_summary, candidate_summary, similarity
+                client, jd_summary, candidate_summary
             )
         except (openai.RateLimitError, openai.APIConnectionError):
             raise
@@ -257,15 +197,11 @@ async def _score_and_persist_candidate(
                 job_id,
                 exc,
             )
-            match_score = round(similarity * 100, 1)
-            recommendation = (
-                "shortlisted" if match_score >= 80
-                else "review" if match_score >= 50
-                else "rejected"
-            )
+            match_score = 50.0
+            recommendation = "review"
             strengths = []
             gaps = []
-            reason = "AI assessment unavailable — cosine similarity score used as fallback."
+            reason = "AI assessment unavailable."
 
     async with db_lock:
         record = await _upsert_shortlist_result(
@@ -298,10 +234,9 @@ async def shortlist_candidates(
 
     Steps:
     1. Load job + all candidates with parse_status = 'ready'
-    2. Build JD text → generate JD embedding
-    3. Score candidates in parallel (up to MAX_CONCURRENT_SHORTLISTS GPT calls)
-    4. Upsert ShortlistResult records as each candidate completes
-    5. Return list of upserted records
+    2. Score candidates in parallel (up to MAX_CONCURRENT_SHORTLISTS GPT calls)
+    3. Upsert ShortlistResult records as each candidate completes
+    4. Return list of upserted records
 
     Raises:
         ValueError: if job not found
@@ -365,14 +300,6 @@ async def shortlist_candidates(
         len(already_scored),
     )
 
-    # --- Build JD embedding (best-effort — used for cosine similarity hint) ---
-    jd_embedding: list[float] = []
-    try:
-        jd_text = _build_jd_text(job)
-        jd_embedding = await generate_embedding(jd_text, api_key)
-    except Exception as exc:
-        logger.warning("shortlist_candidates: failed to build JD embedding — will skip cosine similarity: %s", exc)
-
     jd_summary = _build_jd_summary(job)
     client = AsyncOpenAI(api_key=api_key)
 
@@ -385,7 +312,6 @@ async def shortlist_candidates(
             _score_and_persist_candidate(
                 candidate,
                 job_id,
-                jd_embedding,
                 jd_summary,
                 client,
                 semaphore,

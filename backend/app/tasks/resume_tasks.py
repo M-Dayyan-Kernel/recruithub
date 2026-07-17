@@ -121,14 +121,14 @@ async def _async_extract(task_self, candidate_id: str) -> None:
 
 
 # ==========================================================================
-# Tasks 3.5 / 3.6 — parse + embed tasks
+# Task 3.5 — structured resume parse
 # ==========================================================================
 
 @celery_app.task(name="tasks.parse_resume", bind=True, max_retries=3)
 def parse_resume(self, candidate_id: str):
     """Parse extracted resume text with GPT-4o into structured fields.
 
-    Sets parse_status → 'parsed' on success, chains to embedding task.
+    Sets parse_status → 'ready' on success (eligible for AI shortlisting).
     Handles OpenAI auth/rate/connection errors with appropriate retry behaviour.
     """
     try:
@@ -189,7 +189,7 @@ async def _async_parse(candidate_id: str) -> None:
             )
 
             candidate.parsed_data = parsed_data
-            candidate.parse_status = "parsed"
+            candidate.parse_status = "ready"
 
             # Back-fill contact fields — only if still placeholder / empty
             if parsed_data.get("name"):
@@ -200,10 +200,8 @@ async def _async_parse(candidate_id: str) -> None:
                 candidate.phone = parsed_data["phone"]
 
             await session.commit()
-            logger.info("Parsed resume for candidate %s", candidate_id)
-
-            # Chain to embedding generation
-            generate_candidate_embedding.apply_async(args=[candidate_id])
+            logger.info("Parsed resume for candidate %s — ready for shortlisting", candidate_id)
+            await dispatch_parse_slots(session, job_id)
 
         except openai.AuthenticationError as exc:
             logger.error(
@@ -233,123 +231,6 @@ async def _async_parse(candidate_id: str) -> None:
                 "Unexpected error parsing resume for candidate %s: %s", candidate_id, exc
             )
             raise parse_resume.retry(exc=exc, countdown=120)
-
-
-@celery_app.task(name="tasks.generate_candidate_embedding", bind=True, max_retries=3)
-def generate_candidate_embedding(self, candidate_id: str):
-    """Generate text-embedding-3-small embedding and store in pgvector.
-
-    Sets parse_status → 'ready' on success.
-    Handles OpenAI auth/rate/connection errors with appropriate retry behaviour.
-    """
-    try:
-        asyncio.run(_async_embed(candidate_id))
-    except Exception as exc:
-        logger.error(
-            "generate_candidate_embedding failed for candidate %s: %s", candidate_id, exc
-        )
-        raise
-
-
-async def _async_embed(candidate_id: str) -> None:
-    import openai  # local import
-
-    from app.models.models import Job
-    from app.services.embedding_service import generate_embedding
-    from app.services.tenant_integrations_service import load_tenant_integrations
-
-    async with get_celery_db() as session:
-        result = await session.execute(
-            select(Candidate).where(Candidate.id == uuid.UUID(candidate_id))
-        )
-        candidate = result.scalar_one_or_none()
-
-        # Fallback 5: candidate not found — return early
-        if not candidate:
-            logger.warning(
-                "generate_candidate_embedding: candidate %s not found — skipping",
-                candidate_id,
-            )
-            return
-
-        job_id = candidate.job_id
-
-        if not candidate.resume_raw_text:
-            logger.warning(
-                "generate_candidate_embedding: candidate %s has no raw text — marking failed",
-                candidate_id,
-            )
-            candidate.parse_status = "parse_failed"
-            await session.commit()
-            await dispatch_parse_slots(session, job_id)
-            return
-
-        try:
-            job_result = await session.execute(
-                select(Job).where(Job.id == job_id)
-            )
-            job = job_result.scalar_one_or_none()
-            if not job:
-                logger.error(
-                    "generate_candidate_embedding: job %s not found for candidate %s",
-                    job_id,
-                    candidate_id,
-                )
-                candidate.parse_status = "parse_failed"
-                await session.commit()
-                await dispatch_parse_slots(session, job_id)
-                return
-
-            integrations = await load_tenant_integrations(session, job.tenant_id)
-            integrations.require("openai_api_key")
-
-            embedding = await generate_embedding(
-                candidate.resume_raw_text, integrations.openai_api_key
-            )
-            candidate.resume_embedding = embedding
-            candidate.parse_status = "ready"
-            await session.commit()
-            logger.info(
-                "Generated embedding for candidate %s (%d dims)",
-                candidate_id,
-                len(embedding),
-            )
-            await dispatch_parse_slots(session, job_id)
-
-        except openai.AuthenticationError as exc:
-            logger.error(
-                "OpenAI API key invalid or missing — cannot embed candidate %s: %s",
-                candidate_id,
-                exc,
-            )
-            candidate.parse_status = "parse_failed"
-            await session.commit()
-            await dispatch_parse_slots(session, job_id)
-            return
-
-        except openai.RateLimitError as exc:
-            logger.warning(
-                "OpenAI rate limit hit for candidate %s embedding — will retry: %s",
-                candidate_id,
-                exc,
-            )
-            raise generate_candidate_embedding.retry(exc=exc, countdown=300)
-
-        except openai.APIConnectionError as exc:
-            logger.warning(
-                "OpenAI connection error for candidate %s embedding — will retry: %s",
-                candidate_id,
-                exc,
-            )
-            raise generate_candidate_embedding.retry(exc=exc, countdown=120)
-
-        except Exception as exc:
-            logger.error(
-                "Unexpected error generating embedding for candidate %s: %s",
-                candidate_id,
-                exc,
-            )
-            raise generate_candidate_embedding.retry(exc=exc, countdown=120)
 
 
 @celery_app.task(name="tasks.recover_stuck_resume_parses")

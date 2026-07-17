@@ -28,8 +28,8 @@ The **AI Recruitment Screening & Interview POC** is a proof-of-concept platform 
 | Stage | What Happens |
 |-------|--------------|
 | **Job Setup** | HR creates jobs manually or by uploading a JD (PDF/DOCX) for AI parsing |
-| **Resume Ingestion** | Candidates upload resumes (PDF/DOCX/ZIP); AI parses and embeds them |
-| **AI Shortlisting** | GPT-4o scores candidates against the job description using embeddings + reasoning |
+| **Resume Ingestion** | Candidates upload resumes (PDF/DOCX/ZIP); AI parses them into structured profiles |
+| **AI Shortlisting** | GPT-4o scores candidates against the job description |
 | **HR Review** | HR approves, rejects, or overrides AI shortlist recommendations |
 | **Voice Screening** | Vapi.ai places outbound calls to approved candidates; GPT extracts structured answers |
 | **AI Interview** | Candidates join a LiveKit room for a real-time voice interview with an AI agent |
@@ -69,14 +69,14 @@ Two separate frontend applications serve different users:
               ▼                      ▼
 ┌─────────────────────────┐  ┌──────────────────────────────────────────────┐
 │  PostgreSQL 15          │  │  Celery Worker + Beat                         │
-│  + pgvector             │  │  Redis (broker + locks)                       │
-│  Port 5433              │  │  Port 6379                                    │
+│  Port 5433              │  │  Redis (broker + locks)                       │
+│                         │  │  Port 6379                                    │
 └─────────────────────────┘  └──────────────────────────────────────────────┘
               │
               ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                        EXTERNAL SERVICES                                     │
-│  OpenAI (GPT-4o, embeddings, STT/TTS)  │  Vapi.ai (outbound voice calls)   │
+│  OpenAI (GPT-4o, STT/TTS)              │  Vapi.ai (outbound voice calls)   │
 │  LiveKit Cloud (rooms, egress)         │  Gmail API (interview/rejection)  │
 │  Interview Agent (separate process)    │  Deepgram (Vapi STT)              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -90,8 +90,8 @@ Two separate frontend applications serve different users:
 | **Candidate Frontend** | React 18, TypeScript, Vite, Tailwind CSS, LiveKit Components |
 | **Backend API** | Python 3.11+, FastAPI, Pydantic, SQLAlchemy (async), Alembic |
 | **Task Queue** | Celery + Redis |
-| **Database** | PostgreSQL 15 with pgvector extension |
-| **AI** | OpenAI GPT-4o, text-embedding-3-small, Whisper, TTS |
+| **Database** | PostgreSQL 15 |
+| **AI** | OpenAI GPT-4o, Whisper, TTS |
 | **Voice Screening** | Vapi.ai + Deepgram STT |
 | **AI Interview** | LiveKit Agents + OpenAI |
 | **Email** | Gmail OAuth (interview invitations, rejection emails) |
@@ -168,8 +168,7 @@ Legacy UI explorations with mock/stub data. Not connected to the live backend. S
 | Parse queue | Concurrency-limited parsing (`MAX_CONCURRENT_PARSES`) | `parse_queue_service.py` |
 | Text extraction | PDF via PyMuPDF, DOCX via python-docx | `document_extractor.py` |
 | AI resume parsing | GPT-4o structured extraction (name, email, phone, skills, experience, education) | `resume_parser.py` |
-| Resume embedding | OpenAI `text-embedding-3-small` (1536 dimensions) stored in pgvector | `embedding_service.py` |
-| Parse status tracking | `pending_parse` → `parse_queued` → `parsing` → `parsed` → `ready` (or `parse_failed`) | `Candidate` model |
+| Parse status tracking | `pending_parse` → `parse_queued` → `parsing` → `ready` (or `parse_failed`) | `Candidate` model |
 | Retry failed parse | Re-queue parsing for failed candidates | `UploadTab.tsx` / API: `POST .../retry-parse` |
 | Parsing progress UI | Live tab showing candidates in parse queue | `ParsingTab.tsx` |
 | Browse parsed resumes | Search, multi-select, send to shortlisting | `ParsedResumesTab.tsx` |
@@ -182,7 +181,6 @@ Legacy UI explorations with mock/stub data. Not connected to the live backend. S
 |---------|-------------|----------|
 | Trigger AI shortlist | Batch score all `ready` candidates without existing results | `ParsedResumesTab.tsx` / API: `POST /api/jobs/{id}/shortlist` |
 | Concurrency lock | Redis lock prevents duplicate shortlist runs (409 if in progress) | `shortlist.py` route |
-| Embedding similarity | Cosine similarity between resume and JD embeddings as GPT hint | `shortlist_service.py` |
 | GPT scoring | Match score, recommendation, strengths, gaps per candidate | `shortlist_service.py` |
 | Shortlist progress polling | Progress bar and status during batch run | `AIShortlistingTab.tsx` |
 | Review shortlist results | Table with scores, filters, skill match matrix | `ShortlistTab.tsx`, `SkillMatchMatrix.tsx` |
@@ -313,9 +311,8 @@ flowchart TD
 4. Parse queue (`parse_queue_service`) limits concurrent parses.
 5. **Celery pipeline** runs for each resume:
    - `extract_resume_text` — extract text from PDF/DOCX
-   - `parse_resume` — GPT-4o structured parsing → `parsed_data` JSON
-   - `generate_candidate_embedding` — OpenAI embedding → pgvector column
-6. Candidate `parse_status` progresses: `pending_parse` → `parse_queued` → `parsing` → `parsed` → `ready`.
+   - `parse_resume` — GPT-4o structured parsing → `parsed_data` JSON; status → `ready`
+6. Candidate `parse_status` progresses: `pending_parse` → `parse_queued` → `parsing` → `ready`.
 7. HR monitors progress on **Parsing** and **Parsed Resumes** tabs (polled every few seconds).
 
 #### Phase 3: AI Shortlisting
@@ -323,7 +320,6 @@ flowchart TD
 1. HR selects candidates on **Parsed Resumes** tab and triggers shortlisting.
 2. `POST /api/jobs/{jobId}/shortlist` sets a Redis lock and enqueues `run_shortlist` Celery task.
 3. For each `ready` candidate without an existing `ShortlistResult`:
-   - Compute cosine similarity between resume and JD embeddings.
    - GPT-4o scores match, generates recommendation, strengths, and gaps.
    - Upsert `ShortlistResult` (preserves existing HR decisions on re-run).
 4. HR monitors **AI Shortlisting** tab (polls `GET /api/jobs/{id}/shortlist/status`).
@@ -403,7 +399,7 @@ flowchart TD
 | Model | Table | Key Fields | Purpose |
 |-------|-------|------------|---------|
 | **Job** | `jobs` | tenant_id, title, description, required_skills, experience_min/max, screening_questions (JSON), interview_questions (JSON), screening_call_from/to, screening_timezone, status | Job posting and configuration (tenant-scoped) |
-| **Candidate** | `candidates` | job_id, name, email, phone, resume_path, parsed_data (JSON), resume_embedding (Vector 1536), parse_status, original_filename | Resume and parsed profile |
+| **Candidate** | `candidates` | job_id, name, email, phone, resume_path, parsed_data (JSON), parse_status, original_filename | Resume and parsed profile |
 | **ShortlistResult** | `shortlist_results` | candidate_id, match_score, recommendation, strengths, gaps, hr_decision, hr_feedback | AI shortlist + HR decision |
 | **ScreeningCall** | `screening_calls` | candidate_id, vapi_call_id, call_status, transcript, extracted_fields (JSON), call_outcome, interview_queued_at | Voice screening record |
 | **InterviewSession** | `interview_sessions` | candidate_id, unique_token, livekit_room, status, transcript, scheduled_at, expires_at, egress_id | Interview session lifecycle |
@@ -417,8 +413,8 @@ flowchart TD
 
 **Candidate `parse_status`:**
 ```
-pending_parse → parse_queued → parsing → parsed → ready
-                                              └→ parse_failed
+pending_parse → parse_queued → parsing → ready
+                                      └→ parse_failed
 ```
 
 **Screening `call_status`:**
@@ -517,8 +513,7 @@ pending → in_progress → completed → assessed
 | Task | Trigger | Purpose |
 |------|---------|---------|
 | `extract_resume_text` | Resume upload | Extract text from PDF/DOCX |
-| `parse_resume` | Chained from extract | GPT-4o structured parsing |
-| `generate_candidate_embedding` | Chained from parse | Generate and store embedding |
+| `parse_resume` | Chained from extract | GPT-4o structured parsing; mark ready |
 | `run_shortlist` | `POST .../shortlist` | Batch AI shortlisting |
 | `initiate_screening_call` | Screening trigger / beat | Place Vapi outbound call |
 | `sync_screening_call_status` | Webhook fallback | Poll Vapi for status |
@@ -540,7 +535,6 @@ pending → in_progress → completed → assessed
 | Integration | Used For | Models / Config |
 |-------------|----------|-----------------|
 | **OpenAI GPT-4o** | Resume parse, JD parse, shortlist, screening extraction, interview assessment, expected answer points | JSON mode |
-| **OpenAI Embeddings** | Resume + JD vectors for cosine similarity | `text-embedding-3-small` (1536-dim) |
 | **OpenAI (LiveKit agent)** | Real-time interview conversation | GPT-4o LLM, Whisper STT, TTS (`nova`) |
 | **Vapi.ai** | Outbound phone screening | GPT-4o assistant, Deepgram `nova-2` STT, voice `asteria` |
 | **LiveKit** | Video/audio interview rooms, agent dispatch, recording egress | `livekit-api`, `livekit-agents` |
@@ -606,7 +600,7 @@ Shared-database multi-tenancy: each organization is a **Tenant**. Users, jobs, s
 
 | Service | Port | How to Start |
 |---------|------|--------------|
-| PostgreSQL (pgvector) | 5433 | `docker compose up -d` |
+| PostgreSQL | 5433 | `docker compose up -d` |
 | Redis | 6379 | `docker compose up -d` |
 | FastAPI backend | 8000 | `uvicorn app.main:app --reload` |
 | Celery worker | — | `celery -A app.core.celery_app.celery_app worker` |

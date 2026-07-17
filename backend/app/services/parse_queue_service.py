@@ -1,8 +1,8 @@
 """
 Parse queue — limits concurrent resume parsing per job.
 
-Only up to MAX_CONCURRENT_PARSES candidates may be in `parse_queued`, `parsing`, or
-`parsed` at once. Additional `pending_parse` candidates wait in the Upload queue until
+Only up to MAX_CONCURRENT_PARSES candidates may be in `parse_queued` or `parsing`
+at once. Additional `pending_parse` candidates wait in the Upload queue until
 a slot opens.
 """
 
@@ -18,7 +18,7 @@ from app.models.models import Candidate
 
 logger = logging.getLogger(__name__)
 
-ACTIVE_PARSE_STATUSES = ("parse_queued", "parsing", "parsed")
+ACTIVE_PARSE_STATUSES = ("parse_queued", "parsing")
 
 # If a worker dies mid-task, status can stay in parse_queued/parsing forever.
 # Re-enqueue after this age so the pipeline can recover without manual intervention.

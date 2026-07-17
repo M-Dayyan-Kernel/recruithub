@@ -34,7 +34,7 @@ Expected response includes:
 
 | Service | Real API | Mock behaviour |
 |---------|----------|----------------|
-| **OpenAI** | Resume parse, JD parse, embeddings, shortlist, screening extraction, interview assessment | Deterministic fake JSON / vectors |
+| **OpenAI** | Resume parse, JD parse, shortlist, screening extraction, interview assessment | Deterministic fake JSON |
 | **Vapi** | Outbound screening calls | Fake call ID; polling returns a completed call + transcript after ~2s |
 | **LiveKit** | Room create + JWT tokens | Fake tokens; no real room (see limitations below) |
 | **Gmail** | Interview / rejection emails | Logged to console, returns success |

@@ -265,7 +265,6 @@ dependencies = [
     { name = "livekit-agents", extra = ["openai"] },
     { name = "livekit-api" },
     { name = "openai" },
-    { name = "pgvector" },
     { name = "pydantic-settings" },
     { name = "pymupdf" },
     { name = "python-docx" },
@@ -291,7 +290,6 @@ requires-dist = [
     { name = "livekit-agents", extras = ["openai"], specifier = ">=1.6.2" },
     { name = "livekit-api", specifier = ">=0.7.0" },
     { name = "openai", specifier = ">=2.36.0,<3.0.0" },
-    { name = "pgvector", specifier = "==0.3.2" },
     { name = "pydantic-settings", specifier = "==2.3.4" },
     { name = "pymupdf", specifier = "==1.24.5" },
     { name = "python-docx", specifier = "==1.1.2" },
@@ -1906,17 +1904,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d7/f1/e7a6dd94a8d4a5626c03e4e99c87f241ba9e350cd9e6d75123f992427270/packaging-26.2.tar.gz", hash = "sha256:ff452ff5a3e828ce110190feff1178bb1f2ea2281fa2075aadb987c2fb221661", size = 228134, upload-time = "2026-04-24T20:15:23.917Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/df/b2/87e62e8c3e2f4b32e5fe99e0b86d576da1312593b39f47d8ceef365e95ed/packaging-26.2-py3-none-any.whl", hash = "sha256:5fc45236b9446107ff2415ce77c807cee2862cb6fac22b8a73826d0693b0980e", size = 100195, upload-time = "2026-04-24T20:15:22.081Z" },
-]
-
-[[package]]
-name = "pgvector"
-version = "0.3.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/20/ad/a5c6c0a5bab412176a0d5e1ec481610e134111b06ee681f3b4407dc17bc5/pgvector-0.3.2-py2.py3-none-any.whl", hash = "sha256:a44541c75a7340993b2840015820a910e5d7625d2ddd1235c1ee659732531bf6", size = 24033, upload-time = "2024-07-17T20:52:49.371Z" },
 ]
 
 [[package]]

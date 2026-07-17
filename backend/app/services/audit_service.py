@@ -19,7 +19,6 @@ _REDACT_KEYS = frozenset(
         "jwt",
         "credentials",
         "resume_raw_text",
-        "resume_embedding",
     }
 )
 

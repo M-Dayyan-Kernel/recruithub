@@ -187,13 +187,13 @@ export function CandidateTimeline({ candidateId, jobId }: Props) {
 
   const parsedDetail =
     parseStatus === 'ready'
-      ? 'Resume parsed & embedded'
+      ? 'Resume parsed'
       : parseStatus === 'parse_failed'
       ? 'Parsing failed — re-upload resume'
       : parseStatus === 'parsing'
       ? 'Parsing in progress…'
       : parseStatus === 'parsed'
-      ? 'Generating embeddings…'
+      ? 'Finalizing parse…'
       : parseStatus === 'pending_parse'
       ? 'Waiting for a parse slot'
       : parseStatus === 'parse_queued'

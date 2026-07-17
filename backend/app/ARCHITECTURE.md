@@ -15,8 +15,8 @@ An organization can:
 1. Register and wait for platform approval.
 2. Create jobs or parse a job description with OpenAI.
 3. Upload individual resumes or ZIP archives.
-4. Extract, parse, and embed resumes asynchronously.
-5. Rank candidates with vector similarity and GPT.
+4. Extract and parse resumes asynchronously.
+5. Rank candidates with GPT assessment.
 6. Record an HR shortlist decision.
 7. Call approved candidates through Vapi for voice screening.
 8. Invite passing candidates to a LiveKit video interview.
@@ -27,10 +27,9 @@ The major technologies are:
 
 - FastAPI and Pydantic for HTTP APIs and validation.
 - SQLAlchemy async ORM with PostgreSQL.
-- `pgvector` for 1,536-dimensional resume embeddings.
 - Redis as Celery broker/result backend and as a shortlist lock/status store.
 - Celery workers and Celery Beat for background processing.
-- OpenAI for parsing, embeddings, ranking, extraction, and assessment.
+- OpenAI for parsing, ranking, extraction, and assessment.
 - Vapi for outbound voice screening.
 - LiveKit for video interviews, AI-agent dispatch, and recording.
 - Gmail API for email.
@@ -42,7 +41,7 @@ The major technologies are:
 Tenant
   └── Job
       └── Candidate
-          ├── Resume parse and embedding
+          ├── Resume parse
           ├── ShortlistResult
           ├── ScreeningCall
           └── InterviewSession
@@ -191,7 +190,6 @@ backend/app/
 │   ├── document_extractor.py
 │   ├── email_service.py
 │   ├── email_template_service.py
-│   ├── embedding_service.py
 │   ├── expected_answer_service.py
 │   ├── failed_screening_email_service.py
 │   ├── gmail_service.py
@@ -473,7 +471,7 @@ This folder is the infrastructure backbone. Risks: insecure default JWT secret, 
 
 ## Folder Overview
 
-All ORM classes are kept in one file. They inherit from `core.database.Base`. PostgreSQL-specific ARRAY, JSON, UUID, and pgvector types make the application PostgreSQL-specific.
+All ORM classes are kept in one file. They inherit from `core.database.Base`. PostgreSQL-specific ARRAY, JSON, and UUID types make the application PostgreSQL-specific.
 
 ## File: `models/__init__.py`
 
@@ -541,7 +539,6 @@ Package marker only.
 - Required name/email; optional phone.
 - Optional saved resume path and original filename.
 - Optional extracted text and parsed JSON.
-- Optional `Vector(1536)` embedding.
 - Required parse status, initially `pending_parse`.
 - Relationships cascade to shortlist results, screening calls, and interview sessions.
 - No DB uniqueness on `(job_id, original_filename)` despite application deduplication.
@@ -1012,12 +1009,6 @@ High-level email façade. It contains HTML builders and async functions:
 
 Functions use mock mode or synchronous Gmail helpers and return `True/False` rather than raising. Candidate/job/org strings are interpolated into HTML without HTML escaping.
 
-## `embedding_service.py`
-
-- `_generate_embedding_sync`: calls OpenAI `text-embedding-3-small`.
-- `generate_embedding`: mock-aware async wrapper using a thread.
-- Output length is expected to match the DB Vector(1536).
-
 ## `expected_answer_service.py`
 
 - `_job_context`: compact job context.
@@ -1152,7 +1143,6 @@ Agent dispatch and recording failures are soft warnings after room creation. Can
 Granular mock flags and deterministic stand-ins:
 
 - enabled checks and active service list.
-- deterministic 1,536-vector embedding.
 - resume/JD parsing.
 - shortlist and interview assessment.
 - expected points and screening extraction.
@@ -1243,13 +1233,11 @@ Cache invalidation is not distributed, so other API/worker processes can remain 
 
 ## `shortlist_service.py`
 
-- `_cosine_similarity`: O(d), where d is vector length.
-- Job text and candidate/JD summary builders.
+- Candidate/JD summary builders.
 - `_gpt4o_assess`: GPT-4o JSON assessment.
-- Candidate similarity helper.
 - `_upsert_shortlist_result`: application-level upsert.
 - `_score_and_persist_candidate`: semaphore-limited GPT; DB writes serialized by asyncio lock.
-- `shortlist_candidates`: load job/integrations/candidates, generate JD embedding, skip already scored, gather parallel scoring.
+- `shortlist_candidates`: load job/integrations/candidates, skip already scored, gather parallel scoring.
 
 It commits per candidate, so partial batches survive a later failure. The Redis task lock is deleted in the task's `finally`, including before Celery retry execution, allowing another run while a retry waits.
 
@@ -1337,17 +1325,10 @@ Sentinel indicating an unrecoverable local file error that has already updated D
 
 - Requires raw text and parent Job.
 - Loads tenant OpenAI key.
-- Parses structured resume, updates candidate contact fields, status parsed, enqueues embedding.
+- Parses structured resume, updates candidate contact fields, sets status `ready`, frees parse slot.
 - Auth failure: no retry and parse_failed.
 - Rate limit: 300 seconds.
 - Connection/general: 120 seconds.
-
-### `tasks.generate_candidate_embedding`
-
-- Generates/stores embedding.
-- Sets ready.
-- Frees parse slot.
-- Same OpenAI retry classification.
 
 ### `tasks.recover_stuck_resume_parses`
 
@@ -1500,7 +1481,7 @@ All protected endpoints require `Authorization: Bearer <JWT>`. Standard FastAPI 
 
 ## OpenAI
 
-- Used for JD/resume parse, embeddings, shortlist assessment, screening extraction, expected points, and interview reports.
+- Used for JD/resume parse, shortlist assessment, screening extraction, expected points, and interview reports.
 - Credentials: per-tenant encrypted settings, falling back to `OPENAI_API_KEY`.
 - Most task calls distinguish auth, rate-limit, and connection failures.
 - Some services intentionally return fallback assessments instead of failing.
@@ -1528,9 +1509,9 @@ All protected endpoints require `Authorization: Bearer <JWT>`. Standard FastAPI 
 - Credentials may refresh and rewrite token file.
 - Transport catches failures and returns false; callers may save state despite email failure.
 
-## PostgreSQL/pgvector
+## PostgreSQL
 
-- Shared tenant DB and embeddings.
+- Shared tenant DB.
 - API uses persistent async pool; Celery uses per-task NullPool.
 - No repository abstraction; SQLAlchemy queries appear in routes/services/tasks.
 
@@ -1570,8 +1551,6 @@ sequenceDiagram
   C->>DB: parsing + raw text
   C->>AI: parse resume
   AI-->>C: structured JSON
-  C->>AI: embedding
-  AI-->>C: vector(1536)
   C->>DB: status=ready
   API-->>HR: 202 upload summary
 ```
@@ -1593,7 +1572,7 @@ sequenceDiagram
   API->>C: run_shortlist
   API-->>HR: 202
   C->>S: shortlist_candidates
-  S->>AI: JD embedding + parallel assessments
+  S->>AI: Parallel GPT assessments
   S->>DB: Commit result per candidate
   C->>R: Delete lock/batch
 ```
@@ -1858,7 +1837,7 @@ Then explain `SystemSettings` as per-tenant runtime config and encrypted integra
 
 ## Minutes 15–20: resume and shortlist
 
-Upload writes files and Candidate rows. The parse queue limits active work. Celery extracts text, GPT-parses, embeds, and marks ready. Shortlisting combines JD/resume vector similarity with GPT assessment.
+Upload writes files and Candidate rows. The parse queue limits active work. Celery extracts text, GPT-parses, and marks ready. Shortlisting scores candidates with GPT assessment only.
 
 ## Minutes 20–25: screening and interview
 

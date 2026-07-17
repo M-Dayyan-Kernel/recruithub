@@ -12,7 +12,7 @@ import {
 
 const PROGRESS_LABEL: Record<string, string> = {
   parsing: 'Extracting text…',
-  parsed: 'Generating embedding…',
+  parsed: 'Finalizing parse…',
 }
 
 interface Props {
