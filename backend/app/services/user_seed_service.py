@@ -3,7 +3,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.settings import settings
 from app.core.security import hash_password
 from app.models.models import User
 from app.services.tenant_service import ensure_platform_tenant, get_or_create_default_tenant

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Optional
 
 import httpx
 
-from app.core.config import settings
+from app.core.settings import settings
 from app.prompts.screening import (
     SCREENING_END_CALL_MESSAGE,
     build_screening_call_prompt,

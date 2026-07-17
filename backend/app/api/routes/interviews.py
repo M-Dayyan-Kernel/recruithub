@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from app.core.database import get_db
-from app.core.config import settings
+from app.core.settings import settings
 from app.core.deps import RequireAdminOrHr, hr_roles
 from app.core.tenancy import get_tenant_candidate, get_tenant_job
 from app.models.models import (

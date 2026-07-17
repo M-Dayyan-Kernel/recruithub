@@ -13,7 +13,7 @@ import logging
 from functools import lru_cache
 from uuid import UUID
 
-from app.core.config import settings
+from app.core.settings import settings
 
 logger = logging.getLogger(__name__)
 

@@ -10,7 +10,7 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.settings import settings
 from app.models.models import Candidate, InterviewReport, InterviewSession, Job, ScreeningCall
 from app.schemas.schemas import FinalistCandidate, FinalistsResponse, InterviewSessionResponse
 from app.services.interview_flag_service import is_flagged_session

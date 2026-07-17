@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.settings import settings
 from app.models.models import Candidate, InterviewSession, Job, ScreeningCall
 from app.schemas.schemas import InterviewScheduleRequest, InterviewSessionResponse
 from app.services.candidate_contact_service import (

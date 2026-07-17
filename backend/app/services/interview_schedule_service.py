@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.settings import settings
 from app.models.models import Candidate, InterviewSession
 from app.schemas.schemas import InterviewScheduleRequest
 from app.services.candidate_contact_service import (

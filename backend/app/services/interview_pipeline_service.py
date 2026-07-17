@@ -11,7 +11,7 @@ from typing import Literal, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.settings import settings
 from app.models.models import (
     Candidate,
     InterviewReport,

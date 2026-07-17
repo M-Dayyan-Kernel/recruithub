@@ -7,7 +7,7 @@ import logging
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from app.core.config import settings
+from app.core.settings import settings
 
 logger = logging.getLogger(__name__)
 

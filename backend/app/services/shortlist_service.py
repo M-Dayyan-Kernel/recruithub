@@ -15,7 +15,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.settings import settings
 from app.prompts.shortlist import (
     SHORTLIST_SYSTEM_PROMPT,
     build_shortlist_user_prompt,

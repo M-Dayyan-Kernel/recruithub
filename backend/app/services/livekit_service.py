@@ -13,7 +13,7 @@ import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from app.core.config import settings
+from app.core.settings import settings
 
 if TYPE_CHECKING:
     from app.services.tenant_integrations_service import TenantIntegrations

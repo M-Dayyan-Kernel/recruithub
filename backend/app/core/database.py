@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import NullPool
 
-from app.core.config import settings
+from app.core.settings import settings
 
 # ── FastAPI engine (persistent pool — fine for async web server) ──────────────
 engine = create_async_engine(

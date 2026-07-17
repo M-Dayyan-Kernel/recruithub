@@ -11,7 +11,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from app.core.config import settings
+from app.core.settings import settings
 
 logger = logging.getLogger(__name__)
 

@@ -2,7 +2,7 @@ from celery import Celery
 from celery.signals import after_setup_logger, after_setup_task_logger, task_postrun, task_prerun
 import logging
 
-from app.core.config import settings
+from app.core.settings import settings
 from app.core.logging import clear_task_id, set_task_id, setup_logging
 
 celery_app = Celery(

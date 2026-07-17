@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, exists
 
-from app.core.config import settings
+from app.core.settings import settings
 from app.core.database import get_db
 from app.core.deps import RequireAdminOrHr, hr_roles
 from app.core.logging import get_actor_label, log_event, plural

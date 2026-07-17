@@ -17,7 +17,7 @@ from typing import List, Optional
 import redis as redis_lib
 
 from app.core.celery_app import celery_app
-from app.core.config import settings
+from app.core.settings import settings
 from app.core.logging import log_event, plural
 from app.core.database import get_celery_db
 
