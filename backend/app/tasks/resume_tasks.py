@@ -1,4 +1,5 @@
 import asyncio
+import io
 import logging
 import uuid
 from pathlib import Path
@@ -15,40 +16,70 @@ from app.services.parse_queue_service import dispatch_parse_slots
 logger = logging.getLogger(__name__)
 
 
+class _NoRetryError(Exception):
+    """Sentinel to abort retry on unrecoverable errors (e.g. missing file)."""
+
+
+def _extract_text_from_bytes(file_bytes: bytes, suffix: str) -> str:
+    if suffix == ".pdf":
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        try:
+            text = "\n".join(page.get_text() for page in doc)
+        finally:
+            doc.close()
+        return text.strip()
+    if suffix in (".docx", ".doc"):
+        document = docx.Document(io.BytesIO(file_bytes))
+        return "\n".join(p.text for p in document.paragraphs if p.text.strip()).strip()
+    raise ValueError(f"Unsupported file type: {suffix!r}")
+
+
+def _load_resume_bytes(candidate: Candidate) -> tuple[bytes, str]:
+    """Load resume bytes from S3 or local disk. Returns (bytes, suffix)."""
+    from app.services.s3_service import download_bytes, is_s3_object_key  # noqa: PLC0415
+
+    stored = candidate.resume_file_path or ""
+    if is_s3_object_key(stored):
+        file_bytes = download_bytes(stored)
+        suffix = Path(stored).suffix.lower() or Path(
+            candidate.original_filename or ""
+        ).suffix.lower()
+        return file_bytes, suffix
+
+    file_path = Path(stored)
+    if not file_path.exists():
+        raise FileNotFoundError(stored)
+    return file_path.read_bytes(), file_path.suffix.lower()
+
+
 # ---------------------------------------------------------------------------
-# Task 3.3 — Raw text extraction (Forge)
+# Task 3.3 — Raw text extraction
 # ---------------------------------------------------------------------------
 
 @celery_app.task(name="tasks.extract_resume_text", bind=True, max_retries=3)
 def extract_resume_text(self, candidate_id: str):
-    """Extract raw text from an uploaded resume (PDF or DOCX) and save it to the DB.
+    """Extract text from the stored resume file and chain to structured parse.
 
-    File-not-found: marks parse_failed immediately, does NOT retry (file won't appear by itself).
+    Does not persist raw text in the DB — the resume file in storage is the source.
+    File-not-found: marks parse_failed immediately, does NOT retry.
     Other failures: retries up to 3 times with 60-second countdown.
-    On success: chains to parse_resume (Sage's task).
     """
     try:
-        asyncio.run(_async_extract(self, candidate_id))
+        asyncio.run(_async_extract(candidate_id))
     except _NoRetryError:
-        # File system error — already logged + DB updated; don't retry
         pass
     except Exception as exc:
         logger.error("extract_resume_text failed for candidate %s: %s", candidate_id, exc)
         raise self.retry(exc=exc, countdown=60)
 
 
-class _NoRetryError(Exception):
-    """Sentinel to abort retry on unrecoverable errors (e.g. missing file)."""
-
-
-async def _async_extract(task_self, candidate_id: str) -> None:
+async def _async_extract(candidate_id: str) -> None:
     async with get_celery_db() as session:
         result = await session.execute(
             select(Candidate).where(Candidate.id == uuid.UUID(candidate_id))
         )
         candidate = result.scalar_one_or_none()
 
-        # Fallback 5: candidate not in DB — log and return early, no raise
         if not candidate:
             logger.warning(
                 "extract_resume_text: candidate %s not found in DB — skipping", candidate_id
@@ -57,7 +88,6 @@ async def _async_extract(task_self, candidate_id: str) -> None:
 
         job_id = candidate.job_id
 
-        # Allow resume when a previous worker died mid-extraction (status left as parsing).
         if candidate.parse_status not in ("parse_queued", "pending_parse", "parsing"):
             logger.info(
                 "extract_resume_text: candidate %s not queued (status=%s) — skipping",
@@ -70,69 +100,53 @@ async def _async_extract(task_self, candidate_id: str) -> None:
         await session.commit()
 
         try:
-            from app.services.s3_service import download_bytes, is_s3_object_key  # noqa: PLC0415
-
-            stored = candidate.resume_file_path or ""
-            file_bytes: bytes | None = None
-            file_path = Path(stored)
-            suffix = ""
-
-            if is_s3_object_key(stored):
-                try:
-                    file_bytes = download_bytes(stored)
-                except Exception as exc:
+            try:
+                file_bytes, suffix = _load_resume_bytes(candidate)
+            except FileNotFoundError as exc:
+                logger.error(
+                    "extract_resume_text: file not found for candidate %s — path: %s",
+                    candidate_id,
+                    candidate.resume_file_path,
+                )
+                candidate.parse_status = "parse_failed"
+                await session.commit()
+                await dispatch_parse_slots(session, job_id)
+                raise _NoRetryError(f"File not found: {exc}") from exc
+            except Exception as exc:
+                # S3 download / IO failures that won't self-heal without re-upload
+                if "NoSuchKey" in type(exc).__name__ or "404" in str(exc):
                     logger.error(
-                        "extract_resume_text: S3 download failed for candidate %s — key: %s (%s)",
+                        "extract_resume_text: storage miss for candidate %s — %s",
                         candidate_id,
-                        stored,
                         exc,
                     )
                     candidate.parse_status = "parse_failed"
                     await session.commit()
                     await dispatch_parse_slots(session, job_id)
-                    raise _NoRetryError(f"S3 object not found: {stored}") from exc
-                suffix = Path(stored).suffix.lower() or Path(
-                    candidate.original_filename or ""
-                ).suffix.lower()
-            elif file_path.exists():
-                file_bytes = file_path.read_bytes()
-                suffix = file_path.suffix.lower()
-            else:
-                logger.error(
-                    "extract_resume_text: file not found for candidate %s — path: %s",
+                    raise _NoRetryError(str(exc)) from exc
+                raise
+
+            text = _extract_text_from_bytes(file_bytes, suffix)
+            if not text:
+                logger.warning(
+                    "extract_resume_text: empty text for candidate %s — marking failed",
                     candidate_id,
-                    stored,
                 )
                 candidate.parse_status = "parse_failed"
                 await session.commit()
                 await dispatch_parse_slots(session, job_id)
-                raise _NoRetryError(f"File not found: {stored}")
+                raise _NoRetryError("Empty resume text")
 
-            if suffix == ".pdf":
-                doc = fitz.open(stream=file_bytes, filetype="pdf")
-                text = "\n".join(page.get_text() for page in doc)
-                doc.close()
-            elif suffix in (".docx", ".doc"):
-                import io
-
-                document = docx.Document(io.BytesIO(file_bytes))
-                text = "\n".join(p.text for p in document.paragraphs if p.text.strip())
-            else:
-                raise ValueError(f"Unsupported file type: {suffix!r}")
-
-            candidate.resume_raw_text = text.strip()
-            await session.commit()
             logger.info(
                 "Extracted text from resume for candidate %s (%d chars)",
                 candidate_id,
                 len(text),
             )
-
-            # Chain to parse_resume (Sage's task)
-            parse_resume.apply_async(args=[candidate_id])
+            # Pass text through Celery args — not stored in DB
+            parse_resume.apply_async(args=[candidate_id, text])
 
         except _NoRetryError:
-            raise  # propagate to outer handler without further DB writes
+            raise
 
         except Exception as exc:
             logger.error(
@@ -149,20 +163,20 @@ async def _async_extract(task_self, candidate_id: str) -> None:
 # ==========================================================================
 
 @celery_app.task(name="tasks.parse_resume", bind=True, max_retries=3)
-def parse_resume(self, candidate_id: str):
-    """Parse extracted resume text with GPT-4o into structured fields.
+def parse_resume(self, candidate_id: str, raw_text: str = ""):
+    """Parse resume text with GPT-4o into structured fields.
 
-    Sets parse_status → 'ready' on success (eligible for AI shortlisting).
-    Handles OpenAI auth/rate/connection errors with appropriate retry behaviour.
+    raw_text is passed from extract_resume_text (not read from DB).
+    Sets parse_status → 'ready' on success.
     """
     try:
-        asyncio.run(_async_parse(candidate_id))
+        asyncio.run(_async_parse(candidate_id, raw_text or ""))
     except Exception as exc:
         logger.error("parse_resume failed for candidate %s: %s", candidate_id, exc)
         raise
 
 
-async def _async_parse(candidate_id: str) -> None:
+async def _async_parse(candidate_id: str, raw_text: str) -> None:
     import openai  # local import — not installed at task discovery time
 
     from app.models.models import Job
@@ -175,7 +189,6 @@ async def _async_parse(candidate_id: str) -> None:
         )
         candidate = result.scalar_one_or_none()
 
-        # Fallback 5: candidate not found — return early
         if not candidate:
             logger.warning(
                 "parse_resume: candidate %s not found — skipping", candidate_id
@@ -183,10 +196,28 @@ async def _async_parse(candidate_id: str) -> None:
             return
 
         job_id = candidate.job_id
+        text = (raw_text or "").strip()
 
-        if not candidate.resume_raw_text:
+        # If a retry/legacy call arrives without text, re-extract from stored file.
+        if not text:
+            try:
+                file_bytes, suffix = _load_resume_bytes(candidate)
+                text = _extract_text_from_bytes(file_bytes, suffix)
+            except Exception as exc:
+                logger.warning(
+                    "parse_resume: candidate %s has no text and re-extract failed: %s",
+                    candidate_id,
+                    exc,
+                )
+                candidate.parse_status = "parse_failed"
+                await session.commit()
+                await dispatch_parse_slots(session, job_id)
+                return
+
+        if not text:
             logger.warning(
-                "parse_resume: candidate %s has no raw text — marking failed", candidate_id
+                "parse_resume: candidate %s has empty resume text — marking failed",
+                candidate_id,
             )
             candidate.parse_status = "parse_failed"
             await session.commit()
@@ -208,14 +239,11 @@ async def _async_parse(candidate_id: str) -> None:
             integrations = await load_tenant_integrations(session, job.tenant_id)
             integrations.require("openai_api_key")
 
-            parsed_data = await parse_resume_service(
-                candidate.resume_raw_text, integrations.openai_api_key
-            )
+            parsed_data = await parse_resume_service(text, integrations.openai_api_key)
 
             candidate.parsed_data = parsed_data
             candidate.parse_status = "ready"
 
-            # Back-fill contact fields — only if still placeholder / empty
             if parsed_data.get("name"):
                 candidate.name = parsed_data["name"]
             if parsed_data.get("email") and candidate.email.endswith("@upload.pending"):
@@ -241,7 +269,7 @@ async def _async_parse(candidate_id: str) -> None:
             candidate.parse_status = "parse_failed"
             await session.commit()
             await dispatch_parse_slots(session, job_id)
-            return  # Do not retry — bad key won't fix itself
+            return
 
         except openai.RateLimitError as exc:
             logger.warning(

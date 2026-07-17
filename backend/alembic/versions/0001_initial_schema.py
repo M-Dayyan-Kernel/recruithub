@@ -1,4 +1,4 @@
-"""Initial schema — all 6 tables including pgvector
+"""Initial schema — all 6 tables
 
 Revision ID: 0001
 Revises:
@@ -6,7 +6,7 @@ Create Date: 2026-06-19
 
 Tables created:
   - jobs
-  - candidates             (includes resume_embedding vector(1536))
+  - candidates
   - shortlist_results
   - screening_calls
   - interview_sessions
@@ -18,7 +18,6 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
-from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 
 # revision identifiers
@@ -31,7 +30,6 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     # ── Enable extensions ─────────────────────────────────────────────────────
     op.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     # ── jobs ──────────────────────────────────────────────────────────────────
     op.create_table(
@@ -89,7 +87,6 @@ def upgrade() -> None:
         sa.Column("email", sa.String(255), nullable=True),
         sa.Column("phone", sa.String(50), nullable=True),
         sa.Column("resume_file_path", sa.String(512), nullable=True),
-        sa.Column("resume_raw_text", sa.Text(), nullable=True),
         sa.Column("parsed_data", sa.JSON(), nullable=True),
         sa.Column(
             "parse_status",
@@ -97,8 +94,6 @@ def upgrade() -> None:
             nullable=False,
             server_default="pending_parse",
         ),
-        # pgvector column — 1536 dimensions for text-embedding-3-small
-        sa.Column("resume_embedding", Vector(1536), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -324,5 +319,4 @@ def downgrade() -> None:
     op.drop_table("shortlist_results")
     op.drop_table("candidates")
     op.drop_table("jobs")
-    op.execute("DROP EXTENSION IF EXISTS vector")
     op.execute('DROP EXTENSION IF EXISTS "uuid-ossp"')

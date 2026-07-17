@@ -304,7 +304,6 @@ class CandidateResponse(BaseModel):
     phone: Optional[str] = None
     resume_file_path: Optional[str] = None
     original_filename: Optional[str] = None  # Original upload filename
-    resume_raw_text: Optional[str] = None
     parsed_data: Optional[dict] = None
     parse_status: str
     created_at: datetime
