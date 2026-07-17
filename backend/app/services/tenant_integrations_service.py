@@ -13,7 +13,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.settings import settings
+from app.core.config_loader import config
 from app.models.models import SystemSettings
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ def _looks_encrypted(value: str) -> bool:
 
 
 def _fernet() -> Fernet:
-    raw = (settings.INTEGRATIONS_ENCRYPTION_KEY or settings.JWT_SECRET_KEY or "dev").encode(
+    raw = (config.INTEGRATIONS_ENCRYPTION_KEY or config.JWT_SECRET_KEY or "dev").encode(
         "utf-8"
     )
     digest = hashlib.sha256(raw).digest()
@@ -101,12 +101,12 @@ class TenantIntegrations:
 
 def _platform_defaults() -> dict[str, str]:
     return {
-        "openai_api_key": settings.OPENAI_API_KEY or "",
-        "vapi_api_key": settings.VAPI_API_KEY or "",
-        "vapi_phone_number_id": settings.VAPI_PHONE_NUMBER_ID or "",
-        "livekit_url": settings.LIVEKIT_URL or "",
-        "livekit_api_key": settings.LIVEKIT_API_KEY or "",
-        "livekit_api_secret": settings.LIVEKIT_API_SECRET or "",
+        "openai_api_key": config.OPENAI_API_KEY or "",
+        "vapi_api_key": config.VAPI_API_KEY or "",
+        "vapi_phone_number_id": config.VAPI_PHONE_NUMBER_ID or "",
+        "livekit_url": config.LIVEKIT_URL or "",
+        "livekit_api_key": config.LIVEKIT_API_KEY or "",
+        "livekit_api_secret": config.LIVEKIT_API_SECRET or "",
         "gmail_credentials_json": "",
         "gmail_token_json": "",
     }

@@ -22,9 +22,6 @@ class Settings(BaseSettings):
     LIVEKIT_API_SECRET: str = ""
     LIVEKIT_URL: str = ""
 
-    # Interview assessment (GPT) — gpt-4o-mini is faster; use gpt-4o for higher quality
-    INTERVIEW_ASSESSMENT_MODEL: str = "gpt-4o-mini"
-
     # Linode Object Storage (S3-compatible) — LiveKit egress recording uploads
     S3_ACCESS_KEY: str = ""
     S3_SECRET_KEY: str = ""
@@ -39,14 +36,9 @@ class Settings(BaseSettings):
     GMAIL_CREDENTIALS_PATH: str = "credentials.json"
     GMAIL_TOKEN_PATH: str = "token.json"
 
+    # Local filesystem fallbacks when S3 is not configured (paths, not size limits)
     UPLOAD_DIR: str = "uploads/resumes"
     ORG_DOCS_DIR: str = "uploads/org-docs"
-    MAX_ORG_DOC_SIZE: int = 10 * 1024 * 1024  # 10 MB
-    MAX_CONCURRENT_PARSES: int = 10
-    MAX_CONCURRENT_SHORTLISTS: int = 10
-    MAX_ZIP_FILE_SIZE: int = 100 * 1024 * 1024  # 100 MB
-    MAX_RESUMES_PER_ZIP: int = 200
-    MAX_ZIP_UNCOMPRESSED_BYTES: int = 500 * 1024 * 1024  # 500 MB
 
     # JWT auth / RBAC
     JWT_SECRET_KEY: str = "change-me-in-production-use-a-long-random-string"

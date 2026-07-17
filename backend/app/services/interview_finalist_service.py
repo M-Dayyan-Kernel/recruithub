@@ -10,7 +10,7 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.settings import settings
+from app.core.config_loader import config
 from app.models.models import Candidate, InterviewReport, InterviewSession, Job, ScreeningCall
 from app.schemas.schemas import FinalistCandidate, FinalistsResponse, InterviewSessionResponse
 from app.services.interview_flag_service import is_flagged_session
@@ -84,7 +84,7 @@ async def set_interview_hr_decision(
 
     job = await db.get(Job, session.job_id)
     response = InterviewSessionResponse.model_validate(session)
-    response.interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{session.unique_token}"
+    response.interview_url = f"{config.CANDIDATE_APP_URL}/interview/{session.unique_token}"
     response.candidate_name = candidate.name
     response.job_title = job.title if job else None
     return response

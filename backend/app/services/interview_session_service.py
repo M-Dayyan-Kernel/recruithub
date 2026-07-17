@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config_loader import config
 from app.models.models import Candidate, InterviewSession, Job
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,8 @@ async def create_pending_interview_session(
         job_id=job_id,
         unique_token=unique_token,
         status="pending",
-        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        expires_at=datetime.now(timezone.utc)
+        + timedelta(days=config.interview.session_link_ttl_days),
     )
     db.add(interview_session)
     await db.flush()

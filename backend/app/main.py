@@ -19,7 +19,7 @@ from app.api.routes import (
     users,
     platform,
 )
-from app.core.settings import settings as app_settings
+from app.core.config_loader import config as app_settings
 from app.core.database import AsyncSessionLocal
 from app.core.logging import (
     clear_actor_context,

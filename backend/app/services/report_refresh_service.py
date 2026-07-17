@@ -3,8 +3,8 @@
 import logging
 from typing import Any
 
+from app.core.config_loader import config
 from app.services.assessment_service import (
-    MIN_TRANSCRIPT_LENGTH,
     generate_assessment,
     rubric_has_expected_points,
     question_scores_need_coverage_refresh,
@@ -89,7 +89,7 @@ async def ensure_report_has_coverage(
     if raw.get("assessment_mode") != "rubric":
         return False
 
-    if not transcript or len(transcript.strip()) < MIN_TRANSCRIPT_LENGTH:
+    if not transcript or len(transcript.strip()) < config.parsing.min_transcript_chars:
         return False
 
     from app.services.tenant_integrations_service import load_tenant_integrations

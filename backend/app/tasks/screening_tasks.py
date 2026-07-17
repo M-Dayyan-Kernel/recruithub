@@ -20,6 +20,7 @@ import uuid
 from sqlalchemy import select
 
 from app.core.celery_app import celery_app
+from app.core.config_loader import config
 from app.core.database import get_celery_db
 from app.prompts.screening import (
     EXTRACTION_SYSTEM_PROMPT,
@@ -28,20 +29,24 @@ from app.prompts.screening import (
 
 logger = logging.getLogger(__name__)
 
-SCREENING_SYNC_INITIAL_DELAY_SEC = 0
-SCREENING_SYNC_POLL_INTERVAL_SEC = 2
-SCREENING_SYNC_MAX_POLLS = 60
-VAPI_STATUS_TIMEOUT_SEC = 4.0
-MIN_LIVE_CALL_GRACE_SECONDS = 12
-MIN_RETRY_CALL_GRACE_SECONDS = 20
+_s = config.screening
+SCREENING_SYNC_INITIAL_DELAY_SEC = _s.poll.initial_delay_sec
+SCREENING_SYNC_POLL_INTERVAL_SEC = _s.poll.interval_sec
+SCREENING_SYNC_MAX_POLLS = _s.poll.max_polls
+VAPI_STATUS_TIMEOUT_SEC = _s.poll.status_timeout_sec
+MIN_LIVE_CALL_GRACE_SECONDS = _s.grace.live_call_sec
+MIN_RETRY_CALL_GRACE_SECONDS = _s.grace.retry_call_sec
 # After a live conversation ends, Vapi often needs a few seconds before artifact.transcript
 # is available. Wait/re-poll before treating the call as dropped and scheduling a retry.
-TRANSCRIPT_ENRICH_MAX_ATTEMPTS = 8
-TRANSCRIPT_ENRICH_DELAY_SEC = 5
+TRANSCRIPT_ENRICH_MAX_ATTEMPTS = _s.transcript_enrich.max_attempts
+TRANSCRIPT_ENRICH_DELAY_SEC = _s.transcript_enrich.delay_sec
 # Wait for enrich to finish (plus buffer) before emailing "unable to connect".
-FAILED_EMAIL_DELAY_SEC = TRANSCRIPT_ENRICH_MAX_ATTEMPTS * TRANSCRIPT_ENRICH_DELAY_SEC + 15
+FAILED_EMAIL_DELAY_SEC = _s.failed_email_delay_sec
 # Transcript shorter than this is treated as partial — wait for Vapi artifact.
-MIN_SUBSTANTIVE_TRANSCRIPT_CHARS = 50
+MIN_SUBSTANTIVE_TRANSCRIPT_CHARS = _s.min_substantive_transcript_chars
+RAPID_REDIAL_GUARD_SEC = _s.grace.rapid_redial_guard_sec
+SCREENING_REDISPATCH_DELAY_SEC = _s.redispatch_delay_sec
+STALE_ACTIVE_CALL_MINUTES = _s.stale_active_call_minutes
 
 LIVE_CALL_STATUSES = ("initiated", "in_progress")
 
@@ -110,7 +115,11 @@ def schedule_deferred_failed_screening_email(screening_call_id) -> None:
 # Task 5.6a — Initiate outbound Vapi screening call
 # ---------------------------------------------------------------------------
 
-@celery_app.task(name="tasks.initiate_screening_call", bind=True, max_retries=3)
+@celery_app.task(
+    name="tasks.initiate_screening_call",
+    bind=True,
+    max_retries=config.celery.default_max_retries,
+)
 def initiate_screening_call(self, screening_call_id: str):
     """
     Celery task: initiate a Vapi.ai outbound call for a ScreeningCall record.
@@ -193,7 +202,10 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
                 screening_call.candidate_id,
                 screening_call_id,
             )
-            initiate_screening_call.apply_async(args=[screening_call_id], countdown=15)
+            initiate_screening_call.apply_async(
+                args=[screening_call_id],
+                countdown=SCREENING_REDISPATCH_DELAY_SEC,
+            )
             return
 
         # Load Candidate
@@ -272,7 +284,7 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
             ):
                 logger.error("Config/auth error — not retrying: %s", exc)
                 return
-            raise task_self.retry(exc=exc, countdown=120)
+            raise task_self.retry(exc=exc, countdown=config.celery.transient_countdown_sec)
 
 
 # ---------------------------------------------------------------------------
@@ -372,7 +384,7 @@ def _can_finalize_live_call(vapi_call: dict, screening_call, *, force: bool) -> 
 
     # Carrier-level failures — on retries, ignore instant busy/no-answer (rapid redial).
     if vapi_status in ("busy", "no-answer", "failed"):
-        if (screening_call.retry_count or 0) > 0 and age_sec < 8:
+        if (screening_call.retry_count or 0) > 0 and age_sec < RAPID_REDIAL_GUARD_SEC:
             return False
         return True
 
@@ -956,7 +968,11 @@ def classify_call_outcome(ended_reason: str | None, transcript_length: int) -> t
 # Task 5.6b — Process Vapi webhook and extract structured fields via GPT-4o
 # ---------------------------------------------------------------------------
 
-@celery_app.task(name="tasks.process_screening_webhook", bind=True, max_retries=3)
+@celery_app.task(
+    name="tasks.process_screening_webhook",
+    bind=True,
+    max_retries=config.celery.default_max_retries,
+)
 def process_screening_webhook(self, payload: dict):
     """
     Celery task: process Vapi call-end webhook payload.
@@ -1083,12 +1099,12 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
         except openai.RateLimitError as exc:
             logger.warning("OpenAI rate limit during webhook extraction — retrying in 300s: %s", exc)
             await session.commit()  # Save transcript + outcome at least
-            raise task_self.retry(exc=exc, countdown=300)
+            raise task_self.retry(exc=exc, countdown=config.celery.rate_limit_countdown_sec)
 
         except openai.APIConnectionError as exc:
             logger.warning("OpenAI connection error — retrying in 120s: %s", exc)
             await session.commit()
-            raise task_self.retry(exc=exc, countdown=120)
+            raise task_self.retry(exc=exc, countdown=config.celery.transient_countdown_sec)
 
         except Exception as exc:
             logger.error("GPT extraction failed for call %s: %s", vapi_call_id, exc)
@@ -1232,14 +1248,14 @@ async def _extract_screening_fields(
     )
 
     response = await client.chat.completions.create(
-        model="gpt-4o",
+        model=config.models.screening_extraction.name,
         messages=[
             {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ],
-        response_format={"type": "json_object"},
-        temperature=0,
-        max_tokens=1000,
+        response_format=config.models.screening_extraction.openai_response_format(),
+        temperature=config.models.screening_extraction.temperature,
+        max_tokens=config.models.screening_extraction.max_tokens,
     )
 
     raw_content = response.choices[0].message.content
@@ -1268,11 +1284,15 @@ async def _async_dispatch_pending() -> None:
     from app.services.call_window_service import is_within_call_window
     from app.services.settings_service import load_system_settings
 
-    stale_active_cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+    stale_active_cutoff = datetime.now(timezone.utc) - timedelta(
+        minutes=STALE_ACTIVE_CALL_MINUTES
+    )
     now = datetime.now(timezone.utc)
 
     async with get_celery_db() as session:
-        stale_active_cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+        stale_active_cutoff = datetime.now(timezone.utc) - timedelta(
+        minutes=STALE_ACTIVE_CALL_MINUTES
+    )
         now = datetime.now(timezone.utc)
 
         stale_active = await session.execute(

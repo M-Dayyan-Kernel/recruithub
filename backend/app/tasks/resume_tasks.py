@@ -9,6 +9,7 @@ import docx  # python-docx
 from sqlalchemy import select
 
 from app.core.celery_app import celery_app
+from app.core.config_loader import config
 from app.core.database import get_celery_db
 from app.models.models import Candidate
 from app.services.parse_queue_service import dispatch_parse_slots
@@ -56,7 +57,11 @@ def _load_resume_bytes(candidate: Candidate) -> tuple[bytes, str]:
 # Task 3.3 — Raw text extraction
 # ---------------------------------------------------------------------------
 
-@celery_app.task(name="tasks.extract_resume_text", bind=True, max_retries=3)
+@celery_app.task(
+    name="tasks.extract_resume_text",
+    bind=True,
+    max_retries=config.celery.default_max_retries,
+)
 def extract_resume_text(self, candidate_id: str):
     """Extract text from the stored resume file and chain to structured parse.
 
@@ -70,7 +75,7 @@ def extract_resume_text(self, candidate_id: str):
         pass
     except Exception as exc:
         logger.error("extract_resume_text failed for candidate %s: %s", candidate_id, exc)
-        raise self.retry(exc=exc, countdown=60)
+        raise self.retry(exc=exc, countdown=config.celery.extraction_countdown_sec)
 
 
 async def _async_extract(candidate_id: str) -> None:
@@ -162,7 +167,11 @@ async def _async_extract(candidate_id: str) -> None:
 # Task 3.5 — structured resume parse
 # ==========================================================================
 
-@celery_app.task(name="tasks.parse_resume", bind=True, max_retries=3)
+@celery_app.task(
+    name="tasks.parse_resume",
+    bind=True,
+    max_retries=config.celery.default_max_retries,
+)
 def parse_resume(self, candidate_id: str, raw_text: str = ""):
     """Parse resume text with GPT-4o into structured fields.
 
@@ -275,19 +284,25 @@ async def _async_parse(candidate_id: str, raw_text: str) -> None:
             logger.warning(
                 "OpenAI rate limit hit for candidate %s — will retry: %s", candidate_id, exc
             )
-            raise parse_resume.retry(exc=exc, countdown=300)
+            raise parse_resume.retry(
+                exc=exc, countdown=config.celery.rate_limit_countdown_sec
+            )
 
         except openai.APIConnectionError as exc:
             logger.warning(
                 "OpenAI connection error for candidate %s — will retry: %s", candidate_id, exc
             )
-            raise parse_resume.retry(exc=exc, countdown=120)
+            raise parse_resume.retry(
+                exc=exc, countdown=config.celery.transient_countdown_sec
+            )
 
         except Exception as exc:
             logger.error(
                 "Unexpected error parsing resume for candidate %s: %s", candidate_id, exc
             )
-            raise parse_resume.retry(exc=exc, countdown=120)
+            raise parse_resume.retry(
+                exc=exc, countdown=config.celery.transient_countdown_sec
+            )
 
 
 @celery_app.task(name="tasks.recover_stuck_resume_parses")

@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, exists
 
-from app.core.settings import settings
+from app.core.config_loader import config
 from app.core.database import get_db
 from app.core.deps import RequireAdminOrHr, hr_roles
 from app.core.logging import get_actor_label, log_event, plural
@@ -118,7 +118,7 @@ async def _ingest_resume_file(
 # Task 3.2 — Resume Upload  (updated: B-4 dedup, B-5 size limit)
 # ---------------------------------------------------------------------------
 
-MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+MAX_FILE_SIZE = config.uploads.resume_max_bytes
 
 
 @router.post(
@@ -155,7 +155,7 @@ async def upload_resumes(
     job = await get_tenant_job(db, job_id, actor.tenant_id)
 
     # --- Prepare upload directory ---
-    upload_dir = Path(settings.UPLOAD_DIR) / str(actor.tenant_id) / str(job_id)
+    upload_dir = Path(config.UPLOAD_DIR) / str(actor.tenant_id) / str(job_id)
     try:
         upload_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -176,12 +176,12 @@ async def upload_resumes(
         content = await file.read()
 
         if _is_zip_file(file):
-            if len(content) > settings.MAX_ZIP_FILE_SIZE:
+            if len(content) > config.uploads.zip_max_bytes:
                 raise HTTPException(
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                     detail=(
                         f"ZIP file '{file.filename}' exceeds the "
-                        f"{settings.MAX_ZIP_FILE_SIZE // (1024 * 1024)} MB size limit."
+                        f"{config.uploads.zip_max_bytes // (1024 * 1024)} MB size limit."
                     ),
                 )
             try:

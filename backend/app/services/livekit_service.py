@@ -13,7 +13,7 @@ import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from app.core.settings import settings
+from app.core.config_loader import config
 
 if TYPE_CHECKING:
     from app.services.tenant_integrations_service import TenantIntegrations
@@ -38,10 +38,10 @@ def _livekit_credentials(integrations: "TenantIntegrations") -> tuple[str, str, 
 
 def _s3_configured() -> bool:
     return bool(
-        settings.S3_BUCKET
-        and settings.S3_ACCESS_KEY
-        and settings.S3_SECRET_KEY
-        and settings.S3_ENDPOINT
+        config.S3_BUCKET
+        and config.S3_ACCESS_KEY
+        and config.S3_SECRET_KEY
+        and config.S3_ENDPOINT
     )
 
 
@@ -64,6 +64,7 @@ async def create_room(
     from livekit import api
 
     livekit_url, api_key, api_secret = _livekit_credentials(integrations)
+    lk = config.livekit
 
     lkapi = api.LiveKitAPI(
         url=_livekit_http_url(livekit_url),
@@ -75,8 +76,8 @@ async def create_room(
         room = await lkapi.room.create_room(
             api.CreateRoomRequest(
                 name=room_name,
-                empty_timeout=600,
-                max_participants=10,
+                empty_timeout=lk.room.empty_timeout_seconds,
+                max_participants=lk.room.max_participants,
             )
         )
         logger.info("LiveKit room created: %s", room.name)
@@ -86,7 +87,7 @@ async def create_room(
             dispatch = await lkapi.agent_dispatch.create_dispatch(
                 api.CreateAgentDispatchRequest(
                     room=room_name,
-                    agent_name="interview-agent",
+                    agent_name=lk.agent_name,
                 )
             )
             logger.info("Agent dispatched to room %s: dispatch_id=%s", room_name, dispatch.id)
@@ -98,7 +99,8 @@ async def create_room(
         # Otherwise attempt egress without an explicit s3 target (LiveKit project default).
         egress_id: str | None = None
         recording_key: str | None = None
-        filepath = f"recruitment-interview-recordings/interview-{room_name}.mp4"
+        prefix = lk.recording.key_prefix.rstrip("/")
+        filepath = f"{prefix}/interview-{room_name}.mp4"
         try:
             file_output_kwargs: dict = {
                 "file_type": api.EncodedFileType.MP4,
@@ -106,12 +108,12 @@ async def create_room(
             }
             if _s3_configured():
                 file_output_kwargs["s3"] = api.S3Upload(
-                    access_key=settings.S3_ACCESS_KEY,
-                    secret=settings.S3_SECRET_KEY,
-                    region=settings.S3_REGION,
-                    endpoint=settings.S3_ENDPOINT,
-                    bucket=settings.S3_BUCKET,
-                    force_path_style=settings.S3_FORCE_PATH_STYLE,
+                    access_key=config.S3_ACCESS_KEY,
+                    secret=config.S3_SECRET_KEY,
+                    region=config.S3_REGION,
+                    endpoint=config.S3_ENDPOINT,
+                    bucket=config.S3_BUCKET,
+                    force_path_style=config.S3_FORCE_PATH_STYLE,
                 )
             else:
                 logger.warning(
@@ -123,7 +125,7 @@ async def create_room(
             egress = await lkapi.egress.start_room_composite_egress(
                 api.RoomCompositeEgressRequest(
                     room_name=room_name,
-                    layout="speaker",
+                    layout=lk.recording.layout,
                     file_outputs=[api.EncodedFileOutput(**file_output_kwargs)],
                 )
             )
@@ -166,6 +168,7 @@ def generate_candidate_token(
     from livekit.api import AccessToken, VideoGrants
 
     _, api_key, api_secret = _livekit_credentials(integrations)
+    ttl_hours = config.livekit.room.token_ttl_hours
 
     token = (
         AccessToken(
@@ -174,7 +177,7 @@ def generate_candidate_token(
         )
         .with_identity(f"candidate-{candidate_name.replace(' ', '-').lower()}")
         .with_name(candidate_name)
-        .with_ttl(timedelta(hours=2))
+        .with_ttl(timedelta(hours=ttl_hours))
         .with_grants(
             VideoGrants(
                 room_join=True,
@@ -204,6 +207,7 @@ def generate_agent_token(
     from livekit.api import AccessToken, VideoGrants
 
     _, api_key, api_secret = _livekit_credentials(integrations)
+    ttl_hours = config.livekit.room.token_ttl_hours
 
     token = (
         AccessToken(
@@ -212,7 +216,7 @@ def generate_agent_token(
         )
         .with_identity("ai-interviewer-agent")
         .with_name("AI Interviewer")
-        .with_ttl(timedelta(hours=2))
+        .with_ttl(timedelta(hours=ttl_hours))
         .with_grants(
             VideoGrants(
                 room_join=True,

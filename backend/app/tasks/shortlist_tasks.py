@@ -17,7 +17,7 @@ from typing import List, Optional
 import redis as redis_lib
 
 from app.core.celery_app import celery_app
-from app.core.settings import settings
+from app.core.config_loader import config
 from app.core.logging import log_event, plural
 from app.core.database import get_celery_db
 
@@ -37,7 +37,7 @@ def _load_batch_candidate_ids(job_id: str, candidate_ids: Optional[List[str]]) -
     if candidate_ids:
         return [uuid.UUID(cid) for cid in candidate_ids]
     try:
-        _r = redis_lib.from_url(settings.REDIS_URL or "redis://localhost:6379/0")
+        _r = redis_lib.from_url(config.REDIS_URL or "redis://localhost:6379/0")
         batch_raw = _r.get(_shortlist_batch_key(job_id))
         if batch_raw:
             return [uuid.UUID(cid) for cid in json.loads(batch_raw)]
@@ -50,7 +50,11 @@ def _load_batch_candidate_ids(job_id: str, candidate_ids: Optional[List[str]]) -
 # Task 4.7 — Batch shortlisting (Celery)
 # ---------------------------------------------------------------------------
 
-@celery_app.task(name="tasks.run_shortlist", bind=True, max_retries=3)
+@celery_app.task(
+    name="tasks.run_shortlist",
+    bind=True,
+    max_retries=config.celery.default_max_retries,
+)
 def run_shortlist(self, job_id: str, candidate_ids: Optional[List[str]] = None):
     """
     Celery task: run AI shortlisting for ready candidates in a job.
@@ -65,7 +69,7 @@ def run_shortlist(self, job_id: str, candidate_ids: Optional[List[str]] = None):
         raise
     finally:
         try:
-            _r = redis_lib.from_url(settings.REDIS_URL or "redis://localhost:6379/0")
+            _r = redis_lib.from_url(config.REDIS_URL or "redis://localhost:6379/0")
             _r.delete(_shortlist_lock_key(job_id))
             _r.delete(_shortlist_batch_key(job_id))
         except Exception as lock_exc:
@@ -126,7 +130,9 @@ async def _async_shortlist(
                 job_id,
                 exc,
             )
-            raise task_self.retry(exc=exc, countdown=300)
+            raise task_self.retry(
+                exc=exc, countdown=config.celery.rate_limit_countdown_sec
+            )
 
         except openai.APIConnectionError as exc:
             logger.warning(
@@ -134,7 +140,9 @@ async def _async_shortlist(
                 job_id,
                 exc,
             )
-            raise task_self.retry(exc=exc, countdown=120)
+            raise task_self.retry(
+                exc=exc, countdown=config.celery.transient_countdown_sec
+            )
 
         except ValueError as exc:
             logger.error(
@@ -146,4 +154,6 @@ async def _async_shortlist(
             logger.error(
                 "run_shortlist: unexpected error for job %s — will retry: %s", job_id, exc
             )
-            raise task_self.retry(exc=exc, countdown=120)
+            raise task_self.retry(
+                exc=exc, countdown=config.celery.transient_countdown_sec
+            )

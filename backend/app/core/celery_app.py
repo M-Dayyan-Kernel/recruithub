@@ -2,13 +2,13 @@ from celery import Celery
 from celery.signals import after_setup_logger, after_setup_task_logger, task_postrun, task_prerun
 import logging
 
-from app.core.settings import settings
+from app.core.config_loader import config
 from app.core.logging import clear_task_id, set_task_id, setup_logging
 
 celery_app = Celery(
     "ai_recruitment",
-    broker=settings.REDIS_URL,
-    backend=settings.REDIS_URL,
+    broker=config.REDIS_URL,
+    backend=config.REDIS_URL,
     include=[
         "app.tasks.resume_tasks",
         "app.tasks.shortlist_tasks",
@@ -24,11 +24,11 @@ celery_app.conf.update(
     beat_schedule={
         "dispatch-pending-screening-calls": {
             "task": "tasks.dispatch_pending_screening_calls",
-            "schedule": 60.0,  # every minute — dispatch queued calls when window opens
+            "schedule": config.scheduler.dispatch_pending_screening_seconds,
         },
         "recover-stuck-resume-parses": {
             "task": "tasks.recover_stuck_resume_parses",
-            "schedule": 120.0,  # every 2 minutes — re-enqueue crashed mid-parse resumes
+            "schedule": config.scheduler.recover_stuck_parses_seconds,
         },
     },
 )
@@ -36,12 +36,12 @@ celery_app.conf.update(
 
 @after_setup_logger.connect
 def _on_celery_setup_logger(**_kwargs):
-    setup_logging(settings.LOG_LEVEL)
+    setup_logging(config.LOG_LEVEL)
 
 
 @after_setup_task_logger.connect
 def _on_celery_setup_task_logger(**_kwargs):
-    setup_logging(settings.LOG_LEVEL)
+    setup_logging(config.LOG_LEVEL)
 
 
 @task_prerun.connect

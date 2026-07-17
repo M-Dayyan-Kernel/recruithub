@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.settings import settings
+from app.core.config_loader import config
 from app.core.database import get_db
 from app.core.deps import PLATFORM_TENANT_SLUG, RequireSuperAdmin, get_current_user
 from app.core.security import create_access_token, verify_password
@@ -27,7 +27,7 @@ from app.services.tenant_service import create_tenant_with_admin, get_valid_invi
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-MAX_GST_DOC_SIZE = settings.MAX_ORG_DOC_SIZE
+MAX_GST_DOC_SIZE = config.uploads.org_doc_max_bytes
 _EMAIL_ADAPTER = TypeAdapter(EmailStr)
 
 
@@ -154,7 +154,7 @@ def _persist_gst_document(tenant_id, data: bytes) -> str:
                 detail="Could not store the uploaded document in object storage.",
             ) from exc
 
-    dest_dir = Path(settings.ORG_DOCS_DIR) / str(tenant_id)
+    dest_dir = Path(config.ORG_DOCS_DIR) / str(tenant_id)
     try:
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest_path = dest_dir / filename

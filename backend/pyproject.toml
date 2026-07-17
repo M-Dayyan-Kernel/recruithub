@@ -26,4 +26,5 @@ dependencies = [
     "uvicorn[standard]==0.30.1",
     "jose>=1.0.0",
     "boto3>=1.43.49",
+    "pyyaml>=6.0.3",
 ]

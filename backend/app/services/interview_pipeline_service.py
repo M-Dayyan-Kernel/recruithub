@@ -11,7 +11,7 @@ from typing import Literal, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.settings import settings
+from app.core.config_loader import config
 from app.models.models import (
     Candidate,
     InterviewReport,
@@ -100,7 +100,7 @@ def _enrich_session(
 ) -> InterviewSessionResponse:
     response = InterviewSessionResponse.model_validate(session)
     response.interview_url = (
-        f"{settings.CANDIDATE_APP_URL}/interview/{session.unique_token}"
+        f"{config.CANDIDATE_APP_URL}/interview/{session.unique_token}"
     )
     response.candidate_name = candidate.name if candidate else None
     response.job_title = job_title

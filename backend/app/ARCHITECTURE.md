@@ -169,7 +169,9 @@ backend/app/
 ├── core/
 │   ├── __init__.py
 │   ├── celery_app.py
-│   ├── config.py
+│   ├── config.yaml
+│   ├── config_loader.py
+│   ├── settings.py
 │   ├── database.py
 │   ├── deps.py
 │   ├── security.py
@@ -320,16 +322,25 @@ The root composes the API but should not contain business logic. The main concer
 
 Package marker only. No runtime symbols.
 
-## File: `core/config.py`
+## File: `core/settings.py` + `core/config.yaml` / `core/config_loader.py`
 
-### Class: `Settings(BaseSettings)`
+### Class: `Settings(BaseSettings)` (`settings.py`)
 
-Pydantic settings object loaded at import time. It uses `.env` and ignores unknown keys.
+Pydantic settings object loaded at import time for **secrets and deployment URLs**. It uses `.env` and ignores unknown keys.
 
-### Configuration variables
+Application code should import `from app.core.config_loader import config` (not `settings` directly). The loader validates/caches YAML tunables and proxies environment fields from `Settings`.
+
+### YAML tunables (`config.yaml`)
+
+Non-secret model, audio, pipeline, upload, screening, interview, storage, and Celery schedules live in `app/core/config.yaml`. Override the path with `CONFIG_PATH`. **Restart API, Celery, and interview-agent after YAML edits** (no hot-reload).
+
+Key sections: `models.*`, `livekit.*`, `vapi.*`, `parsing`, `concurrency`, `uploads`, `screening`, `interview`, `storage`, `scheduler`, `celery`.
+
+### Environment variables (secrets / deployment)
 
 | Variable | Default | Purpose | Required |
 |---|---:|---|---|
+| `CONFIG_PATH` | `app/core/config.yaml` | Override YAML path | Optional |
 | `DATABASE_URL` | local async PostgreSQL | API and worker DB connections | Yes |
 | `REDIS_URL` | `redis://localhost:6379` | Celery broker/backend and shortlist state | Yes for async features |
 | `MOCK_EXTERNAL_APIS` | false | Mock every paid external integration | Optional |
@@ -343,7 +354,6 @@ Pydantic settings object loaded at import time. It uses `.env` and ignores unkno
 | `BACKEND_PUBLIC_URL` | empty | Builds Vapi webhook URL | Required for webhooks |
 | `SARVAM_API_KEY` | empty | Present but unused in reviewed `app/` code | No current consumer |
 | `LIVEKIT_API_KEY/SECRET/URL` | empty | LiveKit fallback credentials | Required for interviews |
-| `INTERVIEW_ASSESSMENT_MODEL` | `gpt-4o-mini` | GPT interview assessment model | Optional override |
 | `S3_*` | Linode Chennai defaults | LiveKit recording upload and playback | Optional |
 | `CANDIDATE_APP_URL` | localhost:5174 | Candidate interview links | Required for real emails |
 | `HR_APP_URL` | localhost:5173 | Invite links | Required for real emails |
@@ -351,12 +361,6 @@ Pydantic settings object loaded at import time. It uses `.env` and ignores unkno
 | `GMAIL_TOKEN_PATH` | `token.json` | OAuth refresh/access token | Required for Gmail |
 | `UPLOAD_DIR` | `uploads/resumes` | Resume filesystem storage | Required |
 | `ORG_DOCS_DIR` | `uploads/org-docs` | GST document storage | Required |
-| `MAX_ORG_DOC_SIZE` | 10 MiB | GST upload limit | Optional |
-| `MAX_CONCURRENT_PARSES` | 10 | Active parses per job | Optional |
-| `MAX_CONCURRENT_SHORTLISTS` | 10 | Parallel GPT shortlist calls | Optional |
-| `MAX_ZIP_FILE_SIZE` | 100 MiB | ZIP input limit | Optional |
-| `MAX_RESUMES_PER_ZIP` | 200 | ZIP member count limit | Optional |
-| `MAX_ZIP_UNCOMPRESSED_BYTES` | 500 MiB | ZIP bomb limit | Optional |
 | `JWT_SECRET_KEY` | insecure development string | JWT signing | Must change in production |
 | `INTEGRATIONS_ENCRYPTION_KEY` | empty, falls back to JWT secret | Fernet secret encryption | Strongly recommended |
 | `JWT_ALGORITHM` | HS256 | JWT algorithm | Optional |
@@ -364,7 +368,7 @@ Pydantic settings object loaded at import time. It uses `.env` and ignores unkno
 | `SEED_ADMIN_*` | mostly empty | Startup tenant admin | Optional |
 | `SEED_SUPERADMIN_*` | mostly empty | Startup platform admin | Optional |
 
-`settings = Settings()` is constructed at import time. Invalid environment values therefore fail module import/startup.
+`config = load_config()` is constructed at import time. Invalid YAML or environment values therefore fail module import/startup.
 
 ## File: `core/database.py`
 
@@ -1689,7 +1693,7 @@ This section consolidates findings from full reverse-engineering of startup/core
 
 ## Critical/high security
 
-1. Default `JWT_SECRET_KEY` is deployable without validation; integration encryption falls back to that JWT secret or `"dev"` (`config.py`, `tenant_integrations_service.py`).
+1. Default `JWT_SECRET_KEY` is deployable without validation; integration encryption falls back to that JWT secret or `"dev"` (`settings.py`, `tenant_integrations_service.py`).
 2. Vapi and LiveKit webhooks have no signature/shared-secret verification; forged events can mutate screening/interview state and enqueue paid work.
 3. Global exception handler returns raw exception class/text to clients (`main.py`).
 4. Email templates store/admin-preview unsanitized HTML; candidate/job/org values are interpolated into HTML/href without escaping.

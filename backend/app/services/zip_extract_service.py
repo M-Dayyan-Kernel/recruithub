@@ -7,13 +7,13 @@ import logging
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from app.core.settings import settings
+from app.core.config_loader import config
 
 logger = logging.getLogger(__name__)
 
 RESUME_EXTENSIONS = {".pdf", ".docx", ".doc"}
 NESTED_ZIP_EXTENSION = ".zip"
-MAX_ZIP_NESTING_DEPTH = 5
+MAX_ZIP_NESTING_DEPTH = config.uploads.max_zip_nesting_depth
 
 
 def _normalize_zip_path(name: str) -> str:
@@ -61,13 +61,13 @@ class _ZipExtractState:
     def add_resume(self, relative_path: str, file_bytes: bytes) -> None:
         uncompressed = len(file_bytes)
         self.total_uncompressed += uncompressed
-        if self.total_uncompressed > settings.MAX_ZIP_UNCOMPRESSED_BYTES:
+        if self.total_uncompressed > config.uploads.zip_max_uncompressed_bytes:
             raise ValueError(
                 "ZIP archive exceeds the maximum allowed uncompressed size."
             )
-        if len(self.results) >= settings.MAX_RESUMES_PER_ZIP:
+        if len(self.results) >= config.uploads.max_resumes_per_zip:
             raise ValueError(
-                f"ZIP archive contains more than {settings.MAX_RESUMES_PER_ZIP} resume files."
+                f"ZIP archive contains more than {config.uploads.max_resumes_per_zip} resume files."
             )
         self.results.append((_flatten_storage_name(relative_path), file_bytes))
 

@@ -18,13 +18,14 @@ import uuid
 from sqlalchemy import select
 
 from app.core.celery_app import celery_app
+from app.core.config_loader import config
 from app.core.database import get_celery_db
 
 logger = logging.getLogger(__name__)
 
 # Retry assessment until transcript is saved (agent may finish after /complete)
-ASSESSMENT_RETRY_DELAY_SEC = 15
-ASSESSMENT_MAX_ATTEMPTS = 12  # ~3 minutes
+ASSESSMENT_RETRY_DELAY_SEC = config.interview.assessment_retry.delay_sec
+ASSESSMENT_MAX_ATTEMPTS = config.interview.assessment_retry.max_attempts
 
 
 def enqueue_interview_assessment(interview_session_id: str) -> None:
@@ -64,7 +65,6 @@ def schedule_interview_assessment(interview_session_id: str, attempt: int = 0):
 async def _async_maybe_start_assessment(interview_session_id: str, attempt: int) -> bool:
     """Return True to schedule another retry."""
     from app.models.models import InterviewSession, InterviewReport
-    from app.services.assessment_service import MIN_TRANSCRIPT_LENGTH
 
     session_uuid = uuid.UUID(interview_session_id)
 
@@ -103,7 +103,7 @@ async def _async_maybe_start_assessment(interview_session_id: str, attempt: int)
             return True
 
         transcript = (interview_session.transcript or "").strip()
-        has_transcript = len(transcript) >= MIN_TRANSCRIPT_LENGTH
+        has_transcript = len(transcript) >= config.parsing.min_transcript_chars
 
         if has_transcript or attempt >= ASSESSMENT_MAX_ATTEMPTS:
             logger.info(

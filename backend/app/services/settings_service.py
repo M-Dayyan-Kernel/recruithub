@@ -13,16 +13,11 @@ from typing import Dict, List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config_loader import config
 from app.core.database import AsyncSessionLocal
 from app.models.models import SystemSettings
 
 DEFAULT_REGIONS = ["IN"]
-DEFAULT_MAX_RETRIES = 3
-DEFAULT_RETRY_DELAY_SECONDS = 1800  # 30 minutes
-MIN_RETRY_DELAY_SECONDS = 60
-MAX_RETRY_DELAY_SECONDS = 7 * 24 * 60 * 60  # 7 days
-MIN_MAX_RETRIES = 1
-MAX_MAX_RETRIES = 10
 
 
 @dataclass
@@ -38,7 +33,7 @@ class CachedSettings:
 
 _cache: Dict[uuid.UUID, CachedSettings] = {}
 _cache_lock = threading.Lock()
-_CACHE_TTL = timedelta(seconds=30)
+_CACHE_TTL = timedelta(seconds=config.screening.cache_ttl_seconds)
 
 
 def _defaults(tenant_id: uuid.UUID | None = None) -> CachedSettings:
@@ -47,33 +42,37 @@ def _defaults(tenant_id: uuid.UUID | None = None) -> CachedSettings:
         allowed_phone_regions=list(DEFAULT_REGIONS),
         enforce_phone_geography=True,
         screening_enabled=True,
-        screening_max_retries=DEFAULT_MAX_RETRIES,
-        screening_retry_delay_seconds=DEFAULT_RETRY_DELAY_SECONDS,
+        screening_max_retries=config.screening.defaults.max_retries,
+        screening_retry_delay_seconds=config.screening.defaults.retry_delay_seconds,
         fetched_at=datetime.min,
     )
 
 
 def normalize_max_retries(value: int | None) -> int:
+    bounds = config.screening.validation
+    default = config.screening.defaults.max_retries
     if value is None:
-        return DEFAULT_MAX_RETRIES
+        return default
     if not isinstance(value, int):
         raise ValueError("screening_max_retries must be an integer")
-    if value < MIN_MAX_RETRIES or value > MAX_MAX_RETRIES:
+    if value < bounds.min_retries or value > bounds.max_retries:
         raise ValueError(
-            f"screening_max_retries must be between {MIN_MAX_RETRIES} and {MAX_MAX_RETRIES}"
+            f"screening_max_retries must be between {bounds.min_retries} and {bounds.max_retries}"
         )
     return value
 
 
 def normalize_retry_delay_seconds(value: int | None) -> int:
+    bounds = config.screening.validation
+    default = config.screening.defaults.retry_delay_seconds
     if value is None:
-        return DEFAULT_RETRY_DELAY_SECONDS
+        return default
     if not isinstance(value, int):
         raise ValueError("screening_retry_delay_seconds must be an integer")
-    if value < MIN_RETRY_DELAY_SECONDS or value > MAX_RETRY_DELAY_SECONDS:
+    if value < bounds.min_retry_delay_seconds or value > bounds.max_retry_delay_seconds:
         raise ValueError(
             f"screening_retry_delay_seconds must be between "
-            f"{MIN_RETRY_DELAY_SECONDS} and {MAX_RETRY_DELAY_SECONDS}"
+            f"{bounds.min_retry_delay_seconds} and {bounds.max_retry_delay_seconds}"
         )
     return value
 

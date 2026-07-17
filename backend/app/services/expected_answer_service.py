@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from openai import AsyncOpenAI
 
+from app.core.config_loader import config
 from app.prompts.expected_answer import (
     EXPECTED_POINTS_SYSTEM_PROMPT,
     build_expected_points_user_prompt,
@@ -23,11 +24,11 @@ def _job_context(job: Any) -> str:
 Required Skills: {skills}
 Experience: {exp}
 Description:
-{(job.description or "")[:2500]}"""
+{(job.description or "")[: config.parsing.expected_answer_jd_chars]}"""
 
 
 async def generate_expected_points(question_text: str, job: Any, api_key: str) -> list[str]:
-    """Generate 3–6 expected answer bullet points for one interview question."""
+    """Generate expected answer bullet points for one interview question."""
     if not (question_text or "").strip():
         return []
 
@@ -48,22 +49,24 @@ async def generate_expected_points(question_text: str, job: Any, api_key: str) -
     )
 
     try:
+        model_cfg = config.models.expected_answer
         response = await client.chat.completions.create(
-            model="gpt-4o",
+            model=model_cfg.name,
             messages=[
                 {"role": "system", "content": EXPECTED_POINTS_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
             ],
-            response_format={"type": "json_object"},
-            temperature=0,
-            max_tokens=600,
+            response_format=model_cfg.openai_response_format(),
+            temperature=model_cfg.temperature,
+            max_tokens=model_cfg.max_tokens,
         )
         data = json.loads(response.choices[0].message.content or "{}")
         raw = data.get("expected_points") or []
         if not isinstance(raw, list):
             return []
         points = [str(p).strip() for p in raw if str(p).strip()]
-        return points[:6] if points else []
+        max_points = config.parsing.expected_answer_max_points
+        return points[:max_points] if points else []
     except Exception:
         logger.exception("Failed to generate expected_points for question")
         return []

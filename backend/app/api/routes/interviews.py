@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from app.core.database import get_db
-from app.core.settings import settings
+from app.core.config_loader import config
 from app.core.deps import RequireAdminOrHr, hr_roles
 from app.core.tenancy import get_tenant_candidate, get_tenant_job
 from app.models.models import (
@@ -206,7 +206,7 @@ async def schedule_interview(
         unique_token=unique_token,
         status="pending",
         scheduled_interview_at=scheduled_at,
-        expires_at=scheduled_at + timedelta(days=7),
+        expires_at=scheduled_at + timedelta(days=config.interview.session_link_ttl_days),
     )
     db.add(interview_session)
     await db.flush()
@@ -217,7 +217,7 @@ async def schedule_interview(
     job = job_result.scalars().first()
     job_title = job.title if job else "the position"
 
-    interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{unique_token}"
+    interview_url = f"{config.CANDIDATE_APP_URL}/interview/{unique_token}"
 
     await send_scheduled_interview_notification_email(
         db,
@@ -309,7 +309,7 @@ async def send_interview_link(
 
     await _mark_interview_queued(db, candidate_id, candidate.job_id)
 
-    interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{interview_session.unique_token}"
+    interview_url = f"{config.CANDIDATE_APP_URL}/interview/{interview_session.unique_token}"
 
     await send_interview_invitation_email(db, interview_session, candidate, job_title)
 
@@ -607,7 +607,7 @@ async def mark_interview_complete(
 
     response_data = InterviewSessionResponse.model_validate(session)
     response_data.interview_url = (
-        f"{settings.CANDIDATE_APP_URL}/interview/{session.unique_token}"
+        f"{config.CANDIDATE_APP_URL}/interview/{session.unique_token}"
     )
     response_data.candidate_name = candidate.name
     response_data.job_title = job.title if job else None
@@ -935,7 +935,7 @@ async def list_job_interviews(
     enriched: list[InterviewSessionResponse] = []
     for session in sessions:
         r = InterviewSessionResponse.model_validate(session)
-        r.interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{session.unique_token}"
+        r.interview_url = f"{config.CANDIDATE_APP_URL}/interview/{session.unique_token}"
         c = candidate_map.get(session.candidate_id)
         r.candidate_name = c.name if c else None
         r.job_title = job.title

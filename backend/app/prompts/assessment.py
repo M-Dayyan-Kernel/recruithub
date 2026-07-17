@@ -106,19 +106,23 @@ def build_assessment_user_prompt(
     candidate_summary: str,
     transcript: str,
 ) -> str:
+    from app.core.config_loader import config
+
     skills = ", ".join(required_skills or []) or "Not specified"
     experience_range = f"{experience_min}–{experience_max} years"
+    jd_limit = config.parsing.assessment_jd_chars
+    transcript_limit = config.parsing.assessment_transcript_chars
     return f"""== JOB DESCRIPTION ==
 Title: {job_title}
 Required Skills: {skills}
 Experience Required: {experience_range}
 Description:
-{job_description[:3000]}
+{job_description[:jd_limit]}
 
 == CANDIDATE PROFILE ==
 Name: {candidate_name}
 {candidate_summary}
 
 == INTERVIEW TRANSCRIPT ==
-{transcript[:14000]}
+{transcript[:transcript_limit]}
 """

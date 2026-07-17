@@ -5,11 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import NullPool
 
-from app.core.settings import settings
+from app.core.config_loader import config
 
 # ── FastAPI engine (persistent pool — fine for async web server) ──────────────
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    config.DATABASE_URL,
     echo=False,
     pool_pre_ping=True,
 )
@@ -40,7 +40,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def get_celery_db():
     """Async DB session for use inside Celery tasks (NullPool, no connection reuse)."""
     task_engine = create_async_engine(
-        settings.DATABASE_URL,
+        config.DATABASE_URL,
         echo=False,
         poolclass=NullPool,
     )

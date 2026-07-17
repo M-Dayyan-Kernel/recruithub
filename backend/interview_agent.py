@@ -48,6 +48,7 @@ from app.prompts.interview import (
     build_start_interview_instruction,
     format_rubric_block,
 )
+from app.core.config_loader import config
 
 logger = logging.getLogger("interview-agent")
 logging.basicConfig(level=logging.INFO)
@@ -63,9 +64,7 @@ except ImportError:
     _AIC_AVAILABLE = False
     logger.warning("livekit-plugins-ai-coustics not installed — noise cancellation disabled")
 
-AGENT_NAME = "interview-agent"
-MAX_FOLLOW_UPS_PER_TOPIC = 2
-THIN_ANSWER_WORD_LIMIT = 25
+AGENT_NAME = config.livekit.agent_name
 
 
 def _validate_agent_env() -> None:
@@ -98,7 +97,7 @@ def _is_thin_answer(text: str) -> bool:
         return True
 
     words = cleaned.split()
-    if len(words) < THIN_ANSWER_WORD_LIMIT:
+    if len(words) < config.interview.thin_answer_word_limit:
         return True
 
     lower = cleaned.lower()
@@ -121,7 +120,7 @@ def _is_thin_answer(text: str) -> bool:
 
 
 def _adaptive_followup_rules() -> str:
-    return build_adaptive_followup_rules(MAX_FOLLOW_UPS_PER_TOPIC)
+    return build_adaptive_followup_rules(config.interview.max_follow_ups_per_topic)
 
 
 def _format_rubric_block(questions: list) -> str:
@@ -131,7 +130,7 @@ def _format_rubric_block(questions: list) -> str:
 def _build_interview_structure(job) -> str:
     return build_interview_structure(
         job,
-        max_follow_ups_per_topic=MAX_FOLLOW_UPS_PER_TOPIC,
+        max_follow_ups_per_topic=config.interview.max_follow_ups_per_topic,
     )
 
 
@@ -189,7 +188,7 @@ async def _load_session_data(session_id: str) -> tuple[str, str, str]:
             required_skills=required_skills,
             job_description=job.description or "",
             interview_structure=interview_structure,
-            max_follow_ups_per_topic=MAX_FOLLOW_UPS_PER_TOPIC,
+            max_follow_ups_per_topic=config.interview.max_follow_ups_per_topic,
         )
 
         greeting = build_candidate_greeting(candidate.name)
@@ -202,7 +201,7 @@ async def _load_session_data(session_id: str) -> tuple[str, str, str]:
 
 
 def _default_prompt() -> str:
-    return build_default_interview_prompt(MAX_FOLLOW_UPS_PER_TOPIC)
+    return build_default_interview_prompt(config.interview.max_follow_ups_per_topic)
 
 
 # ---------------------------------------------------------------------------
@@ -304,14 +303,19 @@ async def interview_session(ctx: JobContext):
             def __init__(self):
                 super().__init__(
                     instructions=system_prompt,
-                    llm=lk_openai.LLM(model="gpt-4o-mini", api_key=openai_key),
+                    llm=lk_openai.LLM(
+                        model=config.livekit.llm.name,
+                        api_key=openai_key,
+                    ),
                 )
 
         # ---------------------------------------------------------------------------
         # Noise cancellation — build AudioInputOptions with ai_coustics enhancer.
         # ---------------------------------------------------------------------------
         noise_cancel = None
-        if _AIC_AVAILABLE:
+        audio_cfg = config.livekit.audio
+        nc_cfg = audio_cfg.noise_cancellation
+        if _AIC_AVAILABLE and nc_cfg.enabled:
             try:
                 aic_api_key = os.environ.get("AIC_API_KEY")
                 aic_auth = (
@@ -319,8 +323,13 @@ async def interview_session(ctx: JobContext):
                     if aic_api_key
                     else None
                 )
+                enhancer_model = getattr(
+                    ai_coustics.EnhancerModel,
+                    nc_cfg.model,
+                    ai_coustics.EnhancerModel.ROOK_S,
+                )
                 noise_cancel = ai_coustics.AICousticsAudioEnhancer(
-                    model=ai_coustics.EnhancerModel.ROOK_S,
+                    model=enhancer_model,
                     vad_settings=ai_coustics.VadSettings(
                         speech_hold_duration=None,
                         sensitivity=None,
@@ -328,31 +337,42 @@ async def interview_session(ctx: JobContext):
                     ),
                     auth=aic_auth,
                 )
-                logger.info("ai_coustics noise cancellation enabled (model=ROOK_S, auth=%s)",
-                            "api_key" if aic_api_key else "offline/trial")
+                logger.info(
+                    "ai_coustics noise cancellation enabled (model=%s, auth=%s)",
+                    nc_cfg.model,
+                    "api_key" if aic_api_key else "offline/trial",
+                )
             except Exception as exc:
-                logger.warning("Could not initialise ai_coustics enhancer: %s — proceeding without noise cancellation", exc)
+                logger.warning(
+                    "Could not initialise ai_coustics enhancer: %s — proceeding without noise cancellation",
+                    exc,
+                )
                 noise_cancel = None
 
         audio_input_opts = room_io.AudioInputOptions(
             noise_cancellation=noise_cancel,
-            auto_gain_control=True,
-            pre_connect_audio=True,
-            pre_connect_audio_timeout=30.0,
+            auto_gain_control=audio_cfg.auto_gain_control,
+            pre_connect_audio=audio_cfg.pre_connect_audio,
+            pre_connect_audio_timeout=audio_cfg.pre_connect_timeout_seconds,
         )
 
         # Realtime STT with server VAD — whisper-1 batch mode often stalls after greeting.
+        turn = config.livekit.turn_handling
         session = AgentSession(
             stt=lk_openai.STT(
-                model="gpt-4o-mini-transcribe",
-                use_realtime=True,
+                model=config.livekit.stt.name,
+                use_realtime=config.livekit.stt.realtime,
                 api_key=openai_key,
             ),
-            tts=lk_openai.TTS(model="tts-1", voice="nova", api_key=openai_key),
+            tts=lk_openai.TTS(
+                model=config.livekit.tts.name,
+                voice=config.livekit.tts.voice,
+                api_key=openai_key,
+            ),
             turn_handling=TurnHandlingOptions(
-                endpointing={"min_delay": 0.5},
-                preemptive_generation={"preemptive_tts": True},
-                interruption={"enabled": True},
+                endpointing={"min_delay": turn.endpointing_min_delay},
+                preemptive_generation={"preemptive_tts": turn.preemptive_tts},
+                interruption={"enabled": turn.interruption_enabled},
             ),
         )
 

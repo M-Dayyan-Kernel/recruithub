@@ -11,6 +11,7 @@ Functions:
 import json
 import logging
 
+from app.core.config_loader import config
 from app.prompts.assessment import (
     ASSESSMENT_SYSTEM_PROMPT,
     build_assessment_user_prompt,
@@ -18,8 +19,6 @@ from app.prompts.assessment import (
 )
 
 logger = logging.getLogger(__name__)
-
-MIN_TRANSCRIPT_LENGTH = 100
 
 # Backward-compatible private alias for existing imports/tests.
 _rubric_assessment_prompt = build_rubric_assessment_prompt
@@ -222,18 +221,19 @@ def _merge_rubric_scores(rubric: list[dict], gpt_scores: list[dict]) -> tuple[li
 async def _run_gpt_assessment(system_prompt: str, user_content: str, api_key: str) -> dict:
     import openai
 
-    from app.core.settings import settings
+    from app.core.config_loader import config
 
+    model_cfg = config.models.interview_assessment
     client = openai.AsyncOpenAI(api_key=api_key)
     response = await client.chat.completions.create(
-        model=settings.INTERVIEW_ASSESSMENT_MODEL,
+        model=model_cfg.name,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ],
-        response_format={"type": "json_object"},
-        temperature=0,
-        max_tokens=2500,
+        response_format=model_cfg.openai_response_format(),
+        temperature=model_cfg.temperature,
+        max_tokens=model_cfg.max_tokens,
     )
     return json.loads(response.choices[0].message.content)
 
@@ -271,7 +271,7 @@ async def generate_assessment(transcript: str, job, candidate, api_key: str) -> 
 
     rubric = _normalize_rubric_questions(job.interview_questions)
 
-    if not transcript or len(transcript.strip()) < MIN_TRANSCRIPT_LENGTH:
+    if not transcript or len(transcript.strip()) < config.parsing.min_transcript_chars:
         logger.warning(
             "generate_assessment: transcript too short (%d chars) — returning needs_review",
             len(transcript) if transcript else 0,

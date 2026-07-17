@@ -15,7 +15,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.settings import settings
+from app.core.config_loader import config
 from app.prompts.shortlist import (
     SHORTLIST_SYSTEM_PROMPT,
     build_shortlist_user_prompt,
@@ -49,8 +49,7 @@ def _build_jd_summary(job: Job) -> dict:
     """Extract the subset of job fields relevant for GPT-4o assessment."""
     return {
         "title": job.title,
-        # Truncate to 1200 chars — enough context, avoids ballooning prompt
-        "description": (job.description or "")[:1200],
+        "description": (job.description or "")[: config.parsing.shortlist_jd_chars],
         "required_skills": job.required_skills or [],
         "experience_min": job.experience_min,
         "experience_max": job.experience_max,
@@ -78,11 +77,12 @@ async def _gpt4o_assess(
     if mock_openai_enabled():
         return mock_shortlist_assessment()
 
+    model_cfg = config.models.shortlist
     response = await client.chat.completions.create(
-        model="gpt-4o",
-        response_format={"type": "json_object"},
-        temperature=0,
-        max_tokens=1000,
+        model=model_cfg.name,
+        response_format=model_cfg.openai_response_format(),
+        temperature=model_cfg.temperature,
+        max_tokens=model_cfg.max_tokens,
         messages=[
             {
                 "role": "system",
@@ -306,7 +306,7 @@ async def shortlist_candidates(
     jd_summary = _build_jd_summary(job)
     client = AsyncOpenAI(api_key=api_key)
 
-    semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_SHORTLISTS)
+    semaphore = asyncio.Semaphore(config.concurrency.max_shortlists)
     db_lock = asyncio.Lock()
 
     upserted_records: list[ShortlistResult] = list(upserted_from_prior)

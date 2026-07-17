@@ -11,7 +11,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from app.core.settings import settings
+from app.core.config_loader import config
 
 logger = logging.getLogger(__name__)
 
@@ -28,19 +28,19 @@ User: Thank you, goodbye."""
 
 
 def mock_openai_enabled() -> bool:
-    return settings.MOCK_EXTERNAL_APIS or settings.MOCK_OPENAI
+    return config.MOCK_EXTERNAL_APIS or config.MOCK_OPENAI
 
 
 def mock_vapi_enabled() -> bool:
-    return settings.MOCK_EXTERNAL_APIS or settings.MOCK_VAPI
+    return config.MOCK_EXTERNAL_APIS or config.MOCK_VAPI
 
 
 def mock_livekit_enabled() -> bool:
-    return settings.MOCK_EXTERNAL_APIS or settings.MOCK_LIVEKIT
+    return config.MOCK_EXTERNAL_APIS or config.MOCK_LIVEKIT
 
 
 def mock_email_enabled() -> bool:
-    return settings.MOCK_EXTERNAL_APIS or settings.MOCK_EMAIL
+    return config.MOCK_EXTERNAL_APIS or config.MOCK_EMAIL
 
 
 def active_mock_services() -> list[str]:

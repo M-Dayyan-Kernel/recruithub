@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config_loader import config
 from app.models.models import Candidate, Job, ScreeningCall
 from app.services.email_service import send_failed_screening_attempt_email
 from app.services.email_template_service import get_company_name, get_merged_templates
@@ -52,7 +53,7 @@ async def _would_be_flagged_after_failure(
         return True
 
     transcript = (screening_call.transcript or "").strip()
-    if screening_call.call_outcome == "completed" or len(transcript) > 50:
+    if screening_call.call_outcome == "completed" or len(transcript) > config.screening.min_substantive_transcript_chars:
         return False
     if screening_call.result in ("pass", "fail"):
         return False
@@ -80,7 +81,7 @@ async def maybe_send_failed_screening_email(
     outcome = (screening_call.call_outcome or "").lower()
     transcript = (screening_call.transcript or "").strip()
     # Late transcript recovery often flips outcome → completed after a provisional failure.
-    if outcome == "completed" or len(transcript) > 50:
+    if outcome == "completed" or len(transcript) > config.screening.min_substantive_transcript_chars:
         return
     if outcome not in FAILED_OUTCOMES and screening_call.call_status != "failed":
         return

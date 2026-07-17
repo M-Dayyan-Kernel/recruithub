@@ -4,6 +4,7 @@ import uuid
 
 from openai import AsyncOpenAI
 
+from app.core.config_loader import config
 from app.prompts.job_description import (
     PARSE_JD_SYSTEM_PROMPT,
     build_parse_jd_user_prompt,
@@ -11,8 +12,6 @@ from app.prompts.job_description import (
 from app.services.screening_defaults import merge_screening_questions
 
 logger = logging.getLogger(__name__)
-
-MIN_JD_LENGTH = 50
 
 _EMPTY_JD: dict = {
     "title": "",
@@ -85,7 +84,7 @@ def _normalize_parsed_questions(raw_questions: list | None) -> list[dict]:
         except (TypeError, ValueError):
             score = 0
         if score < 1:
-            score = 10
+            score = config.parsing.default_question_score
         normalized.append({
             "id": item.get("id") or str(uuid.uuid4()),
             "question": question,
@@ -95,8 +94,8 @@ def _normalize_parsed_questions(raw_questions: list | None) -> list[dict]:
 
 
 async def parse_job_description(raw_text: str, api_key: str) -> dict:
-    """Parse job description text into structured JSON using GPT-4o."""
-    if not raw_text or len(raw_text.strip()) < MIN_JD_LENGTH:
+    """Parse job description text into structured JSON using configured OpenAI model."""
+    if not raw_text or len(raw_text.strip()) < config.parsing.min_jd_chars:
         logger.warning(
             "parse_job_description: input too short (%d chars)",
             len(raw_text) if raw_text else 0,
@@ -116,11 +115,13 @@ async def parse_job_description(raw_text: str, api_key: str) -> dict:
         return parsed
 
     client = AsyncOpenAI(api_key=api_key)
-    truncated_text = raw_text[:12000] if len(raw_text) > 12000 else raw_text
+    model_cfg = config.models.jd_parse
+    max_chars = config.parsing.jd_max_chars
+    truncated_text = raw_text[:max_chars] if len(raw_text) > max_chars else raw_text
 
     response = await client.chat.completions.create(
-        model="gpt-4o",
-        response_format={"type": "json_object"},
+        model=model_cfg.name,
+        response_format=model_cfg.openai_response_format(),
         messages=[
             {"role": "system", "content": PARSE_JD_SYSTEM_PROMPT},
             {
@@ -128,8 +129,8 @@ async def parse_job_description(raw_text: str, api_key: str) -> dict:
                 "content": build_parse_jd_user_prompt(truncated_text),
             },
         ],
-        temperature=0,
-        max_tokens=3000,
+        temperature=model_cfg.temperature,
+        max_tokens=model_cfg.max_tokens,
     )
 
     content = response.choices[0].message.content

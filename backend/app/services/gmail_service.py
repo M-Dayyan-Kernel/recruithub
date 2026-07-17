@@ -13,7 +13,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-from app.core.settings import settings
+from app.core.config_loader import config
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +48,8 @@ def _resolve_path(path_str: str) -> Path:
 
     # If the sibling OAuth file exists, keep both files in the same directory.
     path_name = path.name
-    creds_name = Path(settings.GMAIL_CREDENTIALS_PATH).name
-    token_name = Path(settings.GMAIL_TOKEN_PATH).name
+    creds_name = Path(config.GMAIL_CREDENTIALS_PATH).name
+    token_name = Path(config.GMAIL_TOKEN_PATH).name
     sibling_name = token_name if path_name == creds_name else creds_name
     for root in search_roots:
         if (root / sibling_name).exists():
@@ -59,8 +59,8 @@ def _resolve_path(path_str: str) -> Path:
 
 
 def load_credentials() -> Credentials:
-    creds_path = _resolve_path(settings.GMAIL_CREDENTIALS_PATH)
-    token_path = _resolve_path(settings.GMAIL_TOKEN_PATH)
+    creds_path = _resolve_path(config.GMAIL_CREDENTIALS_PATH)
+    token_path = _resolve_path(config.GMAIL_TOKEN_PATH)
 
     creds = None
     if token_path.exists():
@@ -87,8 +87,8 @@ def run_interactive_oauth() -> Credentials:
     """One-time desktop OAuth flow; persists token.json. Dev/bootstrap only."""
     from google_auth_oauthlib.flow import InstalledAppFlow
 
-    creds_path = _resolve_path(settings.GMAIL_CREDENTIALS_PATH)
-    token_path = _resolve_path(settings.GMAIL_TOKEN_PATH)
+    creds_path = _resolve_path(config.GMAIL_CREDENTIALS_PATH)
+    token_path = _resolve_path(config.GMAIL_TOKEN_PATH)
 
     if not creds_path.exists():
         raise FileNotFoundError(

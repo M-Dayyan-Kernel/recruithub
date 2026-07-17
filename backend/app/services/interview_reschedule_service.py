@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.settings import settings
+from app.core.config_loader import config
 from app.models.models import Candidate, InterviewSession, Job, ScreeningCall
 from app.schemas.schemas import InterviewScheduleRequest, InterviewSessionResponse
 from app.services.candidate_contact_service import (
@@ -62,7 +62,7 @@ async def send_reschedule_email(
     tenant_id = job.tenant_id if job else None
     templates = await get_merged_templates(db, tenant_id)
     company_name = await get_company_name(db, tenant_id)
-    interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{session.unique_token}"
+    interview_url = f"{config.CANDIDATE_APP_URL}/interview/{session.unique_token}"
     candidate_email = resolve_candidate_email(candidate)
     if not candidate_email:
         logger.warning(
@@ -130,10 +130,11 @@ async def reschedule_interview(
             raise ValueError("Scheduled time must be in the future")
 
     unique_token = str(uuid.uuid4())
+    ttl_days = config.interview.session_link_ttl_days
     expires_at = (
-        scheduled_at + timedelta(days=7)
+        scheduled_at + timedelta(days=ttl_days)
         if scheduled_at
-        else datetime.now(timezone.utc) + timedelta(days=7)
+        else datetime.now(timezone.utc) + timedelta(days=ttl_days)
     )
 
     new_session = InterviewSession(
@@ -152,7 +153,7 @@ async def reschedule_interview(
 
     await db.flush()
 
-    interview_url = f"{settings.CANDIDATE_APP_URL}/interview/{unique_token}"
+    interview_url = f"{config.CANDIDATE_APP_URL}/interview/{unique_token}"
     job_title = job.title
 
     if scheduled_at and schedule:

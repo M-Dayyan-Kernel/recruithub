@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config_loader import config
 from app.core.database import get_db
 from app.core.deps import RequireAdminOrHr, hr_roles
 from app.core.tenancy import get_tenant_job, get_tenant_screening_call
@@ -232,7 +233,7 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             )
             if (
                 transcript.strip()
-                and len(transcript.strip()) >= 50
+                and len(transcript.strip()) >= config.screening.min_substantive_transcript_chars
                 and not needs_transcript_wait
             ):
                 _safe_enqueue("process screening webhook", lambda: _process_task.delay(body))
@@ -290,7 +291,7 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         )
         if (
             transcript.strip()
-            and len(transcript.strip()) >= 50
+            and len(transcript.strip()) >= config.screening.min_substantive_transcript_chars
             and not needs_transcript_wait
         ):
             _safe_enqueue("process screening webhook", lambda: _process_task.delay(body))
@@ -337,7 +338,7 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         )
         if (
             transcript.strip()
-            and len(transcript.strip()) >= 50
+            and len(transcript.strip()) >= config.screening.min_substantive_transcript_chars
             and not needs_transcript_wait
         ):
             _safe_enqueue("process screening webhook", lambda: _process_task.delay(body))
@@ -398,7 +399,7 @@ async def get_screening_results(
         try:
             refreshed = await asyncio.wait_for(
                 refresh_live_screening_calls_from_vapi(db, calls),
-                timeout=5.0,
+                timeout=config.vapi.status_timeout_seconds,
             )
         except TimeoutError:
             logger.warning(

@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config_loader import config
 from app.core.database import get_db
 from app.core.deps import RequireAdminOrHr, hr_roles
 from app.core.tenancy import get_tenant_job
@@ -23,7 +24,7 @@ from app.services.tenant_integrations_service import load_tenant_integrations
 logger = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(hr_roles)])
 
-MAX_JD_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+MAX_JD_FILE_SIZE = config.uploads.jd_max_bytes
 ALLOWED_CONTENT_TYPES = {
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

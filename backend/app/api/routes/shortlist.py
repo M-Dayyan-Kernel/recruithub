@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, exists
 
-from app.core.settings import settings
+from app.core.config_loader import config
 from app.core.database import get_db
 from app.core.deps import RequireAdminOrHr, hr_roles
 from app.core.logging import get_actor_label, log_event, plural
@@ -43,11 +43,11 @@ from app.schemas.schemas import (
 router = APIRouter(dependencies=[Depends(hr_roles)])
 logger = logging.getLogger(__name__)
 
-SHORTLIST_BATCH_TTL = 600  # 10 minutes
+SHORTLIST_BATCH_TTL = config.concurrency.shortlist_batch_ttl_seconds
 
 
 def _redis_client():
-    return redis_lib.from_url(settings.REDIS_URL or "redis://localhost:6379/0")
+    return redis_lib.from_url(config.REDIS_URL or "redis://localhost:6379/0")
 
 
 def _shortlist_lock_key(job_id: uuid.UUID) -> str:

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.settings import settings
+from app.core.config_loader import config
 from app.core.database import get_db
 from app.core.deps import RequireAdmin
 from app.core.security import hash_password
@@ -27,7 +27,7 @@ router = APIRouter()
 
 
 def _invite_url(token: str) -> str:
-    base = settings.HR_APP_URL.rstrip("/")
+    base = config.HR_APP_URL.rstrip("/")
     return f"{base}/accept-invite?token={token}"
 
 

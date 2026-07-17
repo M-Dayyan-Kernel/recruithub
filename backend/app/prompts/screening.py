@@ -36,15 +36,20 @@ def build_screening_call_prompt(
     questions_block: str,
     required_skills: list | None = None,
 ) -> str:
+    from app.core.config_loader import config
+
     skills_line = ""
     if required_skills:
         skills_line = f"\nKey skills for this role: {', '.join(required_skills)}\n"
+
+    jd_limit = config.parsing.screening_call_jd_chars
+    jd_context = job_description[:jd_limit] if job_description else "Not provided"
 
     return f"""You are a professional HR screening assistant calling on behalf of a hiring company.
 You are conducting a brief phone screening for the role of: {job_title}.
 Candidate name: {candidate_name}
 
-Job context: {job_description[:500] if job_description else "Not provided"}
+Job context: {jd_context}
 {skills_line}
 Your goal is to have a natural, friendly conversation to assess the candidate's fit.
 Ask the following screening questions one at a time, in a conversational tone (skip any already answered):
@@ -80,6 +85,8 @@ def build_screening_extraction_user_prompt(
     job_title: str | None,
     questions_text: str,
 ) -> str:
+    from app.core.config_loader import config
+
     context_parts: list[str] = []
     if job_title:
         context_parts.append(f"Role: {job_title}")
@@ -88,5 +95,8 @@ def build_screening_extraction_user_prompt(
             "Employer screening questions (evaluate pass/fail based on how well "
             f"these were answered):\n{questions_text}"
         )
-    context_parts.append(f"Screening call transcript:\n\n{transcript[:12000]}")
+    transcript_limit = config.parsing.screening_transcript_chars
+    context_parts.append(
+        f"Screening call transcript:\n\n{transcript[:transcript_limit]}"
+    )
     return "\n\n".join(context_parts)

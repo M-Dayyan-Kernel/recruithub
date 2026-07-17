@@ -13,24 +13,24 @@ import logging
 from functools import lru_cache
 from uuid import UUID
 
-from app.core.settings import settings
+from app.core.config_loader import config
 
 logger = logging.getLogger(__name__)
 
 # Default URL lifetime for HR report playback
-PRESIGN_EXPIRES_SECONDS = 3600
+PRESIGN_EXPIRES_SECONDS = config.storage.presign_expires_seconds
 
-RESUME_PREFIX = "recruitment-resume-storage/"
-GST_PREFIX = "recruitment-gst-files/"
-RECORDING_PREFIX = "recruitment-interview-recordings/"
+RESUME_PREFIX = config.storage.prefixes.resumes
+GST_PREFIX = config.storage.prefixes.gst
+RECORDING_PREFIX = config.storage.prefixes.recordings
 
 
 def s3_configured() -> bool:
     return bool(
-        settings.S3_BUCKET
-        and settings.S3_ACCESS_KEY
-        and settings.S3_SECRET_KEY
-        and settings.S3_ENDPOINT
+        config.S3_BUCKET
+        and config.S3_ACCESS_KEY
+        and config.S3_SECRET_KEY
+        and config.S3_ENDPOINT
     )
 
 
@@ -58,13 +58,13 @@ def _s3_client():
 
     return boto3.client(
         "s3",
-        endpoint_url=settings.S3_ENDPOINT.rstrip("/"),
-        aws_access_key_id=settings.S3_ACCESS_KEY,
-        aws_secret_access_key=settings.S3_SECRET_KEY,
-        region_name=settings.S3_REGION or "us-east-1",
+        endpoint_url=config.S3_ENDPOINT.rstrip("/"),
+        aws_access_key_id=config.S3_ACCESS_KEY,
+        aws_secret_access_key=config.S3_SECRET_KEY,
+        region_name=config.S3_REGION or "us-east-1",
         config=Config(
             signature_version="s3v4",
-            s3={"addressing_style": "path" if settings.S3_FORCE_PATH_STYLE else "auto"},
+            s3={"addressing_style": "path" if config.S3_FORCE_PATH_STYLE else "auto"},
         ),
     )
 
@@ -82,12 +82,12 @@ def upload_bytes(
     if content_type:
         extra["ContentType"] = content_type
     _s3_client().put_object(
-        Bucket=settings.S3_BUCKET,
+        Bucket=config.S3_BUCKET,
         Key=key,
         Body=data,
         **extra,
     )
-    logger.info("Uploaded s3://%s/%s (%d bytes)", settings.S3_BUCKET, key, len(data))
+    logger.info("Uploaded s3://%s/%s (%d bytes)", config.S3_BUCKET, key, len(data))
     return key
 
 
@@ -95,7 +95,7 @@ def download_bytes(key: str) -> bytes:
     """Download an object and return its bytes."""
     if not s3_configured():
         raise RuntimeError("S3 storage is not configured")
-    response = _s3_client().get_object(Bucket=settings.S3_BUCKET, Key=key)
+    response = _s3_client().get_object(Bucket=config.S3_BUCKET, Key=key)
     return response["Body"].read()
 
 
@@ -104,8 +104,8 @@ def delete_object(key: str) -> None:
     if not key or not s3_configured():
         return
     try:
-        _s3_client().delete_object(Bucket=settings.S3_BUCKET, Key=key)
-        logger.info("Deleted s3://%s/%s", settings.S3_BUCKET, key)
+        _s3_client().delete_object(Bucket=config.S3_BUCKET, Key=key)
+        logger.info("Deleted s3://%s/%s", config.S3_BUCKET, key)
     except Exception as exc:
         logger.warning("Failed to delete S3 key %s: %s", key, exc)
 
@@ -122,11 +122,11 @@ def delete_objects(keys: list[str] | set[str]) -> int:
         batch = unique[i : i + 1000]
         try:
             client.delete_objects(
-                Bucket=settings.S3_BUCKET,
+                Bucket=config.S3_BUCKET,
                 Delete={"Objects": [{"Key": key} for key in batch], "Quiet": True},
             )
             deleted += len(batch)
-            logger.info("Deleted %d S3 objects from %s", len(batch), settings.S3_BUCKET)
+            logger.info("Deleted %d S3 objects from %s", len(batch), config.S3_BUCKET)
         except Exception as exc:
             logger.warning("Failed bulk S3 delete (%d keys): %s", len(batch), exc)
             for key in batch:
@@ -161,7 +161,7 @@ def generate_presigned_get_url(
     try:
         url = _s3_client().generate_presigned_url(
             "get_object",
-            Params={"Bucket": settings.S3_BUCKET, "Key": key},
+            Params={"Bucket": config.S3_BUCKET, "Key": key},
             ExpiresIn=expires_in,
         )
         return url

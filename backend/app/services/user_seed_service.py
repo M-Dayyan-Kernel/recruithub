@@ -3,7 +3,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.settings import settings
+from app.core.config_loader import config
 from app.core.security import hash_password
 from app.models.models import User
 from app.services.tenant_service import ensure_platform_tenant, get_or_create_default_tenant
@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 
 async def seed_admin_user(db: AsyncSession) -> None:
     """Create the seeded tenant admin if SEED_ADMIN_* env vars are set and no admin exists."""
-    email = (settings.SEED_ADMIN_EMAIL or "").strip().lower()
-    password = settings.SEED_ADMIN_PASSWORD or ""
+    email = (config.SEED_ADMIN_EMAIL or "").strip().lower()
+    password = config.SEED_ADMIN_PASSWORD or ""
     if not email or not password:
         return
 
@@ -33,7 +33,7 @@ async def seed_admin_user(db: AsyncSession) -> None:
     admin = User(
         tenant_id=tenant.id,
         email=email,
-        full_name=(settings.SEED_ADMIN_NAME or "Admin").strip() or "Admin",
+        full_name=(config.SEED_ADMIN_NAME or "Admin").strip() or "Admin",
         hashed_password=hash_password(password),
         role="admin",
         is_active=True,
@@ -45,8 +45,8 @@ async def seed_admin_user(db: AsyncSession) -> None:
 
 async def seed_superadmin_user(db: AsyncSession) -> None:
     """Create platform superadmin if SEED_SUPERADMIN_* env vars are set."""
-    email = (settings.SEED_SUPERADMIN_EMAIL or "").strip().lower()
-    password = settings.SEED_SUPERADMIN_PASSWORD or ""
+    email = (config.SEED_SUPERADMIN_EMAIL or "").strip().lower()
+    password = config.SEED_SUPERADMIN_PASSWORD or ""
     if not email or not password:
         return
 
@@ -69,7 +69,7 @@ async def seed_superadmin_user(db: AsyncSession) -> None:
     user = User(
         tenant_id=platform.id,
         email=email,
-        full_name=(settings.SEED_SUPERADMIN_NAME or "Super Admin").strip() or "Super Admin",
+        full_name=(config.SEED_SUPERADMIN_NAME or "Super Admin").strip() or "Super Admin",
         hashed_password=hash_password(password),
         role="superadmin",
         is_active=True,

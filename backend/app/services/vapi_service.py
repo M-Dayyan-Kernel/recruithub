@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Optional
 
 import httpx
 
-from app.core.settings import settings
+from app.core.config_loader import config
 from app.prompts.screening import (
     SCREENING_END_CALL_MESSAGE,
     build_screening_call_prompt,
@@ -26,8 +26,6 @@ if TYPE_CHECKING:
     from app.services.tenant_integrations_service import TenantIntegrations
 
 logger = logging.getLogger(__name__)
-
-VAPI_API_BASE = "https://api.vapi.ai"
 
 
 from app.services.screening_defaults import format_screening_questions_for_prompt, merge_screening_questions
@@ -73,9 +71,9 @@ def _resolve_vapi_credentials(
         key = key or integrations.vapi_api_key
         phone_id = integrations.vapi_phone_number_id
     if not key:
-        key = settings.VAPI_API_KEY or ""
+        key = config.VAPI_API_KEY or ""
     if not phone_id:
-        phone_id = settings.VAPI_PHONE_NUMBER_ID or ""
+        phone_id = config.VAPI_PHONE_NUMBER_ID or ""
     if not key:
         raise ValueError("VAPI API key is not configured")
     if not phone_id:
@@ -86,7 +84,7 @@ def _resolve_vapi_credentials(
 def _get_vapi_call_sync(vapi_call_id: str, timeout: float, api_key: str) -> dict:
     with httpx.Client(timeout=timeout) as client:
         response = client.get(
-            f"{VAPI_API_BASE}/call/{vapi_call_id}",
+            f"{config.vapi.api_base}/call/{vapi_call_id}",
             headers=_vapi_headers(api_key),
         )
         if response.status_code != 200:
@@ -99,7 +97,7 @@ def _get_vapi_call_sync(vapi_call_id: str, timeout: float, api_key: str) -> dict
 async def get_vapi_call(
     vapi_call_id: str,
     *,
-    timeout: float = 5.0,
+    timeout: float | None = None,
     api_key: str | None = None,
     integrations: Optional["TenantIntegrations"] = None,
 ) -> dict:
@@ -110,7 +108,12 @@ async def get_vapi_call(
         return mock_vapi_get_call(vapi_call_id)
 
     key, _ = _resolve_vapi_credentials(integrations, api_key=api_key)
-    return await asyncio.to_thread(_get_vapi_call_sync, vapi_call_id, timeout, key)
+    resolved_timeout = (
+        config.vapi.status_timeout_seconds if timeout is None else timeout
+    )
+    return await asyncio.to_thread(
+        _get_vapi_call_sync, vapi_call_id, resolved_timeout, key
+    )
 
 
 def is_vapi_call_ended(vapi_call: dict) -> bool:
@@ -176,6 +179,7 @@ def _initiate_screening_call_sync(
         required_skills=required_skills,
     )
 
+    vapi = config.vapi
     payload = {
         "type": "outboundPhoneCall",
         "phoneNumberId": phone_number_id,
@@ -184,8 +188,8 @@ def _initiate_screening_call_sync(
         },
         "assistant": {
             "model": {
-                "provider": "openai",
-                "model": "gpt-4o",
+                "provider": vapi.llm.provider,
+                "model": vapi.llm.name,
                 "messages": [
                     {
                         "role": "system",
@@ -194,46 +198,43 @@ def _initiate_screening_call_sync(
                 ],
             },
             "voice": {
-                "provider": "deepgram",
-                "voiceId": "asteria",
+                "provider": vapi.voice.provider,
+                "voiceId": vapi.voice.voice_id,
             },
             "firstMessage": build_screening_first_message(
                 candidate_name,
                 job_title,
             ),
-            "firstMessageMode": "assistant-speaks-first",
+            "firstMessageMode": vapi.first_message_mode,
             "endCallMessage": SCREENING_END_CALL_MESSAGE,
             "transcriber": {
-                "provider": "deepgram",
-                "model": "nova-2",
-                "language": "en",
+                "provider": vapi.transcriber.provider,
+                "model": vapi.transcriber.model,
+                "language": vapi.transcriber.language,
             },
-            "backgroundSound": "office",
-            "silenceTimeoutSeconds": 20,
+            "backgroundSound": vapi.background_sound,
+            "silenceTimeoutSeconds": vapi.silence_timeout_seconds,
         },
         "metadata": {
             "screening_call_id": str(screening_call_id),
         },
     }
 
-    if settings.BACKEND_PUBLIC_URL:
+    if config.BACKEND_PUBLIC_URL:
         webhook_url = (
-            f"{settings.BACKEND_PUBLIC_URL.rstrip('/')}/api/screening/webhook"
+            f"{config.BACKEND_PUBLIC_URL.rstrip('/')}/api/screening/webhook"
         )
         payload["assistant"]["serverUrl"] = webhook_url
-        payload["assistant"]["serverMessages"] = [
-            "status-update",
-            "end-of-call-report",
-        ]
+        payload["assistant"]["serverMessages"] = list(vapi.webhook_messages)
     else:
         logger.warning(
             "BACKEND_PUBLIC_URL is not set — Vapi webhooks disabled; "
             "screening status relies on polling (slower updates)."
         )
 
-    with httpx.Client(timeout=30.0) as client:
+    with httpx.Client(timeout=vapi.request_timeout_seconds) as client:
         response = client.post(
-            f"{VAPI_API_BASE}/call",
+            f"{vapi.api_base}/call",
             json=payload,
             headers=_vapi_headers(api_key),
         )

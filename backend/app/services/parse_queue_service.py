@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.settings import settings
+from app.core.config_loader import config
 from app.core.logging import log_event, plural
 from app.models.models import Candidate
 
@@ -23,7 +23,7 @@ ACTIVE_PARSE_STATUSES = ("parse_queued", "parsing")
 
 # If a worker dies mid-task, status can stay in parse_queued/parsing forever.
 # Re-enqueue after this age so the pipeline can recover without manual intervention.
-STUCK_PARSE_TIMEOUT = timedelta(minutes=5)
+STUCK_PARSE_TIMEOUT = timedelta(minutes=config.concurrency.stuck_parse_timeout_minutes)
 
 
 async def _count_active_parses(session: AsyncSession, job_id: uuid.UUID) -> int:
@@ -98,7 +98,7 @@ async def dispatch_parse_slots(session: AsyncSession, job_id: uuid.UUID) -> int:
     await recover_stuck_parses(session, job_id)
 
     active = await _count_active_parses(session, job_id)
-    max_concurrent = settings.MAX_CONCURRENT_PARSES
+    max_concurrent = config.concurrency.max_parses
     slots = max(0, max_concurrent - active)
 
     if slots <= 0:
