@@ -401,13 +401,29 @@ async def delete_candidate(
     Candidate model has cascade='all, delete-orphan' on ShortlistResult,
     ScreeningCall, and InterviewSession relationships, so SQLAlchemy handles
     cascading deletes automatically.
+
+    Also removes the resume file and any interview recording objects from storage.
     """
+    from app.models.models import InterviewSession
+    from app.services.parse_queue_service import dispatch_parse_slots  # noqa: PLC0415
+    from app.services.s3_service import delete_objects, delete_stored_file  # noqa: PLC0415
+
     candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
+
+    # Load interview sessions before cascade delete so we can clean recordings.
+    sessions_result = await db.execute(
+        select(InterviewSession).where(InterviewSession.candidate_id == candidate.id)
+    )
+    recording_keys = [
+        s.recording_key
+        for s in sessions_result.scalars().all()
+        if s.recording_key
+    ]
+
     job_id = candidate.job_id
     was_active = candidate.parse_status in ("parse_queued", "parsing", "parsed")
     label = candidate.original_filename or candidate.name or str(candidate_id)
     resume_path = candidate.resume_file_path
-    from app.services.parse_queue_service import dispatch_parse_slots  # noqa: PLC0415
 
     await log_change(
         db,
@@ -417,23 +433,21 @@ async def delete_candidate(
         entity_id=candidate.id,
         subject_label=label,
         feature="candidate",
-        before={"name": candidate.name, "email": candidate.email, "original_filename": candidate.original_filename},
+        before={
+            "name": candidate.name,
+            "email": candidate.email,
+            "original_filename": candidate.original_filename,
+            "recording_keys": recording_keys,
+        },
         after=None,
         job_id=job_id,
     )
     await db.delete(candidate)
     await db.commit()
 
-    if resume_path:
-        from app.services.s3_service import delete_object, is_s3_object_key  # noqa: PLC0415
-
-        if is_s3_object_key(resume_path):
-            delete_object(resume_path)
-        else:
-            try:
-                Path(resume_path).unlink(missing_ok=True)
-            except OSError as exc:
-                logger.warning("Failed to delete local resume %s: %s", resume_path, exc)
+    delete_stored_file(resume_path)
+    if recording_keys:
+        delete_objects(recording_keys)
 
     if was_active:
         await dispatch_parse_slots(db, job_id)

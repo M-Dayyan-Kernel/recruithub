@@ -110,6 +110,46 @@ def delete_object(key: str) -> None:
         logger.warning("Failed to delete S3 key %s: %s", key, exc)
 
 
+def delete_objects(keys: list[str] | set[str]) -> int:
+    """Best-effort bulk delete. Returns number of keys requested for deletion."""
+    unique = [k for k in dict.fromkeys(keys) if k]
+    if not unique or not s3_configured():
+        return 0
+    # S3 delete_objects accepts up to 1000 keys per call
+    deleted = 0
+    client = _s3_client()
+    for i in range(0, len(unique), 1000):
+        batch = unique[i : i + 1000]
+        try:
+            client.delete_objects(
+                Bucket=settings.S3_BUCKET,
+                Delete={"Objects": [{"Key": key} for key in batch], "Quiet": True},
+            )
+            deleted += len(batch)
+            logger.info("Deleted %d S3 objects from %s", len(batch), settings.S3_BUCKET)
+        except Exception as exc:
+            logger.warning("Failed bulk S3 delete (%d keys): %s", len(batch), exc)
+            for key in batch:
+                delete_object(key)
+                deleted += 1
+    return deleted
+
+
+def delete_stored_file(path: str | None) -> None:
+    """Delete a resume/GST/recording path whether it is an S3 key or local file."""
+    if not path:
+        return
+    if is_s3_object_key(path):
+        delete_object(path)
+        return
+    from pathlib import Path
+
+    try:
+        Path(path).unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("Failed to delete local file %s: %s", path, exc)
+
+
 def generate_presigned_get_url(
     key: str,
     *,
