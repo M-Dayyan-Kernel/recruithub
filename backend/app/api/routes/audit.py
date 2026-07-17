@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import Optional
+import logging
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, or_, select
@@ -11,6 +12,7 @@ from app.core.deps import RequireAdmin
 from app.models.models import AuditLog
 from app.schemas.schemas import AuditLogListResponse, AuditLogResponse
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 

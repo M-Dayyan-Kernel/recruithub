@@ -1,9 +1,11 @@
 from contextlib import asynccontextmanager
 import logging
+import uuid
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.routes import (
     auth,
@@ -17,11 +19,66 @@ from app.api.routes import (
     users,
     platform,
 )
+from app.core.config import settings as app_settings
 from app.core.database import AsyncSessionLocal
+from app.core.logging import (
+    clear_actor_context,
+    clear_request_id,
+    get_request_id,
+    is_poll_path,
+    set_request_id,
+    setup_logging,
+)
 from app.services.mock_external import active_mock_services
 from app.services.user_seed_service import seed_admin_user, seed_superadmin_user
 
+setup_logging(app_settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
+
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Assign X-Request-ID. Successful reads stay quiet; failures are worded plainly."""
+
+    async def dispatch(self, request: Request, call_next):
+        incoming = request.headers.get("x-request-id")
+        request_id = set_request_id(incoming)
+        request.state.request_id = request_id
+        try:
+            response = await call_next(request)
+        except Exception:
+            clear_request_id()
+            clear_actor_context()
+            raise
+        response.headers["X-Request-ID"] = request_id
+        path = request.url.path
+        method = request.method
+
+        # Successful traffic is covered by business-event sentences; keep access quiet.
+        if response.status_code < 400:
+            if method == "GET" or path == "/health" or is_poll_path(path):
+                logger.debug("Request completed successfully")
+            else:
+                logger.debug("Request completed successfully")
+        elif response.status_code >= 500:
+            logger.error("A server error occurred while handling this request")
+        elif response.status_code == 401:
+            logger.warning("Someone tried to access a protected resource without signing in")
+        elif response.status_code == 403:
+            logger.warning("Someone was denied access to a protected resource")
+        elif response.status_code == 404:
+            logger.warning("Someone asked for something that was not found")
+        elif response.status_code == 409:
+            logger.warning("Someone tried an action that conflicts with current state")
+        elif response.status_code == 422:
+            logger.warning("Someone submitted a request that could not be processed")
+        elif response.status_code == 503:
+            logger.warning("A required service was temporarily unavailable")
+        else:
+            logger.warning("Someone's request was rejected")
+
+        clear_request_id()
+        clear_actor_context()
+        return response
 
 
 @asynccontextmanager
@@ -43,10 +100,11 @@ app = FastAPI(title="AI Recruitment POC", version="1.0.0", lifespan=lifespan)
 _mock_services = active_mock_services()
 if _mock_services:
     logger.warning(
-        "MOCK MODE ACTIVE — external APIs mocked: %s",
+        "Mock mode is active — external services are being simulated: %s",
         ", ".join(_mock_services),
     )
 
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -61,14 +119,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,
+    expose_headers=["X-Request-ID"],
 )
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    request_id = getattr(request.state, "request_id", None) or get_request_id()
+    if request_id == "-":
+        request_id = str(uuid.uuid4())
+    logger.exception("An unexpected error interrupted this request")
     return JSONResponse(
         status_code=500,
-        content={"error": type(exc).__name__, "detail": str(exc)},
+        content={
+            "error": "internal_server_error",
+            "request_id": request_id,
+        },
+        headers={"X-Request-ID": request_id},
     )
 
 

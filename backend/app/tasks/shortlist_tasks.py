@@ -18,6 +18,7 @@ import redis as redis_lib
 
 from app.core.celery_app import celery_app
 from app.core.config import settings
+from app.core.logging import log_event, plural
 from app.core.database import get_celery_db
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,14 @@ async def _async_shortlist(
     from app.services.shortlist_service import shortlist_candidates
 
     batch_ids = _load_batch_candidate_ids(job_id, candidate_ids)
+    if batch_ids:
+        log_event(
+            logger,
+            "Shortlisting worker started for %s",
+            plural(len(batch_ids), "candidate"),
+        )
+    else:
+        log_event(logger, "Shortlisting worker started for all ready candidates on this job")
 
     async with get_celery_db() as session:
         try:
@@ -94,10 +103,15 @@ async def _async_shortlist(
                 session,
                 candidate_ids=batch_ids if batch_ids else None,
             )
-            logger.info(
-                "run_shortlist: completed for job %s — %d candidates scored",
-                job_id,
-                len(results),
+            by_rec: dict[str, int] = {}
+            for r in results:
+                by_rec[r.recommendation] = by_rec.get(r.recommendation, 0) + 1
+            log_event(
+                logger,
+                "Shortlisting finished — %s shortlisted, %s marked for review, %s rejected",
+                plural(by_rec.get("shortlisted", 0), "candidate"),
+                plural(by_rec.get("review", 0), "candidate"),
+                plural(by_rec.get("rejected", 0), "candidate"),
             )
 
         except openai.AuthenticationError as exc:

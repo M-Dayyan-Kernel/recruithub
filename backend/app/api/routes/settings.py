@@ -2,6 +2,8 @@
 System settings API — per-tenant geography and email templates.
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +27,8 @@ from app.services.settings_service import (
     normalize_max_retries,
     normalize_retry_delay_seconds,
 )
+
+logger = logging.getLogger(__name__)
 
 _hr_auth = Depends(hr_roles)
 _admin_auth = Depends(admin_roles)
@@ -163,6 +167,7 @@ async def update_settings(
     await db.commit()
     await db.refresh(row)
     invalidate_settings_cache(admin.tenant_id)
+    logger.info("Updated system settings for tenant_id=%s fields=%s", admin.tenant_id, list(changes.keys()))
     return row
 
 

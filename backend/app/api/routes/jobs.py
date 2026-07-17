@@ -1,3 +1,4 @@
+import logging
 import uuid
 from pathlib import Path
 from typing import List, Optional
@@ -19,6 +20,7 @@ from app.services.screening_defaults import get_default_screening_questions
 from app.services.expected_answer_service import enrich_interview_questions
 from app.services.tenant_integrations_service import load_tenant_integrations
 
+logger = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(hr_roles)])
 
 MAX_JD_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
@@ -139,11 +141,13 @@ async def parse_jd(
     try:
         raw_text = extract_text_from_bytes(content, filename)
     except ValueError as exc:
+        logger.warning("JD extract rejected for %s: %s", filename, exc)
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={"error": "unsupported_file_type", "message": str(exc)},
         )
     except Exception as exc:
+        logger.exception("JD text extraction failed for %s", filename)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Could not read file: {exc}",
@@ -160,11 +164,13 @@ async def parse_jd(
         integrations.require("openai_api_key")
         parsed = await parse_job_description(raw_text, integrations.openai_api_key)
     except ValueError as exc:
+        logger.warning("JD parse unavailable for tenant %s: %s", actor.tenant_id, exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
         ) from exc
     except Exception as exc:
+        logger.exception("JD parse failed for tenant %s file %s", actor.tenant_id, filename)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to parse job description: {exc}",

@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.logging import log_event, plural
 from app.models.models import Candidate
 
 logger = logging.getLogger(__name__)
@@ -64,23 +65,25 @@ async def recover_stuck_parses(session: AsyncSession, job_id: uuid.UUID | None =
     from app.tasks.resume_tasks import extract_resume_text  # noqa: PLC0415
 
     recovered = 0
-    job_ids: set[uuid.UUID] = set()
     for candidate in stuck:
+        label = candidate.original_filename or candidate.name or "a candidate"
         logger.warning(
-            "recover_stuck_parses: re-enqueueing candidate %s (status=%s created_at=%s)",
-            candidate.id,
-            candidate.parse_status,
-            candidate.created_at,
+            "Re-queueing a stuck resume parse for %s (was %s)",
+            label,
+            candidate.parse_status.replace("_", " "),
         )
         candidate.parse_status = "parse_queued"
         await session.flush()
         extract_resume_text.apply_async(args=[str(candidate.id)])
         recovered += 1
-        job_ids.add(candidate.job_id)
 
     if recovered:
         await session.commit()
-        logger.info("recover_stuck_parses: recovered=%d jobs=%s", recovered, job_ids)
+        log_event(
+            logger,
+            "Recovered %s that were stuck mid-parse",
+            plural(recovered, "resume"),
+        )
 
     return recovered
 
@@ -100,10 +103,7 @@ async def dispatch_parse_slots(session: AsyncSession, job_id: uuid.UUID) -> int:
 
     if slots <= 0:
         logger.debug(
-            "dispatch_parse_slots: job=%s no slots (active=%d max=%d)",
-            job_id,
-            active,
-            max_concurrent,
+            "No parse slots available right now (active parses already at the limit)",
         )
         return 0
 
@@ -127,15 +127,26 @@ async def dispatch_parse_slots(session: AsyncSession, job_id: uuid.UUID) -> int:
         await session.flush()
         extract_resume_text.apply_async(args=[str(candidate.id)])
         dispatched += 1
-        logger.info("dispatch_parse_slots: started parsing for candidate %s", candidate.id)
+        logger.debug(
+            "Queued parsing for %s",
+            candidate.original_filename or candidate.name or "a candidate",
+        )
 
     if dispatched:
         await session.commit()
-        logger.info(
-            "dispatch_parse_slots: job=%s dispatched=%d (active_was=%d)",
-            job_id,
-            dispatched,
-            active,
-        )
+        remaining = max(0, len(pending) - dispatched)
+        if remaining:
+            log_event(
+                logger,
+                "Started parsing for %s; %s still waiting for a free slot",
+                plural(dispatched, "resume"),
+                plural(remaining, "resume"),
+            )
+        else:
+            log_event(
+                logger,
+                "Started parsing for %s",
+                plural(dispatched, "resume"),
+            )
 
     return dispatched

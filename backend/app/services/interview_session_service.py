@@ -4,6 +4,7 @@ Shared helpers for creating pending interview sessions.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -11,6 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Candidate, InterviewSession, Job
+
+logger = logging.getLogger(__name__)
 
 
 async def get_active_interview_session(
@@ -65,4 +68,10 @@ async def create_pending_interview_session(
     )
     db.add(interview_session)
     await db.flush()
+    logger.info(
+        "Created interview session %s for candidate=%s job=%s",
+        interview_session.id,
+        candidate_id,
+        job_id,
+    )
     return interview_session, candidate, job.title

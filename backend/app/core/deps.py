@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
+from app.core.logging import set_actor_context
 from app.core.security import decode_token
 from app.models.models import Tenant, User
 
@@ -109,6 +110,12 @@ async def get_current_user(
     user.active_tenant_id = active_tenant_id  # type: ignore[attr-defined]
     user.active_tenant_name = active_tenant_name  # type: ignore[attr-defined]
 
+    set_actor_context(
+        user_id=user.id,
+        tenant_id=active_tenant_id,
+        role=user.role,
+        name=user.full_name,
+    )
     return user
 
 

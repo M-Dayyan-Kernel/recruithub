@@ -593,7 +593,14 @@ async def mark_interview_complete(
     await db.commit()
     await db.refresh(session)
 
-    generate_interview_report.delay(str(session.id))
+    try:
+        generate_interview_report.delay(str(session.id))
+    except Exception as exc:
+        logger.error(
+            "Failed to enqueue assessment after mark_complete for session %s: %s",
+            session.id,
+            exc,
+        )
 
     job_result = await db.execute(select(Job).where(Job.id == candidate.job_id))
     job = job_result.scalars().first()
@@ -640,7 +647,14 @@ async def complete_interview(token: str, db: AsyncSession = Depends(get_db)):
             )
         )
         if not report_result.scalars().first():
-            enqueue_interview_assessment(str(session.id))
+            try:
+                enqueue_interview_assessment(str(session.id))
+            except Exception as exc:
+                logger.error(
+                    "Failed to re-enqueue assessment for completed session %s: %s",
+                    session.id,
+                    exc,
+                )
             return {
                 "message": "Interview already complete — assessment (re)scheduled.",
                 "session_id": str(session.id),
@@ -671,7 +685,18 @@ async def complete_interview(token: str, db: AsyncSession = Depends(get_db)):
     if mock_livekit_enabled():
         from app.tasks.interview_tasks import generate_interview_report
 
-        generate_interview_report.delay(str(session.id))
+        try:
+            generate_interview_report.delay(str(session.id))
+        except Exception as exc:
+            logger.error(
+                "Failed to enqueue mock assessment for session %s: %s",
+                session.id,
+                exc,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="Assessment queue is temporarily unavailable. Try again shortly.",
+            ) from exc
         logger.info(
             "Mock interview completed: session=%s — mock transcript saved, assessment enqueued",
             session.id,
@@ -682,7 +707,18 @@ async def complete_interview(token: str, db: AsyncSession = Depends(get_db)):
         }
 
     # Schedule assessment with retries — waits for agent to save transcript, does not block on agent.
-    enqueue_interview_assessment(str(session.id))
+    try:
+        enqueue_interview_assessment(str(session.id))
+    except Exception as exc:
+        logger.error(
+            "Failed to enqueue assessment for session %s: %s",
+            session.id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Assessment queue is temporarily unavailable. Try again shortly.",
+        ) from exc
     logger.info(
         "Interview completed: session=%s — assessment scheduled (agent-independent)",
         session.id,
@@ -744,7 +780,14 @@ async def livekit_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             if not report_result.scalars().first():
                 from app.tasks.interview_tasks import enqueue_interview_assessment
 
-                enqueue_interview_assessment(str(session.id))
+                try:
+                    enqueue_interview_assessment(str(session.id))
+                except Exception as exc:
+                    logger.error(
+                        "livekit_webhook: failed to enqueue assessment for session %s: %s",
+                        session.id,
+                        exc,
+                    )
 
             logger.info(
                 "livekit_webhook: room_finished — session=%s assessment scheduled",
@@ -816,13 +859,21 @@ async def get_interview_report(
     if job and candidate and session:
         from app.services.report_refresh_service import ensure_report_has_coverage
 
-        refreshed = await ensure_report_has_coverage(
-            db,
-            report,
-            job,
-            candidate,
-            session.transcript or "",
-        )
+        try:
+            refreshed = await ensure_report_has_coverage(
+                db,
+                report,
+                job,
+                candidate,
+                session.transcript or "",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Report coverage refresh failed for candidate %s: %s",
+                candidate.id,
+                exc,
+            )
+            refreshed = False
         if refreshed:
             report_dict = {
                 col.key: getattr(report, col.key)
@@ -1100,7 +1151,18 @@ async def retry_interview_assessment(
     )
     await db.commit()
 
-    generate_interview_report.delay(str(session.id))
+    try:
+        generate_interview_report.delay(str(session.id))
+    except Exception as exc:
+        logger.error(
+            "Failed to enqueue assessment retry for session %s: %s",
+            session.id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Assessment queue is temporarily unavailable. Try again shortly.",
+        ) from exc
     return {
         "message": "Assessment retry enqueued",
         "session_id": str(session.id),

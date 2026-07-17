@@ -21,6 +21,7 @@ from sqlalchemy import select, exists
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import RequireAdminOrHr, hr_roles
+from app.core.logging import get_actor_label, log_event, plural
 from app.core.tenancy import get_tenant_job, get_tenant_shortlist_result
 from app.models.models import Candidate, Job, ShortlistResult
 from app.services.audit_service import log_change, log_field_changes
@@ -28,6 +29,7 @@ from app.services.candidate_contact_service import (
     resolve_candidate_email,
     resolve_candidate_name,
 )
+from app.services.celery_health import CELERY_UNAVAILABLE_MSG, celery_workers_available
 from app.schemas.schemas import (
     ShortlistDecisionUpdate,
     ShortlistDecisionResponse,
@@ -157,9 +159,23 @@ async def trigger_shortlist(
             detail=detail,
         )
 
+    if not celery_workers_available():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=CELERY_UNAVAILABLE_MSG,
+        )
+
     _r = _redis_client()
     lock_key = _shortlist_lock_key(job_id)
-    acquired = _r.set(lock_key, "1", nx=True, ex=300)
+    try:
+        acquired = _r.set(lock_key, "1", nx=True, ex=300)
+    except redis_lib.RedisError as exc:
+        logger.error("trigger_shortlist: Redis unavailable for job %s: %s", job_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Shortlisting is temporarily unavailable. Try again shortly.",
+        ) from exc
+
     if not acquired:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -168,11 +184,24 @@ async def trigger_shortlist(
 
     batch_key = _shortlist_batch_key(job_id)
     id_strings = [str(cid) for cid in eligible_ids]
-    _r.set(batch_key, json.dumps(id_strings), ex=SHORTLIST_BATCH_TTL)
+    try:
+        _r.set(batch_key, json.dumps(id_strings), ex=SHORTLIST_BATCH_TTL)
 
-    from app.tasks.shortlist_tasks import run_shortlist  # noqa: PLC0415
+        from app.tasks.shortlist_tasks import run_shortlist  # noqa: PLC0415
 
-    run_shortlist.apply_async(args=[str(job_id), id_strings])
+        run_shortlist.apply_async(args=[str(job_id), id_strings])
+    except Exception as exc:
+        logger.exception(
+            "trigger_shortlist: failed to enqueue shortlist for job %s", job_id
+        )
+        try:
+            _r.delete(lock_key, batch_key)
+        except redis_lib.RedisError:
+            pass
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Shortlisting is temporarily unavailable. Try again shortly.",
+        ) from exc
 
     await log_change(
         db,
@@ -187,6 +216,15 @@ async def trigger_shortlist(
         job_id=job_id,
     )
     await db.commit()
+
+    log_event(
+        logger,
+        "%s started AI shortlisting for job \"%s\" with %s%s",
+        get_actor_label(),
+        job.title,
+        plural(len(id_strings), "candidate"),
+        f" (skipped {plural(len(skipped), 'ineligible candidate')})" if skipped else "",
+    )
 
     response = {
         "status": "shortlisting_started",
@@ -244,6 +282,14 @@ async def get_shortlist_status(
             )
         )
         completed = len(result.scalars().all())
+
+    logger.debug(
+        "shortlist.progress job_id=%s in_progress=%s completed=%s/%s",
+        job_id,
+        in_progress,
+        completed,
+        len(candidate_ids),
+    )
 
     return ShortlistStatusResponse(
         in_progress=in_progress,
@@ -318,6 +364,11 @@ async def get_shortlist(
                 candidate_email=candidate_email,
             )
         )
+    logger.debug(
+        "shortlist.listed job_id=%s results=%s",
+        job_id,
+        len(enriched),
+    )
     return enriched
 
 
@@ -362,6 +413,16 @@ async def update_decision(
     )
     await db.commit()
     await db.refresh(record)
+
+    log_event(
+        logger,
+        "%s changed the shortlist decision for %s on job review from %s to %s (AI had recommended %s)",
+        get_actor_label(),
+        subject,
+        previous_decision.replace("_", " "),
+        payload.hr_decision.replace("_", " "),
+        record.recommendation.replace("_", " "),
+    )
 
     if payload.hr_decision == "rejected" and previous_decision != "rejected":
         candidate = await db.get(Candidate, record.candidate_id)

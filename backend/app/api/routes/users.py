@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -21,6 +22,7 @@ from app.services.audit_service import log_change, log_field_changes
 from app.services.email_service import send_org_invite_email
 from app.services.tenant_service import create_invite
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -79,6 +81,11 @@ async def create_user(
     )
     await db.commit()
     await db.refresh(user)
+    logger.info(
+        "%s created a new %s account",
+        admin.full_name or "An admin",
+        user.role.replace("_", " "),
+    )
     return UserResponse.model_validate(user)
 
 

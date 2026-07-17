@@ -7,6 +7,7 @@ Endpoints:
   GET  /api/jobs/{job_id}/screening         — list all screening calls for a job
 """
 
+import logging
 import uuid
 from typing import Any, Dict, List
 
@@ -28,9 +29,19 @@ from app.services.audit_service import log_change
 from app.services.celery_health import CELERY_UNAVAILABLE_MSG, celery_workers_available
 from app.services.screening_trigger_service import dispatch_screening_for_candidates
 
+logger = logging.getLogger(__name__)
+
 _hr_auth = Depends(hr_roles)
 
 router = APIRouter()
+
+
+def _safe_enqueue(description: str, enqueue_fn) -> None:
+    """Best-effort Celery enqueue for webhooks — never fail the HTTP response."""
+    try:
+        enqueue_fn()
+    except Exception as exc:
+        logger.error("Vapi webhook: failed to %s: %s", description, exc)
 
 LIVE_CALL_STATUSES = ("initiated", "in_progress")
 
@@ -152,16 +163,17 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     Finds ScreeningCall by vapi_call_id and enqueues processing or updates status.
     Returns immediately — Vapi requires fast response.
     """
-    import logging
-
     from app.tasks.screening_tasks import (
         apply_screening_call_end,
         process_screening_webhook as _process_task,
         sync_screening_call_status as _sync_task,
     )
 
-    logger = logging.getLogger(__name__)
-    body: Dict[str, Any] = await request.json()
+    try:
+        body: Dict[str, Any] = await request.json()
+    except Exception:
+        logger.warning("Vapi webhook: failed to parse JSON body")
+        return {"status": "received", "error": "Invalid JSON"}
 
     message = body.get("message") or {}
     message_type = message.get("type") or body.get("type")
@@ -223,17 +235,23 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 and len(transcript.strip()) >= 50
                 and not needs_transcript_wait
             ):
-                _process_task.delay(body)
+                _safe_enqueue("process screening webhook", lambda: _process_task.delay(body))
             elif needs_transcript_wait:
-                _enrich_task.apply_async(
-                    args=[str(screening_call.id), 0],
-                    countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
+                _safe_enqueue(
+                    "enrich screening transcript",
+                    lambda: _enrich_task.apply_async(
+                        args=[str(screening_call.id), 0],
+                        countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
+                    ),
                 )
             elif transcript.strip():
                 # Thin transcript still processing — enrich may recover fuller artifact.
-                _enrich_task.apply_async(
-                    args=[str(screening_call.id), 0],
-                    countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
+                _safe_enqueue(
+                    "enrich screening transcript",
+                    lambda: _enrich_task.apply_async(
+                        args=[str(screening_call.id), 0],
+                        countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
+                    ),
                 )
             return {"status": "received"}
 
@@ -275,11 +293,14 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             and len(transcript.strip()) >= 50
             and not needs_transcript_wait
         ):
-            _process_task.delay(body)
+            _safe_enqueue("process screening webhook", lambda: _process_task.delay(body))
         elif needs_transcript_wait or transcript.strip():
-            _enrich_task.apply_async(
-                args=[str(screening_call.id), 0],
-                countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
+            _safe_enqueue(
+                "enrich screening transcript",
+                lambda: _enrich_task.apply_async(
+                    args=[str(screening_call.id), 0],
+                    countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
+                ),
             )
         return {"status": "received"}
 
@@ -319,15 +340,21 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             and len(transcript.strip()) >= 50
             and not needs_transcript_wait
         ):
-            _process_task.delay(body)
+            _safe_enqueue("process screening webhook", lambda: _process_task.delay(body))
         elif needs_transcript_wait or transcript.strip():
-            _enrich_task.apply_async(
-                args=[str(screening_call.id), 0],
-                countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
+            _safe_enqueue(
+                "enrich screening transcript",
+                lambda: _enrich_task.apply_async(
+                    args=[str(screening_call.id), 0],
+                    countdown=TRANSCRIPT_ENRICH_DELAY_SEC,
+                ),
             )
         return {"status": "received"}
 
-    _sync_task.delay(str(screening_call.id))
+    _safe_enqueue(
+        "sync screening call status",
+        lambda: _sync_task.delay(str(screening_call.id)),
+    )
     return {"status": "received"}
 
 
@@ -347,14 +374,11 @@ async def get_screening_results(
 ):
     """Return all ScreeningCall records for a job, ordered by created_at desc."""
     import asyncio
-    import logging
 
     from app.tasks.screening_tasks import (
         refresh_live_screening_calls_from_vapi,
         sync_screening_call_status,
     )
-
-    logger = logging.getLogger(__name__)
 
     await get_tenant_job(db, job_id, actor.tenant_id)
 
@@ -382,10 +406,17 @@ async def get_screening_results(
             )
             refreshed = False
             for screening_call_id in live_ids:
-                sync_screening_call_status.apply_async(
-                    args=[screening_call_id],
-                    countdown=0,
-                )
+                try:
+                    sync_screening_call_status.apply_async(
+                        args=[screening_call_id],
+                        countdown=0,
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "Failed to enqueue sync for screening_call %s: %s",
+                        screening_call_id,
+                        exc,
+                    )
         else:
             if refreshed:
                 result = await db.execute(

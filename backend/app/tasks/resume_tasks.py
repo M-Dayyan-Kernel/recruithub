@@ -200,7 +200,12 @@ async def _async_parse(candidate_id: str) -> None:
                 candidate.phone = parsed_data["phone"]
 
             await session.commit()
-            logger.info("Parsed resume for candidate %s — ready for shortlisting", candidate_id)
+            skills = (parsed_data or {}).get("skills") or []
+            logger.debug(
+                "Finished parsing resume for %s — ready for shortlisting%s",
+                candidate.name or "a candidate",
+                " with skills noted" if skills else "",
+            )
             await dispatch_parse_slots(session, job_id)
 
         except openai.AuthenticationError as exc:

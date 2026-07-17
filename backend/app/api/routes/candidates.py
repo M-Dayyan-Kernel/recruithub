@@ -11,6 +11,7 @@ from sqlalchemy import select, exists
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import RequireAdminOrHr, hr_roles
+from app.core.logging import get_actor_label, log_event, plural
 from app.core.tenancy import get_tenant_candidate, get_tenant_job
 from app.models.models import Candidate, ShortlistResult
 from app.schemas.schemas import CandidateResponse, CandidateUpdate, ResumeUploadResponse
@@ -70,8 +71,9 @@ async def _ingest_resume_file(
         )
     )
     if existing_result.scalars().first():
-        logger.info(
-            "Skipping duplicate upload: job=%s filename=%s", job_id, filename
+        logger.debug(
+            "Skipping a duplicate resume upload named %s",
+            filename,
         )
         return "skipped", filename
 
@@ -222,13 +224,22 @@ async def upload_resumes(
 
     await dispatch_parse_slots(db, job_id)
 
-    logger.info(
-        "Uploaded resumes for job %s: created=%d skipped=%d extracted_from_zip=%d",
-        job_id,
-        len(created_ids),
-        len(skipped),
-        extracted_from_zip,
+    log_event(
+        logger,
+        "%s uploaded %s for job \"%s\"%s%s%s",
+        get_actor_label(),
+        plural(len(created_ids), "resume"),
+        job.title,
+        f", skipped {plural(len(skipped), 'duplicate')}" if skipped else "",
+        f", skipped {plural(skipped_oversized, 'oversized file')}" if skipped_oversized else "",
+        f", including files from a zip archive" if extracted_from_zip else "",
     )
+    if created_ids:
+        logger.debug(
+            "Accepted resume uploads for job \"%s\": %s",
+            job.title,
+            ", ".join(created_ids),
+        )
     return ResumeUploadResponse(
         created=len(created_ids),
         skipped=len(skipped),
@@ -344,7 +355,12 @@ async def retry_parse(
     from app.services.parse_queue_service import dispatch_parse_slots  # noqa: PLC0415
 
     await dispatch_parse_slots(db, job_id)
-    logger.info("retry-parse queued for candidate=%s", candidate_id)
+    log_event(
+        logger,
+        "%s re-queued parsing for %s",
+        get_actor_label(),
+        candidate.original_filename or candidate.name or "a candidate",
+    )
     return {"status": "queued", "candidate_id": str(candidate_id)}
 
 

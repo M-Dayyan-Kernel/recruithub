@@ -4,6 +4,7 @@ Interview pipeline — classify screening-passed candidates into HR workflow tab
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Literal, Optional
 
@@ -25,6 +26,8 @@ from app.schemas.schemas import (
     InterviewSessionResponse,
 )
 from app.services.interview_flag_service import get_flag_reason, is_flagged_session
+
+logger = logging.getLogger(__name__)
 
 InterviewTabStage = Literal["pending", "scheduled", "ongoing", "completed", "flagged", "finalists"]
 
@@ -241,4 +244,10 @@ async def get_interview_pipeline(
         key=lambda row: (row.candidate_name or "").lower(),
     )
 
+    logger.debug(
+        "Interview pipeline job=%s tab=%s candidates=%d",
+        job_id,
+        tab,
+        len(pipeline_candidates),
+    )
     return InterviewPipelineResponse(counts=counts, candidates=pipeline_candidates)

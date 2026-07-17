@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import AuditLog, User
+
+logger = logging.getLogger(__name__)
 
 _REDACT_KEYS = frozenset(
     {
@@ -65,6 +68,14 @@ async def log_change(
     )
     db.add(row)
     await db.flush()
+    # Per-row audit details stay in the DB; avoid flooding INFO on bulk uploads.
+    logger.debug(
+        "%s recorded a %s change on %s (%s)",
+        actor.full_name or actor.role,
+        action.replace(".", " ").replace("_", " "),
+        subject_label or entity_type,
+        feature.replace("_", " "),
+    )
 
 
 async def log_field_changes(

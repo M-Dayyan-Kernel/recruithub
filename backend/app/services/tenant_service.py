@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -12,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import hash_password
 from app.core.tenancy import ensure_unique_slug
 from app.models.models import SystemSettings, Tenant, TenantInvite, User
+
+logger = logging.getLogger(__name__)
 
 INVITE_TTL_DAYS = 7
 PLATFORM_TENANT_SLUG = "platform"
@@ -71,6 +74,11 @@ async def create_tenant_with_admin(
     )
     db.add(tenant)
     await db.flush()
+    logger.info(
+        "Created organization \"%s\" with verification status %s",
+        tenant.name,
+        verification_status.replace("_", " "),
+    )
 
     settings_row = SystemSettings(
         tenant_id=tenant.id,

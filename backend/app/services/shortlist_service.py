@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.models import Candidate, Job, ShortlistResult
+from app.core.logging import log_event, plural
 from app.services.tenant_integrations_service import load_tenant_integrations
 
 logger = logging.getLogger(__name__)
@@ -217,6 +218,19 @@ async def _score_and_persist_candidate(
         await db.commit()
         await db.refresh(record)
 
+    fit = (
+        "a strong fit"
+        if match_score >= 80
+        else "a partial fit"
+        if match_score >= 50
+        else "a weak fit"
+    )
+    logger.debug(
+        "AI scored candidate %s as %s and recommended %s",
+        candidate.name or "an unnamed candidate",
+        fit,
+        recommendation,
+    )
     return record
 
 
@@ -265,12 +279,12 @@ async def shortlist_candidates(
     candidates = candidates_result.scalars().all()
 
     if not candidates:
-        logger.info("shortlist_candidates: no ready candidates for job %s — checking all statuses for debug", job_id)
+        logger.debug("shortlist_candidates: no ready candidates for job %s — checking all statuses", job_id)
         # Debug: log all candidate statuses for this job
         all_result = await db.execute(select(Candidate).where(Candidate.job_id == job_id))
         all_candidates = all_result.scalars().all()
         for c in all_candidates:
-            logger.info("  candidate %s has parse_status=%r", c.id, c.parse_status)
+            logger.debug("  candidate %s has parse_status=%r", c.id, c.parse_status)
         return []
 
     candidate_id_set = [c.id for c in candidates]
@@ -285,19 +299,19 @@ async def shortlist_candidates(
     upserted_from_prior = list(already_scored.values())
 
     if not candidates_to_score:
-        logger.info(
-            "shortlist_candidates: all %d candidates already scored for job %s",
-            len(candidates),
-            job_id,
+        log_event(
+            logger,
+            "All ready candidates for job \"%s\" were already scored — nothing new to shortlist",
+            job.title,
         )
         return upserted_from_prior
 
-    logger.info(
-        "shortlist_candidates: scoring %d ready candidates for job %s (max_concurrent=%d, %d already scored)",
-        len(candidates_to_score),
-        job_id,
-        settings.MAX_CONCURRENT_SHORTLISTS,
-        len(already_scored),
+    log_event(
+        logger,
+        "Scoring %s for job \"%s\"%s",
+        plural(len(candidates_to_score), "candidate"),
+        job.title,
+        f" ({plural(len(already_scored), 'candidate')} already scored)" if already_scored else "",
     )
 
     jd_summary = _build_jd_summary(job)
@@ -323,9 +337,9 @@ async def shortlist_candidates(
     )
     upserted_records.extend(newly_scored)
 
-    logger.info(
-        "shortlist_candidates: completed %d shortlist records for job %s",
-        len(upserted_records),
-        job_id,
+    log_event(
+        logger,
+        "Finished scoring candidates for job \"%s\"",
+        job.title,
     )
     return upserted_records

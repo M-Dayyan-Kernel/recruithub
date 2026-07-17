@@ -1,5 +1,6 @@
 from pathlib import Path
 from uuid import uuid4
+import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
@@ -22,6 +23,7 @@ from app.schemas.schemas import (
 )
 from app.services.tenant_service import create_tenant_with_admin, get_valid_invite
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MAX_GST_DOC_SIZE = settings.MAX_ORG_DOC_SIZE
@@ -123,9 +125,16 @@ async def _read_and_validate_gst_pdf(upload: UploadFile) -> tuple[bytes, str]:
 
 def _persist_gst_document(tenant_id, data: bytes) -> str:
     dest_dir = Path(settings.ORG_DOCS_DIR) / str(tenant_id)
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest_path = dest_dir / f"gst-{uuid4().hex}.pdf"
-    dest_path.write_bytes(data)
+    try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / f"gst-{uuid4().hex}.pdf"
+        dest_path.write_bytes(data)
+    except OSError as exc:
+        logger.error("Failed to persist GST document for tenant %s: %s", tenant_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not store the uploaded document. Check server file permissions.",
+        ) from exc
     return str(dest_path)
 
 
@@ -195,12 +204,14 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     )
     user = result.scalars().first()
     if user is None or not verify_password(body.password, user.hashed_password):
+        logger.warning("Sign-in failed because the email or password was wrong")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if not user.is_active:
+        logger.warning("Sign-in blocked because the account is inactive")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive",
@@ -208,6 +219,11 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     if user.role != "superadmin":
         _assert_tenant_can_access(user.tenant)
 
+    logger.info(
+        "%s signed in successfully as %s",
+        user.full_name or "A user",
+        user.role.replace("_", " "),
+    )
     return _issue_token(user, tenant_name=user.tenant.name if user.tenant else None)
 
 

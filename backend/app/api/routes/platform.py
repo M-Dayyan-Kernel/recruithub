@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from app.schemas.schemas import (
 from app.services.audit_service import log_change
 from app.services.tenant_service import create_tenant_with_admin
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -320,10 +322,15 @@ async def delete_tenant(
     await db.commit()
 
     if doc_path:
-        path = Path(doc_path)
-        if path.is_file():
-            path.unlink(missing_ok=True)
-        parent = path.parent
-        if parent.is_dir() and not any(parent.iterdir()):
-            parent.rmdir()
+        try:
+            path = Path(doc_path)
+            if path.is_file():
+                path.unlink(missing_ok=True)
+            parent = path.parent
+            if parent.is_dir() and not any(parent.iterdir()):
+                parent.rmdir()
+        except OSError as exc:
+            logger.warning(
+                "Tenant %s deleted but GST doc cleanup failed: %s", tenant_id, exc
+            )
     return None
