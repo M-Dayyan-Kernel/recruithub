@@ -3,6 +3,7 @@ from uuid import uuid4
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -27,6 +28,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MAX_GST_DOC_SIZE = settings.MAX_ORG_DOC_SIZE
+_EMAIL_ADAPTER = TypeAdapter(EmailStr)
+
+
+def _parse_email_or_400(raw: str) -> str:
+    """Normalize and validate email before any signup side effects."""
+    try:
+        return str(_EMAIL_ADAPTER.validate_python((raw or "").strip().lower()))
+    except ValidationError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enter a valid email address (for example, you@company.com)",
+        ) from None
 
 
 def _user_response(user: User, tenant_name: str | None = None) -> UserResponse:
@@ -124,10 +137,27 @@ async def _read_and_validate_gst_pdf(upload: UploadFile) -> tuple[bytes, str]:
 
 
 def _persist_gst_document(tenant_id, data: bytes) -> str:
+    from app.services.s3_service import gst_object_key, s3_configured, upload_bytes
+
+    filename = f"gst-{uuid4().hex}.pdf"
+    if s3_configured():
+        try:
+            return upload_bytes(
+                gst_object_key(tenant_id, filename),
+                data,
+                content_type="application/pdf",
+            )
+        except Exception as exc:
+            logger.error("Failed to upload GST document for tenant %s: %s", tenant_id, exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Could not store the uploaded document in object storage.",
+            ) from exc
+
     dest_dir = Path(settings.ORG_DOCS_DIR) / str(tenant_id)
     try:
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest_path = dest_dir / f"gst-{uuid4().hex}.pdf"
+        dest_path = dest_dir / filename
         dest_path.write_bytes(data)
     except OSError as exc:
         logger.error("Failed to persist GST document for tenant %s: %s", tenant_id, exc)
@@ -161,7 +191,7 @@ async def signup(
     if len(password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
 
-    email_norm = email.strip().lower()
+    email_norm = _parse_email_or_400(email)
     existing = await db.execute(select(User).where(User.email == email_norm))
     if existing.scalars().first() is not None:
         raise HTTPException(

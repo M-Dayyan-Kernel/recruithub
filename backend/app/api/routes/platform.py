@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +22,7 @@ from app.schemas.schemas import (
     UserResponse,
 )
 from app.services.audit_service import log_change
+from app.services.s3_service import delete_object, download_bytes, is_s3_object_key
 from app.services.tenant_service import create_tenant_with_admin
 
 logger = logging.getLogger(__name__)
@@ -264,13 +265,27 @@ async def download_gst_document(
         raise HTTPException(status_code=404, detail="Organization not found")
     if not tenant.gst_document_path:
         raise HTTPException(status_code=404, detail="No GST document uploaded")
+
+    filename = tenant.gst_document_filename or "gst-document.pdf"
+    if is_s3_object_key(tenant.gst_document_path):
+        try:
+            data = download_bytes(tenant.gst_document_path)
+        except Exception as exc:
+            logger.warning("Failed to download GST from S3 for tenant %s: %s", tenant_id, exc)
+            raise HTTPException(status_code=404, detail="GST document file missing in storage") from exc
+        return Response(
+            content=data,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
     path = Path(tenant.gst_document_path)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="GST document file missing on disk")
     return FileResponse(
         path,
         media_type="application/pdf",
-        filename=tenant.gst_document_filename or path.name,
+        filename=filename,
     )
 
 
@@ -323,12 +338,15 @@ async def delete_tenant(
 
     if doc_path:
         try:
-            path = Path(doc_path)
-            if path.is_file():
-                path.unlink(missing_ok=True)
-            parent = path.parent
-            if parent.is_dir() and not any(parent.iterdir()):
-                parent.rmdir()
+            if is_s3_object_key(doc_path):
+                delete_object(doc_path)
+            else:
+                path = Path(doc_path)
+                if path.is_file():
+                    path.unlink(missing_ok=True)
+                parent = path.parent
+                if parent.is_dir() and not any(parent.iterdir()):
+                    parent.rmdir()
         except OSError as exc:
             logger.warning(
                 "Tenant %s deleted but GST doc cleanup failed: %s", tenant_id, exc

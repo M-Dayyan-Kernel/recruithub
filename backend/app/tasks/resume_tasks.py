@@ -70,28 +70,52 @@ async def _async_extract(task_self, candidate_id: str) -> None:
         await session.commit()
 
         try:
-            file_path = Path(candidate.resume_file_path or "")
+            from app.services.s3_service import download_bytes, is_s3_object_key  # noqa: PLC0415
 
-            # Fallback 2: file does not exist — no retry
-            if not file_path.exists():
+            stored = candidate.resume_file_path or ""
+            file_bytes: bytes | None = None
+            file_path = Path(stored)
+            suffix = ""
+
+            if is_s3_object_key(stored):
+                try:
+                    file_bytes = download_bytes(stored)
+                except Exception as exc:
+                    logger.error(
+                        "extract_resume_text: S3 download failed for candidate %s — key: %s (%s)",
+                        candidate_id,
+                        stored,
+                        exc,
+                    )
+                    candidate.parse_status = "parse_failed"
+                    await session.commit()
+                    await dispatch_parse_slots(session, job_id)
+                    raise _NoRetryError(f"S3 object not found: {stored}") from exc
+                suffix = Path(stored).suffix.lower() or Path(
+                    candidate.original_filename or ""
+                ).suffix.lower()
+            elif file_path.exists():
+                file_bytes = file_path.read_bytes()
+                suffix = file_path.suffix.lower()
+            else:
                 logger.error(
                     "extract_resume_text: file not found for candidate %s — path: %s",
                     candidate_id,
-                    file_path,
+                    stored,
                 )
                 candidate.parse_status = "parse_failed"
                 await session.commit()
                 await dispatch_parse_slots(session, job_id)
-                raise _NoRetryError(f"File not found: {file_path}")
-
-            suffix = file_path.suffix.lower()
+                raise _NoRetryError(f"File not found: {stored}")
 
             if suffix == ".pdf":
-                doc = fitz.open(str(file_path))
+                doc = fitz.open(stream=file_bytes, filetype="pdf")
                 text = "\n".join(page.get_text() for page in doc)
                 doc.close()
             elif suffix in (".docx", ".doc"):
-                document = docx.Document(str(file_path))
+                import io
+
+                document = docx.Document(io.BytesIO(file_bytes))
                 text = "\n".join(p.text for p in document.paragraphs if p.text.strip())
             else:
                 raise ValueError(f"Unsupported file type: {suffix!r}")

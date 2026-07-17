@@ -89,12 +89,18 @@ export default function SignupPage() {
       toast.error('GST document must be a PDF')
       return
     }
+    const emailNorm = email.trim()
+    // HTML5 type=email accepts hosts without a TLD (e.g. user@localhost / user@itcart).
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailNorm)) {
+      toast.error('Enter a valid email address (for example, you@company.com)')
+      return
+    }
     setSubmitting(true)
     try {
       const result = await signup({
         organization_name: organizationName.trim(),
         full_name: fullName.trim(),
-        email: email.trim(),
+        email: emailNorm,
         password,
         company_registration_number: companyRegistrationNumber.trim() || undefined,
         gst_document: gstDocument,

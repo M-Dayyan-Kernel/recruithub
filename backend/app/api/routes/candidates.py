@@ -53,6 +53,7 @@ def _is_allowed_upload(file: UploadFile) -> bool:
 
 async def _ingest_resume_file(
     job_id: uuid.UUID,
+    tenant_id: uuid.UUID,
     filename: str,
     content: bytes,
     upload_dir: Path,
@@ -77,14 +78,34 @@ async def _ingest_resume_file(
         )
         return "skipped", filename
 
-    dest = upload_dir / filename
-    dest.write_bytes(content)
+    from app.services.s3_service import (  # noqa: PLC0415
+        resume_object_key,
+        s3_configured,
+        upload_bytes,
+    )
+
+    if s3_configured():
+        suffix = Path(filename).suffix.lower()
+        content_type = (
+            "application/pdf"
+            if suffix == ".pdf"
+            else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        stored_path = upload_bytes(
+            resume_object_key(tenant_id, job_id, filename),
+            content,
+            content_type=content_type,
+        )
+    else:
+        dest = upload_dir / filename
+        dest.write_bytes(content)
+        stored_path = str(dest)
 
     candidate = Candidate(
         job_id=job_id,
         name=Path(filename).stem,
         email=f"pending_{uuid.uuid4().hex}@upload.pending",
-        resume_file_path=str(dest),
+        resume_file_path=stored_path,
         original_filename=filename,
         parse_status="pending_parse",
     )
@@ -177,7 +198,7 @@ async def upload_resumes(
             extracted_from_zip += len(extracted)
             for member_name, member_content in extracted:
                 outcome, detail = await _ingest_resume_file(
-                    job_id, member_name, member_content, upload_dir, db
+                    job_id, actor.tenant_id, member_name, member_content, upload_dir, db
                 )
                 if outcome == "created" and detail:
                     created_ids.append(detail)
@@ -195,7 +216,7 @@ async def upload_resumes(
 
         filename = file.filename or f"{uuid.uuid4()}.pdf"
         outcome, detail = await _ingest_resume_file(
-            job_id, filename, content, upload_dir, db
+            job_id, actor.tenant_id, filename, content, upload_dir, db
         )
         if outcome == "created" and detail:
             created_ids.append(detail)
@@ -385,6 +406,7 @@ async def delete_candidate(
     job_id = candidate.job_id
     was_active = candidate.parse_status in ("parse_queued", "parsing", "parsed")
     label = candidate.original_filename or candidate.name or str(candidate_id)
+    resume_path = candidate.resume_file_path
     from app.services.parse_queue_service import dispatch_parse_slots  # noqa: PLC0415
 
     await log_change(
@@ -401,6 +423,18 @@ async def delete_candidate(
     )
     await db.delete(candidate)
     await db.commit()
+
+    if resume_path:
+        from app.services.s3_service import delete_object, is_s3_object_key  # noqa: PLC0415
+
+        if is_s3_object_key(resume_path):
+            delete_object(resume_path)
+        else:
+            try:
+                Path(resume_path).unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("Failed to delete local resume %s: %s", resume_path, exc)
+
     if was_active:
         await dispatch_parse_slots(db, job_id)
     return None

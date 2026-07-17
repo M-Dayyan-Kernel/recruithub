@@ -98,7 +98,7 @@ async def create_room(
         # Otherwise attempt egress without an explicit s3 target (LiveKit project default).
         egress_id: str | None = None
         recording_key: str | None = None
-        filepath = f"recordings/interview-{room_name}.mp4"
+        filepath = f"recruitment-interview-recordings/interview-{room_name}.mp4"
         try:
             file_output_kwargs: dict = {
                 "file_type": api.EncodedFileType.MP4,
