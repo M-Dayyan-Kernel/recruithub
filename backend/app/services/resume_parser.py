@@ -3,21 +3,9 @@ import json
 import logging
 from openai import OpenAI
 
-logger = logging.getLogger(__name__)
+from app.prompts.resume import PARSE_SYSTEM_PROMPT, build_parse_user_prompt
 
-PARSE_SYSTEM_PROMPT = """You are a resume parser. Extract structured information from the resume text provided.
-Return ONLY valid JSON with exactly these fields:
-- name: string (candidate's full name)
-- email: string (email address)
-- phone: string (phone number with country code if present)
-- skills: array of strings (all technical skills, tools, languages, frameworks mentioned)
-- total_experience_years: number (float, total professional experience in years)
-- experience: array of objects with {company: string, title: string, duration: string, description: string}
-- education: array of objects with {institution: string, degree: string, field: string, year: string}
-- current_company: string (most recent employer name)
-- current_role: string (most recent job title)
-If any field cannot be found in the resume, use null for that field.
-Skills must be a flat array of individual skill strings (e.g. ["Python", "React", "PostgreSQL"])."""
+logger = logging.getLogger(__name__)
 
 # Minimum resume text length before we attempt GPT parsing
 MIN_RESUME_LENGTH = 50
@@ -39,7 +27,7 @@ def _parse_resume_sync(raw_text: str, api_key: str) -> dict:
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": PARSE_SYSTEM_PROMPT},
-            {"role": "user", "content": f"Parse this resume and return structured JSON:\n\n{truncated_text}"},
+            {"role": "user", "content": build_parse_user_prompt(truncated_text)},
         ],
         temperature=0,
         max_tokens=2000,

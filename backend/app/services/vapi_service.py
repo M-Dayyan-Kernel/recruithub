@@ -15,6 +15,11 @@ from typing import TYPE_CHECKING, Optional
 import httpx
 
 from app.core.config import settings
+from app.prompts.screening import (
+    SCREENING_END_CALL_MESSAGE,
+    build_screening_call_prompt,
+    build_screening_first_message,
+)
 
 if TYPE_CHECKING:
     from app.models.models import Candidate, Job
@@ -36,32 +41,16 @@ def _build_screening_prompt(
     required_skills: list | None = None,
 ) -> str:
     """Build the system prompt for the AI screening call."""
-    skills_line = ""
-    if required_skills:
-        skills_line = f"\nKey skills for this role: {', '.join(required_skills)}\n"
-
     questions = merge_screening_questions(screening_questions, None, job_title)
     questions_block = format_screening_questions_for_prompt(questions, job_title)
 
-    return f"""You are a professional HR screening assistant calling on behalf of a hiring company.
-You are conducting a brief phone screening for the role of: {job_title}.
-Candidate name: {candidate_name}
-
-Job context: {job_description[:500] if job_description else "Not provided"}
-{skills_line}
-Your goal is to have a natural, friendly conversation to assess the candidate's fit.
-Ask the following screening questions one at a time, in a conversational tone (skip any already answered):
-
-{questions_block}
-
-Guidelines:
-- Be friendly, professional, and concise.
-- Listen carefully to answers and acknowledge them naturally.
-- If the candidate seems confused, rephrase the question simply.
-- Do not make promises about the outcome of the screening.
-- Keep the total call under 10 minutes.
-- End gracefully after covering all screening questions, or if the candidate is not interested.
-"""
+    return build_screening_call_prompt(
+        candidate_name=candidate_name,
+        job_title=job_title,
+        job_description=job_description,
+        questions_block=questions_block,
+        required_skills=required_skills,
+    )
 
 
 def _vapi_headers(api_key: str) -> dict[str, str]:
@@ -208,12 +197,12 @@ def _initiate_screening_call_sync(
                 "provider": "deepgram",
                 "voiceId": "asteria",
             },
-            "firstMessage": (
-                f"Hello {candidate_name}, this is an AI assistant calling on behalf of the hiring team "
-                f"regarding the {job_title} position. Do you have a few minutes to speak?"
+            "firstMessage": build_screening_first_message(
+                candidate_name,
+                job_title,
             ),
             "firstMessageMode": "assistant-speaks-first",
-            "endCallMessage": "Thank you for your time. We'll review your responses and be in touch soon. Goodbye!",
+            "endCallMessage": SCREENING_END_CALL_MESSAGE,
             "transcriber": {
                 "provider": "deepgram",
                 "model": "nova-2",

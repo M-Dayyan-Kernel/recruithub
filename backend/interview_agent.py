@@ -39,10 +39,14 @@ from livekit.agents import (
 )
 from livekit.plugins import openai as lk_openai
 
-from app.services.interview_question_constraints import (
-    ORAL_ONLY_PROMPT_RULES,
-    TECHNICAL_ONLY_PROMPT_RULES,
-    derive_difficulty_hint,
+from app.prompts.interview import (
+    build_adaptive_followup_rules,
+    build_candidate_greeting,
+    build_default_interview_prompt,
+    build_interview_structure,
+    build_interview_system_prompt,
+    build_start_interview_instruction,
+    format_rubric_block,
 )
 
 logger = logging.getLogger("interview-agent")
@@ -117,65 +121,18 @@ def _is_thin_answer(text: str) -> bool:
 
 
 def _adaptive_followup_rules() -> str:
-    return f"""ADAPTIVE FOLLOW-UP RULES (critical):
-- After every substantive answer, pause and assess depth before changing topic.
-- A thin answer is: very short, generic, buzzword-heavy, or missing examples and specifics.
-- When thin: ask 1 short follow-up grounded in THEIR words — e.g. "Can you walk me through a specific example?", "What was your role in that?", "What trade-offs did you consider?"
-- When adequate (concrete example, clear reasoning, specific details): acknowledge briefly and advance.
-- Never ask more than {MAX_FOLLOW_UPS_PER_TOPIC} follow-ups on the same topic — then move on even if still shallow.
-- Follow-ups must reference what they just said; do not introduce unrelated new topics.
-- Do not reveal rubric scores, expected answers, or hiring decisions.
-- This is voice-only: never ask the candidate to write code, type syntax, open an IDE, share their screen, or do a live coding exercise. Probe understanding through explanation and examples from their experience."""
+    return build_adaptive_followup_rules(MAX_FOLLOW_UPS_PER_TOPIC)
 
 
 def _format_rubric_block(questions: list) -> str:
-    lines = []
-    for i, q in enumerate(questions, start=1):
-        if isinstance(q, dict):
-            text = (q.get("question") or "").strip()
-            score = q.get("score", "")
-        else:
-            text = ""
-            score = ""
-        if text:
-            lines.append(f"{i}. {text} (worth {score} points)")
-    return "\n".join(lines)
+    return format_rubric_block(questions)
 
 
 def _build_interview_structure(job) -> str:
-    questions = job.interview_questions or []
-    valid = [q for q in questions if isinstance(q, dict) and (q.get("question") or "").strip()]
-    if valid:
-        rubric = _format_rubric_block(valid)
-        return f"""INTERVIEW STRUCTURE (follow this order):
-1. You have already greeted the candidate — move straight to asking for a brief self-introduction
-2. Ask EACH rubric question below IN ORDER — use the exact intent of each question, phrased for spoken answers only (explain / describe / walk through — never ask them to write or run code).
-3. After each rubric answer, apply ADAPTIVE FOLLOW-UP RULES before the next rubric question.
-4. Do not skip any rubric question. Do not reveal point values to the candidate.
-5. Ask about their interest in this role at Webknot
-6. Let them ask one or two questions
-7. Close warmly — thank them, say the hiring team will follow up
-
-{ORAL_ONLY_PROMPT_RULES}
-
-{TECHNICAL_ONLY_PROMPT_RULES}
-
-RUBRIC QUESTIONS (mandatory — ask in order):
-{rubric}"""
-    difficulty = derive_difficulty_hint(job)
-    return f"""INTERVIEW STRUCTURE (follow this order):
-1. You have already greeted the candidate — move straight to asking for a brief self-introduction
-2. Ask 3-4 technical questions relevant to {job.title} and required skills — oral answers only (no live coding)
-3. After each answer, apply ADAPTIVE FOLLOW-UP RULES before moving on — technical probes only, no behavioural follow-ups
-4. Ask about their interest in this role at Webknot
-5. Let them ask one or two questions
-6. Close warmly — thank them, say the hiring team will follow up
-
-{difficulty}
-
-{ORAL_ONLY_PROMPT_RULES}
-
-{TECHNICAL_ONLY_PROMPT_RULES}"""
+    return build_interview_structure(
+        job,
+        max_follow_ups_per_topic=MAX_FOLLOW_UPS_PER_TOPIC,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -222,35 +179,20 @@ async def _load_session_data(session_id: str) -> tuple[str, str, str]:
         required_skills = ", ".join(job.required_skills or []) or "not specified"
         interview_structure = _build_interview_structure(job)
 
-        prompt = f"""You are a professional AI interviewer conducting a structured technical interview on behalf of Webknot Technologies. Speak naturally — this is a voice conversation.
+        prompt = build_interview_system_prompt(
+            candidate_name=candidate.name,
+            current_role=current_role,
+            current_company=current_company,
+            experience_years=exp_years,
+            skills=skills,
+            job_title=job.title,
+            required_skills=required_skills,
+            job_description=job.description or "",
+            interview_structure=interview_structure,
+            max_follow_ups_per_topic=MAX_FOLLOW_UPS_PER_TOPIC,
+        )
 
-CANDIDATE: {candidate.name}
-CURRENT ROLE: {current_role} at {current_company}  
-EXPERIENCE: {exp_years} years
-SKILLS: {skills}
-ROLE: {job.title}
-REQUIRED SKILLS: {required_skills}
-JOB: {(job.description or '')[:400]}
-
-{interview_structure}
-
-{_adaptive_followup_rules()}
-
-VOICE RULES:
-- Speak in short, natural sentences — this is voice, not text
-- No bullet points, no markdown, no lists
-- Listen fully, then respond — probe thin answers before advancing
-- Be warm, encouraging, and professional
-- Keep total interview to 10-15 minutes
-- Do NOT reveal scores or make hiring decisions on the call
-- Do NOT ask for live coding, written code, screen sharing, or running programs — only spoken answers
-- Do NOT ask behavioural or soft-skill questions — technical probes only
-
-{ORAL_ONLY_PROMPT_RULES}
-
-{TECHNICAL_ONLY_PROMPT_RULES}"""
-
-        greeting = f"Hello {candidate.name}! I'm your AI interviewer from Webknot Technologies today. Thank you for joining us. I'd love to start by having you tell me a little about yourself and your background."
+        greeting = build_candidate_greeting(candidate.name)
 
         return prompt, candidate.name, greeting
 
@@ -260,16 +202,7 @@ VOICE RULES:
 
 
 def _default_prompt() -> str:
-    return f"""You are a professional AI interviewer at Webknot Technologies conducting a voice-only technical interview.
-Cover: brief background, technical skills, and role-relevant technical questions. Be warm and encouraging.
-
-{_adaptive_followup_rules()}
-
-{ORAL_ONLY_PROMPT_RULES}
-
-{TECHNICAL_ONLY_PROMPT_RULES}
-
-Speak in short natural sentences — no markdown or bullet points."""
+    return build_default_interview_prompt(MAX_FOLLOW_UPS_PER_TOPIC)
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +380,7 @@ async def interview_session(ctx: JobContext):
         session.on('user_input_transcribed', _on_user_transcribed)
 
         await session.generate_reply(
-            instructions=f"Start the interview now. Begin with this exact greeting: '{greeting}'"
+            instructions=build_start_interview_instruction(greeting)
         )
         await session.wait_for_idle()
 

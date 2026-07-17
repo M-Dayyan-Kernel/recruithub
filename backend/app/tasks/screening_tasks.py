@@ -21,6 +21,10 @@ from sqlalchemy import select
 
 from app.core.celery_app import celery_app
 from app.core.database import get_celery_db
+from app.prompts.screening import (
+    EXTRACTION_SYSTEM_PROMPT,
+    build_screening_extraction_user_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1198,34 +1202,6 @@ def _clean_extracted_str(value) -> str | None:
     return text
 
 
-EXTRACTION_SYSTEM_PROMPT = """You are an expert HR analyst. You will be given a transcript of a phone screening call.
-Extract the following structured information from the conversation. If a field is not mentioned, use null.
-
-Return ONLY valid JSON with these exact fields:
-{
-  "availability": "string — when candidate can start (e.g. 'Immediately', 'In 30 days', '2 months')",
-  "employment_status": "string — current employment status (e.g. 'Currently employed at XYZ', 'Unemployed')",
-  "relevant_experience": "string — brief summary of relevant experience mentioned",
-  "current_ctc": "string — current CTC/salary mentioned (e.g. '12 LPA', '15 lakhs', 'Not disclosed')",
-  "expected_ctc": "string — expected CTC/salary (e.g. '18-20 LPA', 'Open to discussion')",
-  "notice_period": "string — notice period (e.g. '30 days', '2 months', 'Immediate joiner')",
-  "location_preference": "string — location or remote/hybrid preference",
-  "communication_quality": "string — one of: excellent, good, fair, poor",
-  "willingness_to_proceed": "boolean — true if candidate expressed interest in proceeding, false if not, null if unclear",
-  "summary": "string — 2-3 sentence summary of the screening call",
-  "result": "string — one of: pass, fail, needs_review"
-}
-
-Classifier rules for 'result':
-- When employer screening questions are provided in the user message, verify answers cover those topics.
-- "pass": candidate answers screening questions satisfactorily AND shows strong standard fit signals — willing to proceed, reasonable CTC expectations, relevant experience, acceptable availability and notice period.
-- "fail": candidate gives clear disqualifying answers to screening questions OR shows clear disqualifiers — not willing to proceed, CTC extremely out of range (>2x stated), irrelevant experience, unavailable for foreseeable future.
-- "needs_review": ambiguous signals, incomplete information, call cut short, mixed signals, or questions not fully answered.
-
-Be conservative — when in doubt, use "needs_review" rather than "fail".
-"""
-
-
 async def _extract_screening_fields(
     transcript: str,
     api_key: str,
@@ -1245,21 +1221,15 @@ async def _extract_screening_fields(
 
     client = openai.AsyncOpenAI(api_key=api_key)
 
-    truncated_transcript = transcript[:12000]
-
-    context_parts: list[str] = []
-    if job_title:
-        context_parts.append(f"Role: {job_title}")
     questions_text = format_screening_questions_for_prompt(
         merge_screening_questions(screening_questions, None, job_title or ""),
         job_title or "",
     )
-    if questions_text.strip():
-        context_parts.append(
-            f"Employer screening questions (evaluate pass/fail based on how well these were answered):\n{questions_text}"
-        )
-    context_parts.append(f"Screening call transcript:\n\n{truncated_transcript}")
-    user_content = "\n\n".join(context_parts)
+    user_content = build_screening_extraction_user_prompt(
+        transcript=transcript,
+        job_title=job_title,
+        questions_text=questions_text,
+    )
 
     response = await client.chat.completions.create(
         model="gpt-4o",

@@ -8,41 +8,13 @@ from typing import Any, Optional
 
 from openai import AsyncOpenAI
 
-from app.services.interview_question_constraints import (
-    DIFFICULTY_TIER_GUIDANCE,
-    ORAL_ONLY_PROMPT_RULES,
-    TECHNICAL_ONLY_PROMPT_RULES,
-    derive_difficulty_hint,
+from app.prompts.expected_answer import (
+    EXPECTED_POINTS_SYSTEM_PROMPT,
+    build_expected_points_user_prompt,
 )
+from app.services.interview_question_constraints import derive_difficulty_hint
 
 logger = logging.getLogger(__name__)
-
-EXPECTED_POINTS_SYSTEM_PROMPT = f"""You are an expert interviewer creating an answer key for a rubric question.
-Given a job context and one interview question, return ONLY valid JSON:
-
-{{
-  "expected_points": [
-    "<concise assessable criterion 1>",
-    "<concise assessable criterion 2>"
-  ]
-}}
-
-Rules:
-- Return 3 to 6 bullet points
-- Each point must be a single objective TECHNICAL criterion (concept, pattern, tool, metric, architecture decision, debugging step)
-- Do NOT include soft-skill or communication fluff (e.g. "communicates clearly", "shows enthusiasm")
-- Each point must be markable covered or not when the candidate speaks their answer aloud
-- No paragraphs, no numbering prefixes in the strings
-- Calibrate depth to the role difficulty tier provided in the user message
-- Do not include criteria that require writing code, running a program, or sharing a screen
-- Do not include meta commentary
-
-{TECHNICAL_ONLY_PROMPT_RULES}
-
-{DIFFICULTY_TIER_GUIDANCE}
-
-{ORAL_ONLY_PROMPT_RULES}"""
-
 
 def _job_context(job: Any) -> str:
     skills = ", ".join(job.required_skills or []) or "Not specified"
@@ -69,15 +41,11 @@ async def generate_expected_points(question_text: str, job: Any, api_key: str) -
         return []
 
     client = AsyncOpenAI(api_key=api_key)
-    user_content = f"""== JOB CONTEXT ==
-{_job_context(job)}
-
-== DIFFICULTY ==
-{derive_difficulty_hint(job)}
-
-== INTERVIEW QUESTION ==
-{question_text.strip()}
-"""
+    user_content = build_expected_points_user_prompt(
+        _job_context(job),
+        derive_difficulty_hint(job),
+        question_text,
+    )
 
     try:
         response = await client.chat.completions.create(
