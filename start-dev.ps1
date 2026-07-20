@@ -122,7 +122,7 @@ $backendDir = Join-Path $Root "backend"
 $hrAppDir = Join-Path $Root "hr-app"
 $candidateAppDir = Join-Path $Root "candidate-app"
 
-$apiCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+$apiCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
 $celeryWorkerCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; celery -A app.core.celery_app.celery_app worker --loglevel=info --pool=solo"
 $celeryBeatCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; celery -A app.core.celery_app.celery_app beat --loglevel=info"
 $agentCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; python interview_agent.py dev"
