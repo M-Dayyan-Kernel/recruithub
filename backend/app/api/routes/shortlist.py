@@ -29,7 +29,11 @@ from app.services.candidate_contact_service import (
     resolve_candidate_email,
     resolve_candidate_name,
 )
-from app.services.celery_health import CELERY_UNAVAILABLE_MSG, celery_workers_available
+from app.core.celery_queues import SHORTLIST_QUEUE
+from app.services.celery_health import (
+    celery_queue_available,
+    celery_queue_unavailable_message,
+)
 from app.schemas.schemas import (
     ShortlistDecisionUpdate,
     ShortlistDecisionResponse,
@@ -170,10 +174,10 @@ async def trigger_shortlist(
             detail=detail,
         )
 
-    if not celery_workers_available():
+    if not celery_queue_available(SHORTLIST_QUEUE):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=CELERY_UNAVAILABLE_MSG,
+            detail=celery_queue_unavailable_message(SHORTLIST_QUEUE),
         )
 
     _r = _redis_client()

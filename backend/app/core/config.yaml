@@ -182,3 +182,16 @@ celery:
   rate_limit_countdown_sec: 300
   transient_countdown_sec: 120
   extraction_countdown_sec: 60
+  worker_prefetch_multiplier: 1
+  task_acks_late: true
+  task_track_started: true
+  task_reject_on_worker_lost: true
+  queues:
+    resume:
+      concurrency: 4
+    shortlist:
+      concurrency: 2
+    screening:
+      concurrency: 2
+    interviews:
+      concurrency: 2

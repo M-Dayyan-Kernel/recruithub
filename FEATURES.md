@@ -603,8 +603,8 @@ Shared-database multi-tenancy: each organization is a **Tenant**. Users, jobs, s
 | PostgreSQL | 5433 | `docker compose up -d` |
 | Redis | 6379 | `docker compose up -d` |
 | FastAPI backend | 8000 | `uvicorn app.main:app --reload` |
-| Celery worker | — | `celery -A app.core.celery_app.celery_app worker` |
-| Celery beat | — | `celery -A app.core.celery_app.celery_app beat` |
+| Celery worker | — | `.\scripts\run-celery-worker.ps1 all` or see `backend/DEPLOY-CELERY.md` |
+| Celery beat | — | `.\scripts\run-celery-beat.sh` or `celery -A app.core.celery_app.celery_app beat` |
 | Interview agent | — | `python interview_agent.py dev` |
 | HR App | 5173 | `npm run dev` in `hr-app/` |
 | Candidate App | 5174 | `npm run dev` in `candidate-app/` |
@@ -620,7 +620,9 @@ From project root:
 This script:
 1. Starts Docker (Postgres + Redis)
 2. Runs Alembic migrations
-3. Launches all services in separate terminal windows
+3. Launches all services in separate terminal windows (API, Celery worker on all queues, Celery beat, interview agent, HR + candidate apps)
+
+See [`backend/DEPLOY-CELERY.md`](backend/DEPLOY-CELERY.md) for production worker scaling.
 
 ### Required Environment Variables
 

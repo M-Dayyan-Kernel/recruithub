@@ -12,6 +12,7 @@ from app.api.routes import (
     audit,
     jobs,
     candidates,
+    health as health_routes,
     shortlist,
     screening,
     interviews,
@@ -150,6 +151,7 @@ async def health():
     }
 
 
+app.include_router(health_routes.router, prefix="/api", tags=["health"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(platform.router, prefix="/api/platform", tags=["platform"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])

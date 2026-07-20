@@ -75,12 +75,23 @@ API docs available at: http://localhost:8000/docs
 
 Health check: http://localhost:8000/health
 
-### 5. Start Celery Worker (separate terminal)
+### 5. Start Celery (separate terminals)
+
+Recommended: use `.\start-dev.ps1` from the project root (starts worker + beat automatically).
+
+Manual start from `backend/` with `.venv` activated:
 
 ```bash
-# From backend/ directory, with .venv activated
-celery -A app.core.celery_app.celery_app worker --loglevel=info
+# Worker — all queues (dev)
+celery -A app.core.celery_app.celery_app worker --loglevel=info --pool=solo --queues=resume,shortlist,screening,interviews
+
+# Beat — exactly one instance per environment
+celery -A app.core.celery_app.celery_app beat --loglevel=info
 ```
+
+Production queue topology and scaling: see [`backend/DEPLOY-CELERY.md`](backend/DEPLOY-CELERY.md).
+
+Celery health: http://localhost:8000/api/health/celery
 
 ---
 

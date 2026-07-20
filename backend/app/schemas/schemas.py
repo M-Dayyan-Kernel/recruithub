@@ -317,6 +317,7 @@ class ResumeUploadResponse(BaseModel):
     candidate_ids: List[str]
     extracted_from_zip: int = 0
     skipped_oversized: List[str] = []
+    worker_warning: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

@@ -261,6 +261,19 @@ async def upload_resumes(
             job.title,
             ", ".join(created_ids),
         )
+
+    worker_warning = None
+    if created_ids:
+        from app.core.celery_queues import RESUME_QUEUE
+        from app.services.celery_health import (
+            CELERY_RESUME_UNAVAILABLE_MSG,
+            celery_queue_available,
+        )
+
+        if not celery_queue_available(RESUME_QUEUE):
+            worker_warning = CELERY_RESUME_UNAVAILABLE_MSG
+            logger.warning(worker_warning)
+
     return ResumeUploadResponse(
         created=len(created_ids),
         skipped=len(skipped),
@@ -268,6 +281,7 @@ async def upload_resumes(
         candidate_ids=created_ids,
         extracted_from_zip=extracted_from_zip,
         skipped_oversized=skipped_oversized,
+        worker_warning=worker_warning,
     )
 
 

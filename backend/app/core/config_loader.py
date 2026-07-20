@@ -289,12 +289,30 @@ class SchedulerConfig(BaseModel):
     recover_stuck_parses_seconds: float = 120.0
 
 
+class CeleryQueueConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    concurrency: int = 2
+
+
+class CeleryQueuesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    resume: CeleryQueueConfig = Field(default_factory=lambda: CeleryQueueConfig(concurrency=4))
+    shortlist: CeleryQueueConfig = Field(default_factory=lambda: CeleryQueueConfig(concurrency=2))
+    screening: CeleryQueueConfig = Field(default_factory=lambda: CeleryQueueConfig(concurrency=2))
+    interviews: CeleryQueueConfig = Field(default_factory=lambda: CeleryQueueConfig(concurrency=2))
+
+
 class CeleryRetryConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     default_max_retries: int = 3
     rate_limit_countdown_sec: int = 300
     transient_countdown_sec: int = 120
     extraction_countdown_sec: int = 60
+    worker_prefetch_multiplier: int = 1
+    task_acks_late: bool = True
+    task_track_started: bool = True
+    task_reject_on_worker_lost: bool = True
+    queues: CeleryQueuesConfig = Field(default_factory=CeleryQueuesConfig)
 
 
 class AppConfig(BaseModel):
@@ -417,6 +435,15 @@ class RuntimeConfig:
     @property
     def celery(self) -> CeleryRetryConfig:
         return self._app.celery
+
+    def celery_queue_concurrency(self, queue: str) -> int:
+        """Per-queue worker concurrency; env CELERY_<QUEUE>_CONCURRENCY overrides YAML."""
+        env_key = f"CELERY_{queue.upper()}_CONCURRENCY"
+        env_val = os.getenv(env_key)
+        if env_val is not None:
+            return int(env_val)
+        queues = self._app.celery.queues
+        return int(getattr(queues, queue).concurrency)
 
     def __getattr__(self, name: str) -> Any:
         # Proxy secret / deployment Settings fields (DATABASE_URL, API keys, …).

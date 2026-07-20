@@ -27,7 +27,11 @@ from app.schemas.schemas import (
     ScreeningTriggerResponse,
 )
 from app.services.audit_service import log_change
-from app.services.celery_health import CELERY_UNAVAILABLE_MSG, celery_workers_available
+from app.core.celery_queues import SCREENING_QUEUE
+from app.services.celery_health import (
+    celery_queue_available,
+    celery_queue_unavailable_message,
+)
 from app.services.screening_trigger_service import dispatch_screening_for_candidates
 
 logger = logging.getLogger(__name__)
@@ -95,10 +99,10 @@ async def trigger_screening(
             detail="candidate_ids is required and must be a non-empty list.",
         )
 
-    if not celery_workers_available():
+    if not celery_queue_available(SCREENING_QUEUE):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=CELERY_UNAVAILABLE_MSG,
+            detail=celery_queue_unavailable_message(SCREENING_QUEUE),
         )
 
     from app.services.settings_service import load_system_settings
