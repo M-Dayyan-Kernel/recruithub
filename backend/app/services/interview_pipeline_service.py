@@ -170,7 +170,10 @@ async def get_interview_pipeline(
         .order_by(InterviewReport.created_at.desc())
     )
     latest_report_by_candidate: dict[uuid.UUID, InterviewReport] = {}
+    report_by_session_id: dict[uuid.UUID, InterviewReport] = {}
     for report in reports_result.scalars().all():
+        if report.interview_session_id not in report_by_session_id:
+            report_by_session_id[report.interview_session_id] = report
         if report.candidate_id not in latest_report_by_candidate:
             latest_report_by_candidate[report.candidate_id] = report
 
@@ -182,12 +185,20 @@ async def get_interview_pipeline(
     for candidate_id in eligible_candidate_ids:
         candidate = candidate_map.get(candidate_id)
         session = latest_session_by_candidate.get(candidate_id)
-        report = latest_report_by_candidate.get(candidate_id)
+        report = (
+            report_by_session_id.get(session.id)
+            if session is not None
+            else None
+        )
+        if report is None:
+            report = latest_report_by_candidate.get(candidate_id)
         has_report = (
             report is not None
             and session is not None
             and report.interview_session_id == session.id
         )
+        # Never show another session's scores on the active session card
+        card_report = report if has_report else None
         stage = classify_interview_tab(session, has_report=has_report)
 
         if stage == "pending":
@@ -227,9 +238,9 @@ async def get_interview_pipeline(
                 tab=stage,
                 has_report=has_report,
                 session=session_response,
-                report_overall_score=report.overall_score if report else None,
+                report_overall_score=card_report.overall_score if card_report else None,
                 report_recommendation=_map_recommendation_label(
-                    report.final_recommendation if report else None
+                    card_report.final_recommendation if card_report else None
                 ),
                 assessment_status=_assessment_status(session, has_report=has_report),
                 flag_reason=get_flag_reason(session, has_report=has_report),

@@ -131,3 +131,7 @@ Optional: [Flower](https://flower.readthedocs.io/) for live task monitoring (not
 ## Screening
 
 Voice screening ops (live-call caps, webhook secret, dial retries): see [`DEPLOY-SCREENING.md`](DEPLOY-SCREENING.md).
+
+## Interviews
+
+LiveKit interview ops (webhook auth, join window, agent env, assessment retries): see [`DEPLOY-INTERVIEW.md`](DEPLOY-INTERVIEW.md).

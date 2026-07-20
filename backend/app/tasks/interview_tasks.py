@@ -124,6 +124,26 @@ async def _async_maybe_start_assessment(interview_session_id: str, attempt: int)
         return True
 
 
+async def _mark_session_assessment_failed(interview_session_id: str) -> None:
+    from app.models.models import InterviewSession
+
+    session_uuid = uuid.UUID(interview_session_id)
+    async with get_celery_db() as db:
+        result = await db.execute(
+            select(InterviewSession).where(InterviewSession.id == session_uuid)
+        )
+        interview_session = result.scalars().first()
+        if not interview_session:
+            return
+        if interview_session.status != "assessed":
+            interview_session.status = "assessment_failed"
+            await db.commit()
+            logger.error(
+                "generate_interview_report: marked session %s as assessment_failed",
+                interview_session_id,
+            )
+
+
 @celery_app.task(name="tasks.generate_interview_report", bind=True, max_retries=2)
 def generate_interview_report(self, interview_session_id: str):
     """
@@ -131,13 +151,46 @@ def generate_interview_report(self, interview_session_id: str):
 
     Enqueued by POST /api/interview/{token}/complete.
     On success: creates InterviewReport + updates session status to "assessed".
-    On failure: marks session status as "assessment_failed".
+    On transient OpenAI errors: self.retry; on exhaustion / auth: assessment_failed.
+    Empty transcript yields a soft needs_review report (not assessment_failed).
     """
+    import openai
+    from celery.exceptions import MaxRetriesExceededError
+
     try:
         asyncio.run(_async_generate_report(self, interview_session_id))
+    except openai.AuthenticationError as exc:
+        logger.error(
+            "generate_interview_report auth failure for session %s: %s",
+            interview_session_id,
+            exc,
+        )
+        asyncio.run(_mark_session_assessment_failed(interview_session_id))
+    except (openai.RateLimitError, openai.APIConnectionError) as exc:
+        logger.warning(
+            "generate_interview_report transient OpenAI error for session %s — retrying: %s",
+            interview_session_id,
+            exc,
+        )
+        try:
+            raise self.retry(
+                exc=exc,
+                countdown=config.celery.rate_limit_countdown_sec,
+            )
+        except MaxRetriesExceededError:
+            asyncio.run(_mark_session_assessment_failed(interview_session_id))
+    except MaxRetriesExceededError:
+        asyncio.run(_mark_session_assessment_failed(interview_session_id))
     except Exception as exc:
-        logger.error("generate_interview_report failed for session %s: %s", interview_session_id, exc)
-        raise
+        logger.error(
+            "generate_interview_report failed for session %s: %s",
+            interview_session_id,
+            exc,
+        )
+        try:
+            raise self.retry(exc=exc, countdown=ASSESSMENT_RETRY_DELAY_SEC)
+        except MaxRetriesExceededError:
+            asyncio.run(_mark_session_assessment_failed(interview_session_id))
 
 
 async def _async_generate_report(task_self, interview_session_id: str) -> None:
@@ -202,12 +255,22 @@ async def _async_generate_report(task_self, interview_session_id: str) -> None:
                 interview_session_id,
             )
 
-        # Run GPT-4o assessment (never raises — returns needs_review report on failure)
         from app.services.tenant_integrations_service import load_tenant_integrations
 
-        integrations = await load_tenant_integrations(db, job.tenant_id)
-        integrations.require("openai_api_key")
+        try:
+            integrations = await load_tenant_integrations(db, job.tenant_id)
+            integrations.require("openai_api_key")
+        except ValueError as exc:
+            logger.error(
+                "generate_interview_report: integrations missing for session %s: %s",
+                interview_session_id,
+                exc,
+            )
+            interview_session.status = "assessment_failed"
+            await db.commit()
+            return
 
+        # May raise Auth / RateLimit / APIConnection for Celery retry handling
         assessment = await generate_assessment(
             transcript=transcript,
             job=job,

@@ -165,6 +165,10 @@ interview:
   thin_answer_word_limit: 25
   session_link_ttl_days: 7
   invite_ttl_days: 7
+  # Allow joining this many seconds before scheduled_interview_at (clock skew).
+  schedule_early_grace_sec: 120
+  # Public /start and /complete: max requests per token per rolling minute.
+  public_rate_limit_per_minute: 20
   assessment_retry:
     delay_sec: 15
     max_attempts: 12

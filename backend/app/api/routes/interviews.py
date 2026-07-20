@@ -395,8 +395,14 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
     - in_progress → reissues candidate token for the existing room (rejoin)
     """
     from app.models.models import Job
+    from app.services.interview_guards import (
+        assert_session_joinable,
+        enforce_public_interview_rate_limit,
+    )
     from app.services.livekit_service import create_room, generate_candidate_token
     from app.services.tenant_integrations_service import load_tenant_integrations
+
+    enforce_public_interview_rate_limit(token, "start")
 
     result = await db.execute(
         select(InterviewSession).where(InterviewSession.unique_token == token)
@@ -409,6 +415,8 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Interview already completed.")
     if session.status == "expired":
         raise HTTPException(status_code=410, detail="Interview link has expired.")
+
+    await assert_session_joinable(session, db)
 
     candidate_result = await db.execute(
         select(Candidate).where(Candidate.id == session.candidate_id)
@@ -428,6 +436,11 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     livekit_url = integrations.livekit_url
+    if not (livekit_url or "").strip():
+        raise HTTPException(
+            status_code=503,
+            detail="LiveKit URL is not configured for this tenant. Cannot start interview.",
+        )
 
     # Rejoin — session already started, return a new access token
     if session.status == "in_progress" and session.livekit_room_name:
@@ -458,46 +471,66 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
             detail="Interview already started or not in pending state.",
         )
 
-    # First start — atomic transition pending → in_progress
+    # Room-first: create LiveKit room before durable in_progress commit
     room_name = f"interview-{session.id}"
     now = datetime.now(timezone.utc)
+    egress_id: Optional[str] = None
+    recording_key: Optional[str] = None
+
+    try:
+        _, egress_id, recording_key = await create_room(room_name, integrations)
+        candidate_token = generate_candidate_token(room_name, candidate_name, integrations)
+    except Exception as exc:
+        logger.error("Failed to create LiveKit room/token %s: %s", room_name, exc)
+        # Ensure session stays retryable
+        await db.execute(
+            update(InterviewSession)
+            .where(
+                InterviewSession.id == session.id,
+                InterviewSession.status == "pending",
+            )
+            .values(livekit_room_name=None, egress_id=None, recording_key=None)
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=502, detail=f"Failed to create interview room: {exc}"
+        ) from exc
 
     atomic = await db.execute(
         update(InterviewSession)
         .where(InterviewSession.unique_token == token, InterviewSession.status == "pending")
-        .values(status="in_progress", started_at=now, livekit_room_name=room_name)
+        .values(
+            status="in_progress",
+            started_at=now,
+            livekit_room_name=room_name,
+            egress_id=egress_id,
+            recording_key=recording_key,
+        )
         .returning(InterviewSession.id)
     )
     updated = atomic.scalars().first()
     if not updated:
+        # Lost race — another request claimed the session; try rejoin if possible
+        await db.refresh(session)
+        if session.status == "in_progress" and session.livekit_room_name:
+            try:
+                candidate_token = generate_candidate_token(
+                    session.livekit_room_name, candidate_name, integrations
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=502, detail=f"Failed to generate access token: {exc}"
+                ) from exc
+            return InterviewStartResponse(
+                room_name=session.livekit_room_name,
+                token=candidate_token,
+                livekit_url=livekit_url,
+            )
         raise HTTPException(
             status_code=409,
             detail="Interview already started or not in pending state.",
         )
     await db.commit()
-
-    # Create LiveKit room + dispatch agent + start recording
-    egress_id: Optional[str] = None
-    recording_key: Optional[str] = None
-    try:
-        _, egress_id, recording_key = await create_room(room_name, integrations)
-    except Exception as exc:
-        logger.error("Failed to create LiveKit room %s: %s", room_name, exc)
-        raise HTTPException(status_code=502, detail=f"Failed to create interview room: {exc}")
-
-    if egress_id or recording_key:
-        await db.execute(
-            update(InterviewSession)
-            .where(InterviewSession.id == session.id)
-            .values(egress_id=egress_id, recording_key=recording_key)
-        )
-        await db.commit()
-
-    try:
-        candidate_token = generate_candidate_token(room_name, candidate_name, integrations)
-    except Exception as exc:
-        logger.error("Failed to generate LiveKit token: %s", exc)
-        raise HTTPException(status_code=502, detail=f"Failed to generate access token: {exc}")
 
     logger.info(
         "Interview started: session=%s room=%s candidate=%s",
@@ -573,9 +606,11 @@ async def mark_interview_complete(
     if not session.started_at:
         session.started_at = now
 
-    # Without a transcript the session would flag as "never started" — seed a stub
-    # so assessment can run and the candidate lands in Completed with a report.
-    if not has_meaningful_transcript(session.transcript):
+    # Stub transcript only in mock mode — production leaves empty/thin transcript
+    # so assessment soft-fails to needs_review.
+    from app.services.mock_external import mock_livekit_enabled
+
+    if not has_meaningful_transcript(session.transcript) and mock_livekit_enabled():
         session.transcript = _STUB_INTERVIEW_TRANSCRIPT
 
     await log_change(
@@ -630,6 +665,13 @@ async def complete_interview(token: str, db: AsyncSession = Depends(get_db)):
 
     Returns 202 Accepted — the assessment is generated asynchronously.
     """
+    from app.services.interview_guards import (
+        assert_session_joinable,
+        enforce_public_interview_rate_limit,
+    )
+
+    enforce_public_interview_rate_limit(token, "complete")
+
     result = await db.execute(
         select(InterviewSession).where(InterviewSession.unique_token == token)
     )
@@ -637,6 +679,10 @@ async def complete_interview(token: str, db: AsyncSession = Depends(get_db)):
     if not session:
         raise HTTPException(status_code=404, detail="Interview session not found")
 
+    if session.status == "expired":
+        raise HTTPException(status_code=410, detail="Interview link has expired.")
+
+    # Already completed: skip join-window (candidate may finish after schedule window)
     if session.status == "completed":
         from app.models.models import InterviewReport
         from app.tasks.interview_tasks import enqueue_interview_assessment
@@ -666,6 +712,8 @@ async def complete_interview(token: str, db: AsyncSession = Depends(get_db)):
             status_code=409,
             detail=f"Cannot complete interview in status '{session.status}'",
         )
+
+    await assert_session_joinable(session, db)
 
     now = datetime.now(timezone.utc)
     session.status = "completed"
@@ -740,16 +788,14 @@ async def livekit_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     Handle LiveKit room webhook events.
 
     Handles 'room_finished' event: if the session is still in_progress,
-    mark it complete and trigger assessment.
+    mark it complete and trigger assessment. Signature verified when secrets set.
     """
-    try:
-        body: Dict[str, Any] = await request.json()
-    except Exception:
-        logger.warning("livekit_webhook: failed to parse JSON body")
-        return {"received": False, "error": "Invalid JSON"}
+    from app.services.interview_guards import verify_livekit_webhook_body
+
+    body: Dict[str, Any] = await verify_livekit_webhook_body(request)
 
     event = body.get("event", "")
-    room_data = body.get("room", {})
+    room_data = body.get("room", {}) or {}
     room_name: Optional[str] = room_data.get("name") or body.get("room_name")
 
     logger.info("LiveKit webhook received: event=%s room=%s", event, room_name)
@@ -757,7 +803,7 @@ async def livekit_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     if event == "room_finished" and room_name:
         from app.models.models import InterviewReport
 
-        # Find session — may already be "completed" if candidate called /complete first
+        # Only complete in_progress sessions — never invent stub transcripts
         result = await db.execute(
             select(InterviewSession).where(
                 InterviewSession.livekit_room_name == room_name,
@@ -819,12 +865,34 @@ async def get_interview_report(
     """
     candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
 
-    result = await db.execute(
-        select(InterviewReport)
-        .where(InterviewReport.candidate_id == candidate_id)
-        .order_by(InterviewReport.created_at.desc())
+    # Prefer report for the latest session; fall back to latest-by-candidate only
+    # when no session-scoped row exists (avoids attaching stale scores).
+    session_result = await db.execute(
+        select(InterviewSession)
+        .where(InterviewSession.candidate_id == candidate_id)
+        .order_by(InterviewSession.created_at.desc())
+        .limit(1)
     )
-    report = result.scalars().first()
+    session = session_result.scalars().first()
+
+    report = None
+    if session:
+        scoped = await db.execute(
+            select(InterviewReport).where(
+                InterviewReport.interview_session_id == session.id
+            )
+        )
+        report = scoped.scalars().first()
+
+    if not report:
+        # Fallback: latest report for this candidate when current session has none.
+        result = await db.execute(
+            select(InterviewReport)
+            .where(InterviewReport.candidate_id == candidate_id)
+            .order_by(InterviewReport.created_at.desc())
+        )
+        report = result.scalars().first()
+
     if not report:
         raise HTTPException(status_code=404, detail="Report not ready yet")
 
@@ -835,9 +903,14 @@ async def get_interview_report(
     )
     job = job_result.scalars().first()
 
-    # Build response by merging ORM attributes with enriched fields
-    # (direct attr assignment on Pydantic v2 model works but may not survive
-    # FastAPI's response_model re-validation — use model_validate on a dict instead)
+    if not session or session.id != report.interview_session_id:
+        session_result = await db.execute(
+            select(InterviewSession).where(
+                InterviewSession.id == report.interview_session_id
+            )
+        )
+        session = session_result.scalars().first()
+
     report_dict = {
         col.key: getattr(report, col.key)
         for col in report.__table__.columns
@@ -850,10 +923,6 @@ async def get_interview_report(
         report_dict["question_scores"] = raw.get("question_scores")
         report_dict["rubric_total"] = raw.get("rubric_total")
 
-    session_result = await db.execute(
-        select(InterviewSession).where(InterviewSession.id == report.interview_session_id)
-    )
-    session = session_result.scalars().first()
     report_dict["transcript"] = session.transcript if session else None
 
     if job and candidate and session:

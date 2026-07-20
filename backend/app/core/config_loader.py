@@ -268,6 +268,8 @@ class InterviewConfig(BaseModel):
     thin_answer_word_limit: int = 25
     session_link_ttl_days: int = 7
     invite_ttl_days: int = 7
+    schedule_early_grace_sec: int = 120
+    public_rate_limit_per_minute: int = 20
     assessment_retry: AssessmentRetryConfig = Field(
         default_factory=AssessmentRetryConfig
     )

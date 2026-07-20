@@ -338,9 +338,11 @@ async def generate_assessment(transcript: str, job, candidate, api_key: str) -> 
 
     except openai.AuthenticationError as exc:
         logger.error("OpenAI auth error during assessment: %s", exc)
-        report = _build_needs_review_report(rubric if rubric else None)
-        report["summary"] = "Assessment failed due to authentication error. Manual review required."
-        return report
+        raise
+
+    except (openai.RateLimitError, openai.APIConnectionError) as exc:
+        logger.warning("OpenAI transient error during assessment: %s", exc)
+        raise
 
     except Exception as exc:
         logger.error("generate_assessment failed: %s", exc)
