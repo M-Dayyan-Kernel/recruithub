@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from app.core.celery_queues import SHORTLIST_QUEUE
+from app.core.celery_queues import RESUME_QUEUE, SCREENING_QUEUE
 from app.services import celery_health
 
 
@@ -26,25 +26,25 @@ class CeleryHealthTests(unittest.TestCase):
         inspect = mock.Mock()
         inspect.ping.return_value = {"worker1@host": {"ok": "pong"}}
         inspect.active_queues.return_value = {
-            "worker1@host": [{"name": SHORTLIST_QUEUE}],
+            "worker1@host": [{"name": RESUME_QUEUE}],
         }
         with mock.patch.object(celery_health, "_inspect", return_value=inspect):
-            self.assertTrue(celery_health.celery_queue_available(SHORTLIST_QUEUE))
+            self.assertTrue(celery_health.celery_queue_available(RESUME_QUEUE))
 
     def test_queue_unavailable_when_not_subscribed(self) -> None:
         inspect = mock.Mock()
         inspect.ping.return_value = {"worker1@host": {"ok": "pong"}}
         inspect.active_queues.return_value = {
-            "worker1@host": [{"name": "resume"}],
+            "worker1@host": [{"name": SCREENING_QUEUE}],
         }
         with mock.patch.object(celery_health, "_inspect", return_value=inspect):
-            self.assertFalse(celery_health.celery_queue_available(SHORTLIST_QUEUE))
+            self.assertFalse(celery_health.celery_queue_available(RESUME_QUEUE))
 
     def test_health_snapshot_reports_subscribed_queues(self) -> None:
         inspect = mock.Mock()
         inspect.ping.return_value = {"worker1@host": {"ok": "pong"}}
         inspect.active_queues.return_value = {
-            "worker1@host": [{"name": "resume"}, {"name": SHORTLIST_QUEUE}],
+            "worker1@host": [{"name": RESUME_QUEUE}, {"name": SCREENING_QUEUE}],
         }
         with (
             mock.patch.object(celery_health, "_inspect", return_value=inspect),
@@ -57,8 +57,8 @@ class CeleryHealthTests(unittest.TestCase):
             snapshot = celery_health.get_celery_health_snapshot()
 
         self.assertEqual(snapshot["workers_online"], 1)
-        self.assertIn("resume", snapshot["subscribed_queues"])
-        self.assertIn(SHORTLIST_QUEUE, snapshot["subscribed_queues"])
+        self.assertIn(RESUME_QUEUE, snapshot["subscribed_queues"])
+        self.assertIn(SCREENING_QUEUE, snapshot["subscribed_queues"])
         self.assertTrue(snapshot["queues_ready"]["resume"])
 
 

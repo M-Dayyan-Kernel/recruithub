@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_loader import config
+from app.core.logging import log_event, plural
 from app.models.models import Candidate, Job, ShortlistResult
 from app.prompts.combined_shortlist import (
     COMBINED_SHORTLIST_SYSTEM_PROMPT,
@@ -30,6 +31,7 @@ from app.services.document_extractor import (
     UnsupportedDocumentError,
     extract_text_from_bytes,
 )
+from app.services.tenant_integrations_service import load_tenant_integrations
 from app.services.text_utils import head_tail_truncate
 
 logger = logging.getLogger(__name__)
@@ -193,3 +195,150 @@ async def process_candidate_resume_shortlist(
         candidate,
         combined,
     )
+
+
+async def _rescore_and_persist_candidate(
+    candidate: Candidate,
+    job: Job,
+    api_key: str,
+    semaphore: asyncio.Semaphore,
+    db: AsyncSession,
+    db_lock: asyncio.Lock,
+) -> ShortlistResult | None:
+    """Re-extract resume, run combined AI, upsert ShortlistResult.
+
+    Returns None on per-candidate failure (fail closed). Re-raises OpenAI
+    rate-limit / connection errors for Celery retry.
+    """
+    import openai
+
+    async with semaphore:
+        try:
+            async with db_lock:
+                record = await process_candidate_resume_shortlist(
+                    db, candidate, job, api_key
+                )
+                await db.commit()
+                await db.refresh(record)
+                return record
+        except (openai.RateLimitError, openai.APIConnectionError):
+            raise
+        except (ValidationError, json.JSONDecodeError) as exc:
+            logger.error(
+                "Combined shortlist invalid for candidate %s (job %s): %s",
+                candidate.id,
+                job.id,
+                exc,
+            )
+            return None
+        except (UnsupportedDocumentError, FileNotFoundError, ValueError) as exc:
+            logger.error(
+                "Cannot re-score candidate %s (job %s): %s",
+                candidate.id,
+                job.id,
+                exc,
+            )
+            return None
+        except Exception as exc:
+            logger.error(
+                "Combined shortlist failed for candidate %s (job %s): %s",
+                candidate.id,
+                job.id,
+                exc,
+            )
+            return None
+
+
+async def batch_rescore_candidates(
+    job_id: uuid.UUID,
+    db: AsyncSession,
+    candidate_ids: list[uuid.UUID] | None = None,
+    *,
+    force: bool = False,
+) -> tuple[list[ShortlistResult], int]:
+    """Batch re-run combined extract+shortlist for completed candidates.
+
+    Same eligibility rules as the legacy shortlist endpoint: pipeline_status
+    must be ``completed``. When force=False, skips candidates that already
+    have a ShortlistResult. Re-extracts the resume file and preserves HR
+    decision fields on existing rows.
+    """
+    job_result = await db.execute(select(Job).where(Job.id == job_id))
+    job = job_result.scalar_one_or_none()
+    if not job:
+        raise ValueError(f"Job {job_id} not found")
+
+    integrations = await load_tenant_integrations(db, job.tenant_id)
+    integrations.require("openai_api_key")
+    api_key = integrations.openai_api_key
+
+    stmt = select(Candidate).where(
+        Candidate.job_id == job_id,
+        Candidate.pipeline_status == "completed",
+    )
+    if candidate_ids:
+        stmt = stmt.where(Candidate.id.in_(candidate_ids))
+    candidates_result = await db.execute(stmt)
+    candidates = candidates_result.scalars().all()
+
+    if not candidates:
+        return [], 0
+
+    candidate_id_set = [c.id for c in candidates]
+    existing_shortlist = await db.execute(
+        select(ShortlistResult).where(
+            ShortlistResult.job_id == job_id,
+            ShortlistResult.candidate_id.in_(candidate_id_set),
+        )
+    )
+    already_scored = {r.candidate_id: r for r in existing_shortlist.scalars().all()}
+
+    if force:
+        candidates_to_score = list(candidates)
+        upserted_from_prior: list[ShortlistResult] = []
+    else:
+        candidates_to_score = [c for c in candidates if c.id not in already_scored]
+        upserted_from_prior = list(already_scored.values())
+
+    if not candidates_to_score:
+        log_event(
+            logger,
+            "All ready candidates for job \"%s\" were already scored — nothing new to shortlist",
+            job.title,
+        )
+        return upserted_from_prior, 0
+
+    log_event(
+        logger,
+        "Re-scoring %s for job \"%s\"%s%s",
+        plural(len(candidates_to_score), "candidate"),
+        job.title,
+        f" ({plural(len(already_scored), 'candidate')} already scored)" if already_scored and not force else "",
+        " (force re-score)" if force else "",
+    )
+
+    semaphore = asyncio.Semaphore(config.concurrency.max_shortlists)
+    db_lock = asyncio.Lock()
+
+    scored_or_none = await asyncio.gather(
+        *[
+            _rescore_and_persist_candidate(
+                candidate, job, api_key, semaphore, db, db_lock
+            )
+            for candidate in candidates_to_score
+        ]
+    )
+
+    newly_scored = [r for r in scored_or_none if r is not None]
+    failed_count = sum(1 for r in scored_or_none if r is None)
+
+    upserted_records: list[ShortlistResult] = list(upserted_from_prior)
+    upserted_records.extend(newly_scored)
+
+    log_event(
+        logger,
+        "Finished re-scoring candidates for job \"%s\"%s",
+        job.title,
+        f" ({plural(failed_count, 'failure')})" if failed_count else "",
+    )
+    return upserted_records, failed_count

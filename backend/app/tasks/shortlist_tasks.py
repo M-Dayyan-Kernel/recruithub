@@ -112,7 +112,7 @@ async def _async_shortlist(
     """Async inner function — runs inside asyncio.run() with a fresh event loop."""
     import openai  # local import — not installed at task discovery time
 
-    from app.services.shortlist_service import shortlist_candidates
+    from app.services.combined_shortlist_service import batch_rescore_candidates
 
     batch_ids = _load_batch_candidate_ids(job_id, candidate_ids)
     if batch_ids:
@@ -127,7 +127,7 @@ async def _async_shortlist(
 
     async with get_celery_db() as session:
         try:
-            results, failed_count = await shortlist_candidates(
+            results, failed_count = await batch_rescore_candidates(
                 uuid.UUID(job_id),
                 session,
                 candidate_ids=batch_ids if batch_ids else None,

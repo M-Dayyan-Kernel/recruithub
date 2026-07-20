@@ -20,7 +20,7 @@ ALL_QUEUES_CSV = ",".join(CELERY_QUEUE_NAMES)
 TASK_ROUTES: dict[str, dict[str, str]] = {
     "tasks.process_resume_shortlist": {"queue": RESUME_QUEUE},
     "tasks.recover_stuck_resume_processing": {"queue": RESUME_QUEUE},
-    "tasks.run_shortlist": {"queue": SHORTLIST_QUEUE},
+    "tasks.run_shortlist": {"queue": RESUME_QUEUE},
     "tasks.initiate_screening_call": {"queue": SCREENING_QUEUE},
     "tasks.sync_screening_call_status": {"queue": SCREENING_QUEUE},
     "tasks.enrich_screening_transcript": {"queue": SCREENING_QUEUE},

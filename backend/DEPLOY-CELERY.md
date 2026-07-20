@@ -6,8 +6,8 @@ Production-grade background processing uses **named queues** so each workload ca
 
 | Queue | Tasks | Typical scale |
 |-------|-------|---------------|
-| `resume` | `process_resume_shortlist`, `recover_stuck_resume_processing` | **Horizontally scalable** — run N worker replicas |
-| `shortlist` | `run_shortlist` | 1 worker (or 2 for HA) |
+| `resume` | `process_resume_shortlist`, `recover_stuck_resume_processing`, `run_shortlist` (batch/force re-score) | **Horizontally scalable** — run N worker replicas |
+| `shortlist` | Reserved queue name (currently routed into `resume`) | Keep for compatibility |
 | `screening` | Vapi dial, webhook, transcript enrich, beat dispatch | 1–2 workers |
 | `interviews` | Assessment scheduling, report generation | 1–2 workers |
 
@@ -100,8 +100,7 @@ Configured in `celery_app.py` from YAML:
 | Endpoint / helper | Purpose |
 |-------------------|---------|
 | `GET /api/health/celery` | Workers online, subscribed queues, Redis queue depths |
-| `celery_queue_available("resume")` | Used on upload (non-blocking warning) |
-| `celery_queue_available("shortlist")` | Required before shortlist trigger (503 if missing) |
+| `celery_queue_available("resume")` | Required before shortlist trigger; upload shows non-blocking warning if missing |
 | `celery_queue_available("screening")` | Required before screening trigger (503 if missing) |
 
 ## Beat singleton
@@ -116,7 +115,7 @@ Configured in `celery_app.py` from YAML:
 | Symptom | Cause | Action |
 |---------|-------|--------|
 | Upload succeeds but resumes stay queued | No `resume` worker | Start resume worker; check `/api/health/celery` |
-| Shortlist returns 503 | No `shortlist` worker | Start shortlist worker |
+| Shortlist returns 503 | No `resume` worker | Start resume worker |
 | Screening returns 503 | No `screening` worker | Start screening worker |
 | Candidate stuck in `processing` | Worker crash | Beat recovers after 5 min; or retry from UI |
 

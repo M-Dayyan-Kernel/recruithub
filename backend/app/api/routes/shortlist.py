@@ -29,7 +29,7 @@ from app.services.candidate_contact_service import (
     resolve_candidate_email,
     resolve_candidate_name,
 )
-from app.core.celery_queues import SHORTLIST_QUEUE
+from app.core.celery_queues import RESUME_QUEUE
 from app.services.celery_health import (
     celery_queue_available,
     celery_queue_unavailable_message,
@@ -155,7 +155,8 @@ async def trigger_shortlist(
 
     Optional body: { "candidate_ids": ["uuid", ...], "force": false }
     If omitted, all eligible ready candidates (without ShortlistResult) are scored.
-    When force=true, already-scored ready candidates are re-scored (HR decision preserved).
+    When force=true, already-scored ready candidates are re-scored via combined
+    extract+shortlist (HR decision preserved).
     """
     job = await get_tenant_job(db, job_id, actor.tenant_id)
 
@@ -174,10 +175,10 @@ async def trigger_shortlist(
             detail=detail,
         )
 
-    if not celery_queue_available(SHORTLIST_QUEUE):
+    if not celery_queue_available(RESUME_QUEUE):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=celery_queue_unavailable_message(SHORTLIST_QUEUE),
+            detail=celery_queue_unavailable_message(RESUME_QUEUE),
         )
 
     _r = _redis_client()

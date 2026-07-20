@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.core.celery_queues import CELERY_QUEUE_NAMES, SHORTLIST_QUEUE, SCREENING_QUEUE
+from app.core.celery_queues import CELERY_QUEUE_NAMES, RESUME_QUEUE, SCREENING_QUEUE
 
 logger = logging.getLogger(__name__)
 
@@ -14,19 +14,15 @@ CELERY_UNAVAILABLE_MSG = (
     "(run .\\start-dev.ps1 on Windows or see backend/DEPLOY-CELERY.md)."
 )
 
-CELERY_SHORTLIST_UNAVAILABLE_MSG = (
-    "No Celery worker is listening on the shortlist queue. "
-    "Start a worker with queue 'shortlist' (see backend/DEPLOY-CELERY.md)."
+CELERY_RESUME_UNAVAILABLE_MSG = (
+    "No Celery worker is listening on the resume queue. "
+    "Resume processing and shortlist re-score require a resume worker "
+    "(see backend/DEPLOY-CELERY.md)."
 )
 
 CELERY_SCREENING_UNAVAILABLE_MSG = (
     "No Celery worker is listening on the screening queue. "
     "Start a worker with queue 'screening' (see backend/DEPLOY-CELERY.md)."
-)
-
-CELERY_RESUME_UNAVAILABLE_MSG = (
-    "No Celery worker is listening on the resume queue. "
-    "Uploaded resumes will queue until a resume worker starts."
 )
 
 
@@ -71,8 +67,8 @@ def celery_queue_available(queue: str, timeout: float = 2.0) -> bool:
 
 
 def celery_queue_unavailable_message(queue: str) -> str:
-    if queue == SHORTLIST_QUEUE:
-        return CELERY_SHORTLIST_UNAVAILABLE_MSG
+    if queue == RESUME_QUEUE:
+        return CELERY_RESUME_UNAVAILABLE_MSG
     if queue == SCREENING_QUEUE:
         return CELERY_SCREENING_UNAVAILABLE_MSG
     return (

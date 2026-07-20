@@ -6,7 +6,13 @@ import unittest
 import uuid
 from unittest import mock
 
-from app.services import shortlist_service
+from app.prompts.combined_shortlist import PROMPT_VERSION
+from app.schemas.ai_outputs import (
+    CombinedShortlistOutput,
+    ParsedResumeData,
+    ShortlistAssessment,
+)
+from app.services import combined_shortlist_service
 
 
 class _FakeShortlistResult:
@@ -52,17 +58,27 @@ class ForceRescoreTests(unittest.IsolatedAsyncioTestCase):
         existing = _FakeShortlistResult()
         candidate = _FakeCandidate(existing.candidate_id)
         session = _FakeSession(existing)
-
-        with mock.patch.object(shortlist_service.config.models.shortlist, "name", "gpt-test"):
-            record = await shortlist_service._upsert_shortlist_result(
-                session,
-                existing.job_id,
-                candidate,
+        combined = CombinedShortlistOutput(
+            profile=ParsedResumeData(),
+            assessment=ShortlistAssessment(
                 match_score=90.0,
                 recommendation="shortlisted",
                 strengths=["new strength"],
                 gaps=[],
                 reason="new reason",
+            ),
+        )
+
+        with mock.patch.object(
+            combined_shortlist_service.config.models.combined_shortlist,
+            "name",
+            "gpt-test",
+        ):
+            record = await combined_shortlist_service._upsert_shortlist_from_assessment(
+                session,
+                existing.job_id,
+                candidate,
+                combined,
             )
 
         self.assertIs(record, existing)
@@ -74,7 +90,7 @@ class ForceRescoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(record.hr_feedback_type, "correctly_shortlisted")
         self.assertEqual(record.hr_comments, "keep this")
         self.assertEqual(record.model_name, "gpt-test")
-        self.assertEqual(record.prompt_version, shortlist_service.PROMPT_VERSION)
+        self.assertEqual(record.prompt_version, PROMPT_VERSION)
 
 
 if __name__ == "__main__":
