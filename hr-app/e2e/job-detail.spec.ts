@@ -29,13 +29,7 @@ const FRONTEND_JOB = MOCK_JOBS[0]
 const FRONTEND_URL = `/jobs/${JOB_IDS.frontend}`
 const FRONTEND_SHORTLIST_URL = `/jobs/${JOB_IDS.frontend}/shortlist`
 
-const WORKFLOW_TABS = [
-  'Upload',
-  'Parsing',
-  'Parsed Resumes',
-  'AI Shortlisting',
-  'AI Shortlisted',
-] as const
+const WORKFLOW_TABS = ['Upload', 'Processing', 'AI Shortlisted'] as const
 
 async function mockFrontendJobDetail(page: import('@playwright/test').Page) {
   await mockGetJobs(page)
@@ -81,7 +75,7 @@ test('Upload tab shows upload UI', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Upload', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Upload Resumes' })).toBeVisible()
-  await expect(page.getByText('No resumes in queue.')).toBeVisible()
+  await expect(page.getByText('No resumes uploaded yet.')).toBeVisible()
 })
 
 test('each workflow tab shows its empty state', async ({ page }) => {
@@ -91,10 +85,8 @@ test('each workflow tab shows its empty state', async ({ page }) => {
   await page.waitForLoadState('networkidle')
 
   const emptyStates: Record<(typeof WORKFLOW_TABS)[number], string> = {
-    Upload: 'No resumes in queue.',
-    Parsing: 'No resumes are currently being parsed.',
-    'Parsed Resumes': 'No parsed resumes available.',
-    'AI Shortlisting': 'No resumes are currently being shortlisted.',
+    Upload: 'No resumes uploaded yet.',
+    Processing: 'No resumes are being reviewed right now.',
     'AI Shortlisted': 'No candidates have been scored yet.',
   }
 
@@ -139,87 +131,45 @@ test('job with null required_skills renders without skill chips or crash', async
   await expect(page.locator('text=Something went wrong')).not.toBeVisible()
 })
 
-test('send parsed resume to AI shortlisting shows progress then scored results', async ({ page }) => {
-  const alice = MOCK_CANDIDATES.find((c) => c.id === CANDIDATE_IDS.alice)!
-  const aliceShortlist = MOCK_SHORTLIST.find((r) => r.candidate_id === CANDIDATE_IDS.alice)!
-
-  let shortlistResults: typeof MOCK_SHORTLIST = []
-  let statusState = {
-    in_progress: true,
-    candidate_ids: [CANDIDATE_IDS.alice],
-    completed: 0,
-    total: 1,
-    failed: 0,
+test('Processing tab shows in-progress AI review', async ({ page }) => {
+  const bob = {
+    ...MOCK_CANDIDATES.find((c) => c.id === CANDIDATE_IDS.bob)!,
+    pipeline_status: 'processing' as const,
   }
 
   await mockGetJobs(page)
   await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
-  await mockGetCandidates(page, JOB_IDS.frontend, [alice])
-  await mockPostShortlist(page, JOB_IDS.frontend)
-  await mockGetShortlistStatus(page, JOB_IDS.frontend, statusState)
-  await mockGetShortlist(page, JOB_IDS.frontend, shortlistResults)
+  await mockGetCandidates(page, JOB_IDS.frontend, [bob])
+  await mockGetShortlist(page, JOB_IDS.frontend, [])
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
   await mockGetScreening(page, JOB_IDS.frontend, [])
-
-  await page.route(`**/api/jobs/${JOB_IDS.frontend}/shortlist/status`, (route) => {
-    if (route.request().method() !== 'GET') return route.continue()
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(statusState),
-    })
-  })
-
-  await page.route(`**/api/jobs/${JOB_IDS.frontend}/shortlist`, (route) => {
-    if (route.request().url().includes('/shortlist/status')) return route.continue()
-    if (route.request().method() === 'POST') {
-      const body = route.request().postDataJSON() as { candidate_ids?: string[] } | null
-      const ids = body?.candidate_ids ?? []
-      route.fulfill({
-        status: 202,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          status: 'shortlisting_started',
-          job_id: JOB_IDS.frontend,
-          candidate_ids: ids,
-        }),
-      })
-      return
-    }
-    if (route.request().method() !== 'GET') return route.continue()
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(shortlistResults),
-    })
-  })
 
   await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
-  await page.getByRole('button', { name: 'Parsed Resumes', exact: true }).click()
-  await expect(page.getByText('Alice Sharma')).toBeVisible()
+  await page.getByRole('button', { name: 'Processing', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'AI Review in Progress' })).toBeVisible()
+  await expect(page.getByText('Bob Martinez')).toBeVisible()
+  await expect(page.getByText('Reviewing')).toBeVisible()
+})
 
-  await page.getByRole('checkbox', { name: 'Select Alice Sharma' }).check()
-  await expect(page.getByRole('button', { name: 'Send to AI Shortlisting' })).toBeEnabled()
-  await page.getByRole('button', { name: 'Send to AI Shortlisting' }).click()
-
-  await expect(page.getByRole('heading', { name: 'AI Shortlisting' })).toBeVisible()
-  await expect(page.getByText('Alice Sharma')).toBeVisible()
-  await expect(page.getByText('Scoring…')).toBeVisible()
-
-  shortlistResults = [aliceShortlist]
-  statusState = {
-    in_progress: false,
-    candidate_ids: [CANDIDATE_IDS.alice],
-    completed: 1,
-    total: 1,
-    failed: 0,
+test('completed candidate appears on AI Shortlisted tab', async ({ page }) => {
+  const alice = {
+    ...MOCK_CANDIDATES.find((c) => c.id === CANDIDATE_IDS.alice)!,
+    pipeline_status: 'completed' as const,
   }
+  const aliceShortlist = MOCK_SHORTLIST.find((r) => r.candidate_id === CANDIDATE_IDS.alice)!
 
-  await expect(page.getByText('All candidates scored — opening AI Shortlisted…')).toBeVisible({
-    timeout: 10000,
-  })
-  await expect(page.getByRole('heading', { name: 'AI Shortlisted' })).toBeVisible({ timeout: 10000 })
+  await mockGetJobs(page)
+  await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
+  await mockGetCandidates(page, JOB_IDS.frontend, [alice])
+  await mockGetShortlist(page, JOB_IDS.frontend, [aliceShortlist])
+  await mockGetShortlistStatus(page, JOB_IDS.frontend)
+  await mockGetScreening(page, JOB_IDS.frontend, [])
+
+  await page.goto(FRONTEND_SHORTLIST_URL)
+  await page.waitForLoadState('networkidle')
+
   await expect(page.getByRole('cell', { name: 'Alice Sharma' })).toBeVisible()
   await expect(page.getByText(/8[78]%/).first()).toBeVisible()
 })

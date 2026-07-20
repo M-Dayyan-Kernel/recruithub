@@ -17,20 +17,23 @@ import {
   WORKFLOW_TABLE_EMPTY_ROW_CLASS,
   WORKFLOW_TABLE_EMPTY_CELL_CLASS,
   formatUploadedAt,
+  pipelineStatusLabel,
   resumeDisplayName,
 } from '@/lib/workflow'
 
-function UploadZone({ jobId }: { jobId: string }) {
+function UploadZone({
+  jobId,
+  onUploadSuccess,
+}: {
+  jobId: string
+  onUploadSuccess?: (createdIds: string[]) => void
+}) {
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadCount, setUploadCount] = useState(0)
   const [fileError, setFileError] = useState<string | null>(null)
-
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
-  }
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -61,13 +64,17 @@ function UploadZone({ jobId }: { jobId: string }) {
     try {
       const formData = new FormData()
       valid.forEach((file) => formData.append('files', file))
-      const result = (await api.post(
-        `/api/jobs/${jobId}/resumes`,
-        formData,
-      )) as { created: number; skipped_oversized?: string[] }
-      invalidate()
+      const result = (await api.post(`/api/jobs/${jobId}/resumes`, formData)) as {
+        created: number
+        skipped_oversized?: string[]
+        candidate_ids?: string[]
+      }
+      queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
       if (result.created > 0) {
-        toast.success(`${result.created} resume(s) uploaded`)
+        toast.success(
+          `${result.created} resume${result.created !== 1 ? 's' : ''} queued for AI review`,
+        )
+        onUploadSuccess?.(result.candidate_ids ?? [])
       } else {
         toast.success('Upload complete — no new resumes added')
       }
@@ -120,7 +127,7 @@ function UploadZone({ jobId }: { jobId: string }) {
               Drag &amp; drop resumes here, or{' '}
               <span className="text-indigo-600">click to browse</span>
             </p>
-            <p className="mt-1 text-xs text-slate-400">PDF, DOCX, and ZIP files supported</p>
+            <p className="mt-1 text-xs text-slate-400">PDF, DOCX, and ZIP — AI scores automatically</p>
           </>
         )}
         <input
@@ -148,23 +155,22 @@ function UploadZone({ jobId }: { jobId: string }) {
 
 interface Props {
   jobId: string
-  queueCandidates: Candidate[]
+  candidates: Candidate[]
   isLoading?: boolean
   isError?: boolean
   onRetry?: () => void
+  onUploadSuccess?: (createdIds: string[]) => void
 }
 
 export function UploadTab({
   jobId,
-  queueCandidates,
+  candidates,
   isLoading = false,
   isError = false,
   onRetry,
+  onUploadSuccess,
 }: Props) {
   const queryClient = useQueryClient()
-
-  const waitingInQueue = queueCandidates.filter((c) => c.parse_status === 'pending_parse')
-  const queuedForParsing = queueCandidates.filter((c) => c.parse_status === 'parse_queued')
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/api/candidates/${id}`),
@@ -177,12 +183,12 @@ export function UploadTab({
 
   const retryMutation = useMutation({
     mutationFn: (candidateId: string) =>
-      api.post(`/api/jobs/${jobId}/candidates/${candidateId}/retry-parse`),
+      api.post(`/api/jobs/${jobId}/candidates/${candidateId}/retry-processing`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
-      toast.success('Re-queued for parsing')
+      toast.success('Re-queued for AI review')
     },
-    onError: () => toast.error('Failed to retry parse'),
+    onError: () => toast.error('Failed to retry'),
   })
 
   const handleDelete = (id: string, name: string) => {
@@ -193,27 +199,17 @@ export function UploadTab({
     <div className="space-y-6">
       <div className="space-y-3">
         <h2 className="text-xl font-semibold text-slate-900">Upload Resumes</h2>
-        <p className="text-sm text-slate-500">Upload resumes to begin the parsing process.</p>
+        <p className="text-sm text-slate-500">
+          Upload resumes — AI will review and score them automatically against this job.
+        </p>
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        <UploadZone jobId={jobId} />
+        <UploadZone jobId={jobId} onUploadSuccess={onUploadSuccess} />
       </div>
 
       <div className="space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold text-slate-900">Queued Resumes</h2>
-          {waitingInQueue.length > 0 && (
-            <span className="text-sm text-slate-500">
-              {waitingInQueue.length} waiting for a parse slot
-            </span>
-          )}
-          {queuedForParsing.length > 0 && waitingInQueue.length === 0 && (
-            <span className="text-sm text-slate-500">
-              {queuedForParsing.length} queued for parsing
-            </span>
-          )}
-        </div>
+        <h2 className="text-lg font-semibold text-slate-900">Uploaded Resumes</h2>
         {isError && onRetry && <BackendError onRetry={onRetry} />}
         {!isError && (
           <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>
@@ -241,17 +237,16 @@ export function UploadTab({
                       <Loader2 size={20} className="mx-auto animate-spin text-slate-300" />
                     </td>
                   </tr>
-                ) : queueCandidates.length === 0 ? (
+                ) : candidates.length === 0 ? (
                   <tr className={WORKFLOW_TABLE_EMPTY_ROW_CLASS}>
                     <td colSpan={4} className={WORKFLOW_TABLE_EMPTY_CELL_CLASS}>
-                      No resumes in queue.
+                      No resumes uploaded yet.
                     </td>
                   </tr>
                 ) : (
-                  queueCandidates.map((candidate) => {
+                  candidates.map((candidate) => {
                     const name = resumeDisplayName(candidate)
-                    const isFailed = candidate.parse_status === 'parse_failed'
-                    const isWaitingForSlot = candidate.parse_status === 'pending_parse'
+                    const isFailed = candidate.pipeline_status === 'failed'
                     return (
                       <tr key={candidate.id} className="hover:bg-slate-50/60">
                         <td className="px-6 py-3 text-sm font-medium text-slate-800">{name}</td>
@@ -259,19 +254,19 @@ export function UploadTab({
                           {formatUploadedAt(candidate.created_at)}
                         </td>
                         <td className="px-6 py-3 text-sm text-slate-600">
-                          {isFailed ? (
-                            <span className="inline-flex rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-700">
-                              Failed
-                            </span>
-                          ) : isWaitingForSlot ? (
-                            <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
-                              Waiting for slot
-                            </span>
-                          ) : (
-                            <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-                              Queued
-                            </span>
-                          )}
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                              isFailed
+                                ? 'bg-rose-100 text-rose-700'
+                                : candidate.pipeline_status === 'completed'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : candidate.pipeline_status === 'processing'
+                                    ? 'bg-indigo-100 text-indigo-700'
+                                    : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {pipelineStatusLabel(candidate.pipeline_status)}
+                          </span>
                         </td>
                         <td className="px-6 py-3">
                           <div className="flex items-center gap-2">
@@ -281,7 +276,7 @@ export function UploadTab({
                                 onClick={() => retryMutation.mutate(candidate.id)}
                                 disabled={retryMutation.isPending}
                                 className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-slate-500 hover:bg-indigo-50 hover:text-indigo-600"
-                                title="Retry parse"
+                                title="Retry AI review"
                               >
                                 <RotateCcw size={14} />
                                 Retry

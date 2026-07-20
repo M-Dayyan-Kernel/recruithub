@@ -93,13 +93,13 @@ async def _resolve_eligible_candidate_ids(
 ) -> tuple[List[uuid.UUID], List[dict]]:
     """
     Return eligible candidate UUIDs for shortlisting and a list of skipped entries.
-    Eligible: parse_status=ready, belongs to job.
+    Eligible: pipeline_status=completed, belongs to job.
     Without force: also requires no existing ShortlistResult.
     With force: already-scored ready candidates are included for re-score.
     """
     stmt = select(Candidate).where(
         Candidate.job_id == job_id,
-        Candidate.parse_status == "ready",
+        Candidate.pipeline_status == "completed",
     )
     if not force:
         shortlist_exists = (
@@ -123,9 +123,9 @@ async def _resolve_eligible_candidate_ids(
             cand = await db.get(Candidate, raw_id)
             if not cand or cand.job_id != job_id:
                 skipped.append({"id": str(raw_id), "reason": "Candidate not found for this job"})
-            elif cand.parse_status != "ready":
+            elif cand.pipeline_status != "completed":
                 skipped.append(
-                    {"id": str(raw_id), "reason": f"parse_status is '{cand.parse_status}', expected 'ready'"}
+                    {"id": str(raw_id), "reason": f"pipeline_status is '{cand.pipeline_status}', expected 'completed'"}
                 )
             elif not force and await _candidate_has_shortlist_result(raw_id, db):
                 skipped.append({"id": str(raw_id), "reason": "Already shortlisted"})

@@ -63,7 +63,7 @@ const FEATURE_LABELS: Record<string, string> = {
   phone: 'Phone',
   name: 'Name',
   email: 'Email',
-  parse_status: 'Parse status',
+  pipeline_status: 'Pipeline status',
   result: 'Result',
   screening: 'Screening',
   interview_queue: 'Interview queue',

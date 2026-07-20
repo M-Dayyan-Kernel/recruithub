@@ -20,6 +20,13 @@ class EducationEntry(BaseModel):
     field: Optional[str] = None
     year: Optional[str] = None
 
+    @field_validator("year", mode="before")
+    @classmethod
+    def _coerce_year(cls, value: object) -> Optional[str]:
+        if value is None:
+            return None
+        return str(value)
+
 
 class ParsedResumeData(BaseModel):
     """Structured resume parse output from the resume-parse model."""
@@ -102,3 +109,10 @@ class ShortlistAssessment(BaseModel):
         if value is None:
             return ""
         return str(value)
+
+
+class CombinedShortlistOutput(BaseModel):
+    """Single LLM response: candidate profile extraction plus JD-fit assessment."""
+
+    profile: ParsedResumeData
+    assessment: ShortlistAssessment

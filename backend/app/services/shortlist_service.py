@@ -250,7 +250,7 @@ async def shortlist_candidates(
     Run AI shortlisting for all ready candidates in a job.
 
     Steps:
-    1. Load job + all candidates with parse_status = 'ready'
+    1. Load job + all candidates with pipeline_status = 'completed'
     2. Score candidates in parallel (up to MAX_CONCURRENT_SHORTLISTS GPT calls)
     3. Upsert ShortlistResult records as each candidate completes
     4. Return (upserted records, failed_count)
@@ -277,7 +277,7 @@ async def shortlist_candidates(
     # --- Load ready candidates (optionally filtered to a subset) ---
     stmt = select(Candidate).where(
         Candidate.job_id == job_id,
-        Candidate.parse_status == "ready",
+        Candidate.pipeline_status == "completed",
     )
     if candidate_ids:
         stmt = stmt.where(Candidate.id.in_(candidate_ids))
@@ -290,7 +290,7 @@ async def shortlist_candidates(
         all_result = await db.execute(select(Candidate).where(Candidate.job_id == job_id))
         all_candidates = all_result.scalars().all()
         for c in all_candidates:
-            logger.debug("  candidate %s has parse_status=%r", c.id, c.parse_status)
+            logger.debug("  candidate %s has pipeline_status=%r", c.id, c.pipeline_status)
         return [], 0
 
     candidate_id_set = [c.id for c in candidates]

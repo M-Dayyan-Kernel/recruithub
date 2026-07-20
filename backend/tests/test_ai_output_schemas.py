@@ -45,6 +45,21 @@ class ParsedResumeDataTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             ParsedResumeData.model_validate({"skills": "Python"})
 
+    def test_education_year_coerced_from_int(self) -> None:
+        data = ParsedResumeData.model_validate(
+            {
+                "education": [
+                    {
+                        "institution": "Example University",
+                        "degree": "BSc",
+                        "field": "CS",
+                        "year": 2022,
+                    }
+                ]
+            }
+        )
+        self.assertEqual(data.education[0].year, "2022")
+
 
 class ShortlistAssessmentTests(unittest.TestCase):
     def test_valid_assessment(self) -> None:

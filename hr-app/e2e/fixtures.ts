@@ -187,7 +187,7 @@ export const MOCK_JOBS = [
 ]
 
 // ---------------------------------------------------------------------------
-// Mock candidates (various parse_status values)
+// Mock candidates (various pipeline_status values)
 // ---------------------------------------------------------------------------
 
 export const MOCK_CANDIDATES = [
@@ -213,7 +213,7 @@ export const MOCK_CANDIDATES = [
         { institution: 'IIT Delhi', degree: 'B.Tech', field: 'Computer Science', year: '2019' },
       ],
     },
-    parse_status: 'ready',
+    pipeline_status: 'completed',
     created_at: '2026-06-10T08:00:00.000Z',
   },
   {
@@ -224,7 +224,7 @@ export const MOCK_CANDIDATES = [
     phone: null,
     resume_file_path: '/uploads/bob_martinez_cv.pdf',
     parsed_data: null,
-    parse_status: 'parsing',
+    pipeline_status: 'processing',
     created_at: '2026-06-10T09:00:00.000Z',
   },
   {
@@ -235,7 +235,7 @@ export const MOCK_CANDIDATES = [
     phone: null,
     resume_file_path: '/uploads/charlie_nguyen_cv.pdf',
     parsed_data: null,
-    parse_status: 'parse_failed',
+    pipeline_status: 'failed',
     created_at: '2026-06-10T10:00:00.000Z',
   },
   {
@@ -256,7 +256,7 @@ export const MOCK_CANDIDATES = [
       experience: [],
       education: [],
     },
-    parse_status: 'ready',
+    pipeline_status: 'completed',
     created_at: '2026-06-11T08:00:00.000Z',
   },
 ]
@@ -494,7 +494,7 @@ export async function mockDeleteJob(page: Page, jobId: string, onDelete?: () => 
   })
 }
 
-/** Mock GET /api/jobs/:id/candidates (supports parse_status and has_shortlist_result query params) */
+/** Mock GET /api/jobs/:id/candidates (supports pipeline_status and has_shortlist_result query params) */
 export async function mockGetCandidates(
   page: Page,
   jobId: string,
@@ -505,10 +505,11 @@ export async function mockGetCandidates(
     if (route.request().method() !== 'GET') return route.continue()
     const url = new URL(route.request().url())
     let result = [...candidates]
-    const parseStatus = url.searchParams.get('parse_status')
-    if (parseStatus) {
-      const statuses = parseStatus.split(',').map(s => s.trim())
-      result = result.filter(c => statuses.includes(c.parse_status))
+    const pipelineStatus =
+      url.searchParams.get('pipeline_status') ?? url.searchParams.get('parse_status')
+    if (pipelineStatus) {
+      const statuses = pipelineStatus.split(',').map(s => s.trim())
+      result = result.filter(c => statuses.includes(c.pipeline_status))
     }
     const hasShortlist = url.searchParams.get('has_shortlist_result')
     if (hasShortlist === 'true') {

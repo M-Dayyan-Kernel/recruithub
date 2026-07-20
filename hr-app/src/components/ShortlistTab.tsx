@@ -824,15 +824,15 @@ export function ShortlistTab({
           <Users className="w-6 h-6 text-slate-400" />
         </div>
         <p className="text-slate-700 font-semibold mb-1">No shortlist yet</p>
-        <p className="text-slate-400 text-sm max-w-xs mb-5">
-          Run AI Shortlist from the Candidates tab to score and rank your candidates.
-        </p>
-        <button
-          onClick={onSwitchToCandidates}
-          className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
-        >
-          Go to Candidates
-        </button>
+            <p className="text-slate-400 text-sm max-w-xs mb-5">
+              Upload resumes on the Upload tab to get AI recommendations.
+            </p>
+            <button
+              onClick={onSwitchToCandidates}
+              className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              Go to Upload
+            </button>
       </div>
     )
   }

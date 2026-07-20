@@ -26,8 +26,8 @@ celery_app.conf.update(
             "task": "tasks.dispatch_pending_screening_calls",
             "schedule": config.scheduler.dispatch_pending_screening_seconds,
         },
-        "recover-stuck-resume-parses": {
-            "task": "tasks.recover_stuck_resume_parses",
+        "recover-stuck-resume-processing": {
+            "task": "tasks.recover_stuck_resume_processing",
             "schedule": config.scheduler.recover_stuck_parses_seconds,
         },
     },

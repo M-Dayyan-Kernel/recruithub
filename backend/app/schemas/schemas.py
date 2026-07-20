@@ -305,7 +305,7 @@ class CandidateResponse(BaseModel):
     resume_file_path: Optional[str] = None
     original_filename: Optional[str] = None  # Original upload filename
     parsed_data: Optional[dict] = None
-    parse_status: str
+    pipeline_status: str
     created_at: datetime
 
 

@@ -44,6 +44,7 @@ class ModelsConfig(BaseModel):
     resume_parse: ModelWorkloadConfig
     jd_parse: ModelWorkloadConfig
     shortlist: ModelWorkloadConfig
+    combined_shortlist: ModelWorkloadConfig
     expected_answer: ModelWorkloadConfig
     screening_extraction: ModelWorkloadConfig
     interview_assessment: ModelWorkloadConfig
@@ -176,6 +177,7 @@ class ConcurrencyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     max_parses: int = 10
     max_shortlists: int = 10
+    max_resume_processing: int = 10
     stuck_parse_timeout_minutes: int = 5
     shortlist_batch_ttl_seconds: int = 600
 

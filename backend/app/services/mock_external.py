@@ -126,6 +126,21 @@ def mock_jd_parse(raw_text: str) -> dict:
     }
 
 
+def mock_combined_shortlist() -> CombinedShortlistOutput:
+    from app.schemas.ai_outputs import CombinedShortlistOutput, ParsedResumeData, ShortlistAssessment
+
+    log_mock_usage("openai", "combined resume shortlist (gpt-4o)")
+    profile = ParsedResumeData.model_validate(mock_resume_parse(""))
+    assessment = ShortlistAssessment(
+        match_score=72.0,
+        recommendation="shortlisted",
+        strengths=["Relevant stack experience", "Reasonable tenure in similar roles"],
+        gaps=["Limited domain exposure (mock assessment)"],
+        reason="Mock shortlist: candidate appears to meet core requirements for further screening.",
+    )
+    return CombinedShortlistOutput(profile=profile, assessment=assessment)
+
+
 def mock_shortlist_assessment() -> tuple[float, str, list[str], list[str], str]:
     log_mock_usage("openai", "shortlist assessment (gpt-4o)")
     return (

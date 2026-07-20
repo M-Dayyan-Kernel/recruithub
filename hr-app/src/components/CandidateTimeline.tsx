@@ -169,36 +169,32 @@ export function CandidateTimeline({ candidateId, jobId }: Props) {
 
   // ── Compute stages ────────────────────────────────────────────────────────
 
-  const parseStatus = candidate?.parse_status
+  const pipelineStatus = candidate?.pipeline_status
 
   // Stage 1: Uploaded — always done once candidate exists
   const uploadedStatus: StageStatus = 'success'
 
-  // Stage 2: Parsed
-  const parsedStatus: StageStatus = !parseStatus
+  // Stage 2: AI review (profile + shortlist)
+  const parsedStatus: StageStatus = !pipelineStatus
     ? 'pending'
-    : parseStatus === 'ready'
+    : pipelineStatus === 'completed'
     ? 'success'
-    : parseStatus === 'parse_failed'
+    : pipelineStatus === 'failed'
     ? 'fail'
-    : ['parsing', 'parsed'].includes(parseStatus)
+    : pipelineStatus === 'processing'
     ? 'in_progress'
     : 'pending'
 
   const parsedDetail =
-    parseStatus === 'ready'
-      ? 'Resume parsed'
-      : parseStatus === 'parse_failed'
-      ? 'Parsing failed — re-upload resume'
-      : parseStatus === 'parsing'
-      ? 'Parsing in progress…'
-      : parseStatus === 'parsed'
-      ? 'Finalizing parse…'
-      : parseStatus === 'pending_parse'
-      ? 'Waiting for a parse slot'
-      : parseStatus === 'parse_queued'
-      ? 'Queued for parsing'
-      : 'Waiting to parse'
+    pipelineStatus === 'completed'
+      ? 'AI review complete'
+      : pipelineStatus === 'failed'
+      ? 'AI review failed — retry from Upload tab'
+      : pipelineStatus === 'processing'
+      ? 'AI is reviewing resume…'
+      : pipelineStatus === 'queued'
+      ? 'Queued for AI review'
+      : 'Waiting to start'
 
   // Stage 3: Shortlisted
   const shortlistStatus = deriveShortlistStatus(shortlistResult)

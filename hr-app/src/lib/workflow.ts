@@ -9,12 +9,21 @@ export const WORKFLOW_INPUT_CLASS =
 export const WORKFLOW_PRIMARY_BUTTON_CLASS =
   'inline-flex h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50'
 
+export const IN_PROGRESS_PIPELINE_STATUSES = ['queued', 'processing'] as const
+
+export type PipelineStatus = 'queued' | 'processing' | 'completed' | 'failed'
+
 export function candidatesListUrl(
   jobId: string,
-  params?: { parse_status?: string; has_shortlist_result?: boolean },
+  params?: {
+    pipeline_status?: string
+    parse_status?: string
+    has_shortlist_result?: boolean
+  },
 ): string {
   const search = new URLSearchParams()
-  if (params?.parse_status) search.set('parse_status', params.parse_status)
+  const status = params?.pipeline_status ?? params?.parse_status
+  if (status) search.set('pipeline_status', status)
   if (params?.has_shortlist_result !== undefined) {
     search.set('has_shortlist_result', String(params.has_shortlist_result))
   }
@@ -43,9 +52,17 @@ export function resumeDisplayName(candidate: {
   )
 }
 
-export const IN_PROGRESS_PARSE_STATUSES = [
-  'pending_parse',
-  'parse_queued',
-  'parsing',
-  'parsed',
-] as const
+export function pipelineStatusLabel(status: PipelineStatus): string {
+  switch (status) {
+    case 'queued':
+      return 'Queued'
+    case 'processing':
+      return 'Reviewing'
+    case 'completed':
+      return 'Done'
+    case 'failed':
+      return 'Failed'
+    default:
+      return status
+  }
+}

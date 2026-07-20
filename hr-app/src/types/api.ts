@@ -299,13 +299,7 @@ export interface Candidate {
   resume_file_path?: string | null
   original_filename?: string | null
   parsed_data?: ParsedData | null
-  parse_status:
-    | 'pending_parse'
-    | 'parse_queued'
-    | 'parsing'
-    | 'parsed'
-    | 'ready'
-    | 'parse_failed'
+  pipeline_status: 'queued' | 'processing' | 'completed' | 'failed'
   created_at: string
 }
 

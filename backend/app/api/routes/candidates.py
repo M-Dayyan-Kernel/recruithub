@@ -107,7 +107,7 @@ async def _ingest_resume_file(
         email=f"pending_{uuid.uuid4().hex}@upload.pending",
         resume_file_path=stored_path,
         original_filename=filename,
-        parse_status="pending_parse",
+        pipeline_status="queued",
     )
     db.add(candidate)
     await db.flush()
@@ -241,9 +241,9 @@ async def upload_resumes(
 
     await db.commit()
 
-    from app.services.parse_queue_service import dispatch_parse_slots  # noqa: PLC0415
+    from app.services.processing_queue_service import dispatch_processing_slots  # noqa: PLC0415
 
-    await dispatch_parse_slots(db, job_id)
+    await dispatch_processing_slots(db, job_id)
 
     log_event(
         logger,
@@ -279,9 +279,14 @@ async def upload_resumes(
 async def list_candidates(
     job_id: uuid.UUID,
     actor: RequireAdminOrHr,
+    pipeline_status: Optional[str] = Query(
+        None,
+        description="Comma-separated pipeline_status values, e.g. queued or processing,completed",
+    ),
     parse_status: Optional[str] = Query(
         None,
-        description="Comma-separated parse_status values, e.g. pending_parse or parsing,parsed",
+        deprecated=True,
+        description="Deprecated alias for pipeline_status",
     ),
     has_shortlist_result: Optional[bool] = Query(
         None,
@@ -289,15 +294,16 @@ async def list_candidates(
     ),
     db: AsyncSession = Depends(get_db),
 ):
-    """List candidates for a job, optionally filtered by parse_status and shortlist state."""
+    """List candidates for a job, optionally filtered by pipeline_status and shortlist state."""
     await get_tenant_job(db, job_id, actor.tenant_id)
 
     stmt = select(Candidate).where(Candidate.job_id == job_id)
 
-    if parse_status:
-        statuses = [s.strip() for s in parse_status.split(",") if s.strip()]
+    status_filter = pipeline_status or parse_status
+    if status_filter:
+        statuses = [s.strip() for s in status_filter.split(",") if s.strip()]
         if statuses:
-            stmt = stmt.where(Candidate.parse_status.in_(statuses))
+            stmt = stmt.where(Candidate.pipeline_status.in_(statuses))
 
     if has_shortlist_result is not None:
         shortlist_exists = (
@@ -330,12 +336,60 @@ async def get_candidate(
 
 
 # ---------------------------------------------------------------------------
-# Task A-2 — Retry Parse
+# Retry AI processing
 # ---------------------------------------------------------------------------
+
+@router.post(
+    "/jobs/{job_id}/candidates/{candidate_id}/retry-processing",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def retry_processing(
+    job_id: uuid.UUID,
+    candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-queue a candidate for AI resume review and shortlisting."""
+    await get_tenant_job(db, job_id, actor.tenant_id)
+    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
+    retryable = ("failed", "completed", "queued", "processing")
+    if candidate.pipeline_status not in retryable:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Candidate is not in a retryable state",
+        )
+    before_status = candidate.pipeline_status
+    candidate.pipeline_status = "queued"
+    candidate.processing_started_at = None
+    await log_change(
+        db,
+        actor=actor,
+        action="candidate.retry_processing",
+        entity_type="candidate",
+        entity_id=candidate.id,
+        subject_label=candidate.original_filename or candidate.name or str(candidate_id),
+        feature="pipeline_status",
+        before={"pipeline_status": before_status},
+        after={"pipeline_status": "queued"},
+        job_id=job_id,
+    )
+    await db.commit()
+    from app.services.processing_queue_service import dispatch_processing_slots  # noqa: PLC0415
+
+    await dispatch_processing_slots(db, job_id)
+    log_event(
+        logger,
+        "%s re-queued AI processing for %s",
+        get_actor_label(),
+        candidate.original_filename or candidate.name or "a candidate",
+    )
+    return {"status": "queued", "candidate_id": str(candidate_id)}
+
 
 @router.post(
     "/jobs/{job_id}/candidates/{candidate_id}/retry-parse",
     status_code=status.HTTP_202_ACCEPTED,
+    deprecated=True,
 )
 async def retry_parse(
     job_id: uuid.UUID,
@@ -343,47 +397,8 @@ async def retry_parse(
     actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Re-queue a candidate's resume for parsing.
-
-    Allowed when parse_status is 'parse_failed', 'ready', or a stuck in-progress
-    state ('parse_queued', 'parsing', 'parsed') after a worker crash.
-    Returns 202 Accepted immediately — parse pipeline runs async.
-    """
-    await get_tenant_job(db, job_id, actor.tenant_id)
-    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
-    retryable = ("parse_failed", "ready", "parse_queued", "parsing", "parsed")
-    if candidate.parse_status not in retryable:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Candidate is not in a retryable state",
-        )
-    before_status = candidate.parse_status
-    candidate.parse_status = "pending_parse"
-    candidate.parse_started_at = None
-    await log_change(
-        db,
-        actor=actor,
-        action="candidate.retry_parse",
-        entity_type="candidate",
-        entity_id=candidate.id,
-        subject_label=candidate.original_filename or candidate.name or str(candidate_id),
-        feature="parse_status",
-        before={"parse_status": before_status},
-        after={"parse_status": "pending_parse"},
-        job_id=job_id,
-    )
-    await db.commit()
-    from app.services.parse_queue_service import dispatch_parse_slots  # noqa: PLC0415
-
-    await dispatch_parse_slots(db, job_id)
-    log_event(
-        logger,
-        "%s re-queued parsing for %s",
-        get_actor_label(),
-        candidate.original_filename or candidate.name or "a candidate",
-    )
-    return {"status": "queued", "candidate_id": str(candidate_id)}
+    """Deprecated alias for retry-processing."""
+    return await retry_processing(job_id, candidate_id, actor, db)
 
 
 # ---------------------------------------------------------------------------
@@ -406,7 +421,7 @@ async def delete_candidate(
     Also removes the resume file and any interview recording objects from storage.
     """
     from app.models.models import InterviewSession
-    from app.services.parse_queue_service import dispatch_parse_slots  # noqa: PLC0415
+    from app.services.processing_queue_service import dispatch_processing_slots  # noqa: PLC0415
     from app.services.s3_service import delete_objects, delete_stored_file  # noqa: PLC0415
 
     candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
@@ -422,7 +437,7 @@ async def delete_candidate(
     ]
 
     job_id = candidate.job_id
-    was_active = candidate.parse_status in ("parse_queued", "parsing", "parsed")
+    was_active = candidate.pipeline_status in ("queued", "processing")
     label = candidate.original_filename or candidate.name or str(candidate_id)
     resume_path = candidate.resume_file_path
 
@@ -451,7 +466,7 @@ async def delete_candidate(
         delete_objects(recording_keys)
 
     if was_active:
-        await dispatch_parse_slots(db, job_id)
+        await dispatch_processing_slots(db, job_id)
     return None
 
 

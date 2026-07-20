@@ -1,13 +1,10 @@
 import { useState } from 'react'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import type { Candidate } from '@/types/api'
 import type { JobOutletContext } from '@/components/JobLayout'
 import { ShortlistTab } from '@/components/ShortlistTab'
-import { ParsedResumesTab, type ShortlistTriggeredPayload } from '@/components/ParsedResumesTab'
 import { UploadTab } from '@/components/UploadTab'
-import { ParsingTab } from '@/components/ParsingTab'
-import { AIShortlistingTab } from '@/components/AIShortlistingTab'
+import { ProcessingTab } from '@/components/ProcessingTab'
 import { useJobPipelineCandidates } from '@/hooks/useJobPipelineCandidates'
 import {
   resolveShortlistTab,
@@ -22,9 +19,7 @@ export default function JobShortlistPage() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = resolveShortlistTab(searchParams.get('tab'))
-  const [shortlistTriggered, setShortlistTriggered] = useState(false)
-  const [shortlistBatchIds, setShortlistBatchIds] = useState<string[]>([])
-  const [shortlistBatchCandidates, setShortlistBatchCandidates] = useState<Candidate[]>([])
+  const [watchCandidateIds, setWatchCandidateIds] = useState<string[]>([])
 
   const setActiveTab = (tab: ShortlistTabId) => {
     const next = new URLSearchParams(searchParams)
@@ -32,29 +27,24 @@ export default function JobShortlistPage() {
     setSearchParams(next, { replace: true })
   }
 
-  const handleShortlistTriggered = ({ candidateIds, candidates }: ShortlistTriggeredPayload) => {
-    setShortlistBatchIds(candidateIds)
-    setShortlistBatchCandidates(candidates)
-    setShortlistTriggered(true)
+  const pipeline = useJobPipelineCandidates(jobId, { watchCandidateIds })
+
+  const handleUploadSuccess = (createdIds: string[]) => {
+    setWatchCandidateIds(createdIds)
+    setActiveTab('Processing')
+    void queryClient.invalidateQueries({ queryKey: ['candidates', jobId, 'pipeline'] })
+    void queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
   }
 
-  const refreshShortlistData = () => {
-    queryClient.invalidateQueries({ queryKey: ['candidates', jobId, 'pipeline'] })
-    queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
-    queryClient.invalidateQueries({ queryKey: ['shortlist-status', jobId] })
+  const handleProcessingComplete = () => {
+    setWatchCandidateIds([])
+    setActiveTab('AI Shortlisted')
   }
 
-  const handleShortlistComplete = () => {
-    setShortlistTriggered(false)
-    setShortlistBatchIds([])
-    setShortlistBatchCandidates([])
-    refreshShortlistData()
-  }
-
-  const pipeline = useJobPipelineCandidates(jobId, {
-    shortlistInProgress: shortlistTriggered || shortlistBatchIds.length > 0,
-    pendingShortlistIds: shortlistBatchIds,
-  })
+  const watchedCandidates =
+    watchCandidateIds.length > 0
+      ? pipeline.candidates.filter((c) => watchCandidateIds.includes(c.id))
+      : pipeline.processingCandidates.concat(pipeline.failedCandidates)
 
   return (
     <>
@@ -64,47 +54,31 @@ export default function JobShortlistPage() {
             jobId={jobId}
             jobTitle={job.title}
             requiredSkills={job.required_skills ?? []}
-            shortlistTriggered={shortlistTriggered}
-            onShortlistComplete={handleShortlistComplete}
-            onSwitchToCandidates={() => setActiveTab('Parsed Resumes')}
+            shortlistTriggered={false}
+            onShortlistComplete={() => pipeline.refetch()}
+            onSwitchToCandidates={() => setActiveTab('Upload')}
             mode="aiShortlisted"
           />
         </div>
       ) : activeTab === 'Upload' ? (
         <UploadTab
           jobId={jobId}
-          queueCandidates={pipeline.queueCandidates}
+          candidates={pipeline.uploadCandidates}
           isLoading={pipeline.isLoading}
           isError={pipeline.isError}
           onRetry={pipeline.refetch}
+          onUploadSuccess={handleUploadSuccess}
         />
-      ) : activeTab === 'Parsing' ? (
-        <ParsingTab
-          parsingCandidates={pipeline.parsingCandidates}
-          isLoading={pipeline.isLoading}
-          isError={pipeline.isError}
-          onRetry={pipeline.refetch}
-        />
-      ) : activeTab === 'Parsed Resumes' ? (
-        <ParsedResumesTab
+      ) : activeTab === 'Processing' ? (
+        <ProcessingTab
           jobId={jobId}
-          parsedCandidates={pipeline.parsedCandidates}
+          candidates={watchedCandidates}
+          watchedTotal={pipeline.watchedTotal}
+          watchedDone={pipeline.watchedDone}
           isLoading={pipeline.isLoading}
           isError={pipeline.isError}
           onRetry={pipeline.refetch}
-          onShortlistTriggered={handleShortlistTriggered}
-          onSwitchToShortlisting={() => setActiveTab('AI Shortlisting')}
-        />
-      ) : activeTab === 'AI Shortlisting' ? (
-        <AIShortlistingTab
-          jobId={jobId}
-          batchCandidates={shortlistBatchCandidates}
-          batchCandidateIds={shortlistBatchIds}
-          shortlistTriggered={shortlistTriggered}
-          onShortlistComplete={() => {
-            handleShortlistComplete()
-            setActiveTab('AI Shortlisted')
-          }}
+          onComplete={handleProcessingComplete}
         />
       ) : null}
     </>

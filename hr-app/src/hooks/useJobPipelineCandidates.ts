@@ -2,39 +2,18 @@ import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import type { Candidate, ShortlistResultWithCandidate } from '@/types/api'
+import { IN_PROGRESS_PIPELINE_STATUSES } from '@/lib/workflow'
 
-const PIPELINE_POLL_MS = 5_000
-const PIPELINE_POLL_SLOW_MS = 30_000
-const PIPELINE_POLL_CUTOFF_MS = 120_000
-const SHORTLIST_POLL_MS = 1_000
-
-const IN_FLIGHT_PARSE = new Set<Candidate['parse_status']>([
-  'pending_parse',
-  'parse_queued',
-  'parsing',
-  'parsed',
-])
+const PIPELINE_POLL_MS = 2_000
 
 interface Options {
-  shortlistInProgress?: boolean
-  pendingShortlistIds?: string[]
+  watchCandidateIds?: string[]
 }
 
 export function useJobPipelineCandidates(jobId: string, options: Options = {}) {
-  const { shortlistInProgress = false, pendingShortlistIds = [] } = options
-  const pendingShortlistSet = useMemo(
-    () => new Set(pendingShortlistIds),
-    [pendingShortlistIds],
-  )
+  const { watchCandidateIds = [] } = options
+  const watchSet = useMemo(() => new Set(watchCandidateIds), [watchCandidateIds])
   const [pollStartTime] = useState(() => Date.now())
-
-  const getPollInterval = (parseInFlight: boolean) => {
-    if (!parseInFlight && !shortlistInProgress) return false
-    if (shortlistInProgress && !parseInFlight) return SHORTLIST_POLL_MS
-    return Date.now() - pollStartTime > PIPELINE_POLL_CUTOFF_MS
-      ? PIPELINE_POLL_SLOW_MS
-      : PIPELINE_POLL_MS
-  }
 
   const pipelineQuery = useQuery<Candidate[]>({
     queryKey: ['candidates', jobId, 'pipeline'],
@@ -43,8 +22,12 @@ export function useJobPipelineCandidates(jobId: string, options: Options = {}) {
     staleTime: 0,
     refetchInterval: (query) => {
       const list = (query.state.data ?? []) as Candidate[]
-      const parseInFlight = list.some((c) => IN_FLIGHT_PARSE.has(c.parse_status))
-      return getPollInterval(parseInFlight)
+      const inFlight = list.some((c) =>
+        IN_PROGRESS_PIPELINE_STATUSES.includes(c.pipeline_status),
+      )
+      const watching = watchSet.size > 0
+      if (!inFlight && !watching) return false
+      return Date.now() - pollStartTime > 120_000 ? 5_000 : PIPELINE_POLL_MS
     },
   })
 
@@ -56,51 +39,59 @@ export function useJobPipelineCandidates(jobId: string, options: Options = {}) {
     staleTime: 0,
     refetchInterval: () => {
       const list = (pipelineQuery.data ?? []) as Candidate[]
-      const parseInFlight = list.some((c) => IN_FLIGHT_PARSE.has(c.parse_status))
-      if (shortlistInProgress) return SHORTLIST_POLL_MS
-      return getPollInterval(parseInFlight)
+      const inFlight = list.some((c) =>
+        IN_PROGRESS_PIPELINE_STATUSES.includes(c.pipeline_status),
+      )
+      if (!inFlight && watchSet.size === 0) return false
+      return PIPELINE_POLL_MS
     },
   })
 
-  const shortlistedIds = useMemo(
-    () => new Set((shortlistQuery.data ?? []).map((r) => r.candidate_id)),
-    [shortlistQuery.data],
-  )
-
   const candidates = pipelineQuery.data ?? []
 
-  const queueCandidates = useMemo(
+  const processingCandidates = useMemo(
     () =>
-      candidates.filter(
-        (c) =>
-          c.parse_status === 'pending_parse' ||
-          c.parse_status === 'parse_queued' ||
-          c.parse_status === 'parse_failed',
+      candidates.filter((c) =>
+        IN_PROGRESS_PIPELINE_STATUSES.includes(c.pipeline_status),
       ),
     [candidates],
   )
 
-  const parsingCandidates = useMemo(
-    () => candidates.filter((c) => c.parse_status === 'parsing' || c.parse_status === 'parsed'),
+  const failedCandidates = useMemo(
+    () => candidates.filter((c) => c.pipeline_status === 'failed'),
     [candidates],
   )
 
-  const parsedCandidates = useMemo(
-    () =>
-      candidates.filter(
-        (c) =>
-          c.parse_status === 'ready' &&
-          !shortlistedIds.has(c.id) &&
-          !pendingShortlistSet.has(c.id),
-      ),
-    [candidates, shortlistedIds, pendingShortlistSet],
+  const completedCandidates = useMemo(
+    () => candidates.filter((c) => c.pipeline_status === 'completed'),
+    [candidates],
   )
+
+  const watchedCandidates = useMemo(() => {
+    if (watchSet.size === 0) return processingCandidates
+    return candidates.filter((c) => watchSet.has(c.id))
+  }, [candidates, watchSet, processingCandidates])
+
+  const watchedDone = useMemo(
+    () =>
+      watchedCandidates.filter(
+        (c) => c.pipeline_status === 'completed' || c.pipeline_status === 'failed',
+      ).length,
+    [watchedCandidates],
+  )
+
+  const watchedTotal = watchedCandidates.length
 
   return {
     candidates,
-    queueCandidates,
-    parsingCandidates,
-    parsedCandidates,
+    uploadCandidates: candidates,
+    processingCandidates,
+    failedCandidates,
+    completedCandidates,
+    watchedCandidates,
+    watchedDone,
+    watchedTotal,
+    hasProcessingInFlight: processingCandidates.length > 0,
     isLoading: pipelineQuery.isLoading,
     isError: pipelineQuery.isError,
     refetch: () => {

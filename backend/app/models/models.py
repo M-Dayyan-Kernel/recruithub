@@ -128,8 +128,8 @@ class Candidate(Base):
     resume_file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     original_filename: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Original upload filename — used for dedup check
     parsed_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    parse_status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending_parse")
-    parse_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    pipeline_status: Mapped[str] = mapped_column(String(50), nullable=False, default="queued")
+    processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships

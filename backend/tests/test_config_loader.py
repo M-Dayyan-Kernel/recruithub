@@ -24,6 +24,7 @@ models:
   resume_parse: { name: gpt-test-resume, temperature: 0, max_tokens: 100 }
   jd_parse: { name: gpt-test-jd, temperature: 0, max_tokens: 100 }
   shortlist: { name: gpt-test-shortlist, temperature: 0, max_tokens: 100 }
+  combined_shortlist: { name: gpt-test-combined, temperature: 0, max_tokens: 3000 }
   expected_answer: { name: gpt-test-expected, temperature: 0, max_tokens: 100 }
   screening_extraction: { name: gpt-test-screening, temperature: 0, max_tokens: 100 }
   interview_assessment: { name: gpt-test-assessment, temperature: 0, max_tokens: 100 }
