@@ -1,17 +1,19 @@
 import asyncio
-import io
 import logging
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
-import fitz  # pymupdf
-import docx  # python-docx
 from sqlalchemy import select
 
 from app.core.celery_app import celery_app
 from app.core.config_loader import config
 from app.core.database import get_celery_db
 from app.models.models import Candidate
+from app.services.document_extractor import (
+    UnsupportedDocumentError,
+    extract_text_from_bytes,
+)
 from app.services.parse_queue_service import dispatch_parse_slots
 
 logger = logging.getLogger(__name__)
@@ -19,20 +21,6 @@ logger = logging.getLogger(__name__)
 
 class _NoRetryError(Exception):
     """Sentinel to abort retry on unrecoverable errors (e.g. missing file)."""
-
-
-def _extract_text_from_bytes(file_bytes: bytes, suffix: str) -> str:
-    if suffix == ".pdf":
-        doc = fitz.open(stream=file_bytes, filetype="pdf")
-        try:
-            text = "\n".join(page.get_text() for page in doc)
-        finally:
-            doc.close()
-        return text.strip()
-    if suffix in (".docx", ".doc"):
-        document = docx.Document(io.BytesIO(file_bytes))
-        return "\n".join(p.text for p in document.paragraphs if p.text.strip()).strip()
-    raise ValueError(f"Unsupported file type: {suffix!r}")
 
 
 def _load_resume_bytes(candidate: Candidate) -> tuple[bytes, str]:
@@ -53,6 +41,10 @@ def _load_resume_bytes(candidate: Candidate) -> tuple[bytes, str]:
     return file_path.read_bytes(), file_path.suffix.lower()
 
 
+def _filename_for_extract(candidate: Candidate, suffix: str) -> str:
+    return candidate.original_filename or f"resume{suffix}"
+
+
 # ---------------------------------------------------------------------------
 # Task 3.3 — Raw text extraction
 # ---------------------------------------------------------------------------
@@ -66,6 +58,7 @@ def extract_resume_text(self, candidate_id: str):
     """Extract text from the stored resume file and chain to structured parse.
 
     Does not persist raw text in the DB — the resume file in storage is the source.
+    Does not pass resume text through Celery args (PII stays out of the broker).
     File-not-found: marks parse_failed immediately, does NOT retry.
     Other failures: retries up to 3 times with 60-second countdown.
     """
@@ -102,6 +95,8 @@ async def _async_extract(candidate_id: str) -> None:
             return
 
         candidate.parse_status = "parsing"
+        if candidate.parse_started_at is None:
+            candidate.parse_started_at = datetime.now(timezone.utc)
         await session.commit()
 
         try:
@@ -114,6 +109,7 @@ async def _async_extract(candidate_id: str) -> None:
                     candidate.resume_file_path,
                 )
                 candidate.parse_status = "parse_failed"
+                candidate.parse_started_at = None
                 await session.commit()
                 await dispatch_parse_slots(session, job_id)
                 raise _NoRetryError(f"File not found: {exc}") from exc
@@ -126,18 +122,35 @@ async def _async_extract(candidate_id: str) -> None:
                         exc,
                     )
                     candidate.parse_status = "parse_failed"
+                    candidate.parse_started_at = None
                     await session.commit()
                     await dispatch_parse_slots(session, job_id)
                     raise _NoRetryError(str(exc)) from exc
                 raise
 
-            text = _extract_text_from_bytes(file_bytes, suffix)
+            try:
+                text = extract_text_from_bytes(
+                    file_bytes, _filename_for_extract(candidate, suffix)
+                )
+            except UnsupportedDocumentError as exc:
+                logger.warning(
+                    "extract_resume_text: unsupported document for candidate %s — %s",
+                    candidate_id,
+                    exc,
+                )
+                candidate.parse_status = "parse_failed"
+                candidate.parse_started_at = None
+                await session.commit()
+                await dispatch_parse_slots(session, job_id)
+                raise _NoRetryError(str(exc)) from exc
+
             if not text:
                 logger.warning(
                     "extract_resume_text: empty text for candidate %s — marking failed",
                     candidate_id,
                 )
                 candidate.parse_status = "parse_failed"
+                candidate.parse_started_at = None
                 await session.commit()
                 await dispatch_parse_slots(session, job_id)
                 raise _NoRetryError("Empty resume text")
@@ -147,8 +160,8 @@ async def _async_extract(candidate_id: str) -> None:
                 candidate_id,
                 len(text),
             )
-            # Pass text through Celery args — not stored in DB
-            parse_resume.apply_async(args=[candidate_id, text])
+            # PII-safe: pass candidate_id only — parse task re-extracts from storage
+            parse_resume.apply_async(args=[candidate_id])
 
         except _NoRetryError:
             raise
@@ -158,6 +171,7 @@ async def _async_extract(candidate_id: str) -> None:
                 "Text extraction failed for candidate %s: %s", candidate_id, exc
             )
             candidate.parse_status = "parse_failed"
+            candidate.parse_started_at = None
             await session.commit()
             await dispatch_parse_slots(session, job_id)
             raise
@@ -175,17 +189,18 @@ async def _async_extract(candidate_id: str) -> None:
 def parse_resume(self, candidate_id: str, raw_text: str = ""):
     """Parse resume text with GPT-4o into structured fields.
 
-    raw_text is passed from extract_resume_text (not read from DB).
+    raw_text is ignored when provided (legacy Celery args); text is always
+    re-extracted from stored resume bytes so PII is not kept in the broker.
     Sets parse_status → 'ready' on success.
     """
     try:
-        asyncio.run(_async_parse(candidate_id, raw_text or ""))
+        asyncio.run(_async_parse(candidate_id))
     except Exception as exc:
         logger.error("parse_resume failed for candidate %s: %s", candidate_id, exc)
         raise
 
 
-async def _async_parse(candidate_id: str, raw_text: str) -> None:
+async def _async_parse(candidate_id: str) -> None:
     import openai  # local import — not installed at task discovery time
 
     from app.models.models import Job
@@ -205,23 +220,34 @@ async def _async_parse(candidate_id: str, raw_text: str) -> None:
             return
 
         job_id = candidate.job_id
-        text = (raw_text or "").strip()
 
-        # If a retry/legacy call arrives without text, re-extract from stored file.
-        if not text:
-            try:
-                file_bytes, suffix = _load_resume_bytes(candidate)
-                text = _extract_text_from_bytes(file_bytes, suffix)
-            except Exception as exc:
-                logger.warning(
-                    "parse_resume: candidate %s has no text and re-extract failed: %s",
-                    candidate_id,
-                    exc,
-                )
-                candidate.parse_status = "parse_failed"
-                await session.commit()
-                await dispatch_parse_slots(session, job_id)
-                return
+        try:
+            file_bytes, suffix = _load_resume_bytes(candidate)
+            text = extract_text_from_bytes(
+                file_bytes, _filename_for_extract(candidate, suffix)
+            )
+        except UnsupportedDocumentError as exc:
+            logger.warning(
+                "parse_resume: unsupported document for candidate %s — %s",
+                candidate_id,
+                exc,
+            )
+            candidate.parse_status = "parse_failed"
+            candidate.parse_started_at = None
+            await session.commit()
+            await dispatch_parse_slots(session, job_id)
+            return
+        except Exception as exc:
+            logger.warning(
+                "parse_resume: candidate %s re-extract failed: %s",
+                candidate_id,
+                exc,
+            )
+            candidate.parse_status = "parse_failed"
+            candidate.parse_started_at = None
+            await session.commit()
+            await dispatch_parse_slots(session, job_id)
+            return
 
         if not text:
             logger.warning(
@@ -229,6 +255,7 @@ async def _async_parse(candidate_id: str, raw_text: str) -> None:
                 candidate_id,
             )
             candidate.parse_status = "parse_failed"
+            candidate.parse_started_at = None
             await session.commit()
             await dispatch_parse_slots(session, job_id)
             return
@@ -241,6 +268,7 @@ async def _async_parse(candidate_id: str, raw_text: str) -> None:
             if not job:
                 logger.error("parse_resume: job %s not found for candidate %s", job_id, candidate_id)
                 candidate.parse_status = "parse_failed"
+                candidate.parse_started_at = None
                 await session.commit()
                 await dispatch_parse_slots(session, job_id)
                 return
@@ -252,6 +280,7 @@ async def _async_parse(candidate_id: str, raw_text: str) -> None:
 
             candidate.parsed_data = parsed_data
             candidate.parse_status = "ready"
+            candidate.parse_started_at = None
 
             if parsed_data.get("name"):
                 candidate.name = parsed_data["name"]
@@ -276,6 +305,7 @@ async def _async_parse(candidate_id: str, raw_text: str) -> None:
                 exc,
             )
             candidate.parse_status = "parse_failed"
+            candidate.parse_started_at = None
             await session.commit()
             await dispatch_parse_slots(session, job_id)
             return

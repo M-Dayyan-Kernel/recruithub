@@ -58,6 +58,10 @@ def _shortlist_batch_key(job_id: uuid.UUID) -> str:
     return f"shortlist_batch:{job_id}"
 
 
+def _shortlist_failed_key(job_id: uuid.UUID) -> str:
+    return f"shortlist_failed:{job_id}"
+
+
 # ---------------------------------------------------------------------------
 # Helper — fetch ShortlistResult or 404 (tenant-scoped)
 # ---------------------------------------------------------------------------
@@ -84,21 +88,26 @@ async def _resolve_eligible_candidate_ids(
     job_id: uuid.UUID,
     db: AsyncSession,
     requested_ids: Optional[List[uuid.UUID]],
+    *,
+    force: bool = False,
 ) -> tuple[List[uuid.UUID], List[dict]]:
     """
     Return eligible candidate UUIDs for shortlisting and a list of skipped entries.
-    Eligible: parse_status=ready, belongs to job, no existing ShortlistResult.
+    Eligible: parse_status=ready, belongs to job.
+    Without force: also requires no existing ShortlistResult.
+    With force: already-scored ready candidates are included for re-score.
     """
-    shortlist_exists = (
-        select(ShortlistResult.id)
-        .where(ShortlistResult.candidate_id == Candidate.id)
-        .correlate(Candidate)
-    )
     stmt = select(Candidate).where(
         Candidate.job_id == job_id,
         Candidate.parse_status == "ready",
-        ~exists(shortlist_exists),
     )
+    if not force:
+        shortlist_exists = (
+            select(ShortlistResult.id)
+            .where(ShortlistResult.candidate_id == Candidate.id)
+            .correlate(Candidate)
+        )
+        stmt = stmt.where(~exists(shortlist_exists))
     if requested_ids is not None:
         stmt = stmt.where(Candidate.id.in_(requested_ids))
 
@@ -118,7 +127,7 @@ async def _resolve_eligible_candidate_ids(
                 skipped.append(
                     {"id": str(raw_id), "reason": f"parse_status is '{cand.parse_status}', expected 'ready'"}
                 )
-            elif await _candidate_has_shortlist_result(raw_id, db):
+            elif not force and await _candidate_has_shortlist_result(raw_id, db):
                 skipped.append({"id": str(raw_id), "reason": "Already shortlisted"})
             else:
                 skipped.append({"id": str(raw_id), "reason": "Not eligible for shortlisting"})
@@ -140,14 +149,16 @@ async def trigger_shortlist(
     """
     Trigger AI shortlisting for a job.
 
-    Optional body: { "candidate_ids": ["uuid", ...] }
+    Optional body: { "candidate_ids": ["uuid", ...], "force": false }
     If omitted, all eligible ready candidates (without ShortlistResult) are scored.
+    When force=true, already-scored ready candidates are re-scored (HR decision preserved).
     """
     job = await get_tenant_job(db, job_id, actor.tenant_id)
 
     requested_ids = body.candidate_ids if body else None
+    force = bool(body.force) if body else False
     eligible_ids, skipped = await _resolve_eligible_candidate_ids(
-        job_id, db, requested_ids
+        job_id, db, requested_ids, force=force
     )
 
     if not eligible_ids:
@@ -183,19 +194,21 @@ async def trigger_shortlist(
         )
 
     batch_key = _shortlist_batch_key(job_id)
+    failed_key = _shortlist_failed_key(job_id)
     id_strings = [str(cid) for cid in eligible_ids]
     try:
         _r.set(batch_key, json.dumps(id_strings), ex=SHORTLIST_BATCH_TTL)
+        _r.set(failed_key, "0", ex=SHORTLIST_BATCH_TTL)
 
         from app.tasks.shortlist_tasks import run_shortlist  # noqa: PLC0415
 
-        run_shortlist.apply_async(args=[str(job_id), id_strings])
+        run_shortlist.apply_async(args=[str(job_id), id_strings, force])
     except Exception as exc:
         logger.exception(
             "trigger_shortlist: failed to enqueue shortlist for job %s", job_id
         )
         try:
-            _r.delete(lock_key, batch_key)
+            _r.delete(lock_key, batch_key, failed_key)
         except redis_lib.RedisError:
             pass
         raise HTTPException(
@@ -212,24 +225,30 @@ async def trigger_shortlist(
         subject_label=job.title,
         feature="shortlist",
         before=None,
-        after={"candidate_count": len(id_strings), "candidate_ids": id_strings},
+        after={
+            "candidate_count": len(id_strings),
+            "candidate_ids": id_strings,
+            "force": force,
+        },
         job_id=job_id,
     )
     await db.commit()
 
     log_event(
         logger,
-        "%s started AI shortlisting for job \"%s\" with %s%s",
+        "%s started AI shortlisting for job \"%s\" with %s%s%s",
         get_actor_label(),
         job.title,
         plural(len(id_strings), "candidate"),
         f" (skipped {plural(len(skipped), 'ineligible candidate')})" if skipped else "",
+        " (force re-score)" if force else "",
     )
 
     response = {
         "status": "shortlisting_started",
         "job_id": str(job_id),
         "candidate_ids": id_strings,
+        "force": force,
     }
     if skipped:
         response["skipped"] = skipped
@@ -253,6 +272,7 @@ async def get_shortlist_status(
     await get_tenant_job(db, job_id, actor.tenant_id)
 
     _r = _redis_client()
+    failed = 0
     try:
         in_progress = bool(_r.exists(_shortlist_lock_key(job_id)))
 
@@ -267,6 +287,15 @@ async def get_shortlist_status(
                     candidate_ids = [str(cid) for cid in parsed]
             except (json.JSONDecodeError, TypeError, ValueError):
                 candidate_ids = []
+
+        failed_raw = _r.get(_shortlist_failed_key(job_id))
+        if failed_raw is not None:
+            if isinstance(failed_raw, bytes):
+                failed_raw = failed_raw.decode("utf-8")
+            try:
+                failed = int(failed_raw)
+            except (TypeError, ValueError):
+                failed = 0
     except Exception as exc:
         logger.warning("get_shortlist_status: Redis unavailable for job %s: %s", job_id, exc)
         in_progress = False
@@ -284,11 +313,12 @@ async def get_shortlist_status(
         completed = len(result.scalars().all())
 
     logger.debug(
-        "shortlist.progress job_id=%s in_progress=%s completed=%s/%s",
+        "shortlist.progress job_id=%s in_progress=%s completed=%s/%s failed=%s",
         job_id,
         in_progress,
         completed,
         len(candidate_ids),
+        failed,
     )
 
     return ShortlistStatusResponse(
@@ -296,9 +326,8 @@ async def get_shortlist_status(
         candidate_ids=candidate_ids,
         completed=completed,
         total=len(candidate_ids),
-        failed=0,
+        failed=failed,
     )
-
 
 # ---------------------------------------------------------------------------
 # Task 4.2 — Get shortlist results (with candidate name/email)

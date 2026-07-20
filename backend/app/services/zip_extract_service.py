@@ -11,7 +11,7 @@ from app.core.config_loader import config
 
 logger = logging.getLogger(__name__)
 
-RESUME_EXTENSIONS = {".pdf", ".docx", ".doc"}
+RESUME_EXTENSIONS = {".pdf", ".docx"}
 NESTED_ZIP_EXTENSION = ".zip"
 MAX_ZIP_NESTING_DEPTH = config.uploads.max_zip_nesting_depth
 
@@ -112,6 +112,13 @@ def _collect_resumes_from_zip_bytes(
                     nested_prefix,
                     state,
                     depth=depth + 1,
+                )
+                continue
+
+            if ext == ".doc":
+                logger.info(
+                    "Skipping legacy .doc file in zip (convert to PDF/DOCX): %s",
+                    full_relative,
                 )
                 continue
 

@@ -12,16 +12,19 @@ import json
 import logging
 import uuid
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_loader import config
 from app.prompts.shortlist import (
+    PROMPT_VERSION,
     SHORTLIST_SYSTEM_PROMPT,
     build_shortlist_user_prompt,
 )
 from app.models.models import Candidate, Job, ShortlistResult
 from app.core.logging import log_event, plural
+from app.schemas.ai_outputs import ShortlistAssessment
 from app.services.tenant_integrations_service import load_tenant_integrations
 
 logger = logging.getLogger(__name__)
@@ -71,6 +74,7 @@ async def _gpt4o_assess(
 
     Returns: (match_score, recommendation, strengths, gaps, reason)
     Raises openai.* exceptions — let the caller handle retries.
+    Raises ValidationError if the model returns invalid structured output.
     """
     from app.services.mock_external import mock_openai_enabled, mock_shortlist_assessment
 
@@ -99,21 +103,15 @@ async def _gpt4o_assess(
     )
 
     raw = response.choices[0].message.content or "{}"
-    assessment = json.loads(raw)
+    assessment = ShortlistAssessment.model_validate(json.loads(raw))
 
-    match_score = float(assessment.get("match_score", 50.0))
-    # Clamp to [0, 100]
-    match_score = max(0.0, min(100.0, match_score))
-
-    recommendation = assessment.get("recommendation", "review")
-    if recommendation not in ("shortlisted", "rejected", "review"):
-        recommendation = "review"
-
-    strengths = assessment.get("strengths") or []
-    gaps = assessment.get("gaps") or []
-    reason = assessment.get("reason") or ""
-
-    return match_score, recommendation, strengths, gaps, reason
+    return (
+        float(assessment.match_score),
+        assessment.recommendation,
+        list(assessment.strengths),
+        list(assessment.gaps),
+        assessment.reason,
+    )
 
 
 async def _upsert_shortlist_result(
@@ -133,6 +131,7 @@ async def _upsert_shortlist_result(
         )
     )
     existing = existing_result.scalar_one_or_none()
+    model_name = config.models.shortlist.name
 
     if existing:
         existing.match_score = match_score
@@ -140,6 +139,9 @@ async def _upsert_shortlist_result(
         existing.strengths = strengths
         existing.gaps = gaps
         existing.reason = reason
+        existing.model_name = model_name
+        existing.prompt_version = PROMPT_VERSION
+        # Preserve hr_decision, hr_feedback_type, hr_comments on re-score
         record = existing
         logger.debug("Updated existing ShortlistResult for candidate %s", candidate.id)
     else:
@@ -152,6 +154,8 @@ async def _upsert_shortlist_result(
             gaps=gaps,
             reason=reason,
             hr_decision="pending",
+            model_name=model_name,
+            prompt_version=PROMPT_VERSION,
         )
         db.add(record)
         logger.debug("Created new ShortlistResult for candidate %s", candidate.id)
@@ -167,8 +171,12 @@ async def _score_and_persist_candidate(
     semaphore: asyncio.Semaphore,
     db: AsyncSession,
     db_lock: asyncio.Lock,
-) -> ShortlistResult:
-    """Score one candidate (GPT under semaphore) and upsert ShortlistResult."""
+) -> ShortlistResult | None:
+    """Score one candidate (GPT under semaphore) and upsert ShortlistResult.
+
+    Returns None when assessment fails unexpectedly (fail closed — no fake score).
+    Rate limit / connection errors are re-raised for Celery retry.
+    """
     import openai  # local import — avoids circular at task discovery time
 
     candidate_summary = _build_candidate_summary(candidate)
@@ -180,6 +188,14 @@ async def _score_and_persist_candidate(
             )
         except (openai.RateLimitError, openai.APIConnectionError):
             raise
+        except (ValidationError, json.JSONDecodeError) as exc:
+            logger.error(
+                "Shortlist assessment invalid for candidate %s (job %s): %s",
+                candidate.id,
+                job_id,
+                exc,
+            )
+            return None
         except Exception as exc:
             logger.error(
                 "GPT-4o assessment failed for candidate %s (job %s): %s",
@@ -187,11 +203,7 @@ async def _score_and_persist_candidate(
                 job_id,
                 exc,
             )
-            match_score = 50.0
-            recommendation = "review"
-            strengths = []
-            gaps = []
-            reason = "AI assessment unavailable."
+            return None
 
     async with db_lock:
         record = await _upsert_shortlist_result(
@@ -231,7 +243,9 @@ async def shortlist_candidates(
     job_id: uuid.UUID,
     db: AsyncSession,
     candidate_ids: list[uuid.UUID] | None = None,
-) -> list[ShortlistResult]:
+    *,
+    force: bool = False,
+) -> tuple[list[ShortlistResult], int]:
     """
     Run AI shortlisting for all ready candidates in a job.
 
@@ -239,7 +253,10 @@ async def shortlist_candidates(
     1. Load job + all candidates with parse_status = 'ready'
     2. Score candidates in parallel (up to MAX_CONCURRENT_SHORTLISTS GPT calls)
     3. Upsert ShortlistResult records as each candidate completes
-    4. Return list of upserted records
+    4. Return (upserted records, failed_count)
+
+    When force=True, re-score candidates that already have ShortlistResult rows,
+    updating AI fields while preserving HR decision/feedback.
 
     Raises:
         ValueError: if job not found
@@ -274,7 +291,7 @@ async def shortlist_candidates(
         all_candidates = all_result.scalars().all()
         for c in all_candidates:
             logger.debug("  candidate %s has parse_status=%r", c.id, c.parse_status)
-        return []
+        return [], 0
 
     candidate_id_set = [c.id for c in candidates]
     existing_shortlist = await db.execute(
@@ -284,8 +301,13 @@ async def shortlist_candidates(
         )
     )
     already_scored = {r.candidate_id: r for r in existing_shortlist.scalars().all()}
-    candidates_to_score = [c for c in candidates if c.id not in already_scored]
-    upserted_from_prior = list(already_scored.values())
+
+    if force:
+        candidates_to_score = list(candidates)
+        upserted_from_prior: list[ShortlistResult] = []
+    else:
+        candidates_to_score = [c for c in candidates if c.id not in already_scored]
+        upserted_from_prior = list(already_scored.values())
 
     if not candidates_to_score:
         log_event(
@@ -293,14 +315,15 @@ async def shortlist_candidates(
             "All ready candidates for job \"%s\" were already scored — nothing new to shortlist",
             job.title,
         )
-        return upserted_from_prior
+        return upserted_from_prior, 0
 
     log_event(
         logger,
-        "Scoring %s for job \"%s\"%s",
+        "Scoring %s for job \"%s\"%s%s",
         plural(len(candidates_to_score), "candidate"),
         job.title,
-        f" ({plural(len(already_scored), 'candidate')} already scored)" if already_scored else "",
+        f" ({plural(len(already_scored), 'candidate')} already scored)" if already_scored and not force else "",
+        " (force re-score)" if force else "",
     )
 
     jd_summary = _build_jd_summary(job)
@@ -309,8 +332,7 @@ async def shortlist_candidates(
     semaphore = asyncio.Semaphore(config.concurrency.max_shortlists)
     db_lock = asyncio.Lock()
 
-    upserted_records: list[ShortlistResult] = list(upserted_from_prior)
-    newly_scored = await asyncio.gather(
+    scored_or_none = await asyncio.gather(
         *[
             _score_and_persist_candidate(
                 candidate,
@@ -324,11 +346,17 @@ async def shortlist_candidates(
             for candidate in candidates_to_score
         ]
     )
+
+    newly_scored = [r for r in scored_or_none if r is not None]
+    failed_count = sum(1 for r in scored_or_none if r is None)
+
+    upserted_records: list[ShortlistResult] = list(upserted_from_prior)
     upserted_records.extend(newly_scored)
 
     log_event(
         logger,
-        "Finished scoring candidates for job \"%s\"",
+        "Finished scoring candidates for job \"%s\"%s",
         job.title,
+        f" ({plural(failed_count, 'failure')})" if failed_count else "",
     )
-    return upserted_records
+    return upserted_records, failed_count

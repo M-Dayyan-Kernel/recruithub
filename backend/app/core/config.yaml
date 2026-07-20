@@ -94,7 +94,7 @@ vapi:
     - end-of-call-report
 
 parsing:
-  resume_max_chars: 8000
+  resume_max_chars: 24000
   jd_max_chars: 12000
   shortlist_jd_chars: 1200
   expected_answer_jd_chars: 2500

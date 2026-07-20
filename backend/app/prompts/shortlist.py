@@ -2,6 +2,8 @@
 
 import json
 
+PROMPT_VERSION = "shortlist-v1"
+
 SHORTLIST_SYSTEM_PROMPT = (
     "You are an expert recruiter assessing candidate-JD fit. "
     "Analyse the candidate profile against the job description and return "

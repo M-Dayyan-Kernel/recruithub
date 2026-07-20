@@ -42,17 +42,18 @@ async def recover_stuck_parses(session: AsyncSession, job_id: uuid.UUID | None =
     """
     Re-queue candidates stuck in parse_queued/parsing longer than STUCK_PARSE_TIMEOUT.
 
-    A previous Celery worker may have set status to parsing then crashed; the task is
-    gone from Redis and will never complete without recovery.
+    Uses parse_started_at (not created_at) so long-waiting uploads that just started
+    parsing are not incorrectly re-queued.
     """
     cutoff = datetime.now(timezone.utc) - STUCK_PARSE_TIMEOUT
     query = (
         select(Candidate)
         .where(
             Candidate.parse_status.in_(("parse_queued", "parsing")),
-            Candidate.created_at < cutoff,
+            Candidate.parse_started_at.is_not(None),
+            Candidate.parse_started_at < cutoff,
         )
-        .order_by(Candidate.created_at.asc())
+        .order_by(Candidate.parse_started_at.asc())
     )
     if job_id is not None:
         query = query.where(Candidate.job_id == job_id)
@@ -65,6 +66,7 @@ async def recover_stuck_parses(session: AsyncSession, job_id: uuid.UUID | None =
     from app.tasks.resume_tasks import extract_resume_text  # noqa: PLC0415
 
     recovered = 0
+    now = datetime.now(timezone.utc)
     for candidate in stuck:
         label = candidate.original_filename or candidate.name or "a candidate"
         logger.warning(
@@ -73,6 +75,7 @@ async def recover_stuck_parses(session: AsyncSession, job_id: uuid.UUID | None =
             candidate.parse_status.replace("_", " "),
         )
         candidate.parse_status = "parse_queued"
+        candidate.parse_started_at = now
         await session.flush()
         extract_resume_text.apply_async(args=[str(candidate.id)])
         recovered += 1
@@ -120,10 +123,12 @@ async def dispatch_parse_slots(session: AsyncSession, job_id: uuid.UUID) -> int:
     from app.tasks.resume_tasks import extract_resume_text  # noqa: PLC0415
 
     dispatched = 0
+    now = datetime.now(timezone.utc)
     for candidate in pending:
         if dispatched >= slots:
             break
         candidate.parse_status = "parse_queued"
+        candidate.parse_started_at = now
         await session.flush()
         extract_resume_text.apply_async(args=[str(candidate.id)])
         dispatched += 1

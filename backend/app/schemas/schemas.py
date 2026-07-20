@@ -337,6 +337,8 @@ class ShortlistResultResponse(BaseModel):
     hr_decision: str
     hr_feedback_type: Optional[str] = None
     hr_comments: Optional[str] = None
+    model_name: Optional[str] = None
+    prompt_version: Optional[str] = None
     created_at: datetime
 
 
@@ -368,6 +370,7 @@ class ShortlistFeedbackCreate(BaseModel):
 class ShortlistTriggerRequest(BaseModel):
     """Optional body for POST /api/jobs/{job_id}/shortlist."""
     candidate_ids: Optional[List[uuid.UUID]] = None
+    force: bool = False
 
 
 class ShortlistStatusResponse(BaseModel):

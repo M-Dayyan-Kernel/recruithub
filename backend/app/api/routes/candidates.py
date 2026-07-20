@@ -25,7 +25,7 @@ ALLOWED_CONTENT_TYPES = {
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc"}
+ALLOWED_EXTENSIONS = {".pdf", ".docx"}
 ZIP_CONTENT_TYPES = {"application/zip", "application/x-zip-compressed"}
 ZIP_EXTENSIONS = {".zip"}
 
@@ -360,6 +360,7 @@ async def retry_parse(
         )
     before_status = candidate.parse_status
     candidate.parse_status = "pending_parse"
+    candidate.parse_started_at = None
     await log_change(
         db,
         actor=actor,

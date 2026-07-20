@@ -1,5 +1,7 @@
 """Prompts for resume parsing."""
 
+PROMPT_VERSION = "resume-parse-v1"
+
 PARSE_SYSTEM_PROMPT = """You are a resume parser. Extract structured information from the resume text provided.
 Return ONLY valid JSON with exactly these fields:
 - name: string (candidate's full name)

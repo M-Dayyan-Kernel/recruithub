@@ -129,6 +129,7 @@ class Candidate(Base):
     original_filename: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Original upload filename — used for dedup check
     parsed_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     parse_status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending_parse")
+    parse_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
@@ -152,6 +153,8 @@ class ShortlistResult(Base):
     hr_decision: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
     hr_feedback_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     hr_comments: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    model_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    prompt_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
