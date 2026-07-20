@@ -118,6 +118,7 @@ concurrency:
   max_parses: 10
   max_shortlists: 10
   max_resume_processing: 10
+  max_live_screening_calls: 5
   stuck_parse_timeout_minutes: 5
   shortlist_batch_ttl_seconds: 600
 
@@ -156,6 +157,8 @@ screening:
   cache_ttl_seconds: 30
   redispatch_delay_sec: 15
   stale_active_call_minutes: 5
+  max_call_duration_minutes: 15
+  live_slot_defer_sec: 45
 
 interview:
   max_follow_ups_per_topic: 2
@@ -192,6 +195,6 @@ celery:
     shortlist:
       concurrency: 2
     screening:
-      concurrency: 2
+      concurrency: 8
     interviews:
       concurrency: 2

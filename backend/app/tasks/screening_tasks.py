@@ -47,8 +47,33 @@ MIN_SUBSTANTIVE_TRANSCRIPT_CHARS = _s.min_substantive_transcript_chars
 RAPID_REDIAL_GUARD_SEC = _s.grace.rapid_redial_guard_sec
 SCREENING_REDISPATCH_DELAY_SEC = _s.redispatch_delay_sec
 STALE_ACTIVE_CALL_MINUTES = _s.stale_active_call_minutes
+MAX_CALL_DURATION_MINUTES = _s.max_call_duration_minutes
+LIVE_SLOT_DEFER_SEC = _s.live_slot_defer_sec
 
 LIVE_CALL_STATUSES = ("initiated", "in_progress")
+TERMINAL_CALL_STATUSES = frozenset({"completed", "failed"})
+
+
+def can_set_call_status(current: str | None, new: str) -> bool:
+    """Reject any transition that would leave a terminal status."""
+    if (current or "") in TERMINAL_CALL_STATUSES:
+        return False
+    return True
+
+
+def set_call_status_if_allowed(screening_call, new_status: str) -> bool:
+    """Set call_status only when not regressing from terminal. Returns True if applied."""
+    if not can_set_call_status(screening_call.call_status, new_status):
+        logger.debug(
+            "Ignoring status transition %s -> %s for screening_call %s",
+            screening_call.call_status,
+            new_status,
+            getattr(screening_call, "id", None),
+        )
+        return False
+    screening_call.call_status = new_status
+    return True
+
 
 # End reasons that imply the candidate was connected (even if transcript is not ready yet).
 CONNECTED_END_REASONS = (
@@ -241,6 +266,20 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
             )
             return
 
+        from app.services.screening_queue_service import has_live_screening_slot
+
+        if not await has_live_screening_slot(session, job.tenant_id):
+            logger.info(
+                "ScreeningCall %s deferred — tenant at live-call cap (%s)",
+                screening_call_id,
+                config.concurrency.max_live_screening_calls,
+            )
+            initiate_screening_call.apply_async(
+                args=[screening_call_id],
+                countdown=LIVE_SLOT_DEFER_SEC,
+            )
+            return
+
         # Call Vapi
         try:
             from app.services.tenant_integrations_service import load_tenant_integrations
@@ -269,22 +308,49 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
             logger.error(
                 "Vapi initiation failed for screening_call %s: %s", screening_call_id, exc
             )
-            screening_call.call_status = "failed"
-            screening_call.call_outcome = "failed"
-            screening_call.summary = str(exc)[:500]
-            await session.commit()
-            # Retry on transient errors — don't retry if it looks like a config/auth issue
             err_str = str(exc).lower()
-            if (
+            is_config_error = (
                 "401" in err_str
                 or "403" in err_str
                 or "api key" in err_str
                 or "transport" in err_str
                 or "validation" in err_str
-            ):
+            )
+            screening_call.vapi_call_id = None
+            screening_call.summary = str(exc)[:500]
+
+            if is_config_error:
+                # Non-retryable — mark failed permanently.
+                screening_call.call_status = "failed"
+                screening_call.call_outcome = "failed"
+                await session.commit()
                 logger.error("Config/auth error — not retrying: %s", exc)
                 return
-            raise task_self.retry(exc=exc, countdown=config.celery.transient_countdown_sec)
+
+            # Keep pending so Celery retries can re-enter the dial path.
+            screening_call.call_status = "pending"
+            screening_call.call_outcome = None
+            await session.commit()
+            try:
+                raise task_self.retry(
+                    exc=exc, countdown=config.celery.transient_countdown_sec
+                )
+            except Exception as retry_exc:
+                from celery.exceptions import MaxRetriesExceededError
+
+                if not isinstance(retry_exc, MaxRetriesExceededError):
+                    raise
+                screening_call.call_status = "failed"
+                screening_call.call_outcome = "failed"
+                screening_call.summary = (
+                    f"Vapi dial failed after retries: {str(exc)[:400]}"
+                )
+                await session.commit()
+                logger.error(
+                    "Vapi dial retries exhausted for screening_call %s",
+                    screening_call_id,
+                )
+                return
 
 
 # ---------------------------------------------------------------------------
@@ -446,7 +512,7 @@ async def _finalize_screening_call_from_vapi(
     """Poll Vapi once and finalize the screening call when the dial has ended."""
     from app.services.vapi_service import get_vapi_call
 
-    if screening_call.call_status in ("completed", "failed"):
+    if screening_call.call_status in TERMINAL_CALL_STATUSES:
         return False
     if not screening_call.vapi_call_id:
         return False
@@ -492,8 +558,8 @@ async def _finalize_screening_call_from_vapi(
     started_at = vapi_call.get("startedAt") or vapi_call.get("started_at")
 
     if mapped in LIVE_CALL_STATUSES and mapped != screening_call.call_status:
-        screening_call.call_status = mapped
-        await session.flush()
+        if set_call_status_if_allowed(screening_call, mapped):
+            await session.flush()
 
     if not _can_finalize_live_call(vapi_call, screening_call, force=force):
         return False
@@ -726,9 +792,11 @@ async def _async_send_failed_screening_email_deferred(screening_call_id: str) ->
 
 
 async def refresh_live_screening_calls_from_vapi(session, screening_calls) -> bool:
-    """Eagerly poll Vapi for in-flight calls. Returns True if any call was finalized."""
-    import asyncio
+    """Eagerly poll Vapi for in-flight calls. Returns True if any call was finalized.
 
+    Runs sequentially on the shared request session — concurrent gathers on one
+    AsyncSession are not safe.
+    """
     live_calls = [
         call
         for call in screening_calls
@@ -737,17 +805,17 @@ async def refresh_live_screening_calls_from_vapi(session, screening_calls) -> bo
     if not live_calls:
         return False
 
-    results = await asyncio.gather(
-        *[
-            _finalize_screening_call_from_vapi(session, call, force=False)
-            for call in live_calls
-        ],
-        return_exceptions=True,
-    )
-    any_updated = any(r is True for r in results)
-    for result in results:
-        if isinstance(result, Exception):
-            logger.warning("Live screening refresh failed: %s", result)
+    any_updated = False
+    for call in live_calls:
+        try:
+            if await _finalize_screening_call_from_vapi(session, call, force=False):
+                any_updated = True
+        except Exception as exc:
+            logger.warning(
+                "Live screening refresh failed for %s: %s",
+                getattr(call, "id", None),
+                exc,
+            )
     return any_updated
 
 
@@ -828,7 +896,7 @@ async def apply_screening_call_end(
 
     Returns True if the call was finalized (or parked for enrichment), False if already terminal.
     """
-    if screening_call.call_status in ("completed", "failed"):
+    if screening_call.call_status in TERMINAL_CALL_STATUSES:
         return False
 
     if awaiting_transcript and len((transcript or "").strip()) < MIN_SUBSTANTIVE_TRANSCRIPT_CHARS:
@@ -836,7 +904,7 @@ async def apply_screening_call_end(
         if transcript and transcript.strip():
             # Keep any early fragment while waiting for the full artifact.
             screening_call.transcript = transcript
-        screening_call.call_status = "in_progress"
+        set_call_status_if_allowed(screening_call, "in_progress")
         # Clear any provisional failure outcome so the UI does not flash "Unable to Connect".
         screening_call.call_outcome = None
         await session.commit()
@@ -851,7 +919,7 @@ async def apply_screening_call_end(
         screening_call.transcript = transcript
 
     if outcome == "failed":
-        screening_call.call_status = "failed"
+        set_call_status_if_allowed(screening_call, "failed")
         screening_call.result = None
         screening_call.summary = describe_screening_failure(ended_reason)
         await session.commit()
@@ -859,7 +927,7 @@ async def apply_screening_call_end(
             schedule_deferred_failed_screening_email(screening_call.id)
         return True
 
-    screening_call.call_status = "completed"
+    set_call_status_if_allowed(screening_call, "completed")
     if outcome in ("no_answer", "voicemail"):
         screening_call.result = "needs_review"
         screening_call.summary = (
@@ -1282,34 +1350,38 @@ async def _async_dispatch_pending() -> None:
 
     from app.models.models import Job, ScreeningCall
     from app.services.call_window_service import is_within_call_window
-    from app.services.settings_service import load_system_settings
-
-    stale_active_cutoff = datetime.now(timezone.utc) - timedelta(
-        minutes=STALE_ACTIVE_CALL_MINUTES
-    )
-    now = datetime.now(timezone.utc)
 
     async with get_celery_db() as session:
-        stale_active_cutoff = datetime.now(timezone.utc) - timedelta(
-        minutes=STALE_ACTIVE_CALL_MINUTES
-    )
+        max_duration_cutoff = datetime.now(timezone.utc) - timedelta(
+            minutes=MAX_CALL_DURATION_MINUTES
+        )
         now = datetime.now(timezone.utc)
 
-        stale_active = await session.execute(
+        # Only force-finalize calls that exceeded max duration (healthy live calls
+        # under that window are left alone; normal poll/webhook finalize them).
+        overdue_active = await session.execute(
             select(ScreeningCall).where(
                 ScreeningCall.call_status.in_(LIVE_CALL_STATUSES),
                 ScreeningCall.vapi_call_id.isnot(None),
-                ScreeningCall.created_at < stale_active_cutoff,
+                ScreeningCall.created_at < max_duration_cutoff,
             )
         )
         finalized = 0
-        for screening_call in stale_active.scalars().all():
-            if await _finalize_screening_call_from_vapi(session, screening_call, force=True):
+        for screening_call in overdue_active.scalars().all():
+            # Prefer gentle finalize (Vapi-ended); force only if still live past max duration.
+            if await _finalize_screening_call_from_vapi(
+                session, screening_call, force=False
+            ):
+                finalized += 1
+                continue
+            if await _finalize_screening_call_from_vapi(
+                session, screening_call, force=True
+            ):
                 finalized += 1
 
         if finalized:
             logger.info(
-                "dispatch_pending_screening_calls: force-finalized %d stale active calls",
+                "dispatch_pending_screening_calls: force-finalized %d overdue active calls",
                 finalized,
             )
 

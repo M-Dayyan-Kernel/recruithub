@@ -221,9 +221,14 @@ def _initiate_screening_call_sync(
     }
 
     if config.BACKEND_PUBLIC_URL:
+        from urllib.parse import urlencode
+
         webhook_url = (
             f"{config.BACKEND_PUBLIC_URL.rstrip('/')}/api/screening/webhook"
         )
+        secret = (config.VAPI_WEBHOOK_SECRET or "").strip()
+        if secret:
+            webhook_url = f"{webhook_url}?{urlencode({'token': secret})}"
         payload["assistant"]["serverUrl"] = webhook_url
         payload["assistant"]["serverMessages"] = list(vapi.webhook_messages)
     else:

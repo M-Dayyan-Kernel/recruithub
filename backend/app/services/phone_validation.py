@@ -2,7 +2,8 @@
 Phone Validation Service — Sprint 5
 
 Validates and normalises phone numbers to E.164 format for Vapi outbound calls.
-When geography enforcement is enabled, only allowed regions (default +91 India) pass.
+When geography enforcement is enabled, numbers must match an allowed region
+dialing code (default +91 India).
 """
 
 from __future__ import annotations
@@ -13,16 +14,63 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.settings_service import load_system_settings
 
+# ISO 3166-1 alpha-2 → E.164 country calling code (no leading +).
+REGION_DIAL_CODES: dict[str, str] = {
+    "IN": "91",
+    "US": "1",
+    "CA": "1",
+    "GB": "44",
+    "AU": "61",
+    "AE": "971",
+    "SG": "65",
+    "MY": "60",
+    "PH": "63",
+    "ID": "62",
+    "TH": "66",
+    "VN": "84",
+    "NP": "977",
+    "BD": "880",
+    "LK": "94",
+    "PK": "92",
+    "SA": "966",
+    "QA": "974",
+    "KW": "965",
+    "OM": "968",
+    "BH": "973",
+    "DE": "49",
+    "FR": "33",
+    "NL": "31",
+    "IE": "353",
+    "NZ": "64",
+    "ZA": "27",
+    "NG": "234",
+    "KE": "254",
+}
+
 
 def _strip_digits(phone: str) -> str:
     return re.sub(r"[^\d]", "", phone)
 
 
-def _normalize_indian(digits: str) -> tuple[bool, str]:
-    if digits.startswith("91") and len(digits) == 12:
-        return True, f"+{digits}"
-    if len(digits) == 10:
-        return True, f"+91{digits}"
+def _allowed_dial_codes(allowed_regions: list[str]) -> list[str]:
+    codes: list[str] = []
+    seen: set[str] = set()
+    for region in allowed_regions or []:
+        code = REGION_DIAL_CODES.get(str(region).upper().strip())
+        if code and code not in seen:
+            seen.add(code)
+            codes.append(code)
+    return codes
+
+
+def _match_allowed_code(digits: str, dial_codes: list[str]) -> tuple[bool, str]:
+    """Longest-prefix match against allowed dialing codes."""
+    for code in sorted(dial_codes, key=len, reverse=True):
+        if digits.startswith(code) and len(digits) > len(code):
+            return True, f"+{digits}"
+        # Local national number without country code (India 10-digit special case)
+        if code == "91" and len(digits) == 10:
+            return True, f"+91{digits}"
     return False, ""
 
 
@@ -44,10 +92,18 @@ def validate_phone_sync(
     if len(digits) < 10:
         return False, "", "Invalid phone number"
 
-    if enforce_geography and "IN" in allowed_regions:
-        ok, normalized = _normalize_indian(digits)
+    if enforce_geography:
+        dial_codes = _allowed_dial_codes(allowed_regions)
+        if not dial_codes:
+            return False, "", "No allowed phone regions configured"
+        ok, normalized = _match_allowed_code(digits, dial_codes)
         if not ok:
-            return False, "", "Phone number not in allowed region (+91 only)"
+            regions = ", ".join(sorted({r.upper() for r in allowed_regions if r}))
+            return (
+                False,
+                "",
+                f"Phone number not in allowed region(s): {regions or 'unknown'}",
+            )
         return True, normalized, None
 
     # Geography not enforced — accept 10+ digit numbers with + prefix

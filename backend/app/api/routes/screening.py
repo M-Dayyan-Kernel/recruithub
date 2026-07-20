@@ -3,7 +3,7 @@ Screening Routes — Sprint 5
 
 Endpoints:
   POST /api/jobs/{job_id}/screening/trigger — trigger screening for approved candidates
-  POST /api/screening/webhook               — Vapi.ai call-end webhook (no auth)
+  POST /api/screening/webhook               — Vapi.ai call-end webhook (token query auth)
   GET  /api/jobs/{job_id}/screening         — list all screening calls for a job
 """
 
@@ -157,20 +157,45 @@ async def trigger_screening(
 
 
 # ---------------------------------------------------------------------------
-# 5.2 — Vapi webhook endpoint (no auth — Vapi doesn't send auth headers)
+# 5.2 — Vapi webhook endpoint (shared-secret token in query string)
 # ---------------------------------------------------------------------------
+
+def _verify_vapi_webhook_token(request: Request) -> None:
+    """Reject webhook when VAPI_WEBHOOK_SECRET is set and token does not match."""
+    import secrets as secrets_mod
+
+    expected = (config.VAPI_WEBHOOK_SECRET or "").strip()
+    if not expected:
+        logger.warning(
+            "VAPI_WEBHOOK_SECRET is empty — accepting unauthenticated screening webhooks"
+        )
+        return
+    provided = (request.query_params.get("token") or "").strip()
+    if not provided or not secrets_mod.compare_digest(provided, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing webhook token",
+        )
+
 
 @router.post("/screening/webhook", status_code=status.HTTP_200_OK)
 async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Receive Vapi.ai server URL events (status updates, end-of-call reports).
 
+    Auth: when VAPI_WEBHOOK_SECRET is set, require matching ?token= query param
+    (embedded in assistant.serverUrl at dial time).
+
     Finds ScreeningCall by vapi_call_id and enqueues processing or updates status.
     Returns immediately — Vapi requires fast response.
     """
+    _verify_vapi_webhook_token(request)
+
     from app.tasks.screening_tasks import (
         apply_screening_call_end,
+        can_set_call_status,
         process_screening_webhook as _process_task,
+        set_call_status_if_allowed,
         sync_screening_call_status as _sync_task,
     )
 
@@ -209,8 +234,8 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         started_at = call_data.get("startedAt") or message.get("startedAt")
 
         if status_value in ("ringing", "in-progress", "forwarding", "queued", "scheduled"):
-            screening_call.call_status = "in_progress"
-            await db.commit()
+            if set_call_status_if_allowed(screening_call, "in_progress"):
+                await db.commit()
             return {"status": "received"}
 
         if status_value in ("ended", "completed", "failed", "busy", "no-answer") or ended_at:
@@ -219,6 +244,9 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 enrich_screening_transcript as _enrich_task,
                 should_wait_for_transcript,
             )
+
+            if not can_set_call_status(screening_call.call_status, "completed"):
+                return {"status": "received"}
 
             needs_transcript_wait = should_wait_for_transcript(
                 transcript=transcript,

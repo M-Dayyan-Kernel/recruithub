@@ -178,6 +178,7 @@ class ConcurrencyConfig(BaseModel):
     max_parses: int = 10
     max_shortlists: int = 10
     max_resume_processing: int = 10
+    max_live_screening_calls: int = 5
     stuck_parse_timeout_minutes: int = 5
     shortlist_batch_ttl_seconds: int = 600
 
@@ -244,6 +245,8 @@ class ScreeningConfig(BaseModel):
     cache_ttl_seconds: int = 30
     redispatch_delay_sec: int = 15
     stale_active_call_minutes: int = 5
+    max_call_duration_minutes: int = 15
+    live_slot_defer_sec: int = 45
 
     @property
     def failed_email_delay_sec(self) -> int:

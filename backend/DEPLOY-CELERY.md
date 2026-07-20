@@ -127,3 +127,7 @@ Each `run-celery-worker.sh <queue>` maps 1:1 to a Deployment or systemd unit:
 - `celery-beat` Deployment — `replicas: 1` always
 
 Optional: [Flower](https://flower.readthedocs.io/) for live task monitoring (not included by default).
+
+## Screening
+
+Voice screening ops (live-call caps, webhook secret, dial retries): see [`DEPLOY-SCREENING.md`](DEPLOY-SCREENING.md).

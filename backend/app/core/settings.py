@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     VAPI_API_KEY: str = ""
     VAPI_PHONE_NUMBER_ID: str = ""
+    # Shared secret appended as ?token= on Vapi serverUrl webhooks (empty = permissive in dev).
+    VAPI_WEBHOOK_SECRET: str = ""
     # Public HTTPS base URL for webhooks (e.g. ngrok tunnel). Enables Vapi call status updates.
     BACKEND_PUBLIC_URL: str = ""
     SARVAM_API_KEY: str = ""
