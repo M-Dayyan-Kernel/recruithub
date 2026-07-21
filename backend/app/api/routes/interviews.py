@@ -174,13 +174,7 @@ async def schedule_interview(
 
     candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
 
-    screening_result = await db.execute(
-        select(ScreeningCall).where(
-            ScreeningCall.candidate_id == candidate_id,
-            ScreeningCall.result == "pass",
-        )
-    )
-    if not screening_result.scalars().first():
+    if not await _get_latest_pass_screening_call(db, candidate_id, candidate.job_id):
         raise HTTPException(
             status_code=400,
             detail="Candidate has not passed screening. Interview cannot be scheduled.",
@@ -219,13 +213,18 @@ async def schedule_interview(
 
     interview_url = f"{config.CANDIDATE_APP_URL}/interview/{unique_token}"
 
-    await send_scheduled_interview_notification_email(
+    email_sent = await send_scheduled_interview_notification_email(
         db,
         interview_session,
         candidate,
         job_title,
         timezone_name=body.timezone or "Asia/Kolkata",
     )
+    if not email_sent:
+        logger.warning(
+            "Interview scheduled for candidate=%s but notification email failed",
+            candidate_id,
+        )
 
     await log_change(
         db,
@@ -797,6 +796,12 @@ async def livekit_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     event = body.get("event", "")
     room_data = body.get("room", {}) or {}
     room_name: Optional[str] = room_data.get("name") or body.get("room_name")
+    room_sid = room_data.get("sid") or body.get("room_sid") or room_name
+
+    from app.services.webhook_idempotency import claim_webhook_event
+
+    if room_sid and not claim_webhook_event("livekit", f"{room_sid}:{event}"):
+        return {"status": "duplicate"}
 
     logger.info("LiveKit webhook received: event=%s room=%s", event, room_name)
 
@@ -925,37 +930,6 @@ async def get_interview_report(
 
     report_dict["transcript"] = session.transcript if session else None
 
-    if job and candidate and session:
-        from app.services.report_refresh_service import ensure_report_has_coverage
-
-        try:
-            refreshed = await ensure_report_has_coverage(
-                db,
-                report,
-                job,
-                candidate,
-                session.transcript or "",
-            )
-        except Exception as exc:
-            logger.warning(
-                "Report coverage refresh failed for candidate %s: %s",
-                candidate.id,
-                exc,
-            )
-            refreshed = False
-        if refreshed:
-            report_dict = {
-                col.key: getattr(report, col.key)
-                for col in report.__table__.columns
-            }
-            report_dict["candidate_name"] = candidate.name if candidate else None
-            report_dict["job_title"] = job.title if job else None
-            raw = report.raw_report or {}
-            if raw.get("assessment_mode") == "rubric":
-                report_dict["question_scores"] = raw.get("question_scores")
-                report_dict["rubric_total"] = raw.get("rubric_total")
-            report_dict["transcript"] = session.transcript if session else None
-
     # Presigned playback URL for LiveKit egress recording (if uploaded to S3)
     recording_key = session.recording_key if session else None
     report_dict["recording_key"] = recording_key
@@ -966,6 +940,60 @@ async def get_interview_report(
         report_dict["recording_url"] = generate_presigned_get_url(recording_key)
 
     return InterviewReportResponse.model_validate(report_dict)
+
+
+@router.post(
+    "/candidates/{candidate_id}/report/refresh",
+    response_model=InterviewReportResponse,
+    dependencies=[_hr_auth],
+)
+async def refresh_interview_report(
+    candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    db: AsyncSession = Depends(get_db),
+):
+    """Regenerate rubric point coverage via OpenAI when the stored report is stale."""
+    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
+
+    session_result = await db.execute(
+        select(InterviewSession)
+        .where(InterviewSession.candidate_id == candidate_id)
+        .order_by(InterviewSession.created_at.desc())
+        .limit(1)
+    )
+    session = session_result.scalars().first()
+    if not session:
+        raise HTTPException(status_code=404, detail="No interview session found")
+
+    report_result = await db.execute(
+        select(InterviewReport).where(
+            InterviewReport.interview_session_id == session.id
+        )
+    )
+    report = report_result.scalars().first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not ready yet")
+
+    from app.models.models import Job as _Job
+    from app.services.report_refresh_service import ensure_report_has_coverage
+
+    job_result = await db.execute(select(_Job).where(_Job.id == report.job_id))
+    job = job_result.scalars().first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    refreshed = await ensure_report_has_coverage(
+        db,
+        report,
+        job,
+        candidate,
+        session.transcript or "",
+    )
+    if refreshed:
+        await db.commit()
+        await db.refresh(report)
+
+    return await get_interview_report(candidate_id, actor, db)
 
 
 # ---------------------------------------------------------------------------
@@ -1121,6 +1149,85 @@ async def update_interview_hr_decision(
         if msg == "Candidate not found":
             raise HTTPException(status_code=404, detail=msg) from exc
         raise HTTPException(status_code=400, detail=msg) from exc
+
+
+# ---------------------------------------------------------------------------
+# POST /api/candidates/{candidate_id}/interview/resend-email
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/candidates/{candidate_id}/interview/resend-email",
+    response_model=InterviewSessionResponse,
+    dependencies=[_hr_auth],
+)
+async def resend_interview_email(
+    candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    db: AsyncSession = Depends(get_db),
+):
+    """Resend the interview invitation email for a pending session."""
+    from app.models.models import Job
+    from app.services.interview_schedule_service import resend_interview_notification_email
+
+    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
+
+    session_result = await db.execute(
+        select(InterviewSession)
+        .where(
+            InterviewSession.candidate_id == candidate_id,
+            InterviewSession.job_id == candidate.job_id,
+            InterviewSession.status == "pending",
+        )
+        .order_by(InterviewSession.created_at.desc())
+        .limit(1)
+    )
+    session = session_result.scalars().first()
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail="No pending interview session found for this candidate.",
+        )
+
+    job = await db.get(Job, candidate.job_id)
+    job_title = job.title if job else "the position"
+    timezone_name = (job.screening_timezone if job else None) or "Asia/Kolkata"
+
+    email_sent = await resend_interview_notification_email(
+        db,
+        session,
+        candidate,
+        job_title,
+        timezone_name=timezone_name,
+    )
+    if not email_sent:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Failed to send interview email. Check Gmail configuration "
+                "and that the candidate has a valid email address."
+            ),
+        )
+
+    await log_change(
+        db,
+        actor=actor,
+        action="interview.email_resent",
+        entity_type="interview",
+        entity_id=session.id,
+        subject_label=await _candidate_label(db, candidate, candidate_id),
+        feature="interview_link",
+        before=None,
+        after={"email_sent_at": session.email_sent_at.isoformat() if session.email_sent_at else None},
+        job_id=candidate.job_id,
+    )
+    await db.commit()
+    await db.refresh(session)
+
+    response_data = InterviewSessionResponse.model_validate(session)
+    response_data.interview_url = f"{config.CANDIDATE_APP_URL}/interview/{session.unique_token}"
+    response_data.candidate_name = candidate.name
+    response_data.job_title = job_title
+    return response_data
 
 
 # ---------------------------------------------------------------------------

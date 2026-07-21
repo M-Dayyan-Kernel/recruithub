@@ -1,8 +1,25 @@
+import re
 import uuid
 from datetime import datetime, time
 from typing import Literal, Optional, List
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator, model_validator
+
+
+_PASSWORD_MIN_LEN = 12
+_PASSWORD_PATTERN = re.compile(
+    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?\":{}|<>_\-\[\]\\/+=~`]).+$"
+)
+
+
+def validate_password_strength(password: str) -> str:
+    if len(password) < _PASSWORD_MIN_LEN:
+        raise ValueError(f"Password must be at least {_PASSWORD_MIN_LEN} characters")
+    if not _PASSWORD_PATTERN.match(password):
+        raise ValueError(
+            "Password must include uppercase, lowercase, a digit, and a special character"
+        )
+    return password
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +312,7 @@ class CandidateUpdate(BaseModel):
 
 
 class CandidateResponse(BaseModel):
+    """Summary candidate fields for list views (no resume body or storage paths)."""
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -302,11 +320,15 @@ class CandidateResponse(BaseModel):
     name: str
     email: str
     phone: Optional[str] = None
-    resume_file_path: Optional[str] = None
-    original_filename: Optional[str] = None  # Original upload filename
-    parsed_data: Optional[dict] = None
+    original_filename: Optional[str] = None
     pipeline_status: str
     created_at: datetime
+
+
+class CandidateDetailResponse(CandidateResponse):
+    """Full candidate detail including parsed resume data (HR/admin only)."""
+    resume_file_path: Optional[str] = None
+    parsed_data: Optional[dict] = None
 
 
 class ResumeUploadResponse(BaseModel):
@@ -602,14 +624,20 @@ class UserResponse(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    refresh_token: Optional[str] = None
     user: UserResponse
 
 
 class SignupRequest(BaseModel):
     organization_name: str = Field(..., min_length=1, max_length=255)
     email: EmailStr
-    password: str = Field(..., min_length=6, max_length=128)
+    password: str = Field(..., min_length=12, max_length=128)
     full_name: str = Field(..., min_length=1, max_length=255)
+
+    @field_validator("password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        return validate_password_strength(v)
 
 
 class SignupPendingResponse(BaseModel):
@@ -623,8 +651,13 @@ class SignupPendingResponse(BaseModel):
 
 class AcceptInviteRequest(BaseModel):
     token: str = Field(..., min_length=10, max_length=128)
-    password: str = Field(..., min_length=6, max_length=128)
+    password: str = Field(..., min_length=12, max_length=128)
     full_name: str = Field(..., min_length=1, max_length=255)
+
+    @field_validator("password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        return validate_password_strength(v)
 
 
 class InviteCreateRequest(BaseModel):
@@ -697,7 +730,12 @@ class TenantCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     admin_email: EmailStr
     admin_full_name: str = Field(..., min_length=1, max_length=255)
-    admin_password: str = Field(..., min_length=6, max_length=128)
+    admin_password: str = Field(..., min_length=12, max_length=128)
+
+    @field_validator("admin_password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        return validate_password_strength(v)
 
 
 class TenantUpdateRequest(BaseModel):
@@ -708,15 +746,47 @@ class TenantUpdateRequest(BaseModel):
 class UserCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(..., min_length=1, max_length=255)
-    password: str = Field(..., min_length=6, max_length=128)
+    password: str = Field(..., min_length=12, max_length=128)
     role: TenantMemberRoleLiteral = "hr"
+
+    @field_validator("password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        return validate_password_strength(v)
 
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = Field(None, min_length=1, max_length=255)
     role: Optional[TenantMemberRoleLiteral] = None
-    password: Optional[str] = Field(None, min_length=6, max_length=128)
+    password: Optional[str] = Field(None, min_length=12, max_length=128)
     is_active: Optional[bool] = None
+
+    @field_validator("password")
+    @classmethod
+    def _password_strength(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return validate_password_strength(v)
+
+
+class PaginatedResponse(BaseModel):
+    items: list
+    total: int
+    limit: int
+    offset: int
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=10)
+
+
+class MfaSetupResponse(BaseModel):
+    secret: str
+    provisioning_uri: str
+
+
+class MfaVerifyRequest(BaseModel):
+    code: str = Field(..., min_length=6, max_length=8)
 
 
 # ---------------------------------------------------------------------------

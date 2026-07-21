@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { fetchJobCandidates } from '@/lib/workflow'
 import type { Candidate, ScreeningCall, ShortlistResultWithCandidate, SystemSettings } from '@/types/api'
 import {
   buildScreeningRows,
@@ -55,7 +56,7 @@ export function ScreeningStatusTabs({ jobId }: Props) {
 
   const { data: candidates } = useQuery<Candidate[]>({
     queryKey: ['candidates', jobId],
-    queryFn: () => api.get(`/api/jobs/${jobId}/candidates`) as unknown as Promise<Candidate[]>,
+    queryFn: () => fetchJobCandidates(jobId),
     enabled: !!jobId,
   })
 

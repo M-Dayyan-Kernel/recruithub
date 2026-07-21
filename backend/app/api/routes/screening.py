@@ -198,6 +198,7 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         set_call_status_if_allowed,
         sync_screening_call_status as _sync_task,
     )
+    from app.services.webhook_idempotency import claim_webhook_event
 
     try:
         body: Dict[str, Any] = await request.json()
@@ -213,6 +214,9 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
     if not vapi_call_id:
         return {"status": "received"}
+
+    if not claim_webhook_event("vapi", f"{vapi_call_id}:{message_type}"):
+        return {"status": "duplicate"}
 
     result = await db.execute(
         select(ScreeningCall).where(ScreeningCall.vapi_call_id == vapi_call_id)

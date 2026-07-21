@@ -1,5 +1,18 @@
 import axios, { type AxiosError } from 'axios'
 import { QueryClient } from '@tanstack/react-query'
+import type { PaginatedResponse } from '@/types/api'
+
+export const DEFAULT_LIST_LIMIT = 200
+
+/** Unwrap list endpoints that may return a bare array or paginated envelope. */
+export function unwrapPaginated<T>(
+  data: T[] | PaginatedResponse<T> | null | undefined,
+): T[] {
+  if (!data) return []
+  if (Array.isArray(data)) return data
+  if (Array.isArray(data.items)) return data.items
+  return []
+}
 
 // ---------------------------------------------------------------------------
 // Axios instance

@@ -6,7 +6,7 @@ from typing import Optional, List, Literal
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, exists
+from sqlalchemy import select, exists, func
 
 from app.core.config_loader import config
 from app.core.database import get_db
@@ -14,7 +14,8 @@ from app.core.deps import RequireAdminOrHr, hr_roles
 from app.core.logging import get_actor_label, log_event, plural
 from app.core.tenancy import get_tenant_candidate, get_tenant_job
 from app.models.models import Candidate, ShortlistResult
-from app.schemas.schemas import CandidateResponse, CandidateUpdate, ResumeUploadResponse
+from app.schemas.schemas import CandidateResponse, CandidateDetailResponse, CandidateUpdate, ResumeUploadResponse, PaginatedResponse
+from app.core.pagination import PaginationParams
 from app.services.audit_service import log_change, log_field_changes
 
 logger = logging.getLogger(__name__)
@@ -289,10 +290,11 @@ async def upload_resumes(
 # Task 3.8 — Candidate List
 # ---------------------------------------------------------------------------
 
-@router.get("/jobs/{job_id}/candidates", response_model=List[CandidateResponse])
+@router.get("/jobs/{job_id}/candidates", response_model=PaginatedResponse)
 async def list_candidates(
     job_id: uuid.UUID,
     actor: RequireAdminOrHr,
+    pagination: PaginationParams = Depends(),
     pipeline_status: Optional[str] = Query(
         None,
         description="Comma-separated pipeline_status values, e.g. queued or processing,completed",
@@ -331,22 +333,42 @@ async def list_candidates(
             stmt = stmt.where(~exists(shortlist_exists))
 
     stmt = stmt.order_by(Candidate.created_at.desc())
-    result = await db.execute(stmt)
-    return result.scalars().all()
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = int((await db.execute(count_stmt)).scalar() or 0)
+    result = await db.execute(stmt.offset(pagination.offset).limit(pagination.limit))
+    items = result.scalars().all()
+    return PaginatedResponse(
+        items=[CandidateResponse.model_validate(c) for c in items],
+        total=total,
+        limit=pagination.limit,
+        offset=pagination.offset,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Task 3.9 — Candidate Detail
 # ---------------------------------------------------------------------------
 
-@router.get("/candidates/{candidate_id}", response_model=CandidateResponse)
+@router.get("/candidates/{candidate_id}", response_model=CandidateDetailResponse)
 async def get_candidate(
     candidate_id: uuid.UUID,
     actor: RequireAdminOrHr,
     db: AsyncSession = Depends(get_db),
 ):
-    """Return a single candidate by ID."""
-    return await get_tenant_candidate(db, candidate_id, actor.tenant_id)
+    """Return a single candidate by ID (includes parsed resume data)."""
+    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
+    await log_change(
+        db,
+        actor=actor,
+        action="candidate.view_detail",
+        entity_type="candidate",
+        entity_id=candidate.id,
+        subject_label=candidate.original_filename or candidate.name or str(candidate_id),
+        feature="pii_access",
+        job_id=candidate.job_id,
+    )
+    await db.commit()
+    return CandidateDetailResponse.model_validate(candidate)
 
 
 # ---------------------------------------------------------------------------
@@ -366,6 +388,11 @@ async def retry_processing(
     """Re-queue a candidate for AI resume review and shortlisting."""
     await get_tenant_job(db, job_id, actor.tenant_id)
     candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
+    if candidate.job_id != job_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Candidate not found for this job",
+        )
     retryable = ("failed", "completed", "queued", "processing")
     if candidate.pipeline_status not in retryable:
         raise HTTPException(
@@ -413,6 +440,30 @@ async def retry_parse(
 ):
     """Deprecated alias for retry-processing."""
     return await retry_processing(job_id, candidate_id, actor, db)
+
+
+@router.delete("/candidates/{candidate_id}/gdpr-erase", status_code=status.HTTP_204_NO_CONTENT)
+async def gdpr_erase_candidate(
+    candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    db: AsyncSession = Depends(get_db),
+):
+    """Erase candidate PII while retaining anonymized referential rows."""
+    from app.services.retention_service import erase_candidate_pii
+
+    candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
+    await erase_candidate_pii(db, candidate, tenant_id=actor.tenant_id)
+    await log_change(
+        db,
+        actor=actor,
+        action="candidate.gdpr_erase",
+        entity_type="candidate",
+        entity_id=candidate.id,
+        subject_label=str(candidate_id),
+        feature="gdpr",
+        job_id=candidate.job_id,
+    )
+    await db.commit()
 
 
 # ---------------------------------------------------------------------------

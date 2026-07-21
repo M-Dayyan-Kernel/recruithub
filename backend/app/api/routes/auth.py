@@ -1,8 +1,9 @@
 from pathlib import Path
 from uuid import uuid4
+import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,18 +12,30 @@ from sqlalchemy.orm import selectinload
 from app.core.config_loader import config
 from app.core.database import get_db
 from app.core.deps import PLATFORM_TENANT_SLUG, RequireSuperAdmin, get_current_user
+from app.core.rate_limit import (
+    check_login_lockout,
+    clear_login_failures,
+    enforce_rate_limit,
+    record_login_failure,
+)
 from app.core.security import create_access_token, verify_password
+from app.schemas.schemas import validate_password_strength
 from app.models.models import Tenant, User
 from app.schemas.schemas import (
     AcceptInviteRequest,
     InvitePublicResponse,
     LoginRequest,
+    MfaSetupResponse,
+    MfaVerifyRequest,
+    RefreshTokenRequest,
     SignupPendingResponse,
     SwitchTenantRequest,
     TokenResponse,
     UserResponse,
 )
 from app.services.tenant_service import create_tenant_with_admin, get_valid_invite
+from app.services.refresh_token_service import issue_refresh_token, revoke_refresh_token, rotate_refresh_token
+from app.services.mfa_service import generate_mfa_secret, provisioning_uri, verify_mfa_code
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -59,6 +72,7 @@ def _issue_token(
     tenant_name: str | None = None,
     active_tenant_id: str | None = None,
     active_tenant_name: str | None = None,
+    refresh_token: str | None = None,
 ) -> TokenResponse:
     home_tenant_id = getattr(user, "home_tenant_id", None) or user.tenant_id
     claims = {
@@ -80,6 +94,7 @@ def _issue_token(
     token = create_access_token(subject=str(user.id), extra_claims=claims)
     return TokenResponse(
         access_token=token,
+        refresh_token=refresh_token,
         user=_user_response(user, tenant_name=active_tenant_name or tenant_name),
     )
 
@@ -174,6 +189,7 @@ def _persist_gst_document(tenant_id, data: bytes) -> str:
     status_code=status.HTTP_201_CREATED,
 )
 async def signup(
+    request: Request,
     organization_name: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
@@ -182,14 +198,23 @@ async def signup(
     gst_document: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
+    enforce_rate_limit(
+        request,
+        scope="auth:signup",
+        limit=int(config.AUTH_RATE_LIMIT_PER_MINUTE),
+    )
     org = organization_name.strip()
     if not org:
         raise HTTPException(status_code=400, detail="Organization name is required")
     full = full_name.strip()
     if not full:
         raise HTTPException(status_code=400, detail="Full name is required")
-    if len(password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if len(password) < 12:
+        raise HTTPException(status_code=400, detail="Password must be at least 12 characters")
+    try:
+        validate_password_strength(password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     email_norm = _parse_email_or_400(email)
     existing = await db.execute(select(User).where(User.email == email_norm))
@@ -227,13 +252,25 @@ async def signup(
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    enforce_rate_limit(
+        request,
+        scope="auth:login",
+        limit=int(config.AUTH_RATE_LIMIT_PER_MINUTE),
+    )
     email = body.email.strip().lower()
+    check_login_lockout(request, email)
     result = await db.execute(
         select(User).options(selectinload(User.tenant)).where(User.email == email)
     )
     user = result.scalars().first()
-    if user is None or not verify_password(body.password, user.hashed_password):
+    password_ok = False
+    if user is not None:
+        password_ok = await asyncio.to_thread(
+            verify_password, body.password, user.hashed_password
+        )
+    if user is None or not password_ok:
+        record_login_failure(request, email)
         logger.warning("Sign-in failed because the email or password was wrong")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -249,12 +286,19 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     if user.role != "superadmin":
         _assert_tenant_can_access(user.tenant)
 
+    clear_login_failures(request, email)
+    refresh_raw = await issue_refresh_token(db, user)
+    await db.commit()
     logger.info(
         "%s signed in successfully as %s",
         user.full_name or "A user",
         user.role.replace("_", " "),
     )
-    return _issue_token(user, tenant_name=user.tenant.name if user.tenant else None)
+    return _issue_token(
+        user,
+        tenant_name=user.tenant.name if user.tenant else None,
+        refresh_token=refresh_raw,
+    )
 
 
 @router.get("/me", response_model=UserResponse)
@@ -308,7 +352,8 @@ async def clear_tenant_switch(
 
 
 @router.get("/invites/{token}", response_model=InvitePublicResponse)
-async def get_invite(token: str, db: AsyncSession = Depends(get_db)):
+async def get_invite(token: str, request: Request, db: AsyncSession = Depends(get_db)):
+    enforce_rate_limit(request, scope="auth:invite_lookup", limit=60)
     invite = await get_valid_invite(db, token)
     if invite is None:
         raise HTTPException(status_code=404, detail="Invite not found or expired")
@@ -322,7 +367,14 @@ async def get_invite(token: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/accept-invite", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-async def accept_invite(body: AcceptInviteRequest, db: AsyncSession = Depends(get_db)):
+async def accept_invite(
+    body: AcceptInviteRequest, request: Request, db: AsyncSession = Depends(get_db)
+):
+    enforce_rate_limit(
+        request,
+        scope="auth:accept_invite",
+        limit=int(config.AUTH_RATE_LIMIT_PER_MINUTE),
+    )
     invite = await get_valid_invite(db, body.token.strip())
     if invite is None:
         raise HTTPException(status_code=404, detail="Invite not found or expired")
@@ -346,7 +398,7 @@ async def accept_invite(body: AcceptInviteRequest, db: AsyncSession = Depends(ge
         tenant_id=invite.tenant_id,
         email=email,
         full_name=body.full_name.strip(),
-        hashed_password=hash_password(body.password),
+        hashed_password=await asyncio.to_thread(hash_password, body.password),
         role=invite.role,
         is_active=True,
     )
@@ -354,4 +406,53 @@ async def accept_invite(body: AcceptInviteRequest, db: AsyncSession = Depends(ge
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    return _issue_token(user, tenant_name=tenant.name if tenant else None)
+    refresh_raw = await issue_refresh_token(db, user)
+    await db.commit()
+    return _issue_token(user, tenant_name=tenant.name if tenant else None, refresh_token=refresh_raw)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(body: RefreshTokenRequest, db: AsyncSession = Depends(get_db)):
+    rotated = await rotate_refresh_token(db, body.refresh_token)
+    if rotated is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    user, new_refresh = rotated
+    return _issue_token(user, tenant_name=user.tenant.name if user.tenant else None, refresh_token=new_refresh)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(body: RefreshTokenRequest, db: AsyncSession = Depends(get_db)):
+    await revoke_refresh_token(db, body.refresh_token)
+
+
+@router.post("/mfa/setup", response_model=MfaSetupResponse)
+async def mfa_setup(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if current_user.role not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="MFA setup is limited to admin users")
+    secret = generate_mfa_secret()
+    current_user.mfa_secret = secret
+    current_user.mfa_enabled = False
+    await db.commit()
+    return MfaSetupResponse(
+        secret=secret,
+        provisioning_uri=provisioning_uri(secret=secret, email=current_user.email),
+    )
+
+
+@router.post("/mfa/verify", response_model=TokenResponse)
+async def mfa_verify(
+    body: MfaVerifyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not current_user.mfa_secret:
+        raise HTTPException(status_code=400, detail="MFA is not configured for this user")
+    if not verify_mfa_code(secret=current_user.mfa_secret, code=body.code):
+        raise HTTPException(status_code=401, detail="Invalid MFA code")
+    current_user.mfa_enabled = True
+    refresh_raw = await issue_refresh_token(db, current_user)
+    await db.commit()
+    return _issue_token(current_user, refresh_token=refresh_raw)

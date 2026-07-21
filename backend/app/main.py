@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.routes import (
     auth,
@@ -33,8 +34,17 @@ from app.core.logging import (
 from app.services.mock_external import active_mock_services
 from app.services.user_seed_service import seed_admin_user, seed_superadmin_user
 
-setup_logging(app_settings.LOG_LEVEL)
+setup_logging(app_settings.LOG_LEVEL, log_format=app_settings.LOG_FORMAT)
 logger = logging.getLogger(__name__)
+
+if app_settings.SENTRY_DSN:
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(dsn=app_settings.SENTRY_DSN, environment=app_settings.APP_ENV)
+        logger.info("Sentry error tracking enabled")
+    except Exception:
+        logger.exception("Failed to initialize Sentry")
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -106,17 +116,11 @@ if _mock_services:
     )
 
 app.add_middleware(RequestLoggingMiddleware)
+if app_settings.trusted_hosts:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=app_settings.trusted_hosts)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:5175",
-        "http://localhost:5176",
-        "http://localhost:5177",
-        "http://localhost:5178",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=app_settings.cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,
@@ -142,16 +146,11 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.get("/health", tags=["health"])
 async def health():
-    mocks = active_mock_services()
-    return {
-        "status": "ok",
-        "version": "1.0.0",
-        "mock_mode": bool(mocks),
-        "mocked_services": mocks,
-    }
+    """Backward-compatible liveness alias."""
+    return {"status": "ok", "version": "1.0.0"}
 
 
-app.include_router(health_routes.router, prefix="/api", tags=["health"])
+app.include_router(health_routes.router, tags=["health"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(platform.router, prefix="/api/platform", tags=["platform"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
@@ -162,3 +161,10 @@ app.include_router(shortlist.router, prefix="/api", tags=["shortlist"])
 app.include_router(screening.router, prefix="/api", tags=["screening"])
 app.include_router(interviews.router, prefix="/api", tags=["interviews"])
 app.include_router(settings.router, prefix="/api", tags=["settings"])
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics():
+    from app.core.metrics import metrics_response
+
+    return metrics_response()

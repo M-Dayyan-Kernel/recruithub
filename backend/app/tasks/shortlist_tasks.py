@@ -84,16 +84,27 @@ def run_shortlist(
     Optional candidate_ids limits scoring to a subset (also stored in Redis).
     force=True re-scores candidates that already have ShortlistResult rows.
     """
+    retrying = False
     try:
         asyncio.run(_async_shortlist(self, job_id, candidate_ids, force=force))
     except Exception as exc:
-        logger.error("run_shortlist failed for job %s: %s", job_id, exc)
+        from celery.exceptions import Retry
+
+        if isinstance(exc, Retry):
+            retrying = True
+            logger.warning(
+                "run_shortlist retry scheduled for job %s — keeping Redis lock",
+                job_id,
+            )
+        else:
+            logger.error("run_shortlist failed for job %s: %s", job_id, exc)
         raise
     finally:
+        if retrying:
+            return
         try:
             _r = redis_lib.from_url(config.REDIS_URL or "redis://localhost:6379/0")
             _r.delete(_shortlist_lock_key(job_id))
-            # Keep batch + failed keys briefly for status polling after completion
         except Exception as lock_exc:
             logger.warning(
                 "run_shortlist: failed to release Redis lock for job %s: %s",

@@ -17,6 +17,11 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.production_validation import (
+    parse_csv_list,
+    resolve_cors_origins,
+    validate_production_settings,
+)
 from app.core.settings import Settings, settings as _env_settings
 
 
@@ -292,6 +297,8 @@ class SchedulerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dispatch_pending_screening_seconds: float = 60.0
     recover_stuck_parses_seconds: float = 120.0
+    dispatch_scheduled_interview_seconds: float = 60.0
+    dispatch_outbox_seconds: float = 5.0
 
 
 class CeleryQueueConfig(BaseModel):
@@ -450,6 +457,18 @@ class RuntimeConfig:
         queues = self._app.celery.queues
         return int(getattr(queues, queue).concurrency)
 
+    @property
+    def is_production(self) -> bool:
+        return self._env.is_production
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return resolve_cors_origins(self._env)
+
+    @property
+    def trusted_hosts(self) -> list[str]:
+        return parse_csv_list(self._env.TRUSTED_HOSTS)
+
     def __getattr__(self, name: str) -> Any:
         # Proxy secret / deployment Settings fields (DATABASE_URL, API keys, …).
         try:
@@ -481,7 +500,9 @@ def load_config(
     path = resolve_config_path(config_path)
     raw = _read_yaml(path)
     app = AppConfig.model_validate(raw)
-    _cached = RuntimeConfig(app=app, env=env or _env_settings)
+    merged_env = env or _env_settings
+    validate_production_settings(merged_env)
+    _cached = RuntimeConfig(app=app, env=merged_env)
     return _cached
 
 

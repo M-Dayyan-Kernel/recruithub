@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_loader import config
@@ -14,10 +14,13 @@ from app.schemas.schemas import (
     InviteCreateRequest,
     InviteListItem,
     InviteResponse,
+    PaginatedResponse,
     UserCreate,
     UserResponse,
     UserUpdate,
 )
+from app.core.pagination import PaginationParams
+import asyncio
 from app.services.audit_service import log_change, log_field_changes
 from app.services.email_service import send_org_invite_email
 from app.services.tenant_service import create_invite
@@ -31,17 +34,21 @@ def _invite_url(token: str) -> str:
     return f"{base}/accept-invite?token={token}"
 
 
-@router.get("", response_model=list[UserResponse])
+@router.get("", response_model=PaginatedResponse)
 async def list_users(
     admin: RequireAdmin,
+    pagination: PaginationParams = Depends(),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(User)
-        .where(User.tenant_id == admin.tenant_id)
-        .order_by(User.created_at.asc())
+    base = select(User).where(User.tenant_id == admin.tenant_id).order_by(User.created_at.asc())
+    total = int(
+        (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
     )
-    return [UserResponse.model_validate(u) for u in result.scalars().all()]
+    result = await db.execute(base.offset(pagination.offset).limit(pagination.limit))
+    items = [UserResponse.model_validate(u) for u in result.scalars().all()]
+    return PaginatedResponse(
+        items=items, total=total, limit=pagination.limit, offset=pagination.offset
+    )
 
 
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -62,7 +69,7 @@ async def create_user(
         tenant_id=admin.tenant_id,
         email=email,
         full_name=body.full_name.strip(),
-        hashed_password=hash_password(body.password),
+        hashed_password=await asyncio.to_thread(hash_password, body.password),
         role=body.role,
         is_active=True,
     )
@@ -262,7 +269,7 @@ async def update_user(
     if "password" in data:
         password = data.pop("password")
         if password:
-            user.hashed_password = hash_password(password)
+            user.hashed_password = await asyncio.to_thread(hash_password, password)
             changes["password"] = (None, "[redacted]")
     if "full_name" in data and data["full_name"] is not None:
         before = user.full_name

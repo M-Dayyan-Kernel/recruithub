@@ -97,6 +97,8 @@ async def dispatch_processing_slots(session: AsyncSession, job_id: uuid.UUID) ->
             Candidate.pipeline_status == "queued",
         )
         .order_by(Candidate.created_at.asc())
+        .limit(slots)
+        .with_for_update(skip_locked=True)
     )
     pending = result.scalars().all()
 
@@ -105,8 +107,6 @@ async def dispatch_processing_slots(session: AsyncSession, job_id: uuid.UUID) ->
     dispatched = 0
     now = datetime.now(timezone.utc)
     for candidate in pending:
-        if dispatched >= slots:
-            break
         candidate.pipeline_status = "processing"
         candidate.processing_started_at = now
         await session.flush()

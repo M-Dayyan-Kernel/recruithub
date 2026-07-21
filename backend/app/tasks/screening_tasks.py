@@ -168,11 +168,16 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
     async with get_celery_db() as session:
         # Load ScreeningCall
         result = await session.execute(
-            select(ScreeningCall).where(ScreeningCall.id == uuid.UUID(screening_call_id))
+            select(ScreeningCall)
+            .where(ScreeningCall.id == uuid.UUID(screening_call_id))
+            .with_for_update(skip_locked=True)
         )
         screening_call = result.scalars().first()
         if not screening_call:
-            logger.error("ScreeningCall %s not found — aborting (no retry)", screening_call_id)
+            logger.info(
+                "ScreeningCall %s locked by another worker — skipping initiate",
+                screening_call_id,
+            )
             return
 
         if screening_call.vapi_call_id or screening_call.call_status != "pending":

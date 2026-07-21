@@ -517,7 +517,16 @@ export async function mockGetCandidates(
     } else if (hasShortlist === 'false') {
       result = result.filter(c => !shortlistedIds.includes(c.id))
     }
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(result) })
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: result,
+        total: result.length,
+        limit: Number(url.searchParams.get('limit') ?? 50),
+        offset: Number(url.searchParams.get('offset') ?? 0),
+      }),
+    })
   })
 }
 

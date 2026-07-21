@@ -52,6 +52,7 @@ const TAB_LABELS: Record<InterviewTabId, string> = {
 }
 
 const VISIBLE_TABS: InterviewTabId[] = [
+  'pending',
   'scheduled',
   'ongoing',
   'completed',
@@ -60,8 +61,8 @@ const VISIBLE_TABS: InterviewTabId[] = [
 ]
 
 function resolveInterviewTab(tab: InterviewTabId | null): InterviewTabId {
-  if (tab && tab !== 'pending' && VISIBLE_TABS.includes(tab)) return tab
-  return 'scheduled'
+  if (tab && VISIBLE_TABS.includes(tab)) return tab
+  return 'pending'
 }
 
 const TAB_EMPTY_MESSAGES: Record<InterviewTabId, string> = {
@@ -270,7 +271,13 @@ function CandidateInterviewCard({
       setLocalSession(data)
       setSendError(null)
       invalidatePipeline()
-      toast.success(`Interview link sent to ${candidateName}!`)
+      if (data.email_sent_at) {
+        toast.success(`Interview link sent to ${candidateName}!`)
+      } else {
+        toast.error(
+          `Session created but email could not be sent to ${candidateName}. Use Resend email.`,
+        )
+      }
     },
     onError: (err) => {
       setSendError(err.message ?? 'Failed to send interview link.')
@@ -292,6 +299,27 @@ function CandidateInterviewCard({
       toast.error(err.message || 'Failed to mark interview complete')
     },
   })
+
+  const resendEmailMutation = useMutation<InterviewSession, Error>({
+    mutationFn: () =>
+      api.post(
+        `/api/candidates/${candidateId}/interview/resend-email`,
+      ) as Promise<InterviewSession>,
+    onSuccess: (data) => {
+      setLocalSession(data)
+      invalidatePipeline()
+      toast.success(`Interview email sent to ${candidateName}`)
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'Failed to send interview email')
+    },
+  })
+
+  const canResendEmail =
+    session?.status === 'pending' && !hasReport && interviewStatus !== 'not_sent'
+
+  const showEmailWarning =
+    session?.status === 'pending' && !session.email_sent_at && interviewStatus !== 'not_sent'
 
   const canMarkComplete =
     !hasReport &&
@@ -393,6 +421,27 @@ function CandidateInterviewCard({
             Mark as completed
           </button>
         )}
+
+        {canResendEmail && (
+          <button
+            type="button"
+            onClick={() => resendEmailMutation.mutate()}
+            disabled={resendEmailMutation.isPending || sendMutation.isPending}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {resendEmailMutation.isPending ? (
+              <>
+                <Loader2 size={13} className="animate-spin" />
+                Sending…
+              </>
+            ) : (
+              <>
+                <Send size={13} />
+                {session?.email_sent_at ? 'Resend email' : 'Send email'}
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Status badges */}
@@ -431,6 +480,14 @@ function CandidateInterviewCard({
         </div>
       )}
 
+      {/* Interview link when email failed or not yet sent */}
+      {session?.interview_url && !session.email_sent_at && !isFutureScheduled && (
+        <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+          <p className="mb-2 text-xs font-medium text-slate-600">Interview link</p>
+          <CopyableUrl url={session.interview_url} />
+        </div>
+      )}
+
       {/* Interview link panel (immediate send, no future slot) */}
       {session?.interview_url && session.email_sent_at && !isFutureScheduled && (
         <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50/50 p-3">
@@ -461,6 +518,15 @@ function CandidateInterviewCard({
         </div>
       )}
 
+      {/* Email not sent warning */}
+      {showEmailWarning && (
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <AlertCircle size={13} className="shrink-0" />
+          Interview is set up but the notification email was not delivered. Use Send email above
+          or copy the link below.
+        </div>
+      )}
+
       {/* Error */}
       {sendError && (
         <div className="mt-3 flex items-center gap-2 rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-600">
@@ -475,7 +541,10 @@ function CandidateInterviewCard({
         candidateName={candidateName}
         open={scheduleOpen}
         onClose={() => setScheduleOpen(false)}
-        onSuccess={invalidatePipeline}
+        onSuccess={(data) => {
+          setLocalSession(data)
+          invalidatePipeline()
+        }}
       />
     </div>
   )
@@ -507,10 +576,6 @@ export function InterviewsTab({ job, jobId }: Props) {
   }
 
   useEffect(() => {
-    if (tabParam === 'pending') {
-      syncSearchParams('scheduled', search, page)
-      return
-    }
     const resolved = resolveInterviewTab(tabParam)
     if (resolved !== activeTab) {
       setActiveTab(resolved)
@@ -581,6 +646,7 @@ export function InterviewsTab({ job, jobId }: Props) {
   )
 
   const totalEligible =
+    tabCounts.pending +
     tabCounts.scheduled +
     tabCounts.ongoing +
     tabCounts.completed +

@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { Users, Phone, Calendar, CheckCircle2, AlertCircle } from 'lucide-react'
 import { api } from '@/lib/api'
+import { fetchJobCandidates } from '@/lib/workflow'
 import type {
-  Candidate,
   InterviewPipelineResponse,
   ScreeningCall,
   ShortlistResultWithCandidate,
@@ -143,7 +143,7 @@ export function JobPipelineDashboard({ jobId }: Props) {
       },
       {
         queryKey: ['candidates', jobId],
-        queryFn: () => api.get(`/api/jobs/${jobId}/candidates`) as unknown as Promise<Candidate[]>,
+        queryFn: () => fetchJobCandidates(jobId),
         enabled: !!jobId,
       },
       {

@@ -6,18 +6,20 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_loader import config
-from app.models.models import Candidate, InterviewSession
+from app.models.models import Candidate, InterviewSession, Job
 from app.schemas.schemas import InterviewScheduleRequest
 from app.services.candidate_contact_service import (
     resolve_candidate_email,
     resolve_candidate_name,
 )
+from app.services.gmail_service import get_tenant_gmail_token
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +68,6 @@ async def send_interview_invitation_email(
     candidate: Candidate,
     job_title: str,
 ) -> bool:
-    from app.models.models import Job
     from app.services.email_service import send_interview_link
     from app.services.email_template_service import get_company_name, get_merged_templates
 
@@ -75,6 +76,7 @@ async def send_interview_invitation_email(
     interview_url = f"{config.CANDIDATE_APP_URL}/interview/{session.unique_token}"
     templates = await get_merged_templates(db, tenant_id)
     company_name = await get_company_name(db, tenant_id)
+    gmail_token = await get_tenant_gmail_token(db, tenant_id)
     candidate_email = resolve_candidate_email(candidate)
     if not candidate_email:
         logger.warning(
@@ -90,6 +92,7 @@ async def send_interview_invitation_email(
         interview_url=interview_url,
         templates=templates,
         company_name=company_name,
+        gmail_token_json=gmail_token,
     )
     if sent:
         session.email_sent_at = datetime.now(timezone.utc)
@@ -109,7 +112,6 @@ async def send_scheduled_interview_notification_email(
     *,
     timezone_name: str,
 ) -> bool:
-    from app.models.models import Job
     from app.services.email_service import send_scheduled_interview_notification
     from app.services.email_template_service import get_merged_templates
 
@@ -124,6 +126,7 @@ async def send_scheduled_interview_notification_email(
         timezone_name,
     )
     templates = await get_merged_templates(db, tenant_id)
+    gmail_token = await get_tenant_gmail_token(db, tenant_id)
     candidate_email = resolve_candidate_email(candidate)
     if not candidate_email:
         logger.warning(
@@ -139,6 +142,7 @@ async def send_scheduled_interview_notification_email(
         interview_url=interview_url,
         scheduled_at_label=scheduled_label,
         templates=templates,
+        gmail_token_json=gmail_token,
     )
     if sent:
         session.email_sent_at = datetime.now(timezone.utc)
@@ -149,6 +153,26 @@ async def send_scheduled_interview_notification_email(
             scheduled_label,
         )
     return sent
+
+
+async def resend_interview_notification_email(
+    db: AsyncSession,
+    session: InterviewSession,
+    candidate: Candidate,
+    job_title: str,
+    *,
+    timezone_name: str = "Asia/Kolkata",
+) -> bool:
+    """Resend invitation or scheduled-slot email for an existing pending session."""
+    if session.scheduled_interview_at:
+        return await send_scheduled_interview_notification_email(
+            db,
+            session,
+            candidate,
+            job_title,
+            timezone_name=timezone_name,
+        )
+    return await send_interview_invitation_email(db, session, candidate, job_title)
 
 
 async def dispatch_due_scheduled_interview_emails(db: AsyncSession) -> int:

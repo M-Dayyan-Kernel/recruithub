@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import type { Candidate, ShortlistResultWithCandidate } from '@/types/api'
-import { IN_PROGRESS_PIPELINE_STATUSES } from '@/lib/workflow'
+import { fetchJobCandidates, isInProgressPipelineStatus } from '@/lib/workflow'
 
 const PIPELINE_POLL_MS = 2_000
 
@@ -17,14 +17,12 @@ export function useJobPipelineCandidates(jobId: string, options: Options = {}) {
 
   const pipelineQuery = useQuery<Candidate[]>({
     queryKey: ['candidates', jobId, 'pipeline'],
-    queryFn: () => api.get(`/api/jobs/${jobId}/candidates`) as unknown as Promise<Candidate[]>,
+    queryFn: () => fetchJobCandidates(jobId),
     enabled: !!jobId,
     staleTime: 0,
     refetchInterval: (query) => {
       const list = (query.state.data ?? []) as Candidate[]
-      const inFlight = list.some((c) =>
-        IN_PROGRESS_PIPELINE_STATUSES.includes(c.pipeline_status),
-      )
+      const inFlight = list.some((c) => isInProgressPipelineStatus(c.pipeline_status))
       const watching = watchSet.size > 0
       if (!inFlight && !watching) return false
       return Date.now() - pollStartTime > 120_000 ? 5_000 : PIPELINE_POLL_MS
@@ -39,9 +37,7 @@ export function useJobPipelineCandidates(jobId: string, options: Options = {}) {
     staleTime: 0,
     refetchInterval: () => {
       const list = (pipelineQuery.data ?? []) as Candidate[]
-      const inFlight = list.some((c) =>
-        IN_PROGRESS_PIPELINE_STATUSES.includes(c.pipeline_status),
-      )
+      const inFlight = list.some((c) => isInProgressPipelineStatus(c.pipeline_status))
       if (!inFlight && watchSet.size === 0) return false
       return PIPELINE_POLL_MS
     },
@@ -51,9 +47,7 @@ export function useJobPipelineCandidates(jobId: string, options: Options = {}) {
 
   const processingCandidates = useMemo(
     () =>
-      candidates.filter((c) =>
-        IN_PROGRESS_PIPELINE_STATUSES.includes(c.pipeline_status),
-      ),
+      candidates.filter((c) => isInProgressPipelineStatus(c.pipeline_status)),
     [candidates],
   )
 

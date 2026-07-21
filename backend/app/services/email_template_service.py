@@ -196,8 +196,11 @@ def render_template(
 
     for key, value in vars_with_company.items():
         token = "{{" + key + "}}"
-        subject = subject.replace(token, value)
-        body = body.replace(token, value)
+        import html
+
+        safe = html.escape(str(value), quote=True)
+        subject = subject.replace(token, safe)
+        body = body.replace(token, safe)
     return subject, body
 
 

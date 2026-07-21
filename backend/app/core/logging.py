@@ -152,20 +152,39 @@ def log_event(logger: logging.Logger, message: str, *args: Any) -> None:
         logger.info(message)
 
 
-def setup_logging(level: str = "INFO") -> None:
+def setup_logging(level: str = "INFO", *, log_format: str = "text") -> None:
     """Configure root logger once. Safe to call from API and Celery processes."""
     global _CONFIGURED
+    log_level = getattr(logging, level.upper(), logging.INFO)
     if _CONFIGURED:
         root = logging.getLogger()
-        root.setLevel(getattr(logging, level.upper(), logging.INFO))
+        root.setLevel(log_level)
         return
 
-    log_level = getattr(logging, level.upper(), logging.INFO)
-    # Words only — no request/user/tenant UUIDs in the printed line
-    fmt = "%(asctime)s | %(levelname)-8s | %(message)s"
     handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter(fmt, datefmt="%Y-%m-%d %H:%M:%S"))
     handler.addFilter(ContextFilter())
+
+    if (log_format or "text").lower() == "json":
+        class JsonFormatter(logging.Formatter):
+            def format(self, record: logging.LogRecord) -> str:
+                import json
+
+                payload = {
+                    "ts": self.formatTime(record, self.datefmt),
+                    "level": record.levelname,
+                    "message": record.getMessage(),
+                    "request_id": getattr(record, "request_id", "-"),
+                    "task_id": getattr(record, "task_id", "-"),
+                    "actor": getattr(record, "actor", "Someone"),
+                }
+                if record.exc_info:
+                    payload["exception"] = self.formatException(record.exc_info)
+                return json.dumps(payload, ensure_ascii=False)
+
+        handler.setFormatter(JsonFormatter(datefmt="%Y-%m-%dT%H:%M:%S"))
+    else:
+        fmt = "%(asctime)s | %(levelname)-8s | %(message)s"
+        handler.setFormatter(logging.Formatter(fmt, datefmt="%Y-%m-%d %H:%M:%S"))
 
     root = logging.getLogger()
     root.handlers.clear()

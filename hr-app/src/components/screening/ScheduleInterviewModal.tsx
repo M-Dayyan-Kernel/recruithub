@@ -11,7 +11,7 @@ interface Props {
   candidateName: string
   open: boolean
   onClose: () => void
-  onSuccess: () => void
+  onSuccess: (session: InterviewSession) => void
   mode?: 'schedule' | 'reschedule'
 }
 
@@ -65,13 +65,20 @@ export function ScheduleInterviewModal({
           : `/api/candidates/${candidateId}/interview/schedule`
       return api.post(endpoint, body) as unknown as Promise<InterviewSession>
     },
-    onSuccess: () => {
-      toast.success(
-        mode === 'reschedule'
-          ? `Interview rescheduled — ${candidateName} was notified by email`
-          : `Interview scheduled — ${candidateName} was notified by email`,
-      )
-      onSuccess()
+    onSuccess: (data) => {
+      const emailed = Boolean(data.email_sent_at)
+      if (emailed) {
+        toast.success(
+          mode === 'reschedule'
+            ? `Interview rescheduled — ${candidateName} was notified by email`
+            : `Interview scheduled — ${candidateName} was notified by email`,
+        )
+      } else {
+        toast.error(
+          `Interview ${mode === 'reschedule' ? 'rescheduled' : 'scheduled'}, but the email could not be sent. Use Resend email.`,
+        )
+      }
+      onSuccess(data)
       onClose()
     },
     onError: (err: Error) =>

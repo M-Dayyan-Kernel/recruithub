@@ -4,9 +4,11 @@ Per-tenant system settings loader with short-lived process cache.
 
 from __future__ import annotations
 
+import json
+import logging
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Dict, List
 
@@ -18,6 +20,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.models import SystemSettings
 
 DEFAULT_REGIONS = ["IN"]
+_SETTINGS_REDIS_PREFIX = "settings:v1:"
 
 
 @dataclass
@@ -34,6 +37,45 @@ class CachedSettings:
 _cache: Dict[uuid.UUID, CachedSettings] = {}
 _cache_lock = threading.Lock()
 _CACHE_TTL = timedelta(seconds=config.screening.cache_ttl_seconds)
+
+
+def _redis_settings_key(tenant_id: uuid.UUID) -> str:
+    return f"{_SETTINGS_REDIS_PREFIX}{tenant_id}"
+
+
+def _read_redis_settings(tenant_id: uuid.UUID) -> CachedSettings | None:
+    try:
+        import redis
+
+        raw = redis.from_url(config.REDIS_URL or "redis://localhost:6379/0").get(
+            _redis_settings_key(tenant_id)
+        )
+        if not raw:
+            return None
+        data = json.loads(raw)
+        data["tenant_id"] = uuid.UUID(str(data["tenant_id"]))
+        data["fetched_at"] = datetime.fromisoformat(data["fetched_at"])
+        return CachedSettings(**data)
+    except Exception:
+        return None
+
+
+def _write_redis_settings(cached: CachedSettings) -> None:
+    if cached.tenant_id is None:
+        return
+    try:
+        import redis
+
+        payload = asdict(cached)
+        payload["tenant_id"] = str(cached.tenant_id)
+        payload["fetched_at"] = cached.fetched_at.isoformat()
+        redis.from_url(config.REDIS_URL or "redis://localhost:6379/0").setex(
+            _redis_settings_key(cached.tenant_id),
+            int(_CACHE_TTL.total_seconds()),
+            json.dumps(payload),
+        )
+    except Exception:
+        pass
 
 
 def _defaults(tenant_id: uuid.UUID | None = None) -> CachedSettings:
@@ -125,6 +167,13 @@ async def load_system_settings(
 
     global _cache
     now = datetime.utcnow()
+
+    redis_cached = _read_redis_settings(tenant_id)
+    if redis_cached and (now - redis_cached.fetched_at) < _CACHE_TTL:
+        with _cache_lock:
+            _cache[tenant_id] = redis_cached
+        return redis_cached
+
     with _cache_lock:
         cached = _cache.get(tenant_id)
         if cached and (now - cached.fetched_at) < _CACHE_TTL:
@@ -145,6 +194,7 @@ async def load_system_settings(
     cached = _settings_from_row(row, now, tenant_id)
     with _cache_lock:
         _cache[tenant_id] = cached
+    _write_redis_settings(cached)
     return cached
 
 
@@ -159,3 +209,14 @@ def invalidate_settings_cache(tenant_id: uuid.UUID | None = None) -> None:
             _cache = {}
         else:
             _cache.pop(tenant_id, None)
+    try:
+        import redis
+
+        client = redis.from_url(config.REDIS_URL or "redis://localhost:6379/0")
+        if tenant_id is None:
+            for key in client.scan_iter(f"{_SETTINGS_REDIS_PREFIX}*"):
+                client.delete(key)
+        else:
+            client.delete(_redis_settings_key(tenant_id))
+    except Exception:
+        pass

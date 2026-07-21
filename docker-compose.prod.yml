@@ -1,0 +1,100 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: ankane/pgvector:latest
+    environment:
+      POSTGRES_DB: ai_recruitment
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_recruitment"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-resume:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
+      REDIS_URL: redis://redis:6379/0
+      CELERY_QUEUE: resume
+    depends_on:
+      - redis
+      - postgres
+
+  celery-screening:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
+      REDIS_URL: redis://redis:6379/0
+      CELERY_QUEUE: screening
+    depends_on:
+      - redis
+      - postgres
+
+  celery-interviews:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
+      REDIS_URL: redis://redis:6379/0
+      CELERY_QUEUE: interviews
+    depends_on:
+      - redis
+      - postgres
+
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    command: celery -A app.core.celery_app.celery_app beat --loglevel=info
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+      - postgres
+
+volumes:
+  postgres_data:

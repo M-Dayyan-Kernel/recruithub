@@ -2,6 +2,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # development | production — production triggers fail-fast validation at startup
+    APP_ENV: str = "development"
+    # Comma-separated allowed browser origins (required in production)
+    CORS_ORIGINS: str = ""
+    # Comma-separated hosts for TrustedHostMiddleware (optional)
+    TRUSTED_HOSTS: str = ""
+
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_recruitment"
     REDIS_URL: str = "redis://localhost:6379"
 
@@ -38,6 +45,10 @@ class Settings(BaseSettings):
     GMAIL_CREDENTIALS_PATH: str = "credentials.json"
     GMAIL_TOKEN_PATH: str = "token.json"
 
+    # Resend (optional — used when Gmail OAuth is not configured)
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
+
     # Local filesystem fallbacks when S3 is not configured (paths, not size limits)
     UPLOAD_DIR: str = "uploads/resumes"
     ORG_DOCS_DIR: str = "uploads/org-docs"
@@ -55,10 +66,24 @@ class Settings(BaseSettings):
     SEED_SUPERADMIN_PASSWORD: str = ""
     SEED_SUPERADMIN_NAME: str = "Super Admin"
 
-    # Logging — DEBUG | INFO | WARNING | ERROR
+    # Logging — DEBUG | INFO | WARNING | ERROR; LOG_FORMAT=text|json
     LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: str = "text"
+
+    # Optional observability
+    SENTRY_DSN: str = ""
+    INTERNAL_HEALTH_API_KEY: str = ""
+
+    # Auth rate limits (per IP per window)
+    AUTH_RATE_LIMIT_PER_MINUTE: int = 20
+    AUTH_LOCKOUT_MAX_FAILURES: int = 10
+    AUTH_LOCKOUT_SECONDS: int = 900
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @property
+    def is_production(self) -> bool:
+        return (self.APP_ENV or "development").strip().lower() == "production"
 
 
 settings = Settings()

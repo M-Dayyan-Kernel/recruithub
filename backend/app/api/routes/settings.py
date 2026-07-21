@@ -230,8 +230,20 @@ async def update_email_template(
     before_entry = before_merged.get(template_id) or {}
 
     try:
+        import bleach
+
+        allowed_tags = bleach.sanitizer.ALLOWED_TAGS.union(
+            {"p", "br", "div", "span", "h1", "h2", "h3", "a", "ul", "ol", "li", "strong", "em"}
+        )
+        allowed_attrs = {"*": ["style", "class", "href", "target", "rel"]}
+        safe_html = bleach.clean(
+            payload.body_html,
+            tags=list(allowed_tags),
+            attributes=allowed_attrs,
+            strip=True,
+        )
         await save_template(
-            db, admin.tenant_id, template_id, payload.subject, payload.body_html
+            db, admin.tenant_id, template_id, payload.subject, safe_html
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -337,11 +349,17 @@ async def test_email_template(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    gmail_token = await gmail_service.get_tenant_gmail_token(db, admin.tenant_id)
+
     sent = gmail_service.send_html_email(
         to_email=payload.to_email,
         subject=f"[TEST] {rendered['subject']}",
         html_body=rendered["body_html"],
+        gmail_token_json=gmail_token,
     )
     if not sent:
-        raise HTTPException(status_code=500, detail="Failed to send test email")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Failed to send test email. {gmail_service.email_transport_hint()}",
+        )
     return {"ok": True, "to_email": payload.to_email}

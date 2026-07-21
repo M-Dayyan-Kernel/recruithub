@@ -26,6 +26,7 @@ import {
   isWithinCallWindow,
 } from '@/components/screening/screeningUtils'
 import {
+  fetchJobCandidates,
   WORKFLOW_CARD_CLASS,
   WORKFLOW_TABLE_CLASS,
   WORKFLOW_TABLE_EMPTY_CELL_CLASS,
@@ -181,8 +182,7 @@ export function ScreeningTab({ jobId }: Props) {
 
   const { data: candidates } = useQuery<Candidate[]>({
     queryKey: ['candidates', jobId],
-    queryFn: () =>
-      api.get(`/api/jobs/${jobId}/candidates`) as unknown as Promise<Candidate[]>,
+    queryFn: () => fetchJobCandidates(jobId),
     enabled: !!jobId,
   })
 

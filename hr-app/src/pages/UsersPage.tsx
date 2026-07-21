@@ -14,6 +14,7 @@ import type {
 } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
 import {
+  fetchUsers,
   WORKFLOW_CARD_CLASS,
   WORKFLOW_INPUT_CLASS,
   WORKFLOW_PRIMARY_BUTTON_CLASS,
@@ -31,7 +32,7 @@ export default function UsersPage() {
     refetch: refetchUsers,
   } = useQuery<User[]>({
     queryKey: ['users', currentUser?.tenant_id],
-    queryFn: () => api.get('/api/users') as unknown as Promise<User[]>,
+    queryFn: () => fetchUsers(),
   })
 
   const {

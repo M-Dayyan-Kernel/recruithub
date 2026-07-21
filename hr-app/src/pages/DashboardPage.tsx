@@ -11,6 +11,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { fetchJobCandidates } from '@/lib/workflow'
 import type { Job, Candidate, ScreeningCall } from '@/types/api'
 
 // ---------------------------------------------------------------------------
@@ -142,8 +143,7 @@ export default function DashboardPage() {
   const candidateQueries = useQueries({
     queries: jobList.map((job) => ({
       queryKey: ['candidates', job.id],
-      queryFn: () =>
-        api.get(`/api/jobs/${job.id}/candidates`) as unknown as Promise<Candidate[]>,
+      queryFn: () => fetchJobCandidates(job.id),
     })),
   })
 

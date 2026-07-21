@@ -272,7 +272,11 @@ test('Back to Job link navigates to correct job detail page', async ({ page }) =
 
   await page.route(`**/api/jobs/${JOB_IDS.frontend}/candidates`, route => {
     if (route.request().method() !== 'GET') return route.continue()
-    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [], total: 0, limit: 50, offset: 0 }),
+    })
   })
 
   await page.goto(REPORT_URL)

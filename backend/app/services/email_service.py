@@ -101,6 +101,7 @@ async def send_interview_link(
     *,
     templates: dict[str, dict[str, Any]] | None = None,
     company_name: str | None = None,
+    gmail_token_json: str | dict | None = None,
 ) -> bool:
     """Send an immediate interview invitation (join at your convenience)."""
     if templates:
@@ -122,6 +123,7 @@ async def send_interview_link(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
+        gmail_token_json=gmail_token_json,
     )
     if sent:
         logger.info(
@@ -194,6 +196,7 @@ async def send_scheduled_interview_notification(
     scheduled_at_label: str,
     *,
     templates: dict[str, dict[str, Any]] | None = None,
+    gmail_token_json: str | dict | None = None,
 ) -> bool:
     """Notify candidate of a future interview slot with the join link."""
     subject = f"[Interview Scheduled] {job_title} — {scheduled_at_label}"
@@ -207,6 +210,7 @@ async def send_scheduled_interview_notification(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
+        gmail_token_json=gmail_token_json,
     )
     if sent:
         logger.info(
@@ -226,6 +230,7 @@ async def send_reschedule_notification(
     *,
     templates: dict[str, dict[str, Any]],
     company_name: str | None = None,
+    gmail_token_json: str | dict | None = None,
 ) -> bool:
     subject, html_body = render_template(
         "interview_reschedule",
@@ -241,6 +246,7 @@ async def send_reschedule_notification(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
+        gmail_token_json=gmail_token_json,
     )
     if sent:
         logger.info(
