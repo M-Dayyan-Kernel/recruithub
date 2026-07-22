@@ -42,8 +42,9 @@ type InterviewStatus =
 
 type InterviewTabId = InterviewPipelineTab
 
-const TAB_LABELS: Record<InterviewTabId, string> = {
-  pending: 'Pending',
+type VisibleInterviewTabId = Exclude<InterviewTabId, 'pending'>
+
+const TAB_LABELS: Record<VisibleInterviewTabId, string> = {
   scheduled: 'Scheduled',
   ongoing: 'Ongoing',
   completed: 'Completed',
@@ -51,8 +52,7 @@ const TAB_LABELS: Record<InterviewTabId, string> = {
   finalists: 'Finalists',
 }
 
-const VISIBLE_TABS: InterviewTabId[] = [
-  'pending',
+const VISIBLE_TABS: VisibleInterviewTabId[] = [
   'scheduled',
   'ongoing',
   'completed',
@@ -60,14 +60,14 @@ const VISIBLE_TABS: InterviewTabId[] = [
   'flagged',
 ]
 
-function resolveInterviewTab(tab: InterviewTabId | null): InterviewTabId {
-  if (tab && VISIBLE_TABS.includes(tab)) return tab
-  return 'pending'
+function resolveInterviewTab(tab: InterviewTabId | null): VisibleInterviewTabId {
+  if (tab === 'pending') return 'scheduled'
+  if (tab && VISIBLE_TABS.includes(tab as VisibleInterviewTabId)) return tab as VisibleInterviewTabId
+  return 'scheduled'
 }
 
-const TAB_EMPTY_MESSAGES: Record<InterviewTabId, string> = {
-  pending: 'No candidates waiting for an interview link.',
-  scheduled: 'No interviews scheduled for a future slot.',
+const TAB_EMPTY_MESSAGES: Record<VisibleInterviewTabId, string> = {
+  scheduled: 'No candidates waiting for an interview link or scheduled slot.',
   ongoing: 'No interviews in progress right now.',
   completed: 'No completed interviews yet.',
   flagged: 'No flagged interviews.',
@@ -106,10 +106,9 @@ function formatScheduledAt(iso: string, timezone?: string): string {
   }
 }
 
-function activeTabClass(tab: InterviewTabId, isActive: boolean): string {
+function activeTabClass(tab: VisibleInterviewTabId, isActive: boolean): string {
   if (!isActive) return 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
-  const active: Record<InterviewTabId, string> = {
-    pending: 'bg-emerald-600 text-white',
+  const active: Record<VisibleInterviewTabId, string> = {
     scheduled: 'bg-blue-600 text-white',
     ongoing: 'bg-amber-500 text-white',
     completed: 'bg-indigo-600 text-white',
@@ -562,12 +561,12 @@ interface Props {
 export function InterviewsTab({ job, jobId }: Props) {
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab') as InterviewTabId | null
-  const [activeTab, setActiveTab] = useState<InterviewTabId>(resolveInterviewTab(tabParam))
+  const [activeTab, setActiveTab] = useState<VisibleInterviewTabId>(resolveInterviewTab(tabParam))
   const [search, setSearch] = useState(searchParams.get('search') ?? '')
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1)
   const pageSize = 10
 
-  const syncSearchParams = (nextTab: InterviewTabId, nextSearch = search, nextPage = page) => {
+  const syncSearchParams = (nextTab: VisibleInterviewTabId, nextSearch = search, nextPage = page) => {
     const params = new URLSearchParams()
     params.set('tab', nextTab)
     if (nextSearch.trim()) params.set('search', nextSearch.trim())
@@ -582,7 +581,7 @@ export function InterviewsTab({ job, jobId }: Props) {
     }
   }, [tabParam])
 
-  const handleTabChange = (tab: InterviewTabId) => {
+  const handleTabChange = (tab: VisibleInterviewTabId) => {
     setActiveTab(tab)
     syncSearchParams(tab, search, 1)
   }
@@ -653,6 +652,11 @@ export function InterviewsTab({ job, jobId }: Props) {
     tabCounts.flagged +
     (tabCounts.finalists ?? 0)
 
+  const displayTabCount = (tab: VisibleInterviewTabId): number => {
+    if (tab === 'scheduled') return tabCounts.scheduled + tabCounts.pending
+    return tabCounts[tab] ?? 0
+  }
+
   const tabBar = (
     <div className="mb-4 flex flex-wrap items-center gap-2">
       {VISIBLE_TABS.map((tab) => (
@@ -663,7 +667,7 @@ export function InterviewsTab({ job, jobId }: Props) {
           className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${activeTabClass(tab, activeTab === tab)}`}
         >
           {TAB_LABELS[tab]}
-          <span className="ml-1.5 text-xs opacity-80">({tabCounts[tab] ?? 0})</span>
+          <span className="ml-1.5 text-xs opacity-80">({displayTabCount(tab)})</span>
         </button>
       ))}
     </div>

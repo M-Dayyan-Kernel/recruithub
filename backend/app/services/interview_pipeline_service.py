@@ -214,8 +214,11 @@ async def get_interview_pipeline(
         else:
             counts.completed += 1
 
-        if tab is not None and stage != tab:
-            continue
+        if tab is not None:
+            if tab in ("scheduled", "pending") and stage in ("pending", "scheduled"):
+                pass
+            elif stage != tab:
+                continue
 
         candidate_sessions = sessions_by_candidate.get(candidate_id, [])
         has_other_active = _has_active_session(

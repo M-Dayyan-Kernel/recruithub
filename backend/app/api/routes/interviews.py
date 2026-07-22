@@ -1065,8 +1065,8 @@ async def get_interview_pipeline(
     HR view: screening-passed candidates grouped into interview pipeline tabs.
 
     Tabs:
-      - pending: no interview session yet
-      - scheduled: link sent, session status pending
+      - scheduled: no session yet, or link sent (session status pending)
+      - pending: legacy alias for scheduled
       - ongoing: session in_progress
       - completed: session completed (pending/rejected HR decision)
       - finalists: completed and HR-approved
