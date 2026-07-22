@@ -26,7 +26,6 @@ class Settings(BaseSettings):
     VAPI_WEBHOOK_SECRET: str = ""
     # Public HTTPS base URL for webhooks (e.g. ngrok tunnel). Enables Vapi call status updates.
     BACKEND_PUBLIC_URL: str = ""
-    SARVAM_API_KEY: str = ""
     LIVEKIT_API_KEY: str = ""
     LIVEKIT_API_SECRET: str = ""
     LIVEKIT_URL: str = ""

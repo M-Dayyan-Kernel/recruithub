@@ -16,7 +16,6 @@ celery_app = Celery(
         "app.tasks.shortlist_tasks",
         "app.tasks.screening_tasks",
         "app.tasks.interview_tasks",
-        "app.tasks.outbox_tasks",
         "app.tasks.retention_tasks",
     ],
 )
@@ -42,14 +41,6 @@ celery_app.conf.update(
         "recover-stuck-resume-processing": {
             "task": "tasks.recover_stuck_resume_processing",
             "schedule": config.scheduler.recover_stuck_parses_seconds,
-        },
-        "dispatch-scheduled-interview-emails": {
-            "task": "tasks.dispatch_scheduled_interview_emails",
-            "schedule": config.scheduler.dispatch_scheduled_interview_seconds,
-        },
-        "dispatch-outbox-events": {
-            "task": "tasks.dispatch_outbox_events",
-            "schedule": config.scheduler.dispatch_outbox_seconds,
         },
         "apply-data-retention": {
             "task": "tasks.apply_data_retention",

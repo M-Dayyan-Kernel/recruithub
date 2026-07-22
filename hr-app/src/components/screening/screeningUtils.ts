@@ -104,23 +104,6 @@ export function isWithinCallWindow(
   return current >= start || current <= end
 }
 
-/** @deprecated Use isWithinCallWindow with job timezone */
-export function isWithinCallWindowLocal(
-  from: string,
-  to: string,
-  now = new Date(),
-): boolean {
-  const parse = (t: string) => {
-    const [h, m] = t.split(':').map(Number)
-    return h * 60 + m
-  }
-  const current = now.getHours() * 60 + now.getMinutes()
-  const start = parse(from)
-  const end = parse(to)
-  if (start <= end) return current >= start && current <= end
-  return current >= start || current <= end
-}
-
 export function phoneLooksIndian(phone: string | null | undefined): boolean {
   if (!phone) return false
   const digits = phone.replace(/\D/g, '')

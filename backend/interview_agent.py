@@ -40,7 +40,6 @@ from livekit.agents import (
 from livekit.plugins import openai as lk_openai
 
 from app.prompts.interview import (
-    build_adaptive_followup_rules,
     build_candidate_greeting,
     build_default_interview_prompt,
     build_interview_structure,
@@ -88,39 +87,6 @@ def _validate_agent_env_on_startup() -> None:
     except RuntimeError as exc:
         logger.error(str(exc))
         raise SystemExit(1) from exc
-
-
-def _is_thin_answer(text: str) -> bool:
-    """Heuristic: short, vague, or lacking concrete detail."""
-    cleaned = (text or "").strip()
-    if not cleaned:
-        return True
-
-    words = cleaned.split()
-    if len(words) < config.interview.thin_answer_word_limit:
-        return True
-
-    lower = cleaned.lower()
-    vague_markers = (
-        "i think", "kind of", "basically", "not sure", "maybe",
-        "i guess", "something like", "sort of", "i don't remember",
-    )
-    if any(marker in lower for marker in vague_markers) and len(words) < 60:
-        return True
-
-    concrete_markers = (
-        "for example", "we built", "i led", "i designed", "result",
-        "because", "trade-off", "tradeoff", "latency", "users",
-        "team", "shipped", "implemented", "reduced", "improved",
-    )
-    if not any(marker in lower for marker in concrete_markers) and len(words) < 50:
-        return True
-
-    return False
-
-
-def _adaptive_followup_rules() -> str:
-    return build_adaptive_followup_rules(config.interview.max_follow_ups_per_topic)
 
 
 def _format_rubric_block(questions: list) -> str:

@@ -21,9 +21,7 @@ from app.core.settings import Settings
 
 MINIMAL_YAML = """
 models:
-  resume_parse: { name: gpt-test-resume, temperature: 0, max_tokens: 100 }
   jd_parse: { name: gpt-test-jd, temperature: 0, max_tokens: 100 }
-  shortlist: { name: gpt-test-shortlist, temperature: 0, max_tokens: 100 }
   combined_shortlist: { name: gpt-test-combined, temperature: 0, max_tokens: 3000 }
   expected_answer: { name: gpt-test-expected, temperature: 0, max_tokens: 100 }
   screening_extraction: { name: gpt-test-screening, temperature: 0, max_tokens: 100 }
@@ -42,7 +40,6 @@ vapi:
 
 class ConfigLoaderTests(unittest.TestCase):
     def tearDown(self) -> None:
-        # Clear override first so reload restores the shipped YAML.
         os.environ.pop("CONFIG_PATH", None)
         load_config(reload=True)
 
@@ -55,13 +52,13 @@ class ConfigLoaderTests(unittest.TestCase):
 
     def test_shipped_config_loads_expected_models(self) -> None:
         cfg = load_config(reload=True)
-        self.assertEqual(cfg.models.resume_parse.name, "gpt-4o")
+        self.assertEqual(cfg.models.combined_shortlist.name, "gpt-4o")
         self.assertEqual(cfg.models.interview_assessment.name, "gpt-4o-mini")
         self.assertEqual(cfg.livekit.tts.voice, "nova")
         self.assertEqual(cfg.vapi.voice.voice_id, "asteria")
         self.assertEqual(cfg.vapi.transcriber.model, "nova-2")
         self.assertEqual(cfg.concurrency.max_parses, 10)
-        self.assertTrue(cfg.DATABASE_URL)  # proxied from Settings
+        self.assertTrue(cfg.DATABASE_URL)
 
     def test_config_path_env_override(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -70,7 +67,7 @@ class ConfigLoaderTests(unittest.TestCase):
             os.environ["CONFIG_PATH"] = str(path)
             try:
                 cfg = load_config(reload=True)
-                self.assertEqual(cfg.models.resume_parse.name, "gpt-test-resume")
+                self.assertEqual(cfg.models.combined_shortlist.name, "gpt-test-combined")
                 self.assertEqual(cfg.livekit.agent_name, "test-agent")
                 self.assertEqual(cfg.vapi.voice.voice_id, "test-voice")
             finally:
@@ -81,7 +78,7 @@ class ConfigLoaderTests(unittest.TestCase):
             path = Path(tmp) / "arg.yaml"
             path.write_text(MINIMAL_YAML, encoding="utf-8")
             cfg = load_config(str(path), reload=True)
-            self.assertEqual(cfg.models.shortlist.name, "gpt-test-shortlist")
+            self.assertEqual(cfg.models.jd_parse.name, "gpt-test-jd")
 
     def test_missing_file_raises(self) -> None:
         missing = Path(tempfile.gettempdir()) / "does-not-exist-config.yaml"
@@ -91,7 +88,7 @@ class ConfigLoaderTests(unittest.TestCase):
     def test_invalid_yaml_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "bad.yaml"
-            path.write_text("models:\n  resume_parse: {}\n", encoding="utf-8")
+            path.write_text("models:\n  jd_parse: {}\n", encoding="utf-8")
             with self.assertRaises(ValidationError):
                 load_config(str(path), reload=True)
 
@@ -113,7 +110,10 @@ class ConfigLoaderTests(unittest.TestCase):
         first = load_config(reload=True)
         second = load_config(reload=True)
         self.assertIsNot(first, second)
-        self.assertEqual(first.models.resume_parse.name, second.models.resume_parse.name)
+        self.assertEqual(
+            first.models.combined_shortlist.name,
+            second.models.combined_shortlist.name,
+        )
 
     def test_env_facade_uses_provided_settings(self) -> None:
         env = Settings(REDIS_URL="redis://test-cache:6379/9")
@@ -130,8 +130,8 @@ class CallSiteConfigTests(unittest.TestCase):
     def tearDown(self) -> None:
         load_config(reload=True)
 
-    def test_resume_parser_uses_configured_model(self) -> None:
-        from app.services import resume_parser
+    def test_combined_shortlist_uses_configured_model(self) -> None:
+        from app.services import combined_shortlist_service
 
         captured: dict = {}
 
@@ -140,7 +140,19 @@ class CallSiteConfigTests(unittest.TestCase):
                 captured.update(kwargs)
 
                 class Choice:
-                    message = type("M", (), {"content": '{"skills": []}'})()
+                    message = type(
+                        "M",
+                        (),
+                        {
+                            "content": (
+                                '{"profile":{"name":"A","email":null,"phone":null,'
+                                '"skills":[],"total_experience_years":0,"experience":[],'
+                                '"education":[],"current_company":null,"current_role":null},'
+                                '"assessment":{"match_score":50,"recommendation":"review",'
+                                '"strengths":[],"gaps":[],"reason":"ok"}}'
+                            )
+                        },
+                    )()
 
                 return type("R", (), {"choices": [Choice()]})()
 
@@ -148,13 +160,20 @@ class CallSiteConfigTests(unittest.TestCase):
             def __init__(self, api_key: str):
                 self.chat = type("C", (), {"completions": FakeCompletions()})()
 
-        with mock.patch.object(resume_parser, "OpenAI", FakeClient):
-            resume_parser._parse_resume_sync("x" * 80, "sk-test")
+        with mock.patch("openai.OpenAI", FakeClient):
+            combined_shortlist_service._combined_shortlist_sync(
+                "x" * 80,
+                {"title": "Engineer", "description": "Build things"},
+                "sk-test",
+            )
 
-        self.assertEqual(captured["model"], config_loader.config.models.resume_parse.name)
+        self.assertEqual(
+            captured["model"],
+            config_loader.config.models.combined_shortlist.name,
+        )
         self.assertEqual(
             captured["max_tokens"],
-            config_loader.config.models.resume_parse.max_tokens,
+            config_loader.config.models.combined_shortlist.max_tokens,
         )
 
     def test_assessment_uses_configured_model(self) -> None:

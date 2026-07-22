@@ -173,8 +173,3 @@ async def resend_interview_notification_email(
             timezone_name=timezone_name,
         )
     return await send_interview_invitation_email(db, session, candidate, job_title)
-
-
-async def dispatch_due_scheduled_interview_emails(db: AsyncSession) -> int:
-    """Legacy hook — scheduled slots are notified immediately when HR books them."""
-    return 0

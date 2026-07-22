@@ -46,9 +46,7 @@ class ModelWorkloadConfig(BaseModel):
 class ModelsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    resume_parse: ModelWorkloadConfig
     jd_parse: ModelWorkloadConfig
-    shortlist: ModelWorkloadConfig
     combined_shortlist: ModelWorkloadConfig
     expected_answer: ModelWorkloadConfig
     screening_extraction: ModelWorkloadConfig
@@ -297,8 +295,6 @@ class SchedulerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dispatch_pending_screening_seconds: float = 60.0
     recover_stuck_parses_seconds: float = 120.0
-    dispatch_scheduled_interview_seconds: float = 60.0
-    dispatch_outbox_seconds: float = 5.0
 
 
 class CeleryQueueConfig(BaseModel):

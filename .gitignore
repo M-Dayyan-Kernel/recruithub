@@ -15,3 +15,5 @@ env/
 .git/
 token.json
 credentials.json
+backend/celerybeat-schedule*
+.cursor/debug*.log

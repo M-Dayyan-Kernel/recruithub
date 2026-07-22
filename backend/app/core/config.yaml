@@ -2,23 +2,11 @@
 # Edits require restarting API, Celery, and interview-agent processes.
 
 models:
-  resume_parse:
-    provider: openai
-    name: gpt-4o
-    temperature: 0
-    max_tokens: 2000
-    response_format: json_object
   jd_parse:
     provider: openai
     name: gpt-4o
     temperature: 0
     max_tokens: 3000
-    response_format: json_object
-  shortlist:
-    provider: openai
-    name: gpt-4o
-    temperature: 0
-    max_tokens: 1000
     response_format: json_object
   combined_shortlist:
     provider: openai
@@ -183,8 +171,6 @@ storage:
 scheduler:
   dispatch_pending_screening_seconds: 60
   recover_stuck_parses_seconds: 120
-  dispatch_scheduled_interview_seconds: 60
-  dispatch_outbox_seconds: 5
 
 celery:
   default_max_retries: 3

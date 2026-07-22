@@ -263,7 +263,6 @@ dependencies = [
     { name = "google-auth" },
     { name = "google-auth-oauthlib" },
     { name = "httpx" },
-    { name = "jose" },
     { name = "livekit-agents", extra = ["openai"] },
     { name = "livekit-api" },
     { name = "openai" },
@@ -304,7 +303,6 @@ requires-dist = [
     { name = "google-auth-oauthlib", specifier = ">=1.2.0" },
     { name = "httpx", specifier = "==0.27.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27.0" },
-    { name = "jose", specifier = ">=1.0.0" },
     { name = "livekit-agents", extras = ["openai"], specifier = ">=1.6.2" },
     { name = "livekit-api", specifier = ">=0.7.0" },
     { name = "openai", specifier = ">=2.36.0,<3.0.0" },
@@ -1217,12 +1215,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/d3/59/322338183ecda247f
 wheels = [
     { url = "https://files.pythonhosted.org/packages/14/2f/967ba146e6d58cf6a652da73885f52fc68001525b4197effc174321d70b4/jmespath-1.1.0-py3-none-any.whl", hash = "sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64", size = 20419, upload-time = "2026-01-22T16:35:24.919Z" },
 ]
-
-[[package]]
-name = "jose"
-version = "1.0.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/01/3d/832caa69cd0d3be2d608d8290be2221072669aa88e87690837f6b31c480f/jose-1.0.0.tar.gz", hash = "sha256:8436c3617cd94e1ba97828fbb1ce27c129f66c78fb855b4bb47e122b5f345fba", size = 9153, upload-time = "2015-11-13T10:52:21.506Z" }
 
 [[package]]
 name = "json-repair"
