@@ -471,6 +471,8 @@ class InterviewSessionResponse(BaseModel):
     candidate_name: Optional[str] = None
     job_title: Optional[str] = None
     mock_mode: bool = False
+    capacity_available: Optional[bool] = None
+    retry_after_minutes: Optional[int] = None
 
 
 class InterviewHrDecisionUpdate(BaseModel):

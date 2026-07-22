@@ -153,6 +153,10 @@ interview:
   thin_answer_word_limit: 25
   session_link_ttl_days: 7
   invite_ttl_days: 7
+  # Platform-wide cap on simultaneous in_progress AI interviews (shared agent pool).
+  max_concurrent_interviews: 25
+  # Suggested wait time shown when capacity is full.
+  busy_retry_minutes: 45
   # Allow joining this many seconds before scheduled_interview_at (clock skew).
   schedule_early_grace_sec: 120
   # Public /start and /complete: max requests per token per rolling minute.

@@ -13,7 +13,8 @@ import {
 import { ConnectionState, Track, type RemoteParticipant } from 'livekit-client'
 import type { TrackReference } from '@livekit/components-react'
 import '@livekit/components-styles'
-import { api } from '@/lib/api'
+import { api, getRetryAfterMinutes, isInterviewCapacityError } from '@/lib/api'
+import InterviewBusyScreen from '@/components/InterviewBusyScreen'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
   state = { error: null }
@@ -320,6 +321,8 @@ export default function InterviewRoomPage() {
   const [credentials, setCredentials] = useState<RoomCredentials | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [capacityBusy, setCapacityBusy] = useState(false)
+  const [retryAfterMinutes, setRetryAfterMinutes] = useState(45)
   const [roomReady, setRoomReady] = useState(false)
   const startedRef = useRef(false)
 
@@ -333,6 +336,11 @@ export default function InterviewRoomPage() {
         const data = (await api.post(`/api/interview/${token}/start`)) as RoomCredentials
         setCredentials(data)
       } catch (err: unknown) {
+        if (isInterviewCapacityError(err)) {
+          setCapacityBusy(true)
+          setRetryAfterMinutes(getRetryAfterMinutes(err))
+          return
+        }
         const msg = err instanceof Error ? err.message : String(err)
         // api.ts strips HTTP status — detect 409 by message content
         if (msg.toLowerCase().includes('already started') || msg.toLowerCase().includes('not in pending')) {
@@ -348,6 +356,15 @@ export default function InterviewRoomPage() {
 
     startInterview()
   }, [token])
+
+  if (capacityBusy) {
+    return (
+      <InterviewBusyScreen
+        retryAfterMinutes={retryAfterMinutes}
+        onRetry={() => navigate(`/interview/${token ?? ''}`)}
+      />
+    )
+  }
 
   // 409 path: interview already in progress — send user to landing page rejoin screen
   if (roomReady && !credentials) {

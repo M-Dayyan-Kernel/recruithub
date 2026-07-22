@@ -273,6 +273,8 @@ class InterviewConfig(BaseModel):
     invite_ttl_days: int = 7
     schedule_early_grace_sec: int = 120
     public_rate_limit_per_minute: int = 20
+    max_concurrent_interviews: int = 25
+    busy_retry_minutes: int = 45
     assessment_retry: AssessmentRetryConfig = Field(
         default_factory=AssessmentRetryConfig
     )

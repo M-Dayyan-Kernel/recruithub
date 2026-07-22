@@ -48,6 +48,38 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+async def _apply_interview_capacity_fields(
+    response_data: InterviewSessionResponse,
+    db: AsyncSession,
+) -> None:
+    """Set capacity hints for pending sessions (candidate landing pre-check)."""
+    if response_data.status != "pending":
+        return
+
+    from app.services.interview_queue_service import (
+        busy_retry_minutes,
+        has_live_interview_slot,
+    )
+
+    available = await has_live_interview_slot(db)
+    response_data.capacity_available = available
+    if not available:
+        response_data.retry_after_minutes = busy_retry_minutes()
+
+
+def _raise_interview_capacity_full() -> None:
+    from app.services.interview_queue_service import busy_retry_minutes
+
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail={
+            "code": "interview_capacity_full",
+            "message": "All interviewers are currently busy. Please try again later.",
+            "retry_after_minutes": busy_retry_minutes(),
+        },
+    )
+
+
 async def _candidate_label(db: AsyncSession, candidate: Candidate | None, candidate_id: uuid.UUID) -> str:
     if candidate and candidate.name:
         return candidate.name
@@ -381,6 +413,8 @@ async def get_session_by_token(token: str, db: AsyncSession = Depends(get_db)):
 
     response_data.mock_mode = mock_livekit_enabled()
 
+    await _apply_interview_capacity_fields(response_data, db)
+
     return response_data
 
 
@@ -472,6 +506,11 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
             status_code=409,
             detail="Interview already started or not in pending state.",
         )
+
+    from app.services.interview_queue_service import has_live_interview_slot
+
+    if not await has_live_interview_slot(db):
+        _raise_interview_capacity_full()
 
     # Room-first: create LiveKit room before durable in_progress commit
     room_name = f"interview-{session.id}"

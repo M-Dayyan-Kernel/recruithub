@@ -12,6 +12,7 @@ import {
   ShieldAlert,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import InterviewBusyScreen from '@/components/InterviewBusyScreen'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,6 +26,8 @@ interface InterviewInfo {
   job_title?: string
   created_at: string
   mock_mode?: boolean
+  capacity_available?: boolean | null
+  retry_after_minutes?: number | null
 }
 
 // ---------------------------------------------------------------------------
@@ -90,24 +93,29 @@ export default function InterviewLandingPage() {
 
   const [permissionState, setPermissionState] = useState<PermissionState>('idle')
   const [mockCompleting, setMockCompleting] = useState(false)
+  const [refreshingCapacity, setRefreshingCapacity] = useState(false)
+
+  const fetchInterviewInfo = async () => {
+    if (!token) {
+      setError('No interview token provided.')
+      setLoading(false)
+      return
+    }
+
+    const data = (await api.get(`/api/interview/${token}`)) as InterviewInfo
+    setInfo(data)
+    setError(null)
+    setIs404(false)
+    setLoading(false)
+  }
 
   // ── Fetch interview info ──────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false
 
-    async function fetchInterview() {
-      if (!token) {
-        setError('No interview token provided.')
-        setLoading(false)
-        return
-      }
-
+    async function load() {
       try {
-        const data = (await api.get(`/api/interview/${token}`)) as InterviewInfo
-        if (!cancelled) {
-          setInfo(data)
-          setLoading(false)
-        }
+        await fetchInterviewInfo()
       } catch (err: unknown) {
         if (!cancelled) {
           const msg = err instanceof Error ? err.message : String(err)
@@ -122,11 +130,24 @@ export default function InterviewLandingPage() {
       }
     }
 
-    fetchInterview()
+    load()
     return () => {
       cancelled = true
     }
   }, [token])
+
+  const handleRetryCapacity = async () => {
+    if (!token) return
+    setRefreshingCapacity(true)
+    try {
+      await fetchInterviewInfo()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(msg)
+    } finally {
+      setRefreshingCapacity(false)
+    }
+  }
 
   // ── Permission check ──────────────────────────────────────────────────────
   const handleCheckPermissions = async () => {
@@ -145,6 +166,7 @@ export default function InterviewLandingPage() {
   }
 
   const handleStart = () => {
+    if (info?.capacity_available === false) return
     navigate(`/interview/${token}/room`)
   }
 
@@ -223,6 +245,17 @@ export default function InterviewLandingPage() {
           </p>
         </div>
       </div>
+    )
+  }
+
+  // ── Capacity full (pending session) ───────────────────────────────────────
+  if (info.status === 'pending' && info.capacity_available === false) {
+    return (
+      <InterviewBusyScreen
+        retryAfterMinutes={info.retry_after_minutes ?? 45}
+        onRetry={handleRetryCapacity}
+        retrying={refreshingCapacity}
+      />
     )
   }
 
