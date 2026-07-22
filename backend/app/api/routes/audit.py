@@ -3,12 +3,13 @@ from datetime import datetime
 from typing import Optional
 import logging
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import RequireAdmin
+from app.core.tenancy import get_tenant_candidate
 from app.models.models import AuditLog
 from app.schemas.schemas import AuditLogListResponse, AuditLogResponse
 
@@ -24,6 +25,7 @@ async def list_audit_logs(
     offset: int = Query(0, ge=0),
     entity_type: Optional[str] = Query(None),
     job_id: Optional[uuid.UUID] = Query(None),
+    candidate_id: Optional[uuid.UUID] = Query(None),
     actor_user_id: Optional[uuid.UUID] = Query(None),
     q: Optional[str] = Query(None, description="Search subject, feature, or actor name"),
     from_ts: Optional[datetime] = Query(None, alias="from"),
@@ -34,6 +36,14 @@ async def list_audit_logs(
         filters.append(AuditLog.entity_type == entity_type)
     if job_id:
         filters.append(AuditLog.job_id == job_id)
+    if candidate_id:
+        candidate = await get_tenant_candidate(db, candidate_id, _admin.tenant_id)
+        if job_id and candidate.job_id != job_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Candidate not found for this job",
+            )
+        filters.append(AuditLog.candidate_id == candidate_id)
     if actor_user_id:
         filters.append(AuditLog.actor_user_id == actor_user_id)
     if from_ts:

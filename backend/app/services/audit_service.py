@@ -50,6 +50,7 @@ async def log_change(
     before: Optional[dict],
     after: Optional[dict],
     job_id: Optional[uuid.UUID] = None,
+    candidate_id: Optional[uuid.UUID] = None,
 ) -> None:
     """Insert an audit row in the current transaction (caller commits)."""
     row = AuditLog(
@@ -65,6 +66,7 @@ async def log_change(
         before_state=redact_state(before),
         after_state=redact_state(after),
         job_id=job_id,
+        candidate_id=candidate_id,
     )
     db.add(row)
     await db.flush()
@@ -88,6 +90,7 @@ async def log_field_changes(
     subject_label: str,
     changes: dict[str, tuple[Any, Any]],
     job_id: Optional[uuid.UUID] = None,
+    candidate_id: Optional[uuid.UUID] = None,
 ) -> None:
     """One audit row per changed field: changes = {feature: (before, after)}."""
     for feature, (before_val, after_val) in changes.items():
@@ -104,4 +107,5 @@ async def log_field_changes(
             before={feature: before_val},
             after={feature: after_val},
             job_id=job_id,
+            candidate_id=candidate_id,
         )

@@ -333,3 +333,4 @@ class AuditLog(Base):
     before_state: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     after_state: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     job_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    candidate_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)

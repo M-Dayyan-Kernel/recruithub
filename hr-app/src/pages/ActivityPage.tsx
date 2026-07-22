@@ -9,9 +9,14 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { AuditLogListResponse } from '@/types/api'
+import type { AuditLogListResponse, Job } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
-import { WORKFLOW_CARD_CLASS, WORKFLOW_INPUT_CLASS } from '@/lib/workflow'
+import {
+  WORKFLOW_CARD_CLASS,
+  WORKFLOW_INPUT_CLASS,
+  fetchJobCandidates,
+  resumeDisplayName,
+} from '@/lib/workflow'
 import { cn } from '@/lib/utils'
 
 const PAGE_SIZE = 25
@@ -173,15 +178,35 @@ function StateCell({ value, muted }: { value: string; muted?: boolean }) {
 export default function ActivityPage() {
   const [q, setQ] = useState('')
   const [search, setSearch] = useState('')
+  const [jobId, setJobId] = useState('')
+  const [candidateId, setCandidateId] = useState('')
   const [offset, setOffset] = useState(0)
+
+  const { data: jobs } = useQuery<Job[]>({
+    queryKey: ['jobs'],
+    queryFn: () => api.get('/api/jobs') as unknown as Promise<Job[]>,
+  })
+
+  const { data: candidates = [], isLoading: candidatesLoading } = useQuery({
+    queryKey: ['activity-candidates', jobId],
+    queryFn: () => fetchJobCandidates(jobId),
+    enabled: Boolean(jobId),
+  })
+
+  const sortedJobs = useMemo(
+    () => [...(jobs ?? [])].sort((a, b) => a.title.localeCompare(b.title)),
+    [jobs],
+  )
 
   const params = useMemo(() => {
     const sp = new URLSearchParams()
     sp.set('limit', String(PAGE_SIZE))
     sp.set('offset', String(offset))
     if (search.trim()) sp.set('q', search.trim())
+    if (jobId) sp.set('job_id', jobId)
+    if (candidateId) sp.set('candidate_id', candidateId)
     return sp.toString()
-  }, [offset, search])
+  }, [offset, search, jobId, candidateId])
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery<AuditLogListResponse>({
     queryKey: ['audit-logs', params],
@@ -193,7 +218,7 @@ export default function ActivityPage() {
   const items = data?.items ?? []
   const page = Math.floor(offset / PAGE_SIZE) + 1
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const hasSearch = Boolean(search.trim())
+  const hasActiveFilters = Boolean(search.trim() || jobId || candidateId)
 
   function applySearch(e: FormEvent) {
     e.preventDefault()
@@ -201,9 +226,22 @@ export default function ActivityPage() {
     setSearch(q)
   }
 
-  function clearSearch() {
+  function handleJobChange(nextJobId: string) {
+    setJobId(nextJobId)
+    setCandidateId('')
+    setOffset(0)
+  }
+
+  function handleCandidateChange(nextCandidateId: string) {
+    setCandidateId(nextCandidateId)
+    setOffset(0)
+  }
+
+  function clearFilters() {
     setQ('')
     setSearch('')
+    setJobId('')
+    setCandidateId('')
     setOffset(0)
   }
 
@@ -223,19 +261,67 @@ export default function ActivityPage() {
             Audit trail of changes across the recruitment pipeline.
           </p>
         </div>
-        {hasSearch && (
+        {hasActiveFilters && (
           <button
             type="button"
-            onClick={clearSearch}
+            onClick={clearFilters}
             className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50"
           >
             <X className="h-4 w-4" />
-            Clear search
+            Clear filters
           </button>
         )}
       </div>
 
-      <div className={`${WORKFLOW_CARD_CLASS} p-4`}>
+      <div className={`${WORKFLOW_CARD_CLASS} space-y-3 p-4`}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label htmlFor="activity-job-filter" className="mb-1 block text-xs font-medium text-slate-500">
+              Job
+            </label>
+            <select
+              id="activity-job-filter"
+              value={jobId}
+              onChange={(e) => handleJobChange(e.target.value)}
+              className={WORKFLOW_INPUT_CLASS}
+            >
+              <option value="">All jobs</option>
+              {sortedJobs.map((job) => (
+                <option key={job.id} value={job.id}>
+                  {job.title}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label
+              htmlFor="activity-candidate-filter"
+              className="mb-1 block text-xs font-medium text-slate-500"
+            >
+              Candidate
+            </label>
+            <select
+              id="activity-candidate-filter"
+              value={candidateId}
+              onChange={(e) => handleCandidateChange(e.target.value)}
+              disabled={!jobId}
+              className={cn(WORKFLOW_INPUT_CLASS, !jobId && 'cursor-not-allowed opacity-60')}
+            >
+              <option value="">
+                {jobId
+                  ? candidatesLoading
+                    ? 'Loading candidates…'
+                    : 'All candidates'
+                  : 'Select a job first'}
+              </option>
+              {candidates.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {resumeDisplayName(candidate)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
         <form onSubmit={applySearch} className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
@@ -283,8 +369,8 @@ export default function ActivityPage() {
                     <Activity className="mx-auto mb-2 h-8 w-8 text-zinc-300" />
                     <p className="text-sm font-medium text-slate-700">No matching activity</p>
                     <p className="mt-1 text-sm text-slate-500">
-                      {hasSearch
-                        ? 'Try a different search term.'
+                      {hasActiveFilters
+                        ? 'No matching activity for this job or candidate. Try clearing filters.'
                         : 'Changes will appear here as people use the app.'}
                     </p>
                   </td>

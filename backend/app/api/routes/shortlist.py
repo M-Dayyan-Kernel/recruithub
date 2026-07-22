@@ -444,6 +444,7 @@ async def update_decision(
         before={"hr_decision": previous_decision},
         after={"hr_decision": payload.hr_decision},
         job_id=record.job_id,
+        candidate_id=record.candidate_id,
     )
     await db.commit()
     await db.refresh(record)
@@ -581,6 +582,7 @@ async def submit_feedback(
         subject_label=subject,
         changes=changes,
         job_id=record.job_id,
+        candidate_id=record.candidate_id,
     )
     await db.commit()
     await db.refresh(record)

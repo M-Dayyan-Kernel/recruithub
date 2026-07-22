@@ -238,6 +238,7 @@ async def upload_resumes(
                 before=None,
                 after={"original_filename": cand.original_filename},
                 job_id=job_id,
+                candidate_id=cand.id,
             )
 
     await db.commit()
@@ -366,6 +367,7 @@ async def get_candidate(
         subject_label=candidate.original_filename or candidate.name or str(candidate_id),
         feature="pii_access",
         job_id=candidate.job_id,
+        candidate_id=candidate.id,
     )
     await db.commit()
     return CandidateDetailResponse.model_validate(candidate)
@@ -413,6 +415,7 @@ async def retry_processing(
         before={"pipeline_status": before_status},
         after={"pipeline_status": "queued"},
         job_id=job_id,
+        candidate_id=candidate.id,
     )
     await db.commit()
     from app.services.processing_queue_service import dispatch_processing_slots  # noqa: PLC0415
@@ -462,6 +465,7 @@ async def gdpr_erase_candidate(
         subject_label=str(candidate_id),
         feature="gdpr",
         job_id=candidate.job_id,
+        candidate_id=candidate.id,
     )
     await db.commit()
 
@@ -522,6 +526,7 @@ async def delete_candidate(
         },
         after=None,
         job_id=job_id,
+        candidate_id=candidate.id,
     )
     await db.delete(candidate)
     await db.commit()
@@ -571,6 +576,7 @@ async def update_candidate(
         subject_label=candidate.original_filename or candidate.name or str(candidate_id),
         changes=changes,
         job_id=candidate.job_id,
+        candidate_id=candidate.id,
     )
     await db.commit()
     await db.refresh(candidate)

@@ -554,6 +554,7 @@ async def update_screening_result(
         before={"result": before_result},
         after={"result": payload.result},
         job_id=screening_call.job_id,
+        candidate_id=screening_call.candidate_id,
     )
     await db.commit()
     await db.refresh(screening_call)

@@ -123,6 +123,7 @@ async def queue_candidate_for_interview(
         before=None,
         after={"queued": True},
         job_id=candidate.job_id,
+        candidate_id=candidate_id,
     )
     await db.commit()
 
@@ -237,6 +238,7 @@ async def schedule_interview(
         before=None,
         after={"scheduled_interview_at": scheduled_at.isoformat()},
         job_id=candidate.job_id,
+        candidate_id=candidate_id,
     )
     await db.commit()
     await db.refresh(interview_session)
@@ -323,6 +325,7 @@ async def send_interview_link(
         before=None,
         after={"status": interview_session.status},
         job_id=candidate.job_id,
+        candidate_id=candidate_id,
     )
     await db.commit()
     await db.refresh(interview_session)
@@ -621,6 +624,7 @@ async def mark_interview_complete(
         entity_id=session.id,
         subject_label=await _candidate_label(db, candidate, candidate_id),
         job_id=candidate.job_id,
+        candidate_id=candidate_id,
         feature="status",
         before={"status": before_status},
         after={"status": "completed"},
@@ -1175,6 +1179,7 @@ async def update_interview_hr_decision(
             before={"hr_decision": before_decision},
             after={"hr_decision": payload.hr_decision},
             job_id=candidate.job_id if candidate else None,
+            candidate_id=candidate_id,
         )
         await db.commit()
         return result
@@ -1253,6 +1258,7 @@ async def resend_interview_email(
         before=None,
         after={"email_sent_at": session.email_sent_at.isoformat() if session.email_sent_at else None},
         job_id=candidate.job_id,
+        candidate_id=candidate_id,
     )
     await db.commit()
     await db.refresh(session)
@@ -1299,6 +1305,7 @@ async def reschedule_interview_endpoint(
             before=None,
             after={"session_id": str(result.id) if hasattr(result, "id") else None},
             job_id=candidate.job_id if candidate else None,
+            candidate_id=candidate_id,
         )
         await db.commit()
         return result
@@ -1358,6 +1365,7 @@ async def retry_interview_assessment(
         before={"status": before_status},
         after={"status": "completed"},
         job_id=session.job_id,
+        candidate_id=candidate_id,
     )
     await db.commit()
 
