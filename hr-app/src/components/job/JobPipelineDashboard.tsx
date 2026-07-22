@@ -192,7 +192,7 @@ export function JobPipelineDashboard({ job }: Props) {
       shortlisted: shortlistedCount,
       screeningCompleted: screeningEffective ? screeningCompletedCount : 0,
       scheduled: pipeline?.counts.scheduled ?? 0,
-      completed: pipeline?.counts.completed ?? 0,
+      finalists: pipeline?.counts.finalists ?? 0,
     }
   }, [
     shortlistQuery.data,
@@ -252,15 +252,15 @@ export function JobPipelineDashboard({ job }: Props) {
         to: `/jobs/${jobId}/interviews?tab=scheduled`,
       },
       {
-        key: 'completed',
-        label: 'Completed',
-        description: 'Interviews finished',
-        value: metrics.completed,
-        icon: <CheckCircle2 size={20} className="text-sky-600" />,
-        accent: 'bg-sky-500',
-        iconBg: 'bg-sky-50',
-        barColor: 'bg-sky-400',
-        to: `/jobs/${jobId}/interviews?tab=completed`,
+        key: 'finalists',
+        label: 'Finalists',
+        description: 'HR-approved candidates',
+        value: metrics.finalists,
+        icon: <CheckCircle2 size={20} className="text-emerald-600" />,
+        accent: 'bg-emerald-500',
+        iconBg: 'bg-emerald-50',
+        barColor: 'bg-emerald-400',
+        to: `/jobs/${jobId}/finalists`,
       },
     )
 

@@ -240,7 +240,7 @@ test('job details page shows pipeline overview stats', async ({ page }) => {
   await expect(page.getByText('Shortlisted', { exact: true })).toBeVisible()
   await expect(page.getByText('Screened', { exact: true })).toBeVisible()
   await expect(page.getByText('Scheduled', { exact: true })).toBeVisible()
-  await expect(page.getByText('Completed', { exact: true })).toBeVisible()
+  await expect(page.getByText('Finalists', { exact: true })).toBeVisible()
 })
 
 test('Delete Job button is visible on job details route', async ({ page }) => {
