@@ -22,7 +22,7 @@ from app.services.interview_session_service import (
 
 logger = logging.getLogger(__name__)
 
-BYPASS_SUMMARY = "Screening bypassed — voice screening disabled in system settings"
+from app.services.screening_gate_service import BYPASS_SUMMARY_JOB
 
 
 @dataclass
@@ -38,6 +38,7 @@ async def _ensure_bypass_screening_call(
     *,
     candidate_id: uuid.UUID,
     job_id: uuid.UUID,
+    bypass_summary: str = BYPASS_SUMMARY_JOB,
 ) -> ScreeningCall:
     result = await db.execute(
         select(ScreeningCall)
@@ -63,7 +64,7 @@ async def _ensure_bypass_screening_call(
         call_status="completed",
         call_outcome="completed",
         result="pass",
-        summary=BYPASS_SUMMARY,
+        summary=bypass_summary,
         interview_queued_at=now,
     )
     db.add(screening_call)
@@ -98,6 +99,7 @@ async def advance_approved_candidate_to_interview(
     *,
     candidate_id: uuid.UUID,
     job_id: uuid.UUID,
+    bypass_summary: str = BYPASS_SUMMARY_JOB,
 ) -> AdvanceResult:
     """
     When voice screening is disabled, create a bypass pass record, interview session,
@@ -119,7 +121,9 @@ async def advance_approved_candidate_to_interview(
         db, candidate_id=candidate_id, job_id=job_id
     )
     if existing_session:
-        await _ensure_bypass_screening_call(db, candidate_id=candidate_id, job_id=job_id)
+        await _ensure_bypass_screening_call(
+            db, candidate_id=candidate_id, job_id=job_id, bypass_summary=bypass_summary
+        )
         email_sent, email_skipped_reason = await _send_invitation_if_needed(
             db,
             interview_session=existing_session,
@@ -134,7 +138,9 @@ async def advance_approved_candidate_to_interview(
             email_skipped_reason=email_skipped_reason,
         )
 
-    await _ensure_bypass_screening_call(db, candidate_id=candidate_id, job_id=job_id)
+    await _ensure_bypass_screening_call(
+        db, candidate_id=candidate_id, job_id=job_id, bypass_summary=bypass_summary
+    )
 
     try:
         interview_session, candidate, job_title = await create_pending_interview_session(

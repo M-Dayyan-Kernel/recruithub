@@ -16,12 +16,14 @@ import { useDeleteCandidate } from '@/hooks/useDeleteCandidate'
 import { WORKFLOW_CARD_CLASS, WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
 import { api } from '@/lib/api'
 import type { SystemSettings } from '@/types/api'
+import { isVoiceScreeningEffective } from '@/lib/voiceScreening'
 
 interface Props {
   results: ShortlistResultWithCandidate[]
   jobId: string
   requiredSkills?: string[]
   jobTitle?: string
+  voiceScreeningEnabled?: boolean
 }
 
 const CHECKBOX_CLASS =
@@ -36,7 +38,7 @@ function ShortlistTableRow({
   selected,
   onToggleSelect,
   onOpenReport,
-  screeningEnabled,
+  screeningEffective,
   onApproved,
 }: {
   result: ShortlistResultWithCandidate
@@ -44,7 +46,7 @@ function ShortlistTableRow({
   selected: boolean
   onToggleSelect: () => void
   onOpenReport: (result: ShortlistResultWithCandidate) => void
-  screeningEnabled: boolean
+  screeningEffective: boolean
   onApproved: ReturnType<typeof useShortlistApproveNavigation>
 }) {
   const decisionMutation = useShortlistDecision(jobId, result.id, { onApproved })
@@ -88,14 +90,14 @@ function ShortlistTableRow({
             const cfg = DECISION_CONFIG[decision]
             const isActive = result.hr_decision === decision
             const label =
-              decision === 'approved' ? getApproveLabel(screeningEnabled) : cfg.label
+              decision === 'approved' ? getApproveLabel(screeningEffective) : cfg.label
             return (
               <button
                 key={decision}
                 type="button"
                 onClick={() => decisionMutation.mutate(decision)}
                 disabled={decisionMutation.isPending}
-                title={decision === 'approved' ? getApproveTooltip(screeningEnabled) : undefined}
+                title={decision === 'approved' ? getApproveTooltip(screeningEffective) : undefined}
                 className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                   isActive ? cfg.active : cfg.inactive
                 }`}
@@ -116,7 +118,13 @@ function ShortlistTableRow({
   )
 }
 
-export function ShortlistTable({ results, jobId, requiredSkills = [], jobTitle }: Props) {
+export function ShortlistTable({
+  results,
+  jobId,
+  requiredSkills = [],
+  jobTitle,
+  voiceScreeningEnabled,
+}: Props) {
   const [reportResult, setReportResult] = useState<ShortlistResultWithCandidate | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
@@ -126,7 +134,9 @@ export function ShortlistTable({ results, jobId, requiredSkills = [], jobTitle }
     queryKey: ['settings'],
     queryFn: () => api.get('/api/settings') as unknown as Promise<SystemSettings>,
   })
-  const screeningEnabled = settings?.screening_enabled ?? true
+  const screeningEffective = isVoiceScreeningEffective(settings, {
+    voice_screening_enabled: voiceScreeningEnabled,
+  })
 
   const sortedResults = useMemo(
     () => [...results].sort((a, b) => b.match_score - a.match_score),
@@ -306,7 +316,7 @@ export function ShortlistTable({ results, jobId, requiredSkills = [], jobTitle }
                   selected={selectedIds.has(result.candidate_id)}
                   onToggleSelect={() => toggleOne(result.candidate_id)}
                   onOpenReport={setReportResult}
-                  screeningEnabled={screeningEnabled}
+                  screeningEffective={screeningEffective}
                   onApproved={onApproved}
                 />
               ))}

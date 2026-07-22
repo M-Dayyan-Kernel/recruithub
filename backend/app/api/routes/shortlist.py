@@ -499,18 +499,29 @@ async def update_decision(
         )
 
     if payload.hr_decision == "approved":
+        from app.services.screening_gate_service import (
+            bypass_summary_for,
+            is_voice_screening_effective,
+        )
         from app.services.settings_service import load_system_settings
 
         system_settings = await load_system_settings(db, tenant_id=actor.tenant_id)
-        if not system_settings.screening_enabled:
+        job = await db.get(Job, record.job_id)
+        if not job or not is_voice_screening_effective(system_settings, job):
             from app.services.interview_skip_screening_service import (
                 advance_approved_candidate_to_interview,
             )
 
+            bypass_summary = (
+                bypass_summary_for(system_settings, job)
+                if job
+                else "Screening bypassed — voice screening disabled"
+            )
             advance = await advance_approved_candidate_to_interview(
                 db,
                 candidate_id=record.candidate_id,
                 job_id=record.job_id,
+                bypass_summary=bypass_summary,
             )
             return ShortlistDecisionResponse(
                 **ShortlistResultResponse.model_validate(record).model_dump(),

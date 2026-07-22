@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import type { Job, InterviewQuestion, ScreeningQuestion } from '@/types/api'
 import { InterviewQuestionsEditor } from '@/components/InterviewQuestionsEditor'
 import { ScreeningQuestionsEditor } from '@/components/ScreeningQuestionsEditor'
+import { VoiceScreeningSwitch } from '@/components/screening/VoiceScreeningSwitch'
 import { getDefaultScreeningQuestions } from '@/lib/screeningDefaults'
 
 interface Props {
@@ -30,6 +31,9 @@ export function EditJobModal({ job, open, onClose }: Props) {
   )
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>(
     job.interview_questions ?? [],
+  )
+  const [voiceScreeningEnabled, setVoiceScreeningEnabled] = useState(
+    job.voice_screening_enabled !== false,
   )
   const [submitError, setSubmitError] = useState<string | null>(null)
 
@@ -115,6 +119,11 @@ export function EditJobModal({ job, open, onClose }: Props) {
     const nextQuestions = interviewQuestions.filter((q) => q.question.trim())
     if (origQuestions !== JSON.stringify(nextQuestions)) {
       payload.interview_questions = nextQuestions
+    }
+
+    const origVoiceScreening = job.voice_screening_enabled !== false
+    if (voiceScreeningEnabled !== origVoiceScreening) {
+      payload.voice_screening_enabled = voiceScreeningEnabled
     }
 
     if (Object.keys(payload).length === 0) {
@@ -256,6 +265,13 @@ export function EditJobModal({ job, open, onClose }: Props) {
               />
             </div>
           </div>
+
+          <VoiceScreeningSwitch
+            checked={voiceScreeningEnabled}
+            disabled={mutation.isPending}
+            onChange={setVoiceScreeningEnabled}
+            className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5"
+          />
 
           <ScreeningQuestionsEditor
             questions={screeningQuestions}

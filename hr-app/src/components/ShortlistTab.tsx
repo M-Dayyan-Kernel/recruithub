@@ -21,6 +21,7 @@ import { BackendError } from '@/components/BackendError'
 import { ShortlistTable } from '@/components/shortlist/ShortlistTable'
 import { ShortlistTableSkeleton } from '@/components/shortlist/ShortlistTableSkeleton'
 import { getApproveLabel, getApproveTooltip } from '@/components/shortlist/shortlistDecisionConfig'
+import { isVoiceScreeningEffective } from '@/lib/voiceScreening'
 import { useShortlistDecision } from '@/hooks/useShortlistDecision'
 import { useShortlistApproveNavigation, navigateAfterScreeningSkipped } from '@/hooks/useShortlistApproveNavigation'
 import {
@@ -248,7 +249,7 @@ function ShortlistCard({
   readOnly = false,
   decisionActions,
   showDelete = false,
-  screeningEnabled = true,
+  screeningEffective = true,
   onApproved,
 }: {
   result: ShortlistResultWithCandidate
@@ -256,7 +257,7 @@ function ShortlistCard({
   readOnly?: boolean
   decisionActions?: DecisionActionsMode
   showDelete?: boolean
-  screeningEnabled?: boolean
+  screeningEffective?: boolean
   onApproved?: ReturnType<typeof useShortlistApproveNavigation>
 }) {
   const actionsMode: DecisionActionsMode =
@@ -436,13 +437,13 @@ function ShortlistCard({
               const cfg = DECISION_CONFIG[decision]
               const isActive = result.hr_decision === decision
               const label =
-                decision === 'approved' ? getApproveLabel(screeningEnabled) : cfg.label
+                decision === 'approved' ? getApproveLabel(screeningEffective) : cfg.label
               return (
                 <button
                   key={decision}
                   onClick={() => decisionMutation.mutate(decision)}
                   disabled={decisionMutation.isPending}
-                  title={decision === 'approved' ? getApproveTooltip(screeningEnabled) : undefined}
+                  title={decision === 'approved' ? getApproveTooltip(screeningEffective) : undefined}
                   className={`px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     isActive ? cfg.active : cfg.inactive
                   }`}
@@ -578,6 +579,7 @@ interface Props {
   mode?: 'default' | 'aiShortlisted'
   requiredSkills?: string[]
   jobTitle?: string
+  voiceScreeningEnabled?: boolean
 }
 
 export function ShortlistTab({
@@ -588,6 +590,7 @@ export function ShortlistTab({
   mode = 'default',
   requiredSkills = [],
   jobTitle,
+  voiceScreeningEnabled,
 }: Props) {
   const isAiShortlistedMode = mode === 'aiShortlisted'
   const [search, setSearch] = useState('')
@@ -614,7 +617,9 @@ export function ShortlistTab({
     queryKey: ['settings'],
     queryFn: () => api.get('/api/settings') as unknown as Promise<SystemSettings>,
   })
-  const screeningEnabled = settings?.screening_enabled ?? true
+  const screeningEffective = isVoiceScreeningEffective(settings, {
+    voice_screening_enabled: voiceScreeningEnabled,
+  })
   const navigate = useNavigate()
   const onApproved = useShortlistApproveNavigation(jobId)
 
@@ -669,7 +674,7 @@ export function ShortlistTab({
           }) as unknown as Promise<{ screening_skipped?: boolean; interview_email_sent?: boolean | null }>,
         ),
       )
-      if (!screeningEnabled) {
+      if (!screeningEffective) {
         const anyEmailFailed = responses.some(
           (r) => r.screening_skipped && r.interview_email_sent === false,
         )
@@ -935,6 +940,7 @@ export function ShortlistTab({
             jobId={jobId}
             requiredSkills={requiredSkills}
             jobTitle={jobTitle}
+            voiceScreeningEnabled={voiceScreeningEnabled}
           />
         )}
       </div>
@@ -962,7 +968,7 @@ export function ShortlistTab({
           key={result.id}
           result={result}
           jobId={jobId}
-          screeningEnabled={screeningEnabled}
+          screeningEffective={screeningEffective}
           onApproved={onApproved}
         />
       ))}

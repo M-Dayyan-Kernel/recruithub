@@ -105,13 +105,13 @@ async def dispatch_screening_for_candidates(
 
     Returns (initiated, queued, skipped).
     """
+    from app.services.screening_gate_service import screening_disabled_reason
     from app.services.settings_service import load_system_settings
 
     system_settings = await load_system_settings(db, tenant_id=job.tenant_id)
-    if not system_settings.screening_enabled:
-        return 0, 0, [
-            {"reason": "Voice screening is disabled in system settings"},
-        ]
+    disabled_reason = screening_disabled_reason(system_settings, job)
+    if disabled_reason:
+        return 0, 0, [{"reason": disabled_reason}]
 
     initiated = 0
     queued = 0

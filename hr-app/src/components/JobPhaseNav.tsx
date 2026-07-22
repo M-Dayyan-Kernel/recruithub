@@ -14,6 +14,7 @@ import {
 import { api } from '@/lib/api'
 import type { FinalistsResponse, Job, SystemSettings } from '@/types/api'
 import { cn } from '@/lib/utils'
+import { isVoiceScreeningEffective } from '@/lib/voiceScreening'
 import { ScreeningStatusTabs } from '@/components/screening/ScreeningStatusTabs'
 import { ShortlistStatusTabs } from '@/components/shortlist/ShortlistStatusTabs'
 import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
@@ -125,15 +126,15 @@ export function JobPhaseNav({ job }: Props) {
     enabled: phase === 'finalists',
   })
 
-  const screeningEnabled = settings?.screening_enabled !== false
+  const screeningEffective = isVoiceScreeningEffective(settings, job)
   const finalists = finalistsData?.candidates ?? []
 
   const phases = useMemo(() => {
-    if (!screeningEnabled) {
+    if (!screeningEffective) {
       return PHASES.filter((p) => p.segment !== 'screening')
     }
     return [...PHASES]
-  }, [screeningEnabled])
+  }, [screeningEffective])
 
   const activeIndex = phases.findIndex((p) => p.segment === phase)
 

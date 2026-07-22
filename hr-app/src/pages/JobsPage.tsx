@@ -30,40 +30,44 @@ function JobCard({ job }: { job: Job }) {
   const expLabel = experienceLabel(job)
 
   return (
-    <article className="flex h-full flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
-      <div className="mb-1.5 flex flex-wrap items-center gap-2">
-        <Link
-          to={`/jobs/${job.id}`}
-          className="text-lg font-semibold text-slate-900 transition-colors hover:text-indigo-700"
-        >
-          {job.title}
-        </Link>
-        <JobStatusBadge status={job.status} />
+    <article className="group relative flex h-full flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:border-slate-300 hover:shadow-md">
+      <Link
+        to={`/jobs/${job.id}`}
+        className="absolute inset-0 z-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+        aria-label={`View ${job.title}`}
+      />
+      <div className="pointer-events-none relative z-10 flex min-h-0 flex-1 flex-col">
+        <div className="mb-1.5 flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-semibold text-slate-900 transition-colors group-hover:text-indigo-700">
+            {job.title}
+          </h2>
+          <JobStatusBadge status={job.status} />
+        </div>
+
+        {expLabel && <p className="mb-1.5 text-xs text-slate-500">{expLabel}</p>}
+
+        <p className="line-clamp-2 text-sm leading-relaxed text-slate-600">
+          {job.description || 'No description provided.'}
+        </p>
+
+        {(job.required_skills?.length ?? 0) > 0 && (
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {job.required_skills!.slice(0, 6).map((skill) => (
+              <span
+                key={skill}
+                className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600"
+              >
+                {skill}
+              </span>
+            ))}
+            {(job.required_skills?.length ?? 0) > 6 && (
+              <span className="text-xs text-slate-400">+{job.required_skills!.length - 6} more</span>
+            )}
+          </div>
+        )}
       </div>
 
-      {expLabel && <p className="mb-1.5 text-xs text-slate-500">{expLabel}</p>}
-
-      <p className="line-clamp-2 text-sm leading-relaxed text-slate-600">
-        {job.description || 'No description provided.'}
-      </p>
-
-      {(job.required_skills?.length ?? 0) > 0 && (
-        <div className="mt-2.5 flex flex-wrap gap-1.5">
-          {job.required_skills!.slice(0, 6).map((skill) => (
-            <span
-              key={skill}
-              className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600"
-            >
-              {skill}
-            </span>
-          ))}
-          {(job.required_skills?.length ?? 0) > 6 && (
-            <span className="text-xs text-slate-400">+{job.required_skills!.length - 6} more</span>
-          )}
-        </div>
-      )}
-
-      <div className="mt-auto border-t border-slate-100 pt-4">
+      <div className="relative z-10 mt-auto border-t border-slate-100 pt-4">
         <Link
           to={`/jobs/${job.id}/finalists`}
           className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"

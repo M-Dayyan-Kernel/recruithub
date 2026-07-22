@@ -41,6 +41,7 @@ _JOB_AUDIT_FIELDS = (
     "screening_call_from",
     "screening_call_to",
     "screening_timezone",
+    "voice_screening_enabled",
     "status",
 )
 

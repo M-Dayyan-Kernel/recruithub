@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import { fetchJobCandidates } from '@/lib/workflow'
 import type {
   InterviewPipelineResponse,
+  Job,
   ScreeningCall,
   ShortlistResultWithCandidate,
   SystemSettings,
@@ -14,7 +15,7 @@ import { buildScreeningRows, countByTab } from '@/components/screening/screening
 import { cn } from '@/lib/utils'
 
 interface Props {
-  jobId: string
+  job: Job
 }
 
 interface StageConfig {
@@ -127,7 +128,10 @@ function StageCardSkeleton() {
   )
 }
 
-export function JobPipelineDashboard({ jobId }: Props) {
+export function JobPipelineDashboard({ job }: Props) {
+  const jobId = job.id
+  const screeningEffective = job.voice_screening_enabled !== false
+
   const [shortlistQuery, screeningQuery, candidatesQuery, pipelineQuery] = useQueries({
     queries: [
       {
@@ -160,7 +164,6 @@ export function JobPipelineDashboard({ jobId }: Props) {
     queryFn: () => api.get('/api/settings') as unknown as Promise<SystemSettings>,
   })
 
-  const screeningEnabled = settings?.screening_enabled ?? true
   const isLoading =
     shortlistQuery.isLoading || screeningQuery.isLoading || candidatesQuery.isLoading || pipelineQuery.isLoading
   const isError =
@@ -187,7 +190,7 @@ export function JobPipelineDashboard({ jobId }: Props) {
 
     return {
       shortlisted: shortlistedCount,
-      screeningCompleted: screeningEnabled ? screeningCompletedCount : 0,
+      screeningCompleted: screeningEffective ? screeningCompletedCount : 0,
       scheduled: pipeline?.counts.scheduled ?? 0,
       completed: pipeline?.counts.completed ?? 0,
     }
@@ -197,7 +200,7 @@ export function JobPipelineDashboard({ jobId }: Props) {
     candidatesQuery.data,
     pipelineQuery.data,
     settings,
-    screeningEnabled,
+    screeningEffective,
   ])
 
   const refetchAll = () => {
@@ -222,7 +225,7 @@ export function JobPipelineDashboard({ jobId }: Props) {
       },
     ]
 
-    if (screeningEnabled) {
+    if (screeningEffective) {
       base.push({
         key: 'screening',
         label: 'Screened',
@@ -262,7 +265,7 @@ export function JobPipelineDashboard({ jobId }: Props) {
     )
 
     return base
-  }, [jobId, metrics, screeningEnabled])
+  }, [jobId, metrics, screeningEffective])
 
   const barStages = stages.map((s) => ({
     key: s.key,
@@ -272,7 +275,7 @@ export function JobPipelineDashboard({ jobId }: Props) {
   }))
 
   const totalInPipeline = barStages.reduce((sum, s) => sum + s.value, 0)
-  const gridCols = screeningEnabled ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-3'
+  const gridCols = screeningEffective ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-3'
 
   if (isLoading) {
     return (
@@ -298,21 +301,14 @@ export function JobPipelineDashboard({ jobId }: Props) {
   return (
     <section aria-label="Hiring pipeline">
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 px-6 py-5">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">Hiring pipeline</h2>
-              <p className="mt-0.5 text-sm text-slate-500">
-                {totalInPipeline > 0
-                  ? `${totalInPipeline} candidate${totalInPipeline === 1 ? '' : 's'} across all stages`
-                  : 'Candidates will appear here as they move through hiring'}
-              </p>
-            </div>
-            {!screeningEnabled && (
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                Voice screening off
-              </span>
-            )}
+        <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 px-5 py-4 sm:px-6">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Hiring pipeline</h2>
+            <p className="mt-0.5 text-sm text-slate-500">
+              {totalInPipeline > 0
+                ? `${totalInPipeline} candidate${totalInPipeline === 1 ? '' : 's'} across all stages`
+                : 'Candidates will appear here as they move through hiring'}
+            </p>
           </div>
         </div>
 

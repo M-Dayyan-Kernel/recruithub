@@ -203,16 +203,21 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
             await session.commit()
             return
 
+        from app.services.screening_gate_service import (
+            is_voice_screening_effective,
+            screening_disabled_reason,
+        )
         from app.services.settings_service import load_system_settings
 
         system_settings = await load_system_settings(session, tenant_id=job.tenant_id)
-        if not system_settings.screening_enabled:
+        if not is_voice_screening_effective(system_settings, job):
+            disabled_reason = screening_disabled_reason(system_settings, job)
             logger.info(
                 "Screening disabled — aborting initiate for ScreeningCall %s",
                 screening_call_id,
             )
             screening_call.call_status = "failed"
-            screening_call.summary = "Voice screening is disabled in system settings"
+            screening_call.summary = disabled_reason or "Voice screening is disabled"
             await session.commit()
             return
 
@@ -1402,10 +1407,11 @@ async def _async_dispatch_pending() -> None:
 
         dispatched = 0
         for screening_call, job in rows:
+            from app.services.screening_gate_service import is_voice_screening_effective
             from app.services.settings_service import load_system_settings
 
             settings = await load_system_settings(session, tenant_id=job.tenant_id)
-            if not settings.screening_enabled:
+            if not is_voice_screening_effective(settings, job):
                 continue
 
             if not is_within_call_window(job):

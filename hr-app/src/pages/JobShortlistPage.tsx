@@ -53,6 +53,7 @@ export default function JobShortlistPage() {
           <ShortlistTab
             jobId={jobId}
             jobTitle={job.title}
+            voiceScreeningEnabled={job.voice_screening_enabled}
             requiredSkills={job.required_skills ?? []}
             shortlistTriggered={false}
             onShortlistComplete={() => pipeline.refetch()}

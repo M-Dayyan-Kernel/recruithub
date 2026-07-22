@@ -77,6 +77,7 @@ const FEATURE_LABELS: Record<string, string> = {
   full_name: 'Full name',
   email_templates: 'Email template',
   screening_enabled: 'Screening enabled',
+  voice_screening_enabled: 'Voice screening (job)',
   allowed_phone_regions: 'Phone regions',
   enforce_phone_geography: 'Phone geography',
   screening_max_retries: 'Max retries',

@@ -103,9 +103,13 @@ export default function SettingsPage() {
           <h3 className="font-semibold text-slate-800">Voice screening</h3>
         </div>
         <p className="mb-4 text-sm text-slate-600">
-          When enabled, approved candidates go through AI voice screening before interviews.
-          When disabled, approving on the shortlist sends the interview link immediately and
-          moves the candidate to Scheduled interviews.
+          Default for new jobs. Each job can turn voice screening on or off independently from
+          the job overview, including when this tenant-wide setting is disabled.
+        </p>
+        <p className="mb-4 text-sm text-slate-600">
+          When enabled here, approved candidates go through AI voice screening before interviews
+          (for jobs that have screening on). When disabled, approving on the shortlist sends the
+          interview link immediately for jobs without per-job screening.
         </p>
         <label className="flex cursor-pointer items-start gap-3">
           <input

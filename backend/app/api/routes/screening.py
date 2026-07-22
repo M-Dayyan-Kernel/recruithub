@@ -105,14 +105,16 @@ async def trigger_screening(
             detail=celery_queue_unavailable_message(SCREENING_QUEUE),
         )
 
+    from app.services.screening_gate_service import screening_disabled_reason
     from app.services.settings_service import load_system_settings
 
     job = await get_tenant_job(db, job_id, actor.tenant_id)
     system_settings = await load_system_settings(db, tenant_id=job.tenant_id)
-    if not system_settings.screening_enabled:
+    disabled_reason = screening_disabled_reason(system_settings, job)
+    if disabled_reason:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Voice screening is disabled in system settings",
+            detail=disabled_reason,
         )
 
     parsed_ids: list[uuid.UUID] = []

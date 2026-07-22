@@ -53,6 +53,7 @@ export interface Job {
   screening_call_from?: string | null
   screening_call_to?: string | null
   screening_timezone?: string
+  voice_screening_enabled?: boolean
   status: 'open' | 'closed' | 'paused' | 'active' | 'draft'
   created_at: string
   updated_at: string

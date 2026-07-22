@@ -1,5 +1,5 @@
-import { useState, useRef, type DragEvent, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState, useRef, useEffect, type DragEvent, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   X,
   Loader2,
@@ -12,9 +12,10 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { Job, ParsedJobDescription, InterviewQuestion, ScreeningQuestion } from '@/types/api'
+import type { Job, ParsedJobDescription, InterviewQuestion, ScreeningQuestion, SystemSettings } from '@/types/api'
 import { InterviewQuestionsEditor } from '@/components/InterviewQuestionsEditor'
 import { ScreeningQuestionsEditor } from '@/components/ScreeningQuestionsEditor'
+import { VoiceScreeningSwitch } from '@/components/screening/VoiceScreeningSwitch'
 import { getDefaultScreeningQuestions } from '@/lib/screeningDefaults'
 
 interface CreateJobPayload {
@@ -25,6 +26,7 @@ interface CreateJobPayload {
   experience_max?: number
   screening_questions?: ScreeningQuestion[]
   interview_questions?: InterviewQuestion[]
+  voice_screening_enabled?: boolean
 }
 
 interface FieldErrors {
@@ -105,12 +107,24 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
     getDefaultScreeningQuestions(),
   )
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([])
+  const [voiceScreeningEnabled, setVoiceScreeningEnabled] = useState(true)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
   const [wasPrefilled, setWasPrefilled] = useState(false)
+
+  const { data: settings } = useQuery<SystemSettings>({
+    queryKey: ['settings'],
+    queryFn: () => api.get('/api/settings') as unknown as Promise<SystemSettings>,
+  })
+
+  useEffect(() => {
+    if (settings) {
+      setVoiceScreeningEnabled(settings.screening_enabled)
+    }
+  }, [settings])
 
   const parseMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -226,6 +240,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
       experience_max: maxExp ? Number(maxExp) : undefined,
       screening_questions: screeningQuestions.filter((q) => q.question.trim()),
       interview_questions: interviewQuestions.filter((q) => q.question.trim()),
+      voice_screening_enabled: voiceScreeningEnabled,
     })
   }
 
@@ -459,6 +474,13 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
           title="Evaluation"
           description="How candidates are screened and scored in interviews."
         >
+          <VoiceScreeningSwitch
+            checked={voiceScreeningEnabled}
+            disabled={isBusy}
+            onChange={setVoiceScreeningEnabled}
+            className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5"
+          />
+
           <ScreeningQuestionsEditor
             questions={screeningQuestions}
             onChange={setScreeningQuestions}

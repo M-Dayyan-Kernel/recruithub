@@ -1,11 +1,11 @@
 import type { HrDecision } from '@/types/api'
 
-export function getApproveLabel(screeningEnabled: boolean): string {
-  return screeningEnabled ? 'Approve' : 'Invite to interview'
+export function getApproveLabel(screeningEffective: boolean): string {
+  return screeningEffective ? 'Approve' : 'Invite to interview'
 }
 
-export function getApproveTooltip(screeningEnabled: boolean): string | undefined {
-  return screeningEnabled
+export function getApproveTooltip(screeningEffective: boolean): string | undefined {
+  return screeningEffective
     ? undefined
     : 'Approve candidate and send an interview invitation email'
 }

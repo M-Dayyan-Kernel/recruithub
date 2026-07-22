@@ -107,6 +107,9 @@ class Job(Base):
     screening_call_from: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     screening_call_to: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     screening_timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Kolkata", server_default="Asia/Kolkata")
+    voice_screening_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
