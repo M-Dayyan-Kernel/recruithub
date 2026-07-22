@@ -1,5 +1,5 @@
 import { useParams, Link, useSearchParams } from 'react-router-dom'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { ArrowLeft, AlertCircle, Check, Download, Loader2, MessageSquareText, Video, X } from 'lucide-react'
@@ -189,6 +189,9 @@ export default function ReportPage() {
   const { jobId, candidateId } = useParams<{ jobId: string; candidateId: string }>()
   const [searchParams] = useSearchParams()
   const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [currentTimeSec, setCurrentTimeSec] = useState(0)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
 
   const backToInterviews = useMemo(() => {
     if (!jobId) return '/'
@@ -237,6 +240,31 @@ export default function ReportPage() {
     [report?.transcript],
   )
 
+  const hasSyncedTranscript = Boolean(
+    report?.recording_url &&
+      report.transcript_segments &&
+      report.transcript_segments.length > 0 &&
+      report.transcript,
+  )
+
+  const handleTurnClick = (startSec: number) => {
+    const media = report?.recording_key?.endsWith('.ogg')
+      ? audioRef.current
+      : videoRef.current
+    if (!media) return
+    media.currentTime = startSec
+    void media.play()
+  }
+
+  const handleMediaTimeUpdate = () => {
+    const media = report?.recording_key?.endsWith('.ogg')
+      ? audioRef.current
+      : videoRef.current
+    if (media) {
+      setCurrentTimeSec(media.currentTime)
+    }
+  }
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
       {/* Back link */}
@@ -275,8 +303,59 @@ export default function ReportPage() {
       {/* Report loaded */}
       {report && (
         <div className="space-y-6">
-          {/* Interview recording */}
-          {report.recording_url && (
+          {/* Interview recording + synced transcript */}
+          {hasSyncedTranscript && (
+            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+              <h2 className="mb-4 inline-flex items-center gap-2 text-base font-semibold text-slate-800">
+                <Video size={18} className="text-indigo-500" />
+                Interview Recording &amp; Transcript
+              </h2>
+              {report.recording_key?.endsWith('.ogg') ? (
+                <audio
+                  ref={audioRef}
+                  controls
+                  className="w-full"
+                  src={report.recording_url!}
+                  preload="metadata"
+                  onTimeUpdate={handleMediaTimeUpdate}
+                >
+                  Your browser does not support audio playback.
+                </audio>
+              ) : (
+                <video
+                  ref={videoRef}
+                  controls
+                  className="mb-4 w-full max-h-[32rem] rounded-lg bg-slate-900"
+                  src={report.recording_url!}
+                  preload="metadata"
+                  onTimeUpdate={handleMediaTimeUpdate}
+                >
+                  Your browser does not support video playback.
+                </video>
+              )}
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <h3 className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <MessageSquareText size={16} className="text-indigo-500" />
+                  Complete Interview Transcript
+                </h3>
+                <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500">
+                  {transcriptTurns.length} messages
+                </span>
+              </div>
+              <div className="mt-3">
+                <TranscriptChat
+                  transcript={report.transcript!}
+                  segments={report.transcript_segments!}
+                  currentTimeSec={currentTimeSec}
+                  onTurnClick={handleTurnClick}
+                  maxHeightClass="max-h-[32rem]"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Interview recording (no synced segments) */}
+          {report.recording_url && !hasSyncedTranscript && (
             <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
               <h2 className="mb-4 inline-flex items-center gap-2 text-base font-semibold text-slate-800">
                 <Video size={18} className="text-indigo-500" />
@@ -442,8 +521,8 @@ export default function ReportPage() {
             </div>
           )}
 
-          {/* Complete transcript */}
-          {report.transcript && (
+          {/* Complete transcript (standalone when not synced with recording) */}
+          {report.transcript && !hasSyncedTranscript && (
             <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <h2 className="inline-flex items-center gap-2 text-base font-semibold text-slate-800">

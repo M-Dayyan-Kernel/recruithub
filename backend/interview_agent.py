@@ -22,6 +22,7 @@ tenant; backend room/token creation uses tenant credentials from SystemSettings.
 import asyncio
 import logging
 import os
+import time
 import uuid
 
 from dotenv import load_dotenv
@@ -174,7 +175,52 @@ def _default_prompt() -> str:
 # Save transcript to DB
 # ---------------------------------------------------------------------------
 
-async def _save_transcript(session_id: str, transcript: str) -> None:
+async def _load_session_anchor(session_id: str) -> float | None:
+    """Return started_at as unix timestamp for transcript/video alignment."""
+    import sys
+    sys.path.insert(0, os.path.dirname(__file__))
+
+    from sqlalchemy import select
+    from app.core.database import get_celery_db
+    from app.models.models import InterviewSession
+
+    try:
+        async with get_celery_db() as db:
+            session = (await db.execute(
+                select(InterviewSession).where(InterviewSession.id == uuid.UUID(session_id))
+            )).scalars().first()
+            if session and session.started_at:
+                return session.started_at.timestamp()
+    except Exception as exc:
+        logger.warning("Could not load session anchor (%s)", exc)
+    return None
+
+
+def _elapsed_sec(anchor: float, ts: float) -> float:
+    return max(0.0, round(ts - anchor, 2))
+
+
+def _append_segment(
+    segments: list[dict],
+    speaker: str,
+    text: str,
+    start_sec: float,
+    end_sec: float,
+) -> None:
+    end_sec = max(start_sec, round(end_sec, 2))
+    segments.append({
+        "speaker": speaker,
+        "text": text.strip(),
+        "start_sec": round(start_sec, 2),
+        "end_sec": end_sec,
+    })
+
+
+async def _save_transcript(
+    session_id: str,
+    transcript: str,
+    segments: list[dict] | None = None,
+) -> None:
     import sys
     sys.path.insert(0, os.path.dirname(__file__))
     from sqlalchemy import select
@@ -188,18 +234,33 @@ async def _save_transcript(session_id: str, transcript: str) -> None:
             )).scalars().first()
             if session:
                 session.transcript = transcript
+                if segments:
+                    session.transcript_segments = segments
                 await db.commit()
-                logger.info("Transcript saved: session=%s chars=%d", session_id, len(transcript))
+                logger.info(
+                    "Transcript saved: session=%s chars=%d segments=%d",
+                    session_id,
+                    len(transcript),
+                    len(segments or []),
+                )
     except Exception as exc:
         logger.error("Failed to save transcript: %s", exc)
 
 
-async def _finalize_session(session_id: str, transcript_lines: list[str]) -> None:
+async def _finalize_session(
+    session_id: str,
+    transcript_lines: list[str],
+    transcript_segments: list[dict],
+) -> None:
     """Save transcript and schedule assessment (idempotent via Celery)."""
     if not session_id:
         return
     if transcript_lines:
-        await _save_transcript(session_id, "\n".join(transcript_lines))
+        await _save_transcript(
+            session_id,
+            "\n".join(transcript_lines),
+            transcript_segments or None,
+        )
     try:
         import sys
         sys.path.insert(0, os.path.dirname(__file__))
@@ -228,8 +289,15 @@ async def interview_session(ctx: JobContext):
     logger.info("Interview agent dispatched: room=%s session_id=%s", room_name, session_id)
 
     transcript_lines: list[str] = []
+    transcript_segments: list[dict] = []
+    candidate_speech_start: float | None = None
+
+    time_anchor = (
+        await _load_session_anchor(session_id) if session_id else None
+    )
 
     def _on_conversation_item(event) -> None:
+        nonlocal time_anchor
         try:
             msg = event.item
             role = getattr(msg, 'role', 'unknown')
@@ -247,6 +315,19 @@ async def interview_session(ctx: JobContext):
                 label = 'AI' if str(role) == 'assistant' else 'Candidate'
                 transcript_lines.append(f'{label}: {text.strip()}')
                 logger.debug('Transcript captured: [%s] %s', label, text.strip()[:80])
+
+                if time_anchor is None:
+                    time_anchor = time.time()
+                if str(role) == 'assistant' and time_anchor is not None:
+                    end_sec = _elapsed_sec(time_anchor, event.created_at)
+                    start_sec = transcript_segments[-1]["end_sec"] if transcript_segments else 0.0
+                    _append_segment(
+                        transcript_segments,
+                        "ai",
+                        text.strip(),
+                        start_sec,
+                        end_sec,
+                    )
         except Exception as exc:
             logger.warning('Could not capture transcript item: %s', exc)
 
@@ -347,22 +428,53 @@ async def interview_session(ctx: JobContext):
             room=ctx.room,
             room_options=room_io.RoomOptions(
                 audio_input=audio_input_opts,
+                text_output=room_io.TextOutputOptions(
+                    sync_transcription=True,
+                    json_format=True,
+                ),
             ),
         )
 
         await ctx.connect()
 
+        if time_anchor is None:
+            time_anchor = time.time()
+
         session.on('conversation_item_added', _on_conversation_item)
 
+        def _on_user_state_changed(ev) -> None:
+            nonlocal candidate_speech_start
+            if getattr(ev, "new_state", None) == "speaking":
+                candidate_speech_start = ev.created_at
+
         def _on_user_transcribed(ev) -> None:
+            nonlocal candidate_speech_start, time_anchor
             text = getattr(ev, "transcript", "") or ""
+            is_final = getattr(ev, "is_final", False)
             if text.strip():
                 logger.info(
                     "Candidate speech transcribed (final=%s): %s",
-                    getattr(ev, "is_final", False),
+                    is_final,
                     text.strip()[:120],
                 )
+            if is_final and text.strip() and time_anchor is not None:
+                end_sec = _elapsed_sec(time_anchor, ev.created_at)
+                if candidate_speech_start is not None:
+                    start_sec = _elapsed_sec(time_anchor, candidate_speech_start)
+                elif transcript_segments:
+                    start_sec = transcript_segments[-1]["end_sec"]
+                else:
+                    start_sec = 0.0
+                _append_segment(
+                    transcript_segments,
+                    "candidate",
+                    text.strip(),
+                    start_sec,
+                    end_sec,
+                )
+                candidate_speech_start = None
 
+        session.on('user_state_changed', _on_user_state_changed)
         session.on('user_input_transcribed', _on_user_transcribed)
 
         await session.generate_reply(
@@ -386,6 +498,7 @@ async def interview_session(ctx: JobContext):
         finally:
             ctx.room.off('disconnected', _on_disconnected)
             session.off('conversation_item_added', _on_conversation_item)
+            session.off('user_state_changed', _on_user_state_changed)
             session.off('user_input_transcribed', _on_user_transcribed)
 
     except Exception as exc:
@@ -393,11 +506,12 @@ async def interview_session(ctx: JobContext):
         raise
     finally:
         logger.info(
-            'Room closed — transcript has %d lines for session=%s',
+            'Room closed — transcript has %d lines, %d segments for session=%s',
             len(transcript_lines),
+            len(transcript_segments),
             session_id,
         )
-        await _finalize_session(session_id, transcript_lines)
+        await _finalize_session(session_id, transcript_lines, transcript_segments)
 
 
 # ---------------------------------------------------------------------------

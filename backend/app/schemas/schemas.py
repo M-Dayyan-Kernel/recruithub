@@ -562,6 +562,13 @@ class InterviewQuestionScore(BaseModel):
     point_coverage: Optional[List[PointCoverage]] = None
 
 
+class TranscriptSegment(BaseModel):
+    speaker: Literal["ai", "candidate"]
+    text: str
+    start_sec: float
+    end_sec: float
+
+
 class InterviewReportResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -589,6 +596,7 @@ class InterviewReportResponse(BaseModel):
     question_scores: Optional[List[InterviewQuestionScore]] = None
     rubric_total: Optional[int] = None
     transcript: Optional[str] = None
+    transcript_segments: Optional[List[TranscriptSegment]] = None
     # Presigned Linode/S3 URL for LiveKit egress recording (short-lived; not stored)
     recording_url: Optional[str] = None
     recording_key: Optional[str] = None

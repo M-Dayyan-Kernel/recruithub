@@ -264,6 +264,13 @@ export interface FinalistsResponse {
   candidates: FinalistCandidate[]
 }
 
+export interface TranscriptSegment {
+  speaker: 'ai' | 'candidate'
+  text: string
+  start_sec: number
+  end_sec: number
+}
+
 export interface InterviewReport {
   id: string
   candidate_id: string
@@ -283,6 +290,7 @@ export interface InterviewReport {
   summary?: string
   transcript_summary?: string
   transcript?: string | null
+  transcript_segments?: TranscriptSegment[] | null
   recording_url?: string | null
   recording_key?: string | null
   candidate_name?: string | null

@@ -504,6 +504,7 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
             livekit_room_name=room_name,
             egress_id=egress_id,
             recording_key=recording_key,
+            recording_ready=False if egress_id else None,
         )
         .returning(InterviewSession.id)
     )
@@ -786,8 +787,7 @@ async def livekit_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Handle LiveKit room webhook events.
 
-    Handles 'room_finished' event: if the session is still in_progress,
-    mark it complete and trigger assessment. Signature verified when secrets set.
+    Handles 'room_finished' and 'egress_ended' events. Signature verified when secrets set.
     """
     from app.services.interview_guards import verify_livekit_webhook_body
 
@@ -797,10 +797,17 @@ async def livekit_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     room_data = body.get("room", {}) or {}
     room_name: Optional[str] = room_data.get("name") or body.get("room_name")
     room_sid = room_data.get("sid") or body.get("room_sid") or room_name
+    egress_info = body.get("egressInfo") or body.get("egress_info") or {}
+    egress_id = egress_info.get("egressId") or egress_info.get("egress_id") or body.get("egress_id")
 
     from app.services.webhook_idempotency import claim_webhook_event
 
-    if room_sid and not claim_webhook_event("livekit", f"{room_sid}:{event}"):
+    idempotency_key = (
+        f"{room_sid}:{event}"
+        if room_sid
+        else (f"egress:{egress_id}:{event}" if egress_id else None)
+    )
+    if idempotency_key and not claim_webhook_event("livekit", idempotency_key):
         return {"status": "duplicate"}
 
     logger.info("LiveKit webhook received: event=%s room=%s", event, room_name)
@@ -849,6 +856,31 @@ async def livekit_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 "livekit_webhook: room_finished for room=%s — no in_progress session found (may already be completed)",
                 room_name,
             )
+
+    elif event == "egress_ended":
+        if egress_id:
+            result = await db.execute(
+                select(InterviewSession).where(InterviewSession.egress_id == egress_id)
+            )
+            session = result.scalars().first()
+            if session and session.recording_ready is not True:
+                session.recording_ready = True
+                await db.commit()
+                logger.info(
+                    "livekit_webhook: egress_ended — recording ready session=%s egress_id=%s",
+                    session.id,
+                    egress_id,
+                )
+            elif session:
+                logger.info(
+                    "livekit_webhook: egress_ended — already ready session=%s",
+                    session.id,
+                )
+            else:
+                logger.info(
+                    "livekit_webhook: egress_ended — no session for egress_id=%s",
+                    egress_id,
+                )
 
     return {"received": True, "event": event}
 
@@ -929,12 +961,14 @@ async def get_interview_report(
         report_dict["rubric_total"] = raw.get("rubric_total")
 
     report_dict["transcript"] = session.transcript if session else None
+    report_dict["transcript_segments"] = session.transcript_segments if session else None
 
     # Presigned playback URL for LiveKit egress recording (if uploaded to S3)
     recording_key = session.recording_key if session else None
     report_dict["recording_key"] = recording_key
     report_dict["recording_url"] = None
-    if recording_key:
+    recording_ready = session.recording_ready if session else None
+    if recording_key and recording_ready is not False:
         from app.services.s3_service import generate_presigned_get_url
 
         report_dict["recording_url"] = generate_presigned_get_url(recording_key)
