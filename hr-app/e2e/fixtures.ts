@@ -682,7 +682,7 @@ export async function mockGetScreening(page: Page, jobId: string, calls = MOCK_S
 }
 
 export const EMPTY_INTERVIEW_PIPELINE = {
-  counts: { pending: 0, scheduled: 0, ongoing: 0, completed: 0, flagged: 0 },
+  counts: { pending: 0, scheduled: 0, ongoing: 0, completed: 0, flagged: 0, finalists: 0 },
   candidates: [],
 }
 
