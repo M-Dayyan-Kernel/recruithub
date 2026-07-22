@@ -193,7 +193,7 @@ export function InterviewPipelineTable({
               </>
             ) : null}
             {variant === 'flagged' && <th className="px-4 py-3">Reason</th>}
-            <th className="px-4 py-3 text-right">Actions</th>
+            <th className="px-4 py-3 text-right">Report</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">

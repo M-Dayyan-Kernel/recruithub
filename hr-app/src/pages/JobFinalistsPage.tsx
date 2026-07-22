@@ -1,6 +1,6 @@
-import { useOutletContext } from 'react-router-dom'
+import { Link, useOutletContext } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, Users } from 'lucide-react'
+import { FileText, Loader2, Users } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { FinalistsResponse } from '@/types/api'
 import type { JobOutletContext } from '@/components/JobLayout'
@@ -57,6 +57,7 @@ export default function JobFinalistsPage() {
                 <th className="px-4 py-3">ECTC</th>
                 <th className="px-4 py-3">Experience</th>
                 <th className="px-4 py-3">Score</th>
+                <th className="px-4 py-3 text-right">Report</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -73,6 +74,15 @@ export default function JobFinalistsPage() {
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-600">
                     {c.report_overall_score != null ? c.report_overall_score : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Link
+                      to={`/jobs/${jobId}/candidates/${c.candidate_id}/report?tab=finalists`}
+                      className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                    >
+                      <FileText size={12} />
+                      View Report
+                    </Link>
                   </td>
                 </tr>
               ))}
