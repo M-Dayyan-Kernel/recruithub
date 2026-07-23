@@ -46,3 +46,6 @@ jobs:
       - name: Build API image
         if: github.event_name == 'push'
         run: docker build -f Dockerfile .
+      - name: Build worker image
+        if: github.event_name == 'push'
+        run: docker build -f Dockerfile.worker .

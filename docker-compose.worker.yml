@@ -1,0 +1,46 @@
+# Server 2: Celery Beat + workers. Same .env.production as app server.
+
+services:
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    command: celery -A app.core.celery_app.celery_app beat --loglevel=info
+    env_file:
+      - .env.production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  celery-resume:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --concurrency=4
+    env_file:
+      - .env.production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  celery-screening:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q screening --concurrency=2
+    env_file:
+      - .env.production
+    profiles:
+      - full
+    restart: unless-stopped
+
+  celery-interviews:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q interviews --concurrency=2
+    env_file:
+      - .env.production
+    profiles:
+      - full
+    restart: unless-stopped

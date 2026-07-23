@@ -5,6 +5,7 @@ Gmail API email transport — OAuth user credentials with gmail.send scope.
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import uuid
 from email.mime.text import MIMEText
@@ -30,6 +31,32 @@ class GmailNotConfiguredError(RuntimeError):
 
 def _backend_dir() -> Path:
     return Path(__file__).resolve().parent.parent.parent
+
+
+def _parse_env_json(raw: str | None) -> dict | None:
+    if not raw or not raw.strip():
+        return None
+    return json.loads(raw.strip())
+
+
+def _ensure_valid_credentials(creds: Credentials) -> Credentials:
+    if creds.valid:
+        return creds
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        return creds
+    raise GmailNotConfiguredError(
+        "Gmail token is invalid or expired. Re-run `python -m scripts.gmail_auth` "
+        "or update GMAIL_TOKEN_JSON."
+    )
+
+
+def _persist_refreshed_token(creds: Credentials, token_path: Path) -> None:
+    try:
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text(creds.to_json(), encoding="utf-8")
+    except OSError:
+        logger.debug("Could not persist refreshed Gmail token to %s", token_path)
 
 
 def _resolve_path(path_str: str) -> Path:
@@ -62,7 +89,27 @@ def _resolve_path(path_str: str) -> Path:
     return (backend_dir / path).resolve()
 
 
+def _load_client_config() -> dict:
+    env_config = _parse_env_json(env_settings.GMAIL_CREDENTIALS_JSON)
+    if env_config is not None:
+        return env_config
+
+    creds_path = _resolve_path(config.GMAIL_CREDENTIALS_PATH)
+    if not creds_path.exists():
+        raise FileNotFoundError(
+            f"Gmail OAuth client secrets not found at {creds_path}. "
+            "Set GMAIL_CREDENTIALS_JSON or download credentials.json from Google Cloud Console."
+        )
+    return json.loads(creds_path.read_text(encoding="utf-8"))
+
+
 def load_credentials() -> Credentials:
+    token_info = _parse_env_json(env_settings.GMAIL_TOKEN_JSON)
+    if token_info is not None:
+        return _ensure_valid_credentials(
+            Credentials.from_authorized_user_info(token_info, SCOPES)
+        )
+
     creds_path = _resolve_path(config.GMAIL_CREDENTIALS_PATH)
     token_path = _resolve_path(config.GMAIL_TOKEN_PATH)
 
@@ -76,12 +123,12 @@ def load_credentials() -> Credentials:
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
-            token_path.write_text(creds.to_json(), encoding="utf-8")
+            _persist_refreshed_token(creds, token_path)
         else:
             raise GmailNotConfiguredError(
-                "Gmail is not authenticated. Place credentials.json and run "
-                "`python -m scripts.gmail_auth` from the backend directory "
-                f"(credentials: {creds_path}, token: {token_path})."
+                "Gmail is not authenticated. Set GMAIL_TOKEN_JSON in .env, or place "
+                "credentials.json and run `python -m scripts.gmail_auth` from the backend "
+                f"directory (credentials: {creds_path}, token: {token_path})."
             )
 
     return creds
@@ -91,18 +138,19 @@ def run_interactive_oauth() -> Credentials:
     """One-time desktop OAuth flow; persists token.json. Dev/bootstrap only."""
     from google_auth_oauthlib.flow import InstalledAppFlow
 
-    creds_path = _resolve_path(config.GMAIL_CREDENTIALS_PATH)
+    client_config = _load_client_config()
     token_path = _resolve_path(config.GMAIL_TOKEN_PATH)
 
-    if not creds_path.exists():
-        raise FileNotFoundError(
-            f"Gmail OAuth client secrets not found at {creds_path}. "
-            "Download credentials.json from Google Cloud Console."
-        )
-
-    flow = InstalledAppFlow.from_client_secrets_file(str(creds_path), SCOPES)
+    flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
     creds = flow.run_local_server(port=0)
-    token_path.write_text(creds.to_json(), encoding="utf-8")
+    token_text = creds.to_json()
+    _persist_refreshed_token(creds, token_path)
+    if not (env_settings.GMAIL_TOKEN_JSON or "").strip():
+        print(
+            "Tip: copy the token into .env as GMAIL_TOKEN_JSON "
+            "(single-line JSON, wrap in single quotes if needed)."
+        )
+        print(token_text)
     return creds
 
 
@@ -110,19 +158,12 @@ def load_credentials_from_integration(token_json: str | dict | None) -> Credenti
     """Load Gmail credentials from per-tenant encrypted integration JSON."""
     if not token_json:
         return load_credentials()
-    import json
 
     if isinstance(token_json, str):
         info = json.loads(token_json)
     else:
         info = token_json
-    creds = Credentials.from_authorized_user_info(info, SCOPES)
-    if not creds.valid:
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            raise GmailNotConfiguredError("Tenant Gmail token is invalid or expired")
-    return creds
+    return _ensure_valid_credentials(Credentials.from_authorized_user_info(info, SCOPES))
 
 
 def _send_mime_message(
@@ -227,8 +268,8 @@ def email_transport_hint() -> str:
     else:
         hints.append("Set RESEND_API_KEY in backend/.env, or")
     hints.append(
-        "configure Gmail OAuth (`python -m scripts.gmail_auth` from backend/), or "
-        "add a tenant Gmail token under Settings → Integrations."
+        "configure Gmail OAuth (GMAIL_TOKEN_JSON in .env, or `python -m scripts.gmail_auth`), "
+        "or add a tenant Gmail token under Settings → Integrations."
     )
     hints.append("For local dev without sending mail, set MOCK_EMAIL=true.")
     return " ".join(hints)

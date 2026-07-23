@@ -43,6 +43,9 @@ class Settings(BaseSettings):
 
     GMAIL_CREDENTIALS_PATH: str = "credentials.json"
     GMAIL_TOKEN_PATH: str = "token.json"
+    # Optional inline OAuth JSON (preferred in Docker/production over file paths)
+    GMAIL_CREDENTIALS_JSON: str = ""
+    GMAIL_TOKEN_JSON: str = ""
 
     # Resend (optional — used when Gmail OAuth is not configured)
     RESEND_API_KEY: str = ""

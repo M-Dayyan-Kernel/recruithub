@@ -100,7 +100,7 @@ async def create_room(
         egress_id: str | None = None
         recording_key: str | None = None
         prefix = lk.recording.key_prefix.rstrip("/")
-        filepath = f"{prefix}/interview-{room_name}.mp4"
+        filepath = f"{prefix}/{room_name}.mp4"
         try:
             file_output_kwargs: dict = {
                 "file_type": api.EncodedFileType.MP4,

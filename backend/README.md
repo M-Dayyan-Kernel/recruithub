@@ -26,7 +26,9 @@ uvicorn app.main:app --reload
 ## Production
 
 Set `APP_ENV=production` and configure all required secrets (see `.env.example`).
-Use `docker-compose -f ../docker-compose.prod.yml up -d` for a reference deployment.
+
+- **2-server deploy:** [`../DEPLOY.md`](../DEPLOY.md) (`docker-compose.app.yml` + `docker-compose.worker.yml`)
+- **Local all-in-one:** `docker compose -f ../docker-compose.prod.yml up -d`
 
 Health endpoints:
 

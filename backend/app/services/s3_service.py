@@ -99,6 +99,17 @@ def download_bytes(key: str) -> bytes:
     return response["Body"].read()
 
 
+def object_exists(key: str) -> bool:
+    """Return True when the object key exists in the configured bucket."""
+    if not key or not s3_configured():
+        return False
+    try:
+        _s3_client().head_object(Bucket=config.S3_BUCKET, Key=key)
+        return True
+    except Exception:
+        return False
+
+
 def delete_object(key: str) -> None:
     """Best-effort delete of an object key."""
     if not key or not s3_configured():

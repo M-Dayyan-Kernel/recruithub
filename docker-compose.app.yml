@@ -1,0 +1,47 @@
+# Server 1: API + frontends (+ interview agent). Requires .env.production.
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env.production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  hr-app:
+    build:
+      context: ./hr-app
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "5173:80"
+    restart: unless-stopped
+
+  candidate-app:
+    build:
+      context: ./candidate-app
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "5174:80"
+    restart: unless-stopped
+
+  interview-agent:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    command: python interview_agent.py start
+    env_file:
+      - .env.production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles:
+      - interviews
+    restart: unless-stopped
