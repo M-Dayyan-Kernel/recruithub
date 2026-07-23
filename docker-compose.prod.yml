@@ -1,3 +1,5 @@
+# Local all-in-one (Postgres + Redis + all services). For 2-server production see DEPLOY.md.
+
 version: "3.9"
 
 services:
@@ -44,12 +46,12 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --concurrency=4
     env_file:
       - ./backend/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
       REDIS_URL: redis://redis:6379/0
-      CELERY_QUEUE: resume
     depends_on:
       - redis
       - postgres
@@ -58,12 +60,12 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q screening --concurrency=2
     env_file:
       - ./backend/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
       REDIS_URL: redis://redis:6379/0
-      CELERY_QUEUE: screening
     depends_on:
       - redis
       - postgres
@@ -72,12 +74,12 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q interviews --concurrency=2
     env_file:
       - ./backend/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
       REDIS_URL: redis://redis:6379/0
-      CELERY_QUEUE: interviews
     depends_on:
       - redis
       - postgres
