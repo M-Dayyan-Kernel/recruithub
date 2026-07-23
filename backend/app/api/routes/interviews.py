@@ -48,6 +48,27 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+async def _ensure_recording_ready(session: InterviewSession, db: AsyncSession) -> bool:
+    """Mark recording_ready when the egress MP4 exists in S3.
+
+    LiveKit webhooks require a public BACKEND_PUBLIC_URL; local Docker uses
+  localhost, so egress_ended may never arrive even after upload succeeds.
+    """
+    if session.recording_ready is True:
+        return True
+    key = (session.recording_key or "").strip()
+    if not key:
+        return False
+    from app.services.s3_service import object_exists
+
+    if not object_exists(key):
+        return False
+    session.recording_ready = True
+    await db.commit()
+    logger.info("Recording ready via S3 check: session=%s key=%s", session.id, key)
+    return True
+
+
 async def _apply_interview_capacity_fields(
     response_data: InterviewSessionResponse,
     db: AsyncSession,
@@ -546,7 +567,7 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
             livekit_room_name=room_name,
             egress_id=egress_id,
             recording_key=recording_key,
-            recording_ready=False if egress_id else None,
+            recording_ready=None,
         )
         .returning(InterviewSession.id)
     )
@@ -873,6 +894,9 @@ async def livekit_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 session.completed_at = datetime.now(timezone.utc)
                 await db.commit()
 
+            if session.recording_key and session.recording_ready is not True:
+                await _ensure_recording_ready(session, db)
+
             report_result = await db.execute(
                 select(InterviewReport).where(
                     InterviewReport.interview_session_id == session.id
@@ -1010,8 +1034,7 @@ async def get_interview_report(
     recording_key = session.recording_key if session else None
     report_dict["recording_key"] = recording_key
     report_dict["recording_url"] = None
-    recording_ready = session.recording_ready if session else None
-    if recording_key and recording_ready is not False:
+    if session and recording_key and await _ensure_recording_ready(session, db):
         from app.services.s3_service import generate_presigned_get_url
 
         report_dict["recording_url"] = generate_presigned_get_url(recording_key)

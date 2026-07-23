@@ -8,6 +8,8 @@ Copy `backend/.env.example` → `.env.production` on both servers (same file).
 
 Gmail OAuth: set `GMAIL_CREDENTIALS_JSON` and `GMAIL_TOKEN_JSON` in `.env.production` (single-line JSON; wrap in single quotes). This replaces mounting `credentials.json` / `token.json` in containers.
 
+Interview recordings: LiveKit egress uploads MP4s to Linode (`S3_BUCKET`, prefix `recruitment-interview-recordings/`). Configure LiveKit webhooks to `{BACKEND_PUBLIC_URL}/api/livekit/webhook` in production; locally the API falls back to checking S3 when serving reports.
+
 ## Server 1
 
 ```bash
