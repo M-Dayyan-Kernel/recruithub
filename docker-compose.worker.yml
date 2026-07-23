@@ -30,6 +30,8 @@ services:
     command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q screening --concurrency=2
     env_file:
       - .env.production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     profiles:
       - full
     restart: unless-stopped
@@ -41,6 +43,8 @@ services:
     command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q interviews --concurrency=2
     env_file:
       - .env.production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     profiles:
       - full
     restart: unless-stopped
