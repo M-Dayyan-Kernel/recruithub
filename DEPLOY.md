@@ -6,6 +6,8 @@
 
 Copy `backend/.env.example` → `.env.production` on both servers (same file).
 
+Gmail OAuth: set `GMAIL_CREDENTIALS_JSON` and `GMAIL_TOKEN_JSON` in `.env.production` (single-line JSON; wrap in single quotes). This replaces mounting `credentials.json` / `token.json` in containers.
+
 ## Server 1
 
 ```bash
