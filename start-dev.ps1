@@ -101,7 +101,7 @@ finally {
 Write-Step "Running database migrations"
 Push-Location (Join-Path $Root "backend")
 try {
-    & .\.venv\Scripts\alembic.exe upgrade head
+    & .\.venv\Scripts\python.exe -m alembic upgrade head
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 finally {
