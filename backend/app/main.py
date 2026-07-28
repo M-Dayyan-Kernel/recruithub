@@ -9,18 +9,15 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.routes import (
-    auth,
-    audit,
     jobs,
     candidates,
     health as health_routes,
     shortlist,
     screening,
     interviews,
-    settings,
-    users,
-    platform,
 )
+from app.exceptions import DomainError
+from app.routers import audit, auth, platform, settings, users
 from app.core.config_loader import config as app_settings
 from app.core.database import AsyncSessionLocal
 from app.core.logging import (
@@ -126,6 +123,19 @@ app.add_middleware(
     allow_credentials=True,
     expose_headers=["X-Request-ID"],
 )
+
+
+@app.exception_handler(DomainError)
+async def domain_exception_handler(request: Request, exc: DomainError):
+    request_id = getattr(request.state, "request_id", None) or get_request_id()
+    headers = {"X-Request-ID": request_id} if request_id != "-" else {}
+    if exc.headers:
+        headers.update(exc.headers)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.public_message},
+        headers=headers or None,
+    )
 
 
 @app.exception_handler(Exception)

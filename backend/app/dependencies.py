@@ -1,0 +1,84 @@
+"""FastAPI dependency injection for auth and Part 1 services."""
+
+from __future__ import annotations
+
+from typing import Annotated, Callable
+
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.constants import PLATFORM_TENANT_SLUG
+from app.core.database import get_db
+from app.exceptions import DomainError
+from app.models.models import User
+from app.services.audit_service import AuditService
+from app.services.auth_service import AuthService
+from app.services.authentication_context_service import AuthenticationContextService
+from app.services.platform_tenant_service import PlatformTenantService
+from app.services.system_settings_service import SystemSettingsService
+from app.services.user_management_service import UserManagementService
+
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+async def get_current_user(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> User:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        return await AuthenticationContextService(db).resolve_user_from_token(
+            credentials.credentials
+        )
+    except DomainError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.public_message,
+            headers=exc.headers,
+        ) from exc
+
+
+def require_roles(*allowed_roles: str) -> Callable:
+    async def _checker(user: Annotated[User, Depends(get_current_user)]) -> User:
+        if user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
+        return user
+
+    return _checker
+
+
+RequireAdminOrHr = Annotated[User, Depends(require_roles("admin", "hr", "superadmin"))]
+RequireAdmin = Annotated[User, Depends(require_roles("admin", "superadmin"))]
+RequireSuperAdmin = Annotated[User, Depends(require_roles("superadmin"))]
+
+hr_roles = require_roles("admin", "hr", "superadmin")
+admin_roles = require_roles("admin", "superadmin")
+
+
+def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
+    return AuthService(db)
+
+
+def get_platform_tenant_service(db: AsyncSession = Depends(get_db)) -> PlatformTenantService:
+    return PlatformTenantService(db)
+
+
+def get_user_management_service(db: AsyncSession = Depends(get_db)) -> UserManagementService:
+    return UserManagementService(db)
+
+
+def get_system_settings_service(db: AsyncSession = Depends(get_db)) -> SystemSettingsService:
+    return SystemSettingsService(db)
+
+
+def get_audit_service(db: AsyncSession = Depends(get_db)) -> AuditService:
+    return AuditService(db)

@@ -1,4 +1,4 @@
-"""Per-tenant external integration credentials (OpenAI, VAPI, LiveKit, Gmail)."""
+"""Per-tenant external integration credentials."""
 
 from __future__ import annotations
 
@@ -10,11 +10,10 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_loader import config
-from app.models.models import SystemSettings
+from app.repositories.system_settings_repository import SystemSettingsRepository
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +41,6 @@ MASK_AS_SECRET = frozenset(
 
 
 def _looks_encrypted(value: str) -> bool:
-    """Fernet tokens are urlsafe-base64 and typically start with gAAAAA."""
     return bool(value) and value.startswith("gAAAAA")
 
 
@@ -72,7 +70,6 @@ def decrypt_value(token: str) -> str:
                 "/ JWT_SECRET_KEY?). Not using ciphertext as an API key."
             )
             return ""
-        # Plain-text bootstrap values
         return token
 
 
@@ -192,39 +189,42 @@ def encode_for_storage(
     return stored
 
 
+class TenantIntegrationsService:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        settings_repo: SystemSettingsRepository | None = None,
+    ) -> None:
+        self._session = session
+        self._settings = settings_repo or SystemSettingsRepository(session)
+
+    async def load(
+        self,
+        tenant_id: uuid.UUID,
+        *,
+        allow_platform_fallback: bool = True,
+    ) -> TenantIntegrations:
+        row = await self._settings.get_by_tenant_id(tenant_id)
+        stored = row.integrations if row else None
+        return merge_integrations(
+            tenant_id, stored, allow_platform_fallback=allow_platform_fallback
+        )
+
+    async def get_or_create_settings_row(self, tenant_id: uuid.UUID):
+        return await self._settings.get_or_create(tenant_id)
+
+
 async def load_tenant_integrations(
     db: AsyncSession,
     tenant_id: uuid.UUID,
     *,
     allow_platform_fallback: bool = True,
 ) -> TenantIntegrations:
-    result = await db.execute(
-        select(SystemSettings).where(SystemSettings.tenant_id == tenant_id)
-    )
-    row = result.scalar_one_or_none()
-    stored = row.integrations if row else None
-    return merge_integrations(
-        tenant_id, stored, allow_platform_fallback=allow_platform_fallback
+    return await TenantIntegrationsService(db).load(
+        tenant_id, allow_platform_fallback=allow_platform_fallback
     )
 
 
-async def get_or_create_settings_row(db: AsyncSession, tenant_id: uuid.UUID) -> SystemSettings:
-    result = await db.execute(
-        select(SystemSettings).where(SystemSettings.tenant_id == tenant_id)
-    )
-    row = result.scalar_one_or_none()
-    if row:
-        return row
-    row = SystemSettings(
-        tenant_id=tenant_id,
-        allowed_phone_regions=["IN"],
-        enforce_phone_geography=True,
-        screening_enabled=True,
-        screening_max_retries=3,
-        screening_retry_delay_seconds=1800,
-        company_name="Webknot Technologies",
-        integrations={},
-    )
-    db.add(row)
-    await db.flush()
-    return row
+async def get_or_create_settings_row(db: AsyncSession, tenant_id: uuid.UUID):
+    return await TenantIntegrationsService(db).get_or_create_settings_row(tenant_id)

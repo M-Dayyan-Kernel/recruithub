@@ -2,66 +2,67 @@
 
 from __future__ import annotations
 
-import hashlib
-import secrets
-import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config_loader import config
-from app.models.models import RefreshToken, User
-
-REFRESH_TOKEN_DAYS = 14
-
-
-def _hash_token(raw: str) -> str:
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+from app.models.models import User
+from app.repositories.refresh_token_repository import (
+    RefreshTokenRepository,
+    hash_refresh_token,
+)
 
 
+class RefreshTokenService:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        repo: RefreshTokenRepository | None = None,
+    ) -> None:
+        self._session = session
+        self._repo = repo or RefreshTokenRepository(session)
+
+    async def issue(self, user: User) -> str:
+        _, raw = self._repo.create_token(user.id)
+        await self._repo.flush()
+        return raw
+
+    async def rotate(self, raw_token: str) -> tuple[User, str] | None:
+        row = await self._repo.get_by_hash(hash_refresh_token(raw_token.strip()))
+        if row is None or row.revoked_at is not None:
+            return None
+        if row.expires_at < datetime.now(timezone.utc):
+            return None
+        user = await self._repo.get_user_for_token(row.user_id)
+        if user is None or not user.is_active:
+            return None
+        await self._repo.revoke(row)
+        new_raw = await self.issue(user)
+        return user, new_raw
+
+    async def revoke(self, raw_token: str) -> None:
+        row = await self._repo.get_by_hash(hash_refresh_token(raw_token.strip()))
+        if row:
+            await self._repo.revoke(row)
+
+
+# --- backward-compatible module shims -----------------------------------------
 async def issue_refresh_token(session: AsyncSession, user: User) -> str:
-    raw = secrets.token_urlsafe(48)
-    token = RefreshToken(
-        id=uuid.uuid4(),
-        user_id=user.id,
-        token_hash=_hash_token(raw),
-        expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_DAYS),
-    )
-    session.add(token)
-    await session.flush()
-    return raw
+    return await RefreshTokenService(session).issue(user)
 
 
 async def rotate_refresh_token(
     session: AsyncSession, raw_token: str
 ) -> tuple[User, str] | None:
-    token_hash = _hash_token(raw_token.strip())
-    result = await session.execute(
-        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
-    )
-    row = result.scalars().first()
-    if row is None or row.revoked_at is not None:
-        return None
-    if row.expires_at < datetime.now(timezone.utc):
-        return None
-
-    user = await session.get(User, row.user_id)
-    if user is None or not user.is_active:
-        return None
-
-    row.revoked_at = datetime.now(timezone.utc)
-    new_raw = await issue_refresh_token(session, user)
-    await session.commit()
-    return user, new_raw
+    service = RefreshTokenService(session)
+    rotated = await service.rotate(raw_token)
+    if rotated is not None:
+        await session.commit()
+    return rotated
 
 
 async def revoke_refresh_token(session: AsyncSession, raw_token: str) -> None:
-    token_hash = _hash_token(raw_token.strip())
-    result = await session.execute(
-        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
-    )
-    row = result.scalars().first()
-    if row and row.revoked_at is None:
-        row.revoked_at = datetime.now(timezone.utc)
-        await session.commit()
+    service = RefreshTokenService(session)
+    await service.revoke(raw_token)
+    await session.commit()
