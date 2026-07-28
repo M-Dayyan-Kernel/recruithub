@@ -29,7 +29,7 @@ from app.schemas.schemas import (
 from app.services.audit_service import log_change
 from app.core.celery_queues import SCREENING_QUEUE
 from app.services.celery_health import (
-    celery_queue_available,
+    celery_queue_available_async,
     celery_queue_unavailable_message,
 )
 from app.services.screening_trigger_service import dispatch_screening_for_candidates
@@ -99,7 +99,7 @@ async def trigger_screening(
             detail="candidate_ids is required and must be a non-empty list.",
         )
 
-    if not celery_queue_available(SCREENING_QUEUE):
+    if not await celery_queue_available_async(SCREENING_QUEUE):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=celery_queue_unavailable_message(SCREENING_QUEUE),
@@ -200,7 +200,7 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         set_call_status_if_allowed,
         sync_screening_call_status as _sync_task,
     )
-    from app.services.webhook_idempotency import claim_webhook_event
+    from app.services.webhook_idempotency import claim_webhook_event_async
 
     try:
         body: Dict[str, Any] = await request.json()
@@ -217,7 +217,7 @@ async def vapi_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     if not vapi_call_id:
         return {"status": "received"}
 
-    if not claim_webhook_event("vapi", f"{vapi_call_id}:{message_type}"):
+    if not await claim_webhook_event_async("vapi", f"{vapi_call_id}:{message_type}"):
         return {"status": "duplicate"}
 
     result = await db.execute(

@@ -13,6 +13,7 @@ import logging
 from functools import lru_cache
 from uuid import UUID
 
+from app.core.async_utils import run_sync
 from app.core.config_loader import config
 
 logger = logging.getLogger(__name__)
@@ -179,3 +180,45 @@ def generate_presigned_get_url(
     except Exception as exc:
         logger.warning("Failed to presign S3 key %s: %s", key, exc)
         return None
+
+
+async def upload_bytes_async(
+    key: str,
+    data: bytes,
+    *,
+    content_type: str | None = None,
+) -> str:
+    return await run_sync(upload_bytes, key, data, content_type=content_type)
+
+
+async def download_bytes_async(key: str) -> bytes:
+    return await run_sync(download_bytes, key)
+
+
+async def object_exists_async(key: str) -> bool:
+    return await run_sync(object_exists, key)
+
+
+async def delete_object_async(key: str) -> None:
+    await run_sync(delete_object, key)
+
+
+async def delete_objects_async(keys: list[str] | set[str]) -> int:
+    return await run_sync(delete_objects, keys)
+
+
+async def delete_stored_file_async(path: str | None) -> None:
+    await run_sync(delete_stored_file, path)
+
+
+async def generate_presigned_get_url_async(
+    key: str,
+    *,
+    expires_in: int = PRESIGN_EXPIRES_SECONDS,
+) -> str | None:
+    return await run_sync(generate_presigned_get_url, key, expires_in=expires_in)
+
+
+async def head_bucket_async() -> None:
+    """Raise on failure when S3 is configured."""
+    await run_sync(_s3_client().head_bucket, Bucket=config.S3_BUCKET)

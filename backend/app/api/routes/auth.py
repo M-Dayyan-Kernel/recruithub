@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.async_utils import run_sync
 from app.core.config_loader import config
 from app.core.database import get_db
 from app.core.deps import PLATFORM_TENANT_SLUG, RequireSuperAdmin, get_current_user
@@ -198,7 +199,7 @@ async def signup(
     gst_document: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="auth:signup",
         limit=int(config.AUTH_RATE_LIMIT_PER_MINUTE),
@@ -236,7 +237,7 @@ async def signup(
         is_active=False,
         company_registration_number=company_registration_number,
     )
-    tenant.gst_document_path = _persist_gst_document(tenant.id, pdf_bytes)
+    tenant.gst_document_path = await run_sync(_persist_gst_document, tenant.id, pdf_bytes)
     tenant.gst_document_filename = original_name
     await db.commit()
 
@@ -253,13 +254,13 @@ async def signup(
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="auth:login",
         limit=int(config.AUTH_RATE_LIMIT_PER_MINUTE),
     )
     email = body.email.strip().lower()
-    check_login_lockout(request, email)
+    await check_login_lockout(request, email)
     result = await db.execute(
         select(User).options(selectinload(User.tenant)).where(User.email == email)
     )
@@ -270,7 +271,7 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
             verify_password, body.password, user.hashed_password
         )
     if user is None or not password_ok:
-        record_login_failure(request, email)
+        await record_login_failure(request, email)
         logger.warning("Sign-in failed because the email or password was wrong")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -286,7 +287,7 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
     if user.role != "superadmin":
         _assert_tenant_can_access(user.tenant)
 
-    clear_login_failures(request, email)
+    await clear_login_failures(request, email)
     refresh_raw = await issue_refresh_token(db, user)
     await db.commit()
     logger.info(
@@ -353,7 +354,7 @@ async def clear_tenant_switch(
 
 @router.get("/invites/{token}", response_model=InvitePublicResponse)
 async def get_invite(token: str, request: Request, db: AsyncSession = Depends(get_db)):
-    enforce_rate_limit(request, scope="auth:invite_lookup", limit=60)
+    await enforce_rate_limit(request, scope="auth:invite_lookup", limit=60)
     invite = await get_valid_invite(db, token)
     if invite is None:
         raise HTTPException(status_code=404, detail="Invite not found or expired")
@@ -370,7 +371,7 @@ async def get_invite(token: str, request: Request, db: AsyncSession = Depends(ge
 async def accept_invite(
     body: AcceptInviteRequest, request: Request, db: AsyncSession = Depends(get_db)
 ):
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="auth:accept_invite",
         limit=int(config.AUTH_RATE_LIMIT_PER_MINUTE),

@@ -6,10 +6,10 @@ Production-grade background processing uses **named queues** so each workload ca
 
 | Queue | Tasks | Typical scale |
 |-------|-------|---------------|
-| `resume` | `process_resume_shortlist`, `recover_stuck_resume_processing`, `run_shortlist` (batch/force re-score) | **Horizontally scalable** — run N worker replicas |
+| `resume` | `process_resume_shortlist`, `recover_stuck_resume_processing`, `run_shortlist` (batch/force re-score) | **3 replicas** — `--autoscale=10,1` each (peak 30) |
 | `shortlist` | Reserved queue name (currently routed into `resume`) | Keep for compatibility |
-| `screening` | Vapi dial, webhook, transcript enrich, beat dispatch | 1–2 workers |
-| `interviews` | Assessment scheduling, report generation | 1–2 workers |
+| `screening` | Vapi dial, webhook, transcript enrich, beat dispatch | 1 worker — `--autoscale=10,1` |
+| `interviews` | Assessment scheduling, report generation | **2 replicas** — `--autoscale=12,1` + `--autoscale=13,1` (peak 25) |
 
 Routing is centralized in [`app/core/celery_queues.py`](app/core/celery_queues.py) — producers do not pass `queue=` at enqueue time.
 
@@ -75,12 +75,13 @@ export CELERY_SCREENING_CONCURRENCY=2
 
 ### Capacity vs application limits
 
-Resume upload dispatch is capped by `concurrency.max_resume_processing` (default 10) in the processing queue service.
+Resume upload dispatch is capped by `concurrency.max_resume_processing` (default **30**) in the processing queue service.
 
-Rule of thumb:
+Production Docker (`docker-compose.worker.yml` on Server 2):
 
 ```
-effective_resume_throughput ≈ resume_worker_replicas × resume_concurrency
+effective_resume_throughput ≈ 3 resume replicas × autoscale max 10 = 30
+effective_interview_throughput ≈ 12 + 13 = 25  (matches interview.max_concurrent_interviews)
 max_resume_processing ≤ 0.8 × effective_resume_throughput
 ```
 

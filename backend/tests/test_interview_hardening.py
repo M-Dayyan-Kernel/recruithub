@@ -69,8 +69,8 @@ class AssertSessionJoinableTests(unittest.TestCase):
         _run(interview_guards.assert_session_joinable(session, FakeDb()))
 
 
-class RateLimitTests(unittest.TestCase):
-    def test_in_process_rate_limit_returns_429(self) -> None:
+class RateLimitTests(unittest.IsolatedAsyncioTestCase):
+    async def test_in_process_rate_limit_returns_429(self) -> None:
         interview_guards._memory_hits.clear()
         token = f"rl-{uuid.uuid4()}"
         with mock.patch.object(
@@ -82,9 +82,9 @@ class RateLimitTests(unittest.TestCase):
             side_effect=RuntimeError("no redis"),
         ):
             for _ in range(3):
-                interview_guards.enforce_public_interview_rate_limit(token, "start")
+                await interview_guards.enforce_public_interview_rate_limit(token, "start")
             with self.assertRaises(HTTPException) as ctx:
-                interview_guards.enforce_public_interview_rate_limit(token, "start")
+                await interview_guards.enforce_public_interview_rate_limit(token, "start")
             self.assertEqual(ctx.exception.status_code, 429)
 
 

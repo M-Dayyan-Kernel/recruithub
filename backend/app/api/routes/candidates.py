@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, exists, func
 
+from app.core.async_utils import run_sync
 from app.core.config_loader import config
 from app.core.database import get_db
 from app.core.deps import RequireAdminOrHr, hr_roles
@@ -82,7 +83,7 @@ async def _ingest_resume_file(
     from app.services.s3_service import (  # noqa: PLC0415
         resume_object_key,
         s3_configured,
-        upload_bytes,
+        upload_bytes_async,
     )
 
     if s3_configured():
@@ -92,14 +93,14 @@ async def _ingest_resume_file(
             if suffix == ".pdf"
             else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
-        stored_path = upload_bytes(
+        stored_path = await upload_bytes_async(
             resume_object_key(tenant_id, job_id, filename),
             content,
             content_type=content_type,
         )
     else:
         dest = upload_dir / filename
-        dest.write_bytes(content)
+        await run_sync(dest.write_bytes, content)
         stored_path = str(dest)
 
     candidate = Candidate(
@@ -186,7 +187,7 @@ async def upload_resumes(
                     ),
                 )
             try:
-                extracted = extract_resumes_from_zip(content)
+                extracted = await run_sync(extract_resumes_from_zip, content)
             except ValueError as exc:
                 return JSONResponse(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -269,10 +270,10 @@ async def upload_resumes(
         from app.core.celery_queues import RESUME_QUEUE
         from app.services.celery_health import (
             CELERY_RESUME_UNAVAILABLE_MSG,
-            celery_queue_available,
+            celery_queue_available_async,
         )
 
-        if not celery_queue_available(RESUME_QUEUE):
+        if not await celery_queue_available_async(RESUME_QUEUE):
             worker_warning = CELERY_RESUME_UNAVAILABLE_MSG
             logger.warning(worker_warning)
 
@@ -491,7 +492,7 @@ async def delete_candidate(
     """
     from app.models.models import InterviewSession
     from app.services.processing_queue_service import dispatch_processing_slots  # noqa: PLC0415
-    from app.services.s3_service import delete_objects, delete_stored_file  # noqa: PLC0415
+    from app.services.s3_service import delete_objects_async, delete_stored_file_async  # noqa: PLC0415
 
     candidate = await get_tenant_candidate(db, candidate_id, actor.tenant_id)
 
@@ -531,9 +532,9 @@ async def delete_candidate(
     await db.delete(candidate)
     await db.commit()
 
-    delete_stored_file(resume_path)
+    await delete_stored_file_async(resume_path)
     if recording_keys:
-        delete_objects(recording_keys)
+        await delete_objects_async(recording_keys)
 
     if was_active:
         await dispatch_processing_slots(db, job_id)

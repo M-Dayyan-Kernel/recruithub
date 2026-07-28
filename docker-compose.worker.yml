@@ -1,50 +1,50 @@
 # Server 2: Celery Beat + workers. Same .env.production as app server.
+#
+# Resume: 3 workers × autoscale 10,1 (peak 30).
+# Screening: 1 worker × autoscale 10,1.
+# Interviews: 2 workers × autoscale 12,1 and 13,1 (peak 25).
+
+x-worker-common: &worker-common
+  build:
+    context: ./backend
+    dockerfile: Dockerfile.worker
+  env_file:
+    - .env.production
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  restart: unless-stopped
 
 services:
   celery-beat:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
+    <<: *worker-common
     command: celery -A app.core.celery_app.celery_app beat --loglevel=info
-    env_file:
-      - .env.production
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    restart: unless-stopped
 
-  celery-resume:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --concurrency=4
-    env_file:
-      - .env.production
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    restart: unless-stopped
+  celery-resume-1:
+    <<: *worker-common
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --autoscale=10,1
+
+  celery-resume-2:
+    <<: *worker-common
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --autoscale=10,1
+
+  celery-resume-3:
+    <<: *worker-common
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --autoscale=10,1
 
   celery-screening:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q screening --concurrency=2
-    env_file:
-      - .env.production
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    <<: *worker-common
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q screening --autoscale=10,1
     profiles:
       - full
-    restart: unless-stopped
 
-  celery-interviews:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q interviews --concurrency=2
-    env_file:
-      - .env.production
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+  celery-interviews-a:
+    <<: *worker-common
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q interviews --autoscale=12,1
     profiles:
       - full
-    restart: unless-stopped
+
+  celery-interviews-b:
+    <<: *worker-common
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q interviews --autoscale=13,1
+    profiles:
+      - full

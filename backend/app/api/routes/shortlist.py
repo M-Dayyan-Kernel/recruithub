@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, exists
 
+from app.core.async_utils import run_sync
 from app.core.config_loader import config
 from app.core.database import get_db
 from app.core.deps import RequireAdminOrHr, hr_roles
@@ -31,8 +32,9 @@ from app.services.candidate_contact_service import (
 )
 from app.core.celery_queues import RESUME_QUEUE
 from app.services.celery_health import (
-    celery_queue_available,
+    celery_queue_available_async,
     celery_queue_unavailable_message,
+    celery_workers_available_async,
 )
 from app.schemas.schemas import (
     ShortlistDecisionUpdate,
@@ -64,6 +66,52 @@ def _shortlist_batch_key(job_id: uuid.UUID) -> str:
 
 def _shortlist_failed_key(job_id: uuid.UUID) -> str:
     return f"shortlist_failed:{job_id}"
+
+
+def _acquire_shortlist_lock(job_id: uuid.UUID) -> bool:
+    return bool(_redis_client().set(_shortlist_lock_key(job_id), "1", nx=True, ex=300))
+
+
+def _prepare_shortlist_batch(job_id: uuid.UUID, id_strings: list[str]) -> None:
+    r = _redis_client()
+    r.set(_shortlist_batch_key(job_id), json.dumps(id_strings), ex=SHORTLIST_BATCH_TTL)
+    r.set(_shortlist_failed_key(job_id), "0", ex=SHORTLIST_BATCH_TTL)
+
+
+def _clear_shortlist_redis_keys(job_id: uuid.UUID) -> None:
+    _redis_client().delete(
+        _shortlist_lock_key(job_id),
+        _shortlist_batch_key(job_id),
+        _shortlist_failed_key(job_id),
+    )
+
+
+def _read_shortlist_status_redis(job_id: uuid.UUID) -> tuple[bool, list[str], int]:
+    r = _redis_client()
+    in_progress = bool(r.exists(_shortlist_lock_key(job_id)))
+
+    batch_raw = r.get(_shortlist_batch_key(job_id))
+    candidate_ids: list[str] = []
+    if batch_raw:
+        if isinstance(batch_raw, bytes):
+            batch_raw = batch_raw.decode("utf-8")
+        try:
+            parsed = json.loads(batch_raw)
+            if isinstance(parsed, list):
+                candidate_ids = [str(cid) for cid in parsed]
+        except (json.JSONDecodeError, TypeError, ValueError):
+            candidate_ids = []
+
+    failed = 0
+    failed_raw = r.get(_shortlist_failed_key(job_id))
+    if failed_raw is not None:
+        if isinstance(failed_raw, bytes):
+            failed_raw = failed_raw.decode("utf-8")
+        try:
+            failed = int(failed_raw)
+        except (TypeError, ValueError):
+            failed = 0
+    return in_progress, candidate_ids, failed
 
 
 # ---------------------------------------------------------------------------
@@ -175,16 +223,14 @@ async def trigger_shortlist(
             detail=detail,
         )
 
-    if not celery_queue_available(RESUME_QUEUE):
+    if not await celery_queue_available_async(RESUME_QUEUE):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=celery_queue_unavailable_message(RESUME_QUEUE),
         )
 
-    _r = _redis_client()
-    lock_key = _shortlist_lock_key(job_id)
     try:
-        acquired = _r.set(lock_key, "1", nx=True, ex=300)
+        acquired = await run_sync(_acquire_shortlist_lock, job_id)
     except redis_lib.RedisError as exc:
         logger.error("trigger_shortlist: Redis unavailable for job %s: %s", job_id, exc)
         raise HTTPException(
@@ -198,12 +244,9 @@ async def trigger_shortlist(
             detail="Shortlisting is already in progress for this job. Please wait.",
         )
 
-    batch_key = _shortlist_batch_key(job_id)
-    failed_key = _shortlist_failed_key(job_id)
     id_strings = [str(cid) for cid in eligible_ids]
     try:
-        _r.set(batch_key, json.dumps(id_strings), ex=SHORTLIST_BATCH_TTL)
-        _r.set(failed_key, "0", ex=SHORTLIST_BATCH_TTL)
+        await run_sync(_prepare_shortlist_batch, job_id, id_strings)
 
         from app.tasks.shortlist_tasks import run_shortlist  # noqa: PLC0415
 
@@ -213,7 +256,7 @@ async def trigger_shortlist(
             "trigger_shortlist: failed to enqueue shortlist for job %s", job_id
         )
         try:
-            _r.delete(lock_key, batch_key, failed_key)
+            await run_sync(_clear_shortlist_redis_keys, job_id)
         except redis_lib.RedisError:
             pass
         raise HTTPException(
@@ -276,35 +319,15 @@ async def get_shortlist_status(
     """Return progress for the current or most recent shortlist batch."""
     await get_tenant_job(db, job_id, actor.tenant_id)
 
-    _r = _redis_client()
-    failed = 0
     try:
-        in_progress = bool(_r.exists(_shortlist_lock_key(job_id)))
-
-        batch_raw = _r.get(_shortlist_batch_key(job_id))
-        candidate_ids: List[str] = []
-        if batch_raw:
-            if isinstance(batch_raw, bytes):
-                batch_raw = batch_raw.decode("utf-8")
-            try:
-                parsed = json.loads(batch_raw)
-                if isinstance(parsed, list):
-                    candidate_ids = [str(cid) for cid in parsed]
-            except (json.JSONDecodeError, TypeError, ValueError):
-                candidate_ids = []
-
-        failed_raw = _r.get(_shortlist_failed_key(job_id))
-        if failed_raw is not None:
-            if isinstance(failed_raw, bytes):
-                failed_raw = failed_raw.decode("utf-8")
-            try:
-                failed = int(failed_raw)
-            except (TypeError, ValueError):
-                failed = 0
+        in_progress, candidate_ids, failed = await run_sync(
+            _read_shortlist_status_redis, job_id
+        )
     except Exception as exc:
         logger.warning("get_shortlist_status: Redis unavailable for job %s: %s", job_id, exc)
         in_progress = False
         candidate_ids = []
+        failed = 0
 
     completed = 0
     if candidate_ids:
@@ -532,13 +555,12 @@ async def update_decision(
             )
 
         from app.services.call_window_service import is_within_call_window
-        from app.services.celery_health import celery_workers_available
         from app.services.screening_trigger_service import (
             auto_dispatch_unqueued_approved_for_job,
             candidate_has_any_screening_call,
         )
 
-        if celery_workers_available():
+        if await celery_workers_available_async():
             job = await db.get(Job, record.job_id)
             if job and is_within_call_window(job):
                 if not await candidate_has_any_screening_call(

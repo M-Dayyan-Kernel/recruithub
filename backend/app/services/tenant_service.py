@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.async_utils import run_sync
 from app.core.security import hash_password
 from app.core.tenancy import ensure_unique_slug
 from app.models.models import SystemSettings, Tenant, TenantInvite, User
@@ -91,11 +92,12 @@ async def create_tenant_with_admin(
     )
     db.add(settings_row)
 
+    hashed = await run_sync(hash_password, password)
     admin = User(
         tenant_id=tenant.id,
         email=email.strip().lower(),
         full_name=full_name.strip(),
-        hashed_password=hash_password(password),
+        hashed_password=hashed,
         role="admin",
         is_active=True,
     )

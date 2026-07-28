@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_loader import config
+from app.core.async_utils import run_sync
 from app.core.logging import log_event, plural
 from app.models.models import Candidate, Job, ShortlistResult
 from app.prompts.combined_shortlist import (
@@ -162,11 +163,11 @@ async def process_candidate_resume_shortlist(
     api_key: str,
 ) -> ShortlistResult:
     """Extract resume text, run combined AI, persist profile + ShortlistResult."""
-    from app.services.s3_service import download_bytes, is_s3_object_key
+    from app.services.s3_service import download_bytes_async, is_s3_object_key
 
     stored = candidate.resume_file_path or ""
     if is_s3_object_key(stored):
-        file_bytes = download_bytes(stored)
+        file_bytes = await download_bytes_async(stored)
         suffix = Path(stored).suffix.lower() or Path(
             candidate.original_filename or ""
         ).suffix.lower()
@@ -174,11 +175,11 @@ async def process_candidate_resume_shortlist(
         file_path = Path(stored)
         if not file_path.exists():
             raise FileNotFoundError(stored)
-        file_bytes = file_path.read_bytes()
+        file_bytes = await run_sync(file_path.read_bytes)
         suffix = file_path.suffix.lower()
 
     filename = candidate.original_filename or f"resume{suffix}"
-    text = extract_text_from_bytes(file_bytes, filename)
+    text = await run_sync(extract_text_from_bytes, file_bytes, filename)
 
     if not text or len(text.strip()) < config.parsing.min_resume_chars:
         raise ValueError("Resume text too short or empty")

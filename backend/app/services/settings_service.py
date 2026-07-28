@@ -15,6 +15,7 @@ from typing import Dict, List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.async_utils import run_sync
 from app.core.config_loader import config
 from app.core.database import AsyncSessionLocal
 from app.models.models import SystemSettings
@@ -168,7 +169,7 @@ async def load_system_settings(
     global _cache
     now = datetime.utcnow()
 
-    redis_cached = _read_redis_settings(tenant_id)
+    redis_cached = await run_sync(_read_redis_settings, tenant_id)
     if redis_cached and (now - redis_cached.fetched_at) < _CACHE_TTL:
         with _cache_lock:
             _cache[tenant_id] = redis_cached
@@ -194,7 +195,7 @@ async def load_system_settings(
     cached = _settings_from_row(row, now, tenant_id)
     with _cache_lock:
         _cache[tenant_id] = cached
-    _write_redis_settings(cached)
+    await run_sync(_write_redis_settings, cached)
     return cached
 
 

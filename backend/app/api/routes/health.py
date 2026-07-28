@@ -6,9 +6,10 @@ import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 
+from app.core.async_utils import run_sync
 from app.core.config_loader import config
 from app.core.database import engine
-from app.services.celery_health import get_celery_health_snapshot
+from app.services.celery_health import get_celery_health_snapshot_async
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ async def health_ready():
     try:
         import redis
 
-        redis.from_url(config.REDIS_URL).ping()
+        await run_sync(redis.from_url(config.REDIS_URL).ping)
         checks["redis"] = "ok"
     except Exception as exc:
         logger.warning("readiness redis failed: %s", exc)
@@ -59,9 +60,9 @@ async def health_ready():
 
     if s3_configured():
         try:
-            from app.services.s3_service import _s3_client
+            from app.services.s3_service import head_bucket_async
 
-            _s3_client().head_bucket(Bucket=config.S3_BUCKET)
+            await head_bucket_async()
             checks["s3"] = "ok"
         except Exception as exc:
             logger.warning("readiness s3 failed: %s", exc)
@@ -82,6 +83,6 @@ async def health_ready():
 @router.get("/health/celery", tags=["health"], dependencies=[Depends(_require_internal_health_key)])
 async def celery_health():
     """Celery worker reachability, queue subscriptions, and queue depths."""
-    snapshot = get_celery_health_snapshot()
+    snapshot = await get_celery_health_snapshot_async()
     status_value = "ok" if snapshot["workers_online"] > 0 else "degraded"
     return {"status": status_value, **snapshot}

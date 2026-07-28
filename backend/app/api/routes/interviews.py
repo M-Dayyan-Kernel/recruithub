@@ -59,9 +59,9 @@ async def _ensure_recording_ready(session: InterviewSession, db: AsyncSession) -
     key = (session.recording_key or "").strip()
     if not key:
         return False
-    from app.services.s3_service import object_exists
+    from app.services.s3_service import object_exists_async
 
-    if not object_exists(key):
+    if not await object_exists_async(key):
         return False
     session.recording_ready = True
     await db.commit()
@@ -459,7 +459,7 @@ async def start_interview(token: str, db: AsyncSession = Depends(get_db)):
     from app.services.livekit_service import create_room, generate_candidate_token
     from app.services.tenant_integrations_service import load_tenant_integrations
 
-    enforce_public_interview_rate_limit(token, "start")
+    await enforce_public_interview_rate_limit(token, "start")
 
     result = await db.execute(
         select(InterviewSession).where(InterviewSession.unique_token == token)
@@ -734,7 +734,7 @@ async def complete_interview(token: str, db: AsyncSession = Depends(get_db)):
         enforce_public_interview_rate_limit,
     )
 
-    enforce_public_interview_rate_limit(token, "complete")
+    await enforce_public_interview_rate_limit(token, "complete")
 
     result = await db.execute(
         select(InterviewSession).where(InterviewSession.unique_token == token)
@@ -864,14 +864,14 @@ async def livekit_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     egress_info = body.get("egressInfo") or body.get("egress_info") or {}
     egress_id = egress_info.get("egressId") or egress_info.get("egress_id") or body.get("egress_id")
 
-    from app.services.webhook_idempotency import claim_webhook_event
+    from app.services.webhook_idempotency import claim_webhook_event_async
 
     idempotency_key = (
         f"{room_sid}:{event}"
         if room_sid
         else (f"egress:{egress_id}:{event}" if egress_id else None)
     )
-    if idempotency_key and not claim_webhook_event("livekit", idempotency_key):
+    if idempotency_key and not await claim_webhook_event_async("livekit", idempotency_key):
         return {"status": "duplicate"}
 
     logger.info("LiveKit webhook received: event=%s room=%s", event, room_name)
@@ -1035,9 +1035,9 @@ async def get_interview_report(
     report_dict["recording_key"] = recording_key
     report_dict["recording_url"] = None
     if session and recording_key and await _ensure_recording_ready(session, db):
-        from app.services.s3_service import generate_presigned_get_url
+        from app.services.s3_service import generate_presigned_get_url_async
 
-        report_dict["recording_url"] = generate_presigned_get_url(recording_key)
+        report_dict["recording_url"] = await generate_presigned_get_url_async(recording_key)
 
     return InterviewReportResponse.model_validate(report_dict)
 

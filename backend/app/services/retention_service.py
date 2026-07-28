@@ -9,8 +9,9 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.async_utils import run_sync
 from app.models.models import Candidate, Job, SystemSettings
-from app.services.s3_service import delete_object, is_s3_object_key
+from app.services.s3_service import delete_object_async, is_s3_object_key
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ async def erase_candidate_pii(
 ) -> None:
     """Remove PII and storage objects; keep anonymized row for referential integrity."""
     if candidate.resume_file_path and is_s3_object_key(candidate.resume_file_path):
-        delete_object(candidate.resume_file_path)
+        await delete_object_async(candidate.resume_file_path)
 
     candidate.name = "Erased"
     candidate.email = f"erased-{candidate.id.hex[:12]}@erased.local"

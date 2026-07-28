@@ -57,7 +57,7 @@ class ConfigLoaderTests(unittest.TestCase):
         self.assertEqual(cfg.livekit.tts.voice, "nova")
         self.assertEqual(cfg.vapi.voice.voice_id, "asteria")
         self.assertEqual(cfg.vapi.transcriber.model, "nova-2")
-        self.assertEqual(cfg.concurrency.max_parses, 10)
+        self.assertEqual(cfg.concurrency.max_parses, 30)
         self.assertTrue(cfg.DATABASE_URL)
 
     def test_config_path_env_override(self) -> None:

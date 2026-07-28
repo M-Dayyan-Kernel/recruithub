@@ -10,6 +10,7 @@ from typing import Deque, Dict
 
 from fastapi import HTTPException, Request, status
 
+from app.core.async_utils import run_sync
 from app.core.config_loader import config
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,15 @@ def _incr_with_expiry(key: str, window_sec: int) -> int:
     return int(count)
 
 
-def enforce_rate_limit(
+def _delete_redis_key(key: str) -> None:
+    _redis_client().delete(key)
+
+
+def _get_redis_key(key: str) -> bytes | None:
+    return _redis_client().get(key)
+
+
+async def enforce_rate_limit(
     request: Request,
     *,
     scope: str,
@@ -58,7 +67,7 @@ def enforce_rate_limit(
     key = f"rl:{scope}:{ip}"
 
     try:
-        count = _incr_with_expiry(key, window_sec)
+        count = await run_sync(_incr_with_expiry, key, window_sec)
         if count > limit:
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=detail)
         return
@@ -78,7 +87,7 @@ def enforce_rate_limit(
         hits.append(now)
 
 
-def record_login_failure(request: Request, email: str) -> None:
+async def record_login_failure(request: Request, email: str) -> None:
     """Increment failed login counter; raises 429 when lockout threshold reached."""
     max_failures = int(config.AUTH_LOCKOUT_MAX_FAILURES)
     lockout_sec = int(config.AUTH_LOCKOUT_SECONDS)
@@ -90,7 +99,7 @@ def record_login_failure(request: Request, email: str) -> None:
     key = f"auth:fail:{ip}:{norm_email}"
 
     try:
-        count = _incr_with_expiry(key, lockout_sec)
+        count = await run_sync(_incr_with_expiry, key, lockout_sec)
         if count > max_failures:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -116,18 +125,18 @@ def record_login_failure(request: Request, email: str) -> None:
         hits.append(now)
 
 
-def clear_login_failures(request: Request, email: str) -> None:
+async def clear_login_failures(request: Request, email: str) -> None:
     ip = _client_ip(request)
     norm_email = (email or "").strip().lower()
     key = f"auth:fail:{ip}:{norm_email}"
     try:
-        _redis_client().delete(key)
+        await run_sync(_delete_redis_key, key)
     except Exception:
         with _rate_lock:
             _memory_hits.pop(key, None)
 
 
-def check_login_lockout(request: Request, email: str) -> None:
+async def check_login_lockout(request: Request, email: str) -> None:
     """Reject login when lockout counter is already at threshold."""
     max_failures = int(config.AUTH_LOCKOUT_MAX_FAILURES)
     lockout_sec = int(config.AUTH_LOCKOUT_SECONDS)
@@ -139,7 +148,7 @@ def check_login_lockout(request: Request, email: str) -> None:
     key = f"auth:fail:{ip}:{norm_email}"
 
     try:
-        raw = _redis_client().get(key)
+        raw = await run_sync(_get_redis_key, key)
         if raw and int(raw) > max_failures:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,

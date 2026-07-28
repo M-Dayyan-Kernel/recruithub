@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from app.core.async_utils import run_sync
 from app.core.config_loader import config
 
 logger = logging.getLogger(__name__)
@@ -31,3 +32,12 @@ def claim_webhook_event(scope: str, event_id: str, *, ttl_sec: int = _DEFAULT_TT
     except Exception as exc:
         logger.warning("webhook idempotency Redis unavailable (%s) — processing anyway", exc)
         return True
+
+
+async def claim_webhook_event_async(
+    scope: str,
+    event_id: str,
+    *,
+    ttl_sec: int = _DEFAULT_TTL_SEC,
+) -> bool:
+    return await run_sync(claim_webhook_event, scope, event_id, ttl_sec=ttl_sec)

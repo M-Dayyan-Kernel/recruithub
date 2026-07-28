@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.async_utils import run_sync
 from app.core.config_loader import config
 from app.core.database import get_db
 from app.core.deps import RequireAdminOrHr, hr_roles
@@ -141,7 +142,7 @@ async def parse_jd(
 
     filename = file.filename or "upload.pdf"
     try:
-        raw_text = extract_text_from_bytes(content, filename)
+        raw_text = await run_sync(extract_text_from_bytes, content, filename)
     except ValueError as exc:
         logger.warning("JD extract rejected for %s: %s", filename, exc)
         return JSONResponse(

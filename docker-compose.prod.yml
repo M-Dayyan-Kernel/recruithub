@@ -1,6 +1,23 @@
 # Local all-in-one (Postgres + Redis + all services). For 2-server production see DEPLOY.md.
+#
+# Workers: 3× resume (10,1), 1× screening (10,1), 2× interviews (12,1 + 13,1).
 
 version: "3.9"
+
+x-celery-worker: &celery-worker
+  build:
+    context: ./backend
+    dockerfile: Dockerfile.worker
+  env_file:
+    - ./backend/.env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
+    REDIS_URL: redis://redis:6379/0
+  depends_on:
+    redis:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
 
 services:
   postgres:
@@ -42,61 +59,33 @@ services:
       redis:
         condition: service_healthy
 
-  celery-resume:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --concurrency=4
-    env_file:
-      - ./backend/.env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
-      REDIS_URL: redis://redis:6379/0
-    depends_on:
-      - redis
-      - postgres
+  celery-beat:
+    <<: *celery-worker
+    command: celery -A app.core.celery_app.celery_app beat --loglevel=info
+
+  celery-resume-1:
+    <<: *celery-worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --autoscale=10,1
+
+  celery-resume-2:
+    <<: *celery-worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --autoscale=10,1
+
+  celery-resume-3:
+    <<: *celery-worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --autoscale=10,1
 
   celery-screening:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q screening --concurrency=2
-    env_file:
-      - ./backend/.env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
-      REDIS_URL: redis://redis:6379/0
-    depends_on:
-      - redis
-      - postgres
+    <<: *celery-worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q screening --autoscale=10,1
 
-  celery-interviews:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q interviews --concurrency=2
-    env_file:
-      - ./backend/.env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
-      REDIS_URL: redis://redis:6379/0
-    depends_on:
-      - redis
-      - postgres
+  celery-interviews-a:
+    <<: *celery-worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q interviews --autoscale=12,1
 
-  celery-beat:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-    command: celery -A app.core.celery_app.celery_app beat --loglevel=info
-    env_file:
-      - ./backend/.env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
-      REDIS_URL: redis://redis:6379/0
-    depends_on:
-      - redis
-      - postgres
+  celery-interviews-b:
+    <<: *celery-worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q interviews --autoscale=13,1
 
 volumes:
   postgres_data:

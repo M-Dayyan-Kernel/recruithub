@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.async_utils import run_sync
 from app.core.database import get_db
 from app.core.deps import PLATFORM_TENANT_SLUG, RequireSuperAdmin
 from app.models.models import Job, SystemSettings, Tenant, User
@@ -22,7 +23,7 @@ from app.schemas.schemas import (
     UserResponse,
 )
 from app.services.audit_service import log_change
-from app.services.s3_service import delete_object, download_bytes, is_s3_object_key
+from app.services.s3_service import delete_object_async, download_bytes_async, is_s3_object_key
 from app.services.tenant_service import create_tenant_with_admin
 
 logger = logging.getLogger(__name__)
@@ -269,7 +270,7 @@ async def download_gst_document(
     filename = tenant.gst_document_filename or "gst-document.pdf"
     if is_s3_object_key(tenant.gst_document_path):
         try:
-            data = download_bytes(tenant.gst_document_path)
+            data = await download_bytes_async(tenant.gst_document_path)
         except Exception as exc:
             logger.warning("Failed to download GST from S3 for tenant %s: %s", tenant_id, exc)
             raise HTTPException(status_code=404, detail="GST document file missing in storage") from exc
@@ -339,14 +340,18 @@ async def delete_tenant(
     if doc_path:
         try:
             if is_s3_object_key(doc_path):
-                delete_object(doc_path)
+                await delete_object_async(doc_path)
             else:
                 path = Path(doc_path)
-                if path.is_file():
-                    path.unlink(missing_ok=True)
-                parent = path.parent
-                if parent.is_dir() and not any(parent.iterdir()):
-                    parent.rmdir()
+
+                def _cleanup_local_gst() -> None:
+                    if path.is_file():
+                        path.unlink(missing_ok=True)
+                    parent = path.parent
+                    if parent.is_dir() and not any(parent.iterdir()):
+                        parent.rmdir()
+
+                await run_sync(_cleanup_local_gst)
         except OSError as exc:
             logger.warning(
                 "Tenant %s deleted but GST doc cleanup failed: %s", tenant_id, exc

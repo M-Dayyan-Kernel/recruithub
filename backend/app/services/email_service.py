@@ -7,10 +7,15 @@ Functions return True on success, False on failure (never raise).
 import logging
 from typing import Any
 
+from app.core.async_utils import run_sync
 from app.services import gmail_service
 from app.services.email_template_service import render_template
 
 logger = logging.getLogger(__name__)
+
+
+async def _send_html_email_async(**kwargs) -> bool:
+    return await run_sync(gmail_service.send_html_email, **kwargs)
 
 
 def _build_interview_email_html(candidate_name: str, job_title: str, interview_url: str) -> str:
@@ -119,7 +124,7 @@ async def send_interview_link(
         subject = f"[Interview Invitation] {job_title}"
         html_body = _build_interview_email_html(candidate_name, job_title, interview_url)
 
-    sent = gmail_service.send_html_email(
+    sent = await _send_html_email_async(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
@@ -206,7 +211,7 @@ async def send_scheduled_interview_notification(
         interview_url,
         scheduled_at_label,
     )
-    sent = gmail_service.send_html_email(
+    sent = await _send_html_email_async(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
@@ -242,7 +247,7 @@ async def send_reschedule_notification(
             "company_name": company_name or "Webknot Technologies",
         },
     )
-    sent = gmail_service.send_html_email(
+    sent = await _send_html_email_async(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
@@ -276,7 +281,7 @@ async def send_failed_screening_attempt_email(
             "company_name": company_name or "Webknot Technologies",
         },
     )
-    sent = gmail_service.send_html_email(
+    sent = await _send_html_email_async(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
@@ -313,7 +318,7 @@ async def send_rejection_email(
         subject = f"Update on your application — {job_title}"
         html_body = _build_rejection_email_html(candidate_name, job_title)
 
-    sent = gmail_service.send_html_email(
+    sent = await _send_html_email_async(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
@@ -390,7 +395,7 @@ async def send_org_invite_email(
         invited_by_name=invited_by_name,
     )
     try:
-        sent = gmail_service.send_html_email(
+        sent = await _send_html_email_async(
             to_email=to_email,
             subject=subject,
             html_body=html_body,

@@ -12,6 +12,7 @@ from typing import Any, Deque, Dict
 
 from fastapi import HTTPException, Request
 
+from app.core.async_utils import run_sync
 from app.core.config_loader import config
 from app.core.settings import settings
 
@@ -49,7 +50,7 @@ async def assert_session_joinable(session, db) -> None:
             )
 
 
-def enforce_public_interview_rate_limit(token: str, action: str) -> None:
+def _enforce_public_interview_rate_limit_sync(token: str, action: str) -> None:
     """Limit public interview start/complete to N requests per token per minute."""
     limit = int(config.interview.public_rate_limit_per_minute)
     if limit <= 0:
@@ -91,6 +92,10 @@ def enforce_public_interview_rate_limit(token: str, action: str) -> None:
                 detail="Too many requests for this interview link. Try again shortly.",
             )
         hits.append(now)
+
+
+async def enforce_public_interview_rate_limit(token: str, action: str) -> None:
+    await run_sync(_enforce_public_interview_rate_limit_sync, token, action)
 
 
 async def verify_livekit_webhook_body(request: Request) -> Dict[str, Any]:

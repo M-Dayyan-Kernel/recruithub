@@ -103,9 +103,9 @@ parsing:
   default_question_score: 10
 
 concurrency:
-  max_parses: 10
-  max_shortlists: 10
-  max_resume_processing: 10
+  max_parses: 30
+  max_shortlists: 30
+  max_resume_processing: 30
   max_live_screening_calls: 5
   stuck_parse_timeout_minutes: 5
   shortlist_batch_ttl_seconds: 600

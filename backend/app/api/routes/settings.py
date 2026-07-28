@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.async_utils import run_sync
 from app.core.database import get_db
 from app.core.deps import RequireAdmin, RequireAdminOrHr, admin_roles, hr_roles
 from app.models.models import SystemSettings
@@ -336,8 +337,8 @@ async def test_email_template(
     admin: RequireAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    from app.services.email_template_service import get_company_name, preview_template
     from app.services import gmail_service
+    from app.services.email_template_service import get_company_name, preview_template
 
     try:
         rendered = preview_template(
@@ -351,7 +352,8 @@ async def test_email_template(
 
     gmail_token = await gmail_service.get_tenant_gmail_token(db, admin.tenant_id)
 
-    sent = gmail_service.send_html_email(
+    sent = await run_sync(
+        gmail_service.send_html_email,
         to_email=payload.to_email,
         subject=f"[TEST] {rendered['subject']}",
         html_body=rendered["body_html"],
