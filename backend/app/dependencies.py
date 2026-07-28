@@ -21,6 +21,8 @@ from app.services.candidate_service import CandidateService
 from app.services.job_description_parse_service import JobDescriptionParseService
 from app.services.job_service import JobService
 from app.services.resume_upload_service import ResumeUploadService
+from app.services.shortlist_service import ShortlistService
+from app.services.shortlist_trigger_service import ShortlistTriggerService
 from app.services.user_management_service import UserManagementService
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -104,3 +106,13 @@ def get_resume_upload_service(db: AsyncSession = Depends(get_db)) -> ResumeUploa
 
 def get_candidate_service(db: AsyncSession = Depends(get_db)) -> CandidateService:
     return CandidateService(db)
+
+
+def get_shortlist_trigger_service(
+    db: AsyncSession = Depends(get_db),
+) -> ShortlistTriggerService:
+    return ShortlistTriggerService(db)
+
+
+def get_shortlist_service(db: AsyncSession = Depends(get_db)) -> ShortlistService:
+    return ShortlistService(db)

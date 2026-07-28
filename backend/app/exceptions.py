@@ -141,3 +141,24 @@ class CandidateNotFoundForJobError(NotFoundError):
 
 class CandidateNotRetryableError(ValidationError):
     public_message = "Candidate is not in a retryable state"
+
+
+class NoEligibleCandidatesError(ValidationError):
+    public_message = "No eligible candidates found for shortlisting."
+
+    def __init__(
+        self,
+        message: str = "No eligible candidates found for shortlisting.",
+        *,
+        skipped: list[dict] | None = None,
+    ) -> None:
+        self.skipped = skipped or []
+        super().__init__(public_message=message)
+
+
+class ShortlistInProgressError(ConflictError):
+    public_message = "Shortlisting is already in progress for this job. Please wait."
+
+
+class ShortlistUnavailableError(ServiceUnavailableError):
+    public_message = "Shortlisting is temporarily unavailable. Try again shortly."
