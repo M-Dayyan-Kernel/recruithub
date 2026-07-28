@@ -102,3 +102,42 @@ class JobParseUnavailableError(ServiceUnavailableError):
 class JobParseFailedError(DomainError):
     status_code = 500
     public_message = "Failed to parse job description"
+
+
+class ResumeDocumentFormatError(DomainError):
+    status_code = 422
+    public_message = "Unsupported file type"
+
+    def __init__(self, message: str = "Only PDF, DOCX, and ZIP files are accepted.") -> None:
+        self.response_content = {
+            "error": "unsupported_file_type",
+            "message": message,
+        }
+        super().__init__(message, public_message=message)
+
+
+class InvalidZipError(DomainError):
+    status_code = 422
+    public_message = "Invalid ZIP archive"
+
+    def __init__(self, message: str) -> None:
+        self.response_content = {
+            "error": "invalid_zip",
+            "message": message,
+        }
+        super().__init__(message, public_message=message)
+
+
+class UploadDirectoryError(DomainError):
+    status_code = 500
+    public_message = (
+        "Upload directory could not be created. Check server file permissions."
+    )
+
+
+class CandidateNotFoundForJobError(NotFoundError):
+    public_message = "Candidate not found for this job"
+
+
+class CandidateNotRetryableError(ValidationError):
+    public_message = "Candidate is not in a retryable state"

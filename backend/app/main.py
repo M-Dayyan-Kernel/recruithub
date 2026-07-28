@@ -9,14 +9,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.routes import (
-    candidates,
     health as health_routes,
     shortlist,
     screening,
     interviews,
 )
 from app.exceptions import DomainError
-from app.routers import audit, auth, jobs, platform, settings, users
+from app.routers import audit, auth, candidates, jobs, platform, settings, users
 from app.core.config_loader import config as app_settings
 from app.core.database import AsyncSessionLocal
 from app.core.logging import (
