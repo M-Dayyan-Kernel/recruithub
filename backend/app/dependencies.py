@@ -17,7 +17,8 @@ from app.services.auth_service import AuthService
 from app.services.authentication_context_service import AuthenticationContextService
 from app.services.platform_tenant_service import PlatformTenantService
 from app.services.system_settings_service import SystemSettingsService
-from app.services.user_management_service import UserManagementService
+from app.services.job_description_parse_service import JobDescriptionParseService
+from app.services.job_service import JobService
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -82,3 +83,13 @@ def get_system_settings_service(db: AsyncSession = Depends(get_db)) -> SystemSet
 
 def get_audit_service(db: AsyncSession = Depends(get_db)) -> AuditService:
     return AuditService(db)
+
+
+def get_job_service(db: AsyncSession = Depends(get_db)) -> JobService:
+    return JobService(db)
+
+
+def get_job_description_parse_service(
+    db: AsyncSession = Depends(get_db),
+) -> JobDescriptionParseService:
+    return JobDescriptionParseService(db)

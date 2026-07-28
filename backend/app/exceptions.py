@@ -72,3 +72,33 @@ class UpstreamError(DomainError):
 class ServiceUnavailableError(DomainError):
     status_code = 503
     public_message = "Service unavailable"
+
+
+class PayloadTooLargeError(DomainError):
+    status_code = 413
+    public_message = "Payload too large"
+
+
+class JobDocumentFormatError(DomainError):
+    status_code = 422
+    public_message = "Unsupported file type"
+
+    def __init__(self, message: str) -> None:
+        self.response_content = {
+            "error": "unsupported_file_type",
+            "message": message,
+        }
+        super().__init__(message, public_message=message)
+
+
+class EmptyJobDescriptionError(ValidationError):
+    public_message = "No text could be extracted from the document."
+
+
+class JobParseUnavailableError(ServiceUnavailableError):
+    pass
+
+
+class JobParseFailedError(DomainError):
+    status_code = 500
+    public_message = "Failed to parse job description"
