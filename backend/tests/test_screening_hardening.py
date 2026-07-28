@@ -123,38 +123,44 @@ class ScreeningQueueSlotTests(unittest.IsolatedAsyncioTestCase):
 
 class WebhookTokenTests(unittest.TestCase):
     def test_missing_token_rejected_when_secret_set(self) -> None:
-        from fastapi import HTTPException
-        from app.api.routes import screening as screening_routes
+        from app.exceptions import InvalidWebhookTokenError
+        from app.services.screening_webhook_service import ScreeningWebhookService
 
         request = mock.Mock()
         request.query_params = {}
+        service = ScreeningWebhookService(mock.AsyncMock())
 
-        with mock.patch.object(
-            screening_routes.config, "VAPI_WEBHOOK_SECRET", "prod-secret"
+        with mock.patch(
+            "app.services.screening_webhook_service.config.VAPI_WEBHOOK_SECRET",
+            "prod-secret",
         ):
-            with self.assertRaises(HTTPException) as ctx:
-                screening_routes._verify_vapi_webhook_token(request)
-            self.assertEqual(ctx.exception.status_code, 401)
+            with self.assertRaises(InvalidWebhookTokenError):
+                service.verify_token(request)
 
     def test_matching_token_accepted(self) -> None:
-        from app.api.routes import screening as screening_routes
+        from app.services.screening_webhook_service import ScreeningWebhookService
 
         request = mock.Mock()
         request.query_params = {"token": "prod-secret"}
+        service = ScreeningWebhookService(mock.AsyncMock())
 
-        with mock.patch.object(
-            screening_routes.config, "VAPI_WEBHOOK_SECRET", "prod-secret"
+        with mock.patch(
+            "app.services.screening_webhook_service.config.VAPI_WEBHOOK_SECRET",
+            "prod-secret",
         ):
-            screening_routes._verify_vapi_webhook_token(request)
+            service.verify_token(request)
 
     def test_empty_secret_allows_dev(self) -> None:
-        from app.api.routes import screening as screening_routes
+        from app.services.screening_webhook_service import ScreeningWebhookService
 
         request = mock.Mock()
         request.query_params = {}
+        service = ScreeningWebhookService(mock.AsyncMock())
 
-        with mock.patch.object(screening_routes.config, "VAPI_WEBHOOK_SECRET", ""):
-            screening_routes._verify_vapi_webhook_token(request)
+        with mock.patch(
+            "app.services.screening_webhook_service.config.VAPI_WEBHOOK_SECRET", ""
+        ):
+            service.verify_token(request)
 
 
 class DialRetryPendingTests(unittest.IsolatedAsyncioTestCase):

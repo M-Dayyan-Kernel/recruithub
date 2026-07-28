@@ -11,7 +11,10 @@ from typing import List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import Candidate, Job, ScreeningCall, ShortlistResult
+from app.core.tenancy import get_tenant_job
+from app.models.models import Candidate, Job, ScreeningCall, ShortlistResult, User
+from app.schemas.schemas import ScreeningTriggerRequest, ScreeningTriggerResponse
+from app.services.audit_service import AuditService
 from app.services.phone_validation import validate_phone_with_reason
 from app.services.screening_dispatch_service import enqueue_screening_call
 
@@ -224,3 +227,86 @@ async def auto_dispatch_unqueued_approved_for_job(
             len(skipped),
         )
     return initiated, queued
+
+
+class ScreeningTriggerService:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        audit_service: AuditService | None = None,
+    ) -> None:
+        self._session = session
+        self._audit = audit_service or AuditService(session)
+
+    async def trigger(
+        self,
+        actor: User,
+        job_id: uuid.UUID,
+        body: ScreeningTriggerRequest,
+    ) -> ScreeningTriggerResponse:
+        from app.core.celery_queues import SCREENING_QUEUE
+        from app.services.celery_health import (
+            celery_queue_available_async,
+            celery_queue_unavailable_message,
+        )
+        from app.services.screening_gate_service import screening_disabled_reason
+        from app.services.settings_service import load_system_settings
+        from app.exceptions import (
+            EmptyCandidateIdsError,
+            ScreeningDisabledError,
+            ScreeningUnavailableError,
+        )
+
+        if not body.candidate_ids:
+            raise EmptyCandidateIdsError()
+
+        if not await celery_queue_available_async(SCREENING_QUEUE):
+            raise ScreeningUnavailableError(
+                public_message=celery_queue_unavailable_message(SCREENING_QUEUE),
+            )
+
+        job = await get_tenant_job(self._session, job_id, actor.tenant_id)
+        system_settings = await load_system_settings(self._session, tenant_id=job.tenant_id)
+        disabled_reason = screening_disabled_reason(system_settings, job)
+        if disabled_reason:
+            raise ScreeningDisabledError(public_message=disabled_reason)
+
+        parsed_ids: list[uuid.UUID] = []
+        skipped: list[dict] = []
+        for raw_id in body.candidate_ids:
+            try:
+                parsed_ids.append(uuid.UUID(str(raw_id)))
+            except (ValueError, AttributeError):
+                skipped.append({"id": str(raw_id), "reason": "Invalid UUID format"})
+
+        initiated, queued, dispatch_skipped = await dispatch_screening_for_candidates(
+            self._session,
+            job,
+            parsed_ids,
+            force=body.force,
+        )
+        skipped.extend(dispatch_skipped)
+
+        await self._audit.log_change(
+            actor=actor,
+            action="screening.triggered",
+            entity_type="job",
+            entity_id=job_id,
+            subject_label=job.title,
+            feature="screening",
+            before=None,
+            after={
+                "initiated": initiated,
+                "queued": queued,
+                "candidate_ids": [str(i) for i in parsed_ids],
+            },
+            job_id=job_id,
+        )
+        await self._session.commit()
+
+        return ScreeningTriggerResponse(
+            initiated=initiated,
+            queued=queued,
+            skipped=skipped,
+        )

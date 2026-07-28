@@ -162,3 +162,41 @@ class ShortlistInProgressError(ConflictError):
 
 class ShortlistUnavailableError(ServiceUnavailableError):
     public_message = "Shortlisting is temporarily unavailable. Try again shortly."
+
+
+class EmptyCandidateIdsError(ValidationError):
+    public_message = "candidate_ids is required and must be a non-empty list."
+
+
+class ScreeningDisabledError(AuthorizationError):
+    pass
+
+
+class ScreeningUnavailableError(ServiceUnavailableError):
+    pass
+
+
+class InvalidWebhookTokenError(AuthenticationError):
+    public_message = "Invalid or missing webhook token"
+
+
+class InterviewCapacityError(ServiceUnavailableError):
+    def __init__(self, *, retry_after_minutes: int) -> None:
+        self.response_content = {
+            "detail": {
+                "code": "interview_capacity_full",
+                "message": "All interviewers are currently busy. Please try again later.",
+                "retry_after_minutes": retry_after_minutes,
+            }
+        }
+        super().__init__(
+            public_message="All interviewers are currently busy. Please try again later."
+        )
+
+
+class InterviewJoinWindowError(AuthorizationError):
+    pass
+
+
+class InvalidLiveKitWebhookError(AuthenticationError):
+    public_message = "Invalid LiveKit webhook signature"

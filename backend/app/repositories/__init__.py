@@ -1,5 +1,7 @@
 """Data access layer for platform foundation entities."""
 
+from app.repositories.interview_repository import InterviewRepository
+from app.repositories.screening_repository import ScreeningRepository
 from app.repositories.shortlist_repository import ShortlistRepository
 from app.repositories.candidate_repository import CandidateRepository
 from app.repositories.job_repository import JobRepository
@@ -12,6 +14,8 @@ from app.repositories.user_repository import UserRepository
 
 __all__ = [
     "CandidateRepository",
+    "InterviewRepository",
+    "ScreeningRepository",
     "ShortlistRepository",
     "JobRepository",
     "AuditLogRepository",

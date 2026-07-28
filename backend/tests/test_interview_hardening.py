@@ -125,13 +125,11 @@ class LiveKitWebhookAuthTests(unittest.IsolatedAsyncioTestCase):
 
 class StubTranscriptGateTests(unittest.TestCase):
     def test_stub_constant_only_applied_in_mock(self) -> None:
-        from app.api.routes import interviews as interviews_routes
         from app.services.interview_flag_service import has_meaningful_transcript
+        from app.services.interview_public_service import _STUB_INTERVIEW_TRANSCRIPT
 
         self.assertFalse(has_meaningful_transcript(None))
-        self.assertTrue(
-            has_meaningful_transcript(interviews_routes._STUB_INTERVIEW_TRANSCRIPT)
-        )
+        self.assertTrue(has_meaningful_transcript(_STUB_INTERVIEW_TRANSCRIPT))
 
 
 class AssessmentRetryTests(unittest.TestCase):

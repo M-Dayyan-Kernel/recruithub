@@ -8,13 +8,20 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.api.routes import (
-    health as health_routes,
-    screening,
-    interviews,
-)
+from app.api.routes import health as health_routes
 from app.exceptions import DomainError
-from app.routers import audit, auth, candidates, jobs, platform, settings, shortlist, users
+from app.routers import (
+    audit,
+    auth,
+    candidates,
+    interviews,
+    jobs,
+    platform,
+    screening,
+    settings,
+    shortlist,
+    users,
+)
 from app.core.config_loader import config as app_settings
 from app.core.database import AsyncSessionLocal
 from app.core.logging import (

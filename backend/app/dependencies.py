@@ -23,6 +23,13 @@ from app.services.job_service import JobService
 from app.services.resume_upload_service import ResumeUploadService
 from app.services.shortlist_service import ShortlistService
 from app.services.shortlist_trigger_service import ShortlistTriggerService
+from app.services.screening_service import ScreeningService
+from app.services.screening_trigger_service import ScreeningTriggerService
+from app.services.screening_webhook_service import ScreeningWebhookService
+from app.services.interview_hr_service import InterviewHrService
+from app.services.interview_public_service import InterviewPublicService
+from app.services.interview_webhook_service import InterviewWebhookService
+from app.services.interview_report_service import InterviewReportService
 from app.services.user_management_service import UserManagementService
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -116,3 +123,41 @@ def get_shortlist_trigger_service(
 
 def get_shortlist_service(db: AsyncSession = Depends(get_db)) -> ShortlistService:
     return ShortlistService(db)
+
+
+def get_screening_trigger_service(
+    db: AsyncSession = Depends(get_db),
+) -> ScreeningTriggerService:
+    return ScreeningTriggerService(db)
+
+
+def get_screening_service(db: AsyncSession = Depends(get_db)) -> ScreeningService:
+    return ScreeningService(db)
+
+
+def get_screening_webhook_service(
+    db: AsyncSession = Depends(get_db),
+) -> ScreeningWebhookService:
+    return ScreeningWebhookService(db)
+
+
+def get_interview_hr_service(db: AsyncSession = Depends(get_db)) -> InterviewHrService:
+    return InterviewHrService(db)
+
+
+def get_interview_public_service(
+    db: AsyncSession = Depends(get_db),
+) -> InterviewPublicService:
+    return InterviewPublicService(db)
+
+
+def get_interview_webhook_service(
+    db: AsyncSession = Depends(get_db),
+) -> InterviewWebhookService:
+    return InterviewWebhookService(db)
+
+
+def get_interview_report_service(
+    db: AsyncSession = Depends(get_db),
+) -> InterviewReportService:
+    return InterviewReportService(db)

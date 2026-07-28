@@ -77,24 +77,24 @@ class InterviewQueueServiceTests(unittest.IsolatedAsyncioTestCase):
 
 class InterviewCapacityEnforcementTests(unittest.IsolatedAsyncioTestCase):
     async def test_raise_interview_capacity_full(self) -> None:
-        from app.api.routes import interviews as interviews_routes
+        from app.exceptions import InterviewCapacityError
+        from app.services.interview_public_service import _raise_interview_capacity_full
 
-        with mock.patch.object(
-            interviews_routes.config.interview,
-            "busy_retry_minutes",
-            45,
+        with mock.patch(
+            "app.services.interview_queue_service.busy_retry_minutes",
+            return_value=45,
         ):
-            with self.assertRaises(HTTPException) as ctx:
-                interviews_routes._raise_interview_capacity_full()
+            with self.assertRaises(InterviewCapacityError) as ctx:
+                _raise_interview_capacity_full()
 
         self.assertEqual(ctx.exception.status_code, 503)
-        detail = ctx.exception.detail
-        assert isinstance(detail, dict)
+        detail = ctx.exception.response_content["detail"]
         self.assertEqual(detail["code"], "interview_capacity_full")
         self.assertEqual(detail["retry_after_minutes"], 45)
 
     async def test_start_pending_raises_503_when_at_cap(self) -> None:
-        from app.api.routes import interviews as interviews_routes
+        from app.exceptions import InterviewCapacityError
+        from app.services.interview_public_service import InterviewPublicService
 
         session = SimpleNamespace(
             status="pending",
@@ -120,7 +120,6 @@ class InterviewCapacityEnforcementTests(unittest.IsolatedAsyncioTestCase):
         db = mock.AsyncMock()
         db.execute = mock.AsyncMock(
             side_effect=[
-                _execute_result(session, scalar_one=True),
                 _execute_result(candidate),
                 _execute_result(job),
             ]
@@ -129,6 +128,10 @@ class InterviewCapacityEnforcementTests(unittest.IsolatedAsyncioTestCase):
         integrations = mock.Mock()
         integrations.livekit_url = "wss://lk.example"
         integrations.require = mock.Mock()
+
+        interview_repo = mock.Mock()
+        interview_repo.get_session_by_token = mock.AsyncMock(return_value=session)
+        service = InterviewPublicService(db, interview_repo=interview_repo)
 
         with mock.patch(
             "app.services.interview_guards.enforce_public_interview_rate_limit",
@@ -141,21 +144,18 @@ class InterviewCapacityEnforcementTests(unittest.IsolatedAsyncioTestCase):
         ), mock.patch(
             "app.services.interview_queue_service.has_live_interview_slot",
             new=mock.AsyncMock(return_value=False),
-        ), mock.patch.object(
-            interviews_routes.config.interview,
-            "busy_retry_minutes",
-            45,
+        ), mock.patch(
+            "app.services.interview_queue_service.busy_retry_minutes",
+            return_value=45,
         ):
-            with self.assertRaises(HTTPException) as ctx:
-                await interviews_routes.start_interview("tok", db)
+            with self.assertRaises(InterviewCapacityError) as ctx:
+                await service.start("tok")
 
-        self.assertEqual(ctx.exception.status_code, 503)
-        detail = ctx.exception.detail
-        assert isinstance(detail, dict)
+        detail = ctx.exception.response_content["detail"]
         self.assertEqual(detail["code"], "interview_capacity_full")
 
     async def test_rejoin_allowed_when_at_cap(self) -> None:
-        from app.api.routes import interviews as interviews_routes
+        from app.services.interview_public_service import InterviewPublicService
 
         session = SimpleNamespace(
             status="in_progress",
@@ -180,7 +180,6 @@ class InterviewCapacityEnforcementTests(unittest.IsolatedAsyncioTestCase):
         db = mock.AsyncMock()
         db.execute = mock.AsyncMock(
             side_effect=[
-                _execute_result(session, scalar_one=True),
                 _execute_result(candidate),
                 _execute_result(job),
             ]
@@ -189,6 +188,10 @@ class InterviewCapacityEnforcementTests(unittest.IsolatedAsyncioTestCase):
         integrations = mock.Mock()
         integrations.livekit_url = "wss://lk.example"
         integrations.require = mock.Mock()
+
+        interview_repo = mock.Mock()
+        interview_repo.get_session_by_token = mock.AsyncMock(return_value=session)
+        service = InterviewPublicService(db, interview_repo=interview_repo)
 
         with mock.patch(
             "app.services.interview_guards.enforce_public_interview_rate_limit",
@@ -205,7 +208,7 @@ class InterviewCapacityEnforcementTests(unittest.IsolatedAsyncioTestCase):
             "app.services.interview_queue_service.has_live_interview_slot",
             new=mock.AsyncMock(return_value=False),
         ) as has_slot:
-            response = await interviews_routes.start_interview("tok", db)
+            response = await service.start("tok")
 
         has_slot.assert_not_called()
         self.assertEqual(response.token, "jwt-token")
