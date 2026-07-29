@@ -32,7 +32,7 @@ from app.core.logging import (
     set_request_id,
     setup_logging,
 )
-from app.services.mock_external import active_mock_services
+from app.clients.mocks import active_mock_services
 from app.services.user_seed_service import seed_admin_user, seed_superadmin_user
 
 setup_logging(app_settings.LOG_LEVEL, log_format=app_settings.LOG_FORMAT)

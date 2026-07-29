@@ -99,7 +99,7 @@ class LiveKitWebhookAuthTests(unittest.IsolatedAsyncioTestCase):
             "settings",
             SimpleNamespace(LIVEKIT_API_KEY="key", LIVEKIT_API_SECRET="secret"),
         ), mock.patch(
-            "app.services.mock_external.mock_livekit_enabled",
+            "app.clients.mocks.mock_livekit_enabled",
             return_value=False,
         ), mock.patch(
             "livekit.api.WebhookReceiver.receive",
@@ -116,7 +116,7 @@ class LiveKitWebhookAuthTests(unittest.IsolatedAsyncioTestCase):
         request.headers = {}
 
         with mock.patch(
-            "app.services.mock_external.mock_livekit_enabled",
+            "app.clients.mocks.mock_livekit_enabled",
             return_value=True,
         ):
             body = await interview_guards.verify_livekit_webhook_body(request)

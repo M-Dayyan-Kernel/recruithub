@@ -135,46 +135,30 @@ class CallSiteConfigTests(unittest.TestCase):
 
         captured: dict = {}
 
-        class FakeCompletions:
-            def create(self, **kwargs):
-                captured.update(kwargs)
+        class FakeOpenAIClient:
+            def chat_completion_json_sync(self, workload, messages, *, api_key):
+                captured["workload"] = workload
+                captured["api_key"] = api_key
+                return (
+                    '{"profile":{"name":"A","email":null,"phone":null,'
+                    '"skills":[],"total_experience_years":0,"experience":[],'
+                    '"education":[],"current_company":null,"current_role":null},'
+                    '"assessment":{"match_score":50,"recommendation":"review",'
+                    '"strengths":[],"gaps":[],"reason":"ok"}}'
+                )
 
-                class Choice:
-                    message = type(
-                        "M",
-                        (),
-                        {
-                            "content": (
-                                '{"profile":{"name":"A","email":null,"phone":null,'
-                                '"skills":[],"total_experience_years":0,"experience":[],'
-                                '"education":[],"current_company":null,"current_role":null},'
-                                '"assessment":{"match_score":50,"recommendation":"review",'
-                                '"strengths":[],"gaps":[],"reason":"ok"}}'
-                            )
-                        },
-                    )()
-
-                return type("R", (), {"choices": [Choice()]})()
-
-        class FakeClient:
-            def __init__(self, api_key: str):
-                self.chat = type("C", (), {"completions": FakeCompletions()})()
-
-        with mock.patch("openai.OpenAI", FakeClient):
+        with mock.patch(
+            "app.services.combined_shortlist_service.openai_client",
+            return_value=FakeOpenAIClient(),
+        ):
             combined_shortlist_service._combined_shortlist_sync(
                 "x" * 80,
                 {"title": "Engineer", "description": "Build things"},
                 "sk-test",
             )
 
-        self.assertEqual(
-            captured["model"],
-            config_loader.config.models.combined_shortlist.name,
-        )
-        self.assertEqual(
-            captured["max_tokens"],
-            config_loader.config.models.combined_shortlist.max_tokens,
-        )
+        self.assertEqual(captured["workload"], "combined_shortlist")
+        self.assertEqual(captured["api_key"], "sk-test")
 
     def test_assessment_uses_configured_model(self) -> None:
         import asyncio
@@ -182,30 +166,22 @@ class CallSiteConfigTests(unittest.TestCase):
 
         captured: dict = {}
 
-        class FakeCompletions:
-            async def create(self, **kwargs):
-                captured.update(kwargs)
+        class FakeOpenAIClient:
+            async def chat_completion_json(self, workload, messages, *, api_key):
+                captured["workload"] = workload
+                captured["api_key"] = api_key
+                return "{}"
 
-                class Choice:
-                    message = type("M", (), {"content": "{}"})()
-
-                return type("R", (), {"choices": [Choice()]})()
-
-        class FakeAsyncOpenAI:
-            def __init__(self, api_key: str):
-                self.chat = type("C", (), {"completions": FakeCompletions()})()
-
-        fake_openai = mock.MagicMock()
-        fake_openai.AsyncOpenAI = FakeAsyncOpenAI
-        with mock.patch.dict("sys.modules", {"openai": fake_openai}):
+        with mock.patch(
+            "app.services.assessment_service.openai_client",
+            return_value=FakeOpenAIClient(),
+        ):
             asyncio.run(
                 assessment_service._run_gpt_assessment("sys", "user", "sk-test")
             )
 
-        self.assertEqual(
-            captured["model"],
-            config_loader.config.models.interview_assessment.name,
-        )
+        self.assertEqual(captured["workload"], "interview_assessment")
+        self.assertEqual(captured["api_key"], "sk-test")
 
 
 if __name__ == "__main__":

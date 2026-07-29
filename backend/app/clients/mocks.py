@@ -126,7 +126,7 @@ def mock_jd_parse(raw_text: str) -> dict:
     }
 
 
-def mock_combined_shortlist() -> CombinedShortlistOutput:
+def mock_combined_shortlist():
     from app.schemas.ai_outputs import CombinedShortlistOutput, ParsedResumeData, ShortlistAssessment
 
     log_mock_usage("openai", "combined resume shortlist (gpt-4o)")

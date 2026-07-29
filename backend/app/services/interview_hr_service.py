@@ -305,7 +305,7 @@ class InterviewHrService:
         if not session.started_at:
             session.started_at = now
 
-        from app.services.mock_external import mock_livekit_enabled
+        from app.clients.mocks import mock_livekit_enabled
 
         if not has_meaningful_transcript(session.transcript) and mock_livekit_enabled():
             session.transcript = _STUB_INTERVIEW_TRANSCRIPT

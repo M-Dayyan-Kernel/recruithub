@@ -182,6 +182,14 @@ backend/app/
 ├── schemas/
 │   ├── __init__.py
 │   └── schemas.py
+├── clients/
+│   ├── __init__.py
+│   ├── gmail_client.py
+│   ├── livekit_client.py
+│   ├── mocks.py
+│   ├── openai_client.py
+│   ├── s3_client.py
+│   └── vapi_client.py
 ├── services/
 │   ├── __init__.py
 │   ├── assessment_service.py
@@ -205,7 +213,6 @@ backend/app/
 │   ├── interview_skip_screening_service.py
 │   ├── jd_parser.py
 │   ├── livekit_service.py
-│   ├── mock_external.py
 │   ├── parse_queue_service.py
 │   ├── phone_validation.py
 │   ├── report_refresh_service.py
@@ -918,11 +925,32 @@ The folder exposes the full product. Authentication and tenant filters are gener
 
 ---
 
-# 9. `services/`
+# 9. `clients/`
 
 ## Folder Overview
 
-The service folder holds business logic, reusable validators, queueing helpers, and external adapters. `services/__init__.py` is only a package marker.
+External API and SDK transport lives here. Each client owns timeouts, authentication headers, and mock delegation for one third-party system. Business logic (prompts, payload assembly, status mapping) stays in `services/`.
+
+| Client | External system | Used by |
+|--------|-----------------|---------|
+| `openai_client.py` | OpenAI chat completions | JD parse, shortlist, expected answers, screening extraction, interview assessment |
+| `vapi_client.py` | Vapi REST API | Voice screening calls |
+| `livekit_client.py` | LiveKit API SDK | Interview rooms, tokens, egress |
+| `s3_client.py` | Linode Object Storage (S3) | Resumes, GST docs, recordings |
+| `gmail_client.py` | Gmail API | OAuth and outbound mail |
+| `mocks.py` | — | Local dev mock responses (`MOCK_*` flags) |
+
+**Dependency rule:** `routers → services → repositories/clients`. Clients import `config`, `exceptions`, and `mocks` only — never services or routers.
+
+Factories: `app.clients.get_*_client()` (cached) and `app.dependencies.get_*_client_dep()` for FastAPI `Depends()`.
+
+---
+
+# 10. `services/`
+
+## Folder Overview
+
+The service folder holds business logic, reusable validators, and queueing helpers. External transport is delegated to `clients/`. `services/__init__.py` is only a package marker.
 
 ## File-by-file service catalog
 
@@ -1133,28 +1161,7 @@ Normalizes GPT output:
 
 ## `livekit_service.py`
 
-- `_livekit_http_url`: converts ws/wss URL to HTTP/HTTPS for REST.
-- `_livekit_credentials`.
-- `_s3_configured`.
-- `create_room`: create room, attempt AI-agent dispatch, attempt composite MP4 egress, close SDK client.
-- `generate_candidate_token`: two-hour publish/subscribe room token.
-- `generate_agent_token`: two-hour agent token with elevated grants.
-
-Agent dispatch and recording failures are soft warnings after room creation. Candidate identity is derived from name and may collide for same-name participants.
-
-## `mock_external.py`
-
-Granular mock flags and deterministic stand-ins:
-
-- enabled checks and active service list.
-- resume/JD parsing.
-- shortlist and interview assessment.
-- expected points and screening extraction.
-- fake Vapi call data/ID.
-- fake LiveKit token.
-- fake email send.
-
-Mock resume data contains fixed personal-looking contact details, which can confuse demonstrations and logs.
+Thin facade over `clients.livekit_client` — re-exports `create_room`, `generate_candidate_token`, and `generate_agent_token`.
 
 ## `parse_queue_service.py`
 
@@ -1640,8 +1647,7 @@ sequenceDiagram
 ```text
 main.py
 ├── api.routes.*
-├── core.database
-├── services.mock_external
+├── clients.mocks
 └── services.user_seed_service
 
 api.routes.*

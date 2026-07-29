@@ -112,7 +112,7 @@ class InterviewPublicService:
         response_data.candidate_name = candidate.name if candidate else None
         response_data.job_title = job.title if job else None
 
-        from app.services.mock_external import mock_livekit_enabled
+        from app.clients.mocks import mock_livekit_enabled
 
         response_data.mock_mode = mock_livekit_enabled()
 
@@ -334,7 +334,7 @@ class InterviewPublicService:
         if not session.started_at:
             session.started_at = now
 
-        from app.services.mock_external import mock_livekit_enabled
+        from app.clients.mocks import mock_livekit_enabled
 
         if mock_livekit_enabled() and not (session.transcript or "").strip():
             session.transcript = _STUB_INTERVIEW_TRANSCRIPT

@@ -112,7 +112,7 @@ async def verify_livekit_webhook_body(request: Request) -> Dict[str, Any]:
     except UnicodeDecodeError as exc:
         raise HTTPException(status_code=400, detail="Invalid webhook body encoding") from exc
 
-    from app.services.mock_external import mock_livekit_enabled
+    from app.clients.mocks import mock_livekit_enabled
 
     if mock_livekit_enabled():
         try:

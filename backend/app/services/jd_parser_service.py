@@ -6,8 +6,7 @@ import json
 import logging
 import uuid
 
-from openai import AsyncOpenAI
-
+from app.clients import mocks, openai_client
 from app.core.config_loader import config
 from app.prompts.job_description import (
     PARSE_JD_SYSTEM_PROMPT,
@@ -104,10 +103,8 @@ class JdParserService:
             )
             return dict(_EMPTY_JD)
 
-        from app.services.mock_external import mock_jd_parse, mock_openai_enabled
-
-        if mock_openai_enabled():
-            parsed = mock_jd_parse(raw_text)
+        if mocks.mock_openai_enabled():
+            parsed = mocks.mock_jd_parse(raw_text)
             parsed["screening_questions"] = _normalize_parsed_screening_questions(
                 parsed.get("screening_questions")
             )
@@ -116,26 +113,20 @@ class JdParserService:
             )
             return parsed
 
-        client = AsyncOpenAI(api_key=api_key)
-        model_cfg = config.models.jd_parse
         max_chars = config.parsing.jd_max_chars
         truncated_text = raw_text[:max_chars] if len(raw_text) > max_chars else raw_text
 
-        response = await client.chat.completions.create(
-            model=model_cfg.name,
-            response_format=model_cfg.openai_response_format(),
-            messages=[
+        content = await openai_client().chat_completion_json(
+            "jd_parse",
+            [
                 {"role": "system", "content": PARSE_JD_SYSTEM_PROMPT},
                 {
                     "role": "user",
                     "content": build_parse_jd_user_prompt(truncated_text),
                 },
             ],
-            temperature=model_cfg.temperature,
-            max_tokens=model_cfg.max_tokens,
+            api_key=api_key,
         )
-
-        content = response.choices[0].message.content
         parsed = json.loads(content)
         parsed["interview_questions"] = _normalize_parsed_questions(
             parsed.get("interview_questions")

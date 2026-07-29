@@ -27,7 +27,7 @@ async def count_live_interviews(session: AsyncSession) -> int:
 
 async def has_live_interview_slot(session: AsyncSession) -> bool:
     """True when platform is under max_concurrent_interviews."""
-    from app.services.mock_external import mock_livekit_enabled
+    from app.clients.mocks import mock_livekit_enabled
 
     if mock_livekit_enabled():
         return True

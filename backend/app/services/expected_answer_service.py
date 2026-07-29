@@ -6,8 +6,7 @@ import json
 import logging
 from typing import Any, Optional
 
-from openai import AsyncOpenAI
-
+from app.clients import mocks, openai_client
 from app.core.config_loader import config
 from app.prompts.expected_answer import (
     EXPECTED_POINTS_SYSTEM_PROMPT,
@@ -90,16 +89,13 @@ class ExpectedAnswerService:
         if not (question_text or "").strip():
             return []
 
-        from app.services.mock_external import mock_expected_points, mock_openai_enabled
-
-        if mock_openai_enabled():
-            return mock_expected_points(question_text)
+        if mocks.mock_openai_enabled():
+            return mocks.mock_expected_points(question_text)
 
         if not (api_key or "").strip():
             logger.warning("OpenAI API key not set; skipping expected_points generation")
             return []
 
-        client = AsyncOpenAI(api_key=api_key)
         user_content = build_expected_points_user_prompt(
             _job_context(job),
             derive_difficulty_hint(job),
@@ -107,18 +103,15 @@ class ExpectedAnswerService:
         )
 
         try:
-            model_cfg = config.models.expected_answer
-            response = await client.chat.completions.create(
-                model=model_cfg.name,
-                messages=[
+            content = await openai_client().chat_completion_json(
+                "expected_answer",
+                [
                     {"role": "system", "content": EXPECTED_POINTS_SYSTEM_PROMPT},
                     {"role": "user", "content": user_content},
                 ],
-                response_format=model_cfg.openai_response_format(),
-                temperature=model_cfg.temperature,
-                max_tokens=model_cfg.max_tokens,
+                api_key=api_key,
             )
-            data = json.loads(response.choices[0].message.content or "{}")
+            data = json.loads(content or "{}")
             raw = data.get("expected_points") or []
             if not isinstance(raw, list):
                 return []

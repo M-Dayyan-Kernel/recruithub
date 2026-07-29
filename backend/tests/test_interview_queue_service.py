@@ -32,7 +32,7 @@ class InterviewQueueServiceTests(unittest.IsolatedAsyncioTestCase):
             "max_concurrent_interviews",
             25,
         ), mock.patch(
-            "app.services.mock_external.mock_livekit_enabled",
+            "app.clients.mocks.mock_livekit_enabled",
             return_value=False,
         ):
             self.assertTrue(await interview_queue_service.has_live_interview_slot(session))
@@ -48,7 +48,7 @@ class InterviewQueueServiceTests(unittest.IsolatedAsyncioTestCase):
             "max_concurrent_interviews",
             25,
         ), mock.patch(
-            "app.services.mock_external.mock_livekit_enabled",
+            "app.clients.mocks.mock_livekit_enabled",
             return_value=False,
         ):
             self.assertFalse(await interview_queue_service.has_live_interview_slot(session))
@@ -60,7 +60,7 @@ class InterviewQueueServiceTests(unittest.IsolatedAsyncioTestCase):
         session.execute = mock.AsyncMock(return_value=count_result)
 
         with mock.patch(
-            "app.services.mock_external.mock_livekit_enabled",
+            "app.clients.mocks.mock_livekit_enabled",
             return_value=True,
         ):
             self.assertTrue(await interview_queue_service.has_live_interview_slot(session))

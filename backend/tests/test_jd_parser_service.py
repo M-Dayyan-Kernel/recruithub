@@ -13,8 +13,8 @@ class JdParserServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(parsed["title"], "")
         self.assertEqual(parsed["interview_questions"], [])
 
-    @patch("app.services.mock_external.mock_openai_enabled", return_value=True)
-    @patch("app.services.mock_external.mock_jd_parse")
+    @patch("app.clients.mocks.mock_openai_enabled", return_value=True)
+    @patch("app.clients.mocks.mock_jd_parse")
     async def test_mock_parse_normalizes_questions(self, mock_parse, _mock_enabled):
         mock_parse.return_value = {
             "title": "Engineer",

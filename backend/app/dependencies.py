@@ -8,6 +8,18 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients import (
+    GmailClient,
+    LiveKitClient,
+    OpenAIClient,
+    S3Client,
+    VapiClient,
+    get_gmail_client,
+    get_livekit_client,
+    get_openai_client,
+    get_s3_client,
+    get_vapi_client,
+)
 from app.core.constants import PLATFORM_TENANT_SLUG
 from app.core.database import get_db
 from app.exceptions import DomainError
@@ -161,3 +173,23 @@ def get_interview_report_service(
     db: AsyncSession = Depends(get_db),
 ) -> InterviewReportService:
     return InterviewReportService(db)
+
+
+def get_openai_client_dep() -> OpenAIClient:
+    return get_openai_client()
+
+
+def get_vapi_client_dep() -> VapiClient:
+    return get_vapi_client()
+
+
+def get_livekit_client_dep() -> LiveKitClient:
+    return get_livekit_client()
+
+
+def get_s3_client_dep() -> S3Client:
+    return get_s3_client()
+
+
+def get_gmail_client_dep() -> GmailClient:
+    return get_gmail_client()

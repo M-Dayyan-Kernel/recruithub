@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients import mocks, openai_client
 from app.core.async_utils import run_sync
 from app.core.config_loader import config
 from app.core.logging import log_event, plural
@@ -65,25 +66,19 @@ def _combined_shortlist_sync(
     jd_summary: dict,
     api_key: str,
 ) -> CombinedShortlistOutput:
-    from openai import OpenAI
-
-    client = OpenAI(api_key=api_key)
-    model_cfg = config.models.combined_shortlist
     truncated = head_tail_truncate(resume_text, config.parsing.resume_max_chars)
-    response = client.chat.completions.create(
-        model=model_cfg.name,
-        response_format=model_cfg.openai_response_format(),
-        messages=[
+    content = openai_client().chat_completion_json_sync(
+        "combined_shortlist",
+        [
             {"role": "system", "content": COMBINED_SHORTLIST_SYSTEM_PROMPT},
             {
                 "role": "user",
                 "content": build_combined_shortlist_user_prompt(truncated, jd_summary),
             },
         ],
-        temperature=model_cfg.temperature,
-        max_tokens=model_cfg.max_tokens,
+        api_key=api_key,
     )
-    raw = json.loads(response.choices[0].message.content or "{}")
+    raw = json.loads(content or "{}")
     return CombinedShortlistOutput.model_validate(raw)
 
 
@@ -329,10 +324,8 @@ async def call_combined_shortlist(
     jd_summary: dict,
     api_key: str,
 ) -> CombinedShortlistOutput:
-    from app.services.mock_external import mock_combined_shortlist, mock_openai_enabled
-
-    if mock_openai_enabled():
-        return mock_combined_shortlist()
+    if mocks.mock_openai_enabled():
+        return mocks.mock_combined_shortlist()
 
     return await asyncio.to_thread(
         _combined_shortlist_sync, resume_text, jd_summary, api_key

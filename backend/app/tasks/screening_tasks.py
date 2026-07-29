@@ -1304,16 +1304,13 @@ async def _extract_screening_fields(
     screening_questions: list | None = None,
 ) -> dict:
     """Call GPT-4o to extract structured screening fields from transcript."""
-    from app.services.mock_external import mock_openai_enabled, mock_screening_extraction
+    from app.clients import mocks
 
-    if mock_openai_enabled():
-        return mock_screening_extraction()
-
-    import openai
+    if mocks.mock_openai_enabled():
+        return mocks.mock_screening_extraction()
 
     from app.services.screening_defaults import format_screening_questions_for_prompt, merge_screening_questions
-
-    client = openai.AsyncOpenAI(api_key=api_key)
+    from app.clients import openai_client
 
     questions_text = format_screening_questions_for_prompt(
         merge_screening_questions(screening_questions, None, job_title or ""),
@@ -1325,18 +1322,14 @@ async def _extract_screening_fields(
         questions_text=questions_text,
     )
 
-    response = await client.chat.completions.create(
-        model=config.models.screening_extraction.name,
-        messages=[
+    raw_content = await openai_client().chat_completion_json(
+        "screening_extraction",
+        [
             {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ],
-        response_format=config.models.screening_extraction.openai_response_format(),
-        temperature=config.models.screening_extraction.temperature,
-        max_tokens=config.models.screening_extraction.max_tokens,
+        api_key=api_key,
     )
-
-    raw_content = response.choices[0].message.content
     extracted = json.loads(raw_content)
     return extracted
 

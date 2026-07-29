@@ -11,6 +11,7 @@ Functions:
 import json
 import logging
 
+from app.clients import mocks, openai_client
 from app.core.config_loader import config
 from app.prompts.assessment import (
     ASSESSMENT_SYSTEM_PROMPT,
@@ -219,23 +220,15 @@ def _merge_rubric_scores(rubric: list[dict], gpt_scores: list[dict]) -> tuple[li
 
 
 async def _run_gpt_assessment(system_prompt: str, user_content: str, api_key: str) -> dict:
-    import openai
-
-    from app.core.config_loader import config
-
-    model_cfg = config.models.interview_assessment
-    client = openai.AsyncOpenAI(api_key=api_key)
-    response = await client.chat.completions.create(
-        model=model_cfg.name,
-        messages=[
+    content = await openai_client().chat_completion_json(
+        "interview_assessment",
+        [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ],
-        response_format=model_cfg.openai_response_format(),
-        temperature=model_cfg.temperature,
-        max_tokens=model_cfg.max_tokens,
+        api_key=api_key,
     )
-    return json.loads(response.choices[0].message.content)
+    return json.loads(content)
 
 
 def _build_user_content(transcript: str, job, candidate) -> str:
@@ -278,10 +271,8 @@ async def generate_assessment(transcript: str, job, candidate, api_key: str) -> 
         )
         return _build_needs_review_report(rubric if rubric else None)
 
-    from app.services.mock_external import mock_interview_assessment, mock_openai_enabled
-
-    if mock_openai_enabled():
-        return mock_interview_assessment(transcript, job, candidate)
+    if mocks.mock_openai_enabled():
+        return mocks.mock_interview_assessment(transcript, job, candidate)
 
     user_content = _build_user_content(transcript, job, candidate)
 
