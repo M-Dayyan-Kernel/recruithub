@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+from datetime import datetime, timezone
 from typing import Annotated, Callable
 
 from fastapi import Depends, HTTPException, status
@@ -57,10 +59,34 @@ async def get_current_user(
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    try:
-        return await AuthenticationContextService(db).resolve_user_from_token(
-            credentials.credentials
+    token = credentials.credentials
+
+    # API key auth — tokens starting with rhub_ bypass JWT resolution
+    if token.startswith("rhub_"):
+        from app.modules.api_keys.api_key_service import ApiKeyService
+
+        api_key = await ApiKeyService.validate_api_key(token, db)
+        if api_key is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or revoked API key",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        now = datetime.now(timezone.utc)
+        return User(
+            id=uuid.uuid4(),
+            tenant_id=uuid.uuid4(),
+            email=api_key.name,
+            full_name=api_key.name,
+            hashed_password="",
+            role="superadmin",
+            is_active=True,
+            created_at=now,
+            updated_at=now,
         )
+
+    try:
+        return await AuthenticationContextService(db).resolve_user_from_token(token)
     except DomainError as exc:
         raise HTTPException(
             status_code=exc.status_code,

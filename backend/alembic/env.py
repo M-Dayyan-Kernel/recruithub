@@ -8,6 +8,7 @@ from alembic import context
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.models.models import Base  # noqa: E402
+from app.models.api_key import ApiKey  # noqa: E402, F401 — registers api_keys table metadata
 from app.core.config_loader import config as app_config  # noqa: E402
 
 alembic_config = context.config
