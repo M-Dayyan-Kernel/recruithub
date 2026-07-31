@@ -69,6 +69,16 @@ class ResumeProcessingService:
             )
             return ProcessingResult(ProcessingOutcome.SKIPPED)
 
+        if candidate.skip_ai_shortlist:
+            candidate.pipeline_status = "completed"
+            candidate.processing_started_at = None
+            await self._session.commit()
+            logger.info(
+                "process_resume_shortlist: candidate %s shortlisted externally — marked completed, skipping AI review",
+                candidate_id,
+            )
+            return ProcessingResult(ProcessingOutcome.SKIPPED)
+
         job_id = candidate.job_id
         candidate.pipeline_status = "processing"
         if candidate.processing_started_at is None:

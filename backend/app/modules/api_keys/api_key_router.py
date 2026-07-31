@@ -13,6 +13,7 @@ from app.modules.api_keys.api_key_schema import (
     ApiKeyListResponse,
     ApiKeyResponse,
     CreateApiKeyRequest,
+    IssueApiKeyRequest,
     UpdateApiKeyRequest,
 )
 from app.modules.api_keys.api_key_service import ApiKeyService
@@ -57,6 +58,33 @@ async def create_api_key(
         _raise_domain(exc)
 
 
+@router.post("/issue", response_model=ApiKeyCreatedResponse, status_code=status.HTTP_201_CREATED)
+async def issue_api_key(
+    body: IssueApiKeyRequest,
+    admin: RequireSuperAdmin,
+    service: ApiKeyService = Depends(_get_service),
+):
+    try:
+        api_key, full_key = await service.issue(
+            body, created_by_user_id=admin.id
+        )
+        return ApiKeyCreatedResponse(
+            id=api_key.id,
+            name=api_key.name,
+            description=api_key.description,
+            key_prefix=api_key.key_prefix,
+            is_active=api_key.is_active,
+            created_by_user_id=api_key.created_by_user_id,
+            tenant_id=api_key.tenant_id,
+            last_used_at=api_key.last_used_at,
+            created_at=api_key.created_at,
+            updated_at=api_key.updated_at,
+            full_key=full_key,
+        )
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
 @router.get("", response_model=ApiKeyListResponse)
 async def list_api_keys(
     _admin: RequireSuperAdmin,
@@ -72,6 +100,7 @@ async def list_api_keys(
                 key_prefix=k.key_prefix,
                 is_active=k.is_active,
                 created_by_user_id=k.created_by_user_id,
+                tenant_id=k.tenant_id,
                 last_used_at=k.last_used_at,
                 created_at=k.created_at,
                 updated_at=k.updated_at,
@@ -97,6 +126,7 @@ async def get_api_key(
             key_prefix=api_key.key_prefix,
             is_active=api_key.is_active,
             created_by_user_id=api_key.created_by_user_id,
+            tenant_id=api_key.tenant_id,
             last_used_at=api_key.last_used_at,
             created_at=api_key.created_at,
             updated_at=api_key.updated_at,
@@ -121,6 +151,7 @@ async def update_api_key(
             key_prefix=api_key.key_prefix,
             is_active=api_key.is_active,
             created_by_user_id=api_key.created_by_user_id,
+            tenant_id=api_key.tenant_id,
             last_used_at=api_key.last_used_at,
             created_at=api_key.created_at,
             updated_at=api_key.updated_at,
@@ -156,6 +187,7 @@ async def rotate_api_key(
             key_prefix=api_key.key_prefix,
             is_active=api_key.is_active,
             created_by_user_id=api_key.created_by_user_id,
+            tenant_id=api_key.tenant_id,
             last_used_at=api_key.last_used_at,
             created_at=api_key.created_at,
             updated_at=api_key.updated_at,

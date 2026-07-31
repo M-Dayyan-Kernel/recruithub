@@ -59,9 +59,25 @@ class TalentosWithScreeningPayload(BaseModel):
 
 class TalentosWithScreeningResponse(BaseModel):
     candidate: TalentosCandidateResponse
+    screening_call_id: Optional[str] = None
     screening_initiated: bool
     screening_queued: bool
     screening_skipped: Optional[list[dict]] = None
+
+
+class TalentosWithInterviewPayload(BaseModel):
+    name: str
+    email: str
+    phone: Optional[str] = None
+    external_candidate_id: Optional[str] = None
+    external_job_id: Optional[str] = None
+    force: bool = False
+    interview_type: Optional[str] = "AI_INTERVIEW"
+
+
+class TalentosWithInterviewResponse(BaseModel):
+    candidate: TalentosCandidateResponse
+    interview: TalentosInterviewResponse
 
 
 class TalentosScreeningTriggerResponse(BaseModel):
@@ -86,6 +102,9 @@ class TalentosScreeningResultResponse(BaseModel):
     communication_quality: Optional[str] = None
     willingness_to_proceed: Optional[bool] = None
     transcript: Optional[str] = None
+    call_outcome: Optional[str] = None
+    ended_reason: Optional[str] = None
+    retry_count: int = 0
     created_at: datetime
 
 
@@ -100,6 +119,22 @@ class TalentosInterviewResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     expires_at: Optional[datetime] = None
+
+
+class TalentosInterviewDetailResponse(TalentosInterviewResponse):
+    transcript: Optional[str] = None
+    summary: Optional[str] = None
+    transcript_summary: Optional[str] = None
+    overall_score: Optional[float] = None
+    technical_fit_score: Optional[float] = None
+    communication_score: Optional[float] = None
+    problem_solving_score: Optional[float] = None
+    experience_score: Optional[float] = None
+    role_alignment_score: Optional[float] = None
+    strengths: Optional[List[str]] = None
+    weaknesses: Optional[List[str]] = None
+    jd_fit: Optional[str] = None
+    final_recommendation: Optional[str] = None
 
 
 class TalentosInterviewTriggerResponse(BaseModel):

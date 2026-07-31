@@ -192,3 +192,4 @@ async def metrics():
     from app.core.metrics import metrics_response
 
     return metrics_response()
+

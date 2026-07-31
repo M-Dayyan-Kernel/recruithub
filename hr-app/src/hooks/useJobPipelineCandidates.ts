@@ -43,7 +43,7 @@ export function useJobPipelineCandidates(jobId: string, options: Options = {}) {
     },
   })
 
-  const candidates = pipelineQuery.data ?? []
+  const candidates = (pipelineQuery.data ?? []).filter((c) => !c.skip_ai_shortlist)
 
   const processingCandidates = useMemo(
     () =>

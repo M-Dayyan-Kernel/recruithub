@@ -134,6 +134,7 @@ class Candidate(Base):
     resume_file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     original_filename: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Original upload filename — used for dedup check
     external_candidate_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # External system reference ID
+    skip_ai_shortlist: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)  # Shortlist decision made externally (talentOS) — skip AI resume review
     parsed_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     pipeline_status: Mapped[str] = mapped_column(String(50), nullable=False, default="queued")
     processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

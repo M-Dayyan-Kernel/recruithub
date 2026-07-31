@@ -326,6 +326,7 @@ class CandidateResponse(BaseModel):
     original_filename: Optional[str] = None
     external_candidate_id: Optional[str] = None
     pipeline_status: str
+    skip_ai_shortlist: bool = False
     created_at: datetime
 
 
@@ -377,6 +378,7 @@ class ShortlistResultWithCandidateResponse(ShortlistResultResponse):
     """
     candidate_name: Optional[str] = None
     candidate_email: Optional[str] = None
+    skip_ai_shortlist: bool = False
 
 
 class ShortlistDecisionUpdate(BaseModel):

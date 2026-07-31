@@ -44,6 +44,7 @@ class ProcessingQueueService:
             .where(
                 Candidate.job_id == job_id,
                 Candidate.pipeline_status == "queued",
+                Candidate.skip_ai_shortlist.is_(False),
             )
             .order_by(Candidate.created_at.asc())
             .limit(slots)

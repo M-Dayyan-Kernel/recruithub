@@ -144,12 +144,17 @@ async def get_interview_pipeline(
         if session.candidate_id not in latest_session_by_candidate:
             latest_session_by_candidate[session.candidate_id] = session
 
-    eligible_candidate_ids = [
-        candidate_id
-        for candidate_id, pass_call in latest_pass_by_candidate.items()
-        if pass_call.interview_queued_at is not None
-        or candidate_id in latest_session_by_candidate
-    ]
+    eligible_candidate_ids = list(
+        dict.fromkeys(
+            list(latest_session_by_candidate.keys())
+            + [
+                candidate_id
+                for candidate_id, pass_call in latest_pass_by_candidate.items()
+                if pass_call.interview_queued_at is not None
+                or candidate_id in latest_session_by_candidate
+            ]
+        )
+    )
     if not eligible_candidate_ids:
         empty_counts = InterviewPipelineCounts(
             pending=0, scheduled=0, ongoing=0, completed=0, flagged=0, finalists=0

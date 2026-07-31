@@ -106,6 +106,7 @@ export interface ShortlistResult {
 export interface ShortlistResultWithCandidate extends ShortlistResult {
   candidate_name?: string | null
   candidate_email?: string | null
+  skip_ai_shortlist?: boolean
 }
 
 export interface ShortlistDecisionResponse extends ShortlistResult {
@@ -316,6 +317,7 @@ export interface Candidate {
   original_filename?: string | null
   parsed_data?: ParsedData | null
   pipeline_status: 'queued' | 'processing' | 'completed' | 'failed'
+  skip_ai_shortlist?: boolean
   created_at: string
 }
 

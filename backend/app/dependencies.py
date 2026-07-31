@@ -73,13 +73,18 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         now = datetime.now(timezone.utc)
+        # Tenant-scoped keys authenticate as org admins (their data is scoped to
+        # the key's tenant via actor.tenant_id); legacy global keys stay superadmin.
+        # id=None keeps nullable FKs (api_keys.created_by_user_id, audit_logs.actor_user_id)
+        # valid — a fabricated UUID would violate them.
+        is_tenant_scoped = api_key.tenant_id is not None
         return User(
-            id=uuid.uuid4(),
-            tenant_id=uuid.uuid4(),
+            id=None,
+            tenant_id=api_key.tenant_id,
             email=api_key.name,
             full_name=api_key.name,
             hashed_password="",
-            role="superadmin",
+            role="admin" if is_tenant_scoped else "superadmin",
             is_active=True,
             created_at=now,
             updated_at=now,

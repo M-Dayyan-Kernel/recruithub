@@ -122,6 +122,7 @@ class CombinedShortlistService:
         stmt = select(Candidate).where(
             Candidate.job_id == job_id,
             Candidate.pipeline_status == "completed",
+            Candidate.skip_ai_shortlist.is_(False),
         )
         if candidate_ids:
             stmt = stmt.where(Candidate.id.in_(candidate_ids))

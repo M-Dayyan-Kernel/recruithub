@@ -596,7 +596,7 @@ export function ShortlistTab({
   const [search, setSearch] = useState('')
   const [recommendationFilter, setRecommendationFilter] = useState<RecommendationFilter>('all')
 
-  const { data: results, isLoading, isFetching, isError, refetch } = useQuery<
+  const { data: rawResults, isLoading, isFetching, isError, refetch } = useQuery<
     ShortlistResultWithCandidate[]
   >({
     queryKey: ['shortlist', jobId],
@@ -612,6 +612,11 @@ export function ShortlistTab({
       return false
     },
   })
+
+  const results = useMemo(
+    () => (rawResults ?? []).filter((r) => !r.skip_ai_shortlist),
+    [rawResults],
+  )
 
   const { data: settings } = useQuery<SystemSettings>({
     queryKey: ['settings'],

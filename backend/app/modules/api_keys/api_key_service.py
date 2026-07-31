@@ -12,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import NotFoundError
 from app.models.api_key import ApiKey
-from app.modules.api_keys.api_key_schema import CreateApiKeyRequest, UpdateApiKeyRequest
+from app.models.models import Tenant
+from app.modules.api_keys.api_key_schema import CreateApiKeyRequest, IssueApiKeyRequest, UpdateApiKeyRequest
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ class ApiKeyService:
             return None
         api_key.last_used_at = datetime.now(timezone.utc)
         await db.flush()
+        await db.commit()
         return api_key
 
     async def create(
@@ -55,6 +57,7 @@ class ApiKeyService:
         body: CreateApiKeyRequest,
         *,
         created_by_user_id: Optional[uuid.UUID] = None,
+        tenant_id: Optional[uuid.UUID] = None,
     ) -> tuple[ApiKey, str]:
         full_key, key_hash, key_prefix = _generate_api_key()
         api_key = ApiKey(
@@ -63,11 +66,28 @@ class ApiKeyService:
             key_hash=key_hash,
             key_prefix=key_prefix,
             created_by_user_id=created_by_user_id,
+            tenant_id=tenant_id,
         )
         self._db.add(api_key)
         await self._db.flush()
+        await self._db.commit()
         await self._db.refresh(api_key)
         return api_key, full_key
+
+    async def issue(
+        self,
+        body: IssueApiKeyRequest,
+        *,
+        created_by_user_id: Optional[uuid.UUID] = None,
+    ) -> tuple[ApiKey, str]:
+        tenant = await self._db.get(Tenant, body.tenant_id)
+        if tenant is None:
+            raise NotFoundError(public_message="Tenant not found")
+        return await self.create(
+            CreateApiKeyRequest(name=body.name, description=body.description),
+            created_by_user_id=created_by_user_id,
+            tenant_id=body.tenant_id,
+        )
 
     async def list(self) -> list[ApiKey]:
         result = await self._db.execute(
@@ -90,6 +110,7 @@ class ApiKeyService:
         if body.description is not None:
             api_key.description = body.description
         await self._db.flush()
+        await self._db.commit()
         await self._db.refresh(api_key)
         return api_key
 
@@ -97,6 +118,7 @@ class ApiKeyService:
         api_key = await self.get_by_id(api_key_id)
         api_key.is_active = False
         await self._db.flush()
+        await self._db.commit()
 
     async def rotate(self, api_key_id: uuid.UUID) -> tuple[ApiKey, str]:
         api_key = await self.get_by_id(api_key_id)
@@ -105,5 +127,6 @@ class ApiKeyService:
         api_key.key_prefix = key_prefix
         api_key.last_used_at = None
         await self._db.flush()
+        await self._db.commit()
         await self._db.refresh(api_key)
         return api_key, full_key
