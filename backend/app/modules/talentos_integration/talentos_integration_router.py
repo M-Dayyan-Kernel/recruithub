@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.dependencies import RequireSuperAdmin
+from app.dependencies import RequireSuperAdmin, require_roles
 from app.exceptions import DomainError
 from app.modules.talentos_integration.talentos_integration_schema import (
     TalentosCandidateCreate,
@@ -18,6 +18,8 @@ from app.modules.talentos_integration.talentos_integration_schema import (
     TalentosJobResponse,
     TalentosScreeningResultResponse,
     TalentosScreeningTriggerResponse,
+    TalentosWithScreeningPayload,
+    TalentosWithScreeningResponse,
 )
 from app.modules.talentos_integration.talentos_integration_service import (
     TalentosIntegrationService,
@@ -26,7 +28,7 @@ from app.modules.talentos_integration.talentos_integration_service import (
 router = APIRouter(
     prefix="/internal/talentos",
     tags=["talentos-integration"],
-    dependencies=[Depends(RequireSuperAdmin)],
+    dependencies=[Depends(require_roles("superadmin"))],
 )
 
 
@@ -63,6 +65,28 @@ async def create_candidate(
     try:
         candidate = await service.create_candidate(actor, job_id, payload)
         return TalentosCandidateResponse.model_validate(candidate)
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
+@router.post("/jobs/{job_id}/candidates/with-screening", response_model=TalentosWithScreeningResponse, status_code=status.HTTP_201_CREATED)
+async def create_candidate_with_screening(
+    job_id: uuid.UUID,
+    payload: TalentosWithScreeningPayload,
+    actor: RequireSuperAdmin,
+    service: TalentosIntegrationService = Depends(_get_service),
+):
+    try:
+        if payload.external_job_id:
+            job = await service.resolve_or_create_job(payload.external_job_id)
+            job_id = job.id
+        candidate, initiated, queued, skipped = await service.create_candidate_with_screening(actor, job_id, payload)
+        return TalentosWithScreeningResponse(
+            candidate=TalentosCandidateResponse.model_validate(candidate),
+            screening_initiated=initiated > 0,
+            screening_queued=queued > 0,
+            screening_skipped=skipped or None,
+        )
     except DomainError as exc:
         _raise_domain(exc)
 

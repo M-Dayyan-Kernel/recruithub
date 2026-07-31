@@ -107,6 +107,7 @@ class Job(Base):
     screening_call_from: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     screening_call_to: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     screening_timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Kolkata", server_default="Asia/Kolkata")
+    external_job_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     voice_screening_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
@@ -132,6 +133,7 @@ class Candidate(Base):
     phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     resume_file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     original_filename: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Original upload filename — used for dedup check
+    external_candidate_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # External system reference ID
     parsed_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     pipeline_status: Mapped[str] = mapped_column(String(50), nullable=False, default="queued")
     processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

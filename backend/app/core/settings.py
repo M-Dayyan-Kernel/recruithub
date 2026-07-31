@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     SENTRY_DSN: str = ""
     INTERNAL_HEALTH_API_KEY: str = ""
 
+    # talentOS Backend API
+    TALENTOS_BE_URL: str = ""
+    TALENTOS_BE_API_KEY: str = ""
+
     # Auth rate limits (per IP per window)
     AUTH_RATE_LIMIT_PER_MINUTE: int = 20
     AUTH_LOCKOUT_MAX_FAILURES: int = 10

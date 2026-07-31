@@ -14,6 +14,7 @@ class TalentosJobCreate(BaseModel):
     location: Optional[str] = None
     department: Optional[str] = None
     employment_type: Optional[str] = None
+    external_job_id: Optional[str] = None
 
 
 class TalentosJobResponse(BaseModel):
@@ -31,6 +32,7 @@ class TalentosCandidateCreate(BaseModel):
     name: str
     email: str
     phone: Optional[str] = None
+    external_candidate_id: Optional[str] = None
 
 
 class TalentosCandidateResponse(BaseModel):
@@ -41,8 +43,25 @@ class TalentosCandidateResponse(BaseModel):
     name: str
     email: str
     phone: Optional[str] = None
+    external_candidate_id: Optional[str] = None
     pipeline_status: str
     created_at: datetime
+
+
+class TalentosWithScreeningPayload(BaseModel):
+    name: str
+    email: str
+    phone: Optional[str] = None
+    external_candidate_id: Optional[str] = None
+    external_job_id: Optional[str] = None
+    force: bool = False
+
+
+class TalentosWithScreeningResponse(BaseModel):
+    candidate: TalentosCandidateResponse
+    screening_initiated: bool
+    screening_queued: bool
+    screening_skipped: Optional[list[dict]] = None
 
 
 class TalentosScreeningTriggerResponse(BaseModel):

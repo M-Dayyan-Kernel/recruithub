@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.dependencies import RequireSuperAdmin
+from app.dependencies import RequireSuperAdmin, require_roles
 from app.exceptions import DomainError
 from app.modules.api_keys.api_key_schema import (
     ApiKeyCreatedResponse,
@@ -18,7 +18,7 @@ from app.modules.api_keys.api_key_schema import (
 from app.modules.api_keys.api_key_service import ApiKeyService
 from app.models.models import User
 
-router = APIRouter(dependencies=[Depends(RequireSuperAdmin)])
+router = APIRouter(dependencies=[Depends(require_roles("superadmin"))])
 
 
 def _get_service(db: AsyncSession = Depends(get_db)) -> ApiKeyService:

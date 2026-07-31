@@ -324,6 +324,7 @@ class CandidateResponse(BaseModel):
     email: str
     phone: Optional[str] = None
     original_filename: Optional[str] = None
+    external_candidate_id: Optional[str] = None
     pipeline_status: str
     created_at: datetime
 
