@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -17,6 +17,8 @@ from app.modules.talentos_integration.talentos_integration_schema import (
     TalentosInterviewResponse,
     TalentosInterviewTriggerResponse,
     TalentosJobCreate,
+    TalentosJobQuestionsResponse,
+    TalentosJobQuestionsUpdate,
     TalentosJobResponse,
     TalentosScreeningResultResponse,
     TalentosScreeningTriggerResponse,
@@ -207,5 +209,34 @@ async def get_interview_detail(
         if data is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
         return TalentosInterviewDetailResponse(**data)
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
+@router.get("/jobs/{job_id}/questions", response_model=TalentosJobQuestionsResponse)
+async def get_job_questions(
+    job_id: uuid.UUID,
+    actor: RequireAdmin,
+    service: TalentosIntegrationService = Depends(_get_service),
+    external_job_id: str | None = Query(None, description="Resolve job by talentOS external_job_id first"),
+):
+    try:
+        data = await service.get_job_questions(actor, job_id, external_job_id)
+        return TalentosJobQuestionsResponse(**data)
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
+@router.put("/jobs/{job_id}/questions", response_model=TalentosJobQuestionsResponse)
+async def update_job_questions(
+    job_id: uuid.UUID,
+    payload: TalentosJobQuestionsUpdate,
+    actor: RequireAdmin,
+    service: TalentosIntegrationService = Depends(_get_service),
+    external_job_id: str | None = Query(None, description="Resolve or create job by talentOS external_job_id first"),
+):
+    try:
+        data = await service.update_job_questions(actor, job_id, payload, external_job_id)
+        return TalentosJobQuestionsResponse(**data)
     except DomainError as exc:
         _raise_domain(exc)

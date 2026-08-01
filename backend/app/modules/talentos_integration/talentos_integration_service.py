@@ -13,6 +13,7 @@ from app.exceptions import NotFoundError, ConflictError
 from app.models.models import Candidate, InterviewSession, Job, ScreeningCall, ShortlistResult, Tenant, User
 from app.modules.talentos_integration.talentos_be_client import TalentosBEClient
 from app.repositories.job_repository import JobRepository
+from app.services.screening_defaults import get_default_screening_questions
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ class TalentosIntegrationService:
             title=data.get("title") or "Untitled",
             description=description,
             required_skills=data.get("requirements"),
+            screening_questions=get_default_screening_questions(data.get("title") or ""),
             external_job_id=external_job_id,
             tenant_id=tenant_id,
             status="active",
@@ -120,6 +122,7 @@ class TalentosIntegrationService:
             title=payload.title,
             description=description,
             required_skills=payload.required_skills,
+            screening_questions=get_default_screening_questions(payload.title),
             external_job_id=payload.external_job_id,
             tenant_id=tenant_id,
             status="active",
@@ -363,3 +366,55 @@ class TalentosIntegrationService:
                 "final_recommendation": report.final_recommendation,
             })
         return data
+
+    async def _find_job(
+        self, actor: User, job_id: uuid.UUID, external_job_id: str | None
+    ) -> Job | None:
+        tenant_id = await self._effective_tenant_id(actor)
+        if external_job_id:
+            result = await self._session.execute(
+                select(Job).where(
+                    Job.external_job_id == external_job_id,
+                    Job.tenant_id == tenant_id,
+                ).limit(1)
+            )
+            job = result.scalar_one_or_none()
+            if job is not None:
+                return job
+        try:
+            return await self._require_tenant_job(job_id, tenant_id)
+        except NotFoundError:
+            return None
+
+    async def get_job_questions(
+        self, actor: User, job_id: uuid.UUID, external_job_id: str | None = None
+    ) -> dict:
+        job = await self._find_job(actor, job_id, external_job_id)
+        if job is None:
+            raise NotFoundError(public_message="Job not found")
+        return {
+            "job_id": job.id,
+            "screening_questions": job.screening_questions or [],
+            "interview_questions": job.interview_questions or [],
+        }
+
+    async def update_job_questions(
+        self, actor: User, job_id: uuid.UUID, payload, external_job_id: str | None = None
+    ) -> dict:
+        job = await self._find_job(actor, job_id, external_job_id)
+        if job is None:
+            if external_job_id is None:
+                raise NotFoundError(public_message="Job not found")
+            job = await self.resolve_or_create_job(actor, external_job_id)
+        updates = payload.model_dump(exclude_unset=True)
+        if "screening_questions" in updates:
+            job.screening_questions = updates["screening_questions"]
+        if "interview_questions" in updates:
+            job.interview_questions = updates["interview_questions"]
+        await self._session.commit()
+        await self._session.refresh(job)
+        return {
+            "job_id": job.id,
+            "screening_questions": job.screening_questions or [],
+            "interview_questions": job.interview_questions or [],
+        }

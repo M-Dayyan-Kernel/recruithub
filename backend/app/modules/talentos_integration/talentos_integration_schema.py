@@ -140,3 +140,14 @@ class TalentosInterviewDetailResponse(TalentosInterviewResponse):
 class TalentosInterviewTriggerResponse(BaseModel):
     interview_session_id: uuid.UUID
     status: str = "created"
+
+
+class TalentosJobQuestionsResponse(BaseModel):
+    job_id: Optional[uuid.UUID] = None
+    screening_questions: List[dict] = []
+    interview_questions: List[dict] = []
+
+
+class TalentosJobQuestionsUpdate(BaseModel):
+    screening_questions: Optional[List[dict]] = None
+    interview_questions: Optional[List[dict]] = None
