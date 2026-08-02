@@ -418,3 +418,40 @@ class TalentosIntegrationService:
             "screening_questions": job.screening_questions or [],
             "interview_questions": job.interview_questions or [],
         }
+
+    async def get_call_window(
+        self, actor: User, job_id: uuid.UUID, external_job_id: str | None = None
+    ) -> dict:
+        job = await self._find_job(actor, job_id, external_job_id)
+        if job is None:
+            raise NotFoundError(public_message="Job not found")
+        return {
+            "job_id": job.id,
+            "screening_call_from": job.screening_call_from,
+            "screening_call_to": job.screening_call_to,
+            "screening_timezone": job.screening_timezone or "Asia/Kolkata",
+        }
+
+    async def update_call_window(
+        self, actor: User, job_id: uuid.UUID, payload, external_job_id: str | None = None
+    ) -> dict:
+        job = await self._find_job(actor, job_id, external_job_id)
+        if job is None:
+            if external_job_id is None:
+                raise NotFoundError(public_message="Job not found")
+            job = await self.resolve_or_create_job(actor, external_job_id)
+        updates = payload.model_dump(exclude_unset=True)
+        if "screening_call_from" in updates:
+            job.screening_call_from = updates["screening_call_from"]
+        if "screening_call_to" in updates:
+            job.screening_call_to = updates["screening_call_to"]
+        if "screening_timezone" in updates:
+            job.screening_timezone = updates["screening_timezone"]
+        await self._session.commit()
+        await self._session.refresh(job)
+        return {
+            "job_id": job.id,
+            "screening_call_from": job.screening_call_from,
+            "screening_call_to": job.screening_call_to,
+            "screening_timezone": job.screening_timezone or "Asia/Kolkata",
+        }

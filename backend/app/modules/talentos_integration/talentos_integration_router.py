@@ -11,6 +11,8 @@ from app.core.settings import settings
 from app.dependencies import RequireAdmin, require_roles
 from app.exceptions import DomainError
 from app.modules.talentos_integration.talentos_integration_schema import (
+    TalentosCallWindowResponse,
+    TalentosCallWindowUpdate,
     TalentosCandidateCreate,
     TalentosCandidateResponse,
     TalentosInterviewDetailResponse,
@@ -238,5 +240,34 @@ async def update_job_questions(
     try:
         data = await service.update_job_questions(actor, job_id, payload, external_job_id)
         return TalentosJobQuestionsResponse(**data)
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
+@router.get("/jobs/{job_id}/call-window", response_model=TalentosCallWindowResponse)
+async def get_call_window(
+    job_id: uuid.UUID,
+    actor: RequireAdmin,
+    service: TalentosIntegrationService = Depends(_get_service),
+    external_job_id: str | None = Query(None, description="Resolve job by talentOS external_job_id first"),
+):
+    try:
+        data = await service.get_call_window(actor, job_id, external_job_id)
+        return TalentosCallWindowResponse(**data)
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
+@router.put("/jobs/{job_id}/call-window", response_model=TalentosCallWindowResponse)
+async def update_call_window(
+    job_id: uuid.UUID,
+    payload: TalentosCallWindowUpdate,
+    actor: RequireAdmin,
+    service: TalentosIntegrationService = Depends(_get_service),
+    external_job_id: str | None = Query(None, description="Resolve or create job by talentOS external_job_id first"),
+):
+    try:
+        data = await service.update_call_window(actor, job_id, payload, external_job_id)
+        return TalentosCallWindowResponse(**data)
     except DomainError as exc:
         _raise_domain(exc)

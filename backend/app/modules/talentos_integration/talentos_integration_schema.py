@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, time
 from typing import Optional, List
+from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class TalentosJobCreate(BaseModel):
@@ -151,3 +152,27 @@ class TalentosJobQuestionsResponse(BaseModel):
 class TalentosJobQuestionsUpdate(BaseModel):
     screening_questions: Optional[List[dict]] = None
     interview_questions: Optional[List[dict]] = None
+
+
+class TalentosCallWindowResponse(BaseModel):
+    job_id: Optional[uuid.UUID] = None
+    screening_call_from: Optional[time] = None
+    screening_call_to: Optional[time] = None
+    screening_timezone: str = "Asia/Kolkata"
+
+
+class TalentosCallWindowUpdate(BaseModel):
+    screening_call_from: Optional[time] = None
+    screening_call_to: Optional[time] = None
+    screening_timezone: Optional[str] = None
+
+    @field_validator("screening_timezone")
+    @classmethod
+    def _validate_timezone(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        try:
+            ZoneInfo(value)
+        except Exception as exc:
+            raise ValueError(f"Invalid timezone: {value}") from exc
+        return value
