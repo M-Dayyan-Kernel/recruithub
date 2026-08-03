@@ -296,9 +296,14 @@ export function JobPipelineDashboard({ job }: Props) {
     return (
       <section aria-label="Hiring pipeline">
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 bg-slate-50/80 px-6 py-5">
-            <div className="h-5 w-36 animate-pulse rounded bg-slate-200" />
-            <div className="mt-2 h-4 w-56 animate-pulse rounded bg-slate-100" />
+          <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 px-5 py-4 sm:px-6">
+            <div className="space-y-4">
+              <div>
+                <div className="h-5 w-36 animate-pulse rounded bg-slate-200" />
+                <div className="mt-2 h-4 w-56 animate-pulse rounded bg-slate-100" />
+              </div>
+              <div className="h-[72px] animate-pulse rounded-xl border border-slate-100 bg-white/60" />
+            </div>
           </div>
           <div className="p-6">
             <div className="mb-6 h-2.5 animate-pulse rounded-full bg-slate-100" />
@@ -317,18 +322,18 @@ export function JobPipelineDashboard({ job }: Props) {
     <section aria-label="Hiring pipeline">
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 px-5 py-4 sm:px-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-4">
             <div className="min-w-0">
               <h2 className="text-lg font-semibold text-slate-900">Hiring pipeline</h2>
               <p className="mt-0.5 text-sm text-slate-500">
                 {totalInPipeline > 0
                   ? `${totalInPipeline} candidate${totalInPipeline === 1 ? '' : 's'} across all stages`
-                  : 'Candidates will appear here as they move through hiring'}
+                  : 'Upload resumes to start — candidates will appear here as they move through hiring'}
               </p>
             </div>
             <ResumeUploadZone
               jobId={jobId}
-              variant="compact"
+              variant="pipeline"
               disabled={uploadDisabled}
               onUploadSuccess={handleUploadSuccess}
             />

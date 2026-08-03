@@ -75,7 +75,7 @@ test('job overview shows resume upload in hiring pipeline', async ({ page }) => 
   await page.waitForLoadState('networkidle')
 
   const pipeline = page.getByRole('region', { name: 'Hiring pipeline' })
-  await expect(pipeline.getByText('Drag & drop resumes here')).toBeVisible()
+  await expect(pipeline.getByText('Add candidate resumes')).toBeVisible()
 })
 
 test('shortlist toolbar shows AI Shortlisted and Processing only', async ({ page }) => {
