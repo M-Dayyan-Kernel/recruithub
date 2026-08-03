@@ -236,7 +236,7 @@ export function JobPipelineDashboard({ job }: Props) {
         accent: 'bg-violet-500',
         iconBg: 'bg-violet-50',
         barColor: 'bg-violet-400',
-        to: `/jobs/${jobId}/shortlist`,
+        to: `/jobs/${jobId}/shortlist?tab=results`,
       },
     ]
 

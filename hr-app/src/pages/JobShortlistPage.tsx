@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import type { JobOutletContext } from '@/components/JobLayout'
 import { ShortlistTab } from '@/components/ShortlistTab'
@@ -17,6 +17,14 @@ export default function JobShortlistPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = resolveShortlistTab(searchParams.get('tab'))
   const [watchCandidateIds, setWatchCandidateIds] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!searchParams.get('tab')) {
+      const next = new URLSearchParams(searchParams)
+      next.set('tab', shortlistTabParam('AI Shortlisted'))
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
 
   const setActiveTab = (tab: ShortlistTabId) => {
     const next = new URLSearchParams(searchParams)

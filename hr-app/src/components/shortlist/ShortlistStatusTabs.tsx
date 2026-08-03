@@ -2,7 +2,7 @@ import { useSearchParams, useParams } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useJobPipelineCandidates } from '@/hooks/useJobPipelineCandidates'
 
-export const SHORTLIST_TABS = ['AI Shortlisted', 'Processing'] as const
+export const SHORTLIST_TABS = ['Processing', 'AI Shortlisted'] as const
 
 export type ShortlistTabId = (typeof SHORTLIST_TABS)[number]
 
