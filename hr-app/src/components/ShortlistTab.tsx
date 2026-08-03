@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
@@ -574,8 +574,6 @@ interface Props {
   shortlistTriggered: boolean
   /** Called when results arrive — lets parent clear shortlistTriggered */
   onShortlistComplete: () => void
-  /** Called when the user clicks "Go to Candidates tab" in the empty state */
-  onSwitchToCandidates: () => void
   mode?: 'default' | 'aiShortlisted'
   requiredSkills?: string[]
   jobTitle?: string
@@ -586,7 +584,6 @@ export function ShortlistTab({
   jobId,
   shortlistTriggered,
   onShortlistComplete,
-  onSwitchToCandidates,
   mode = 'default',
   requiredSkills = [],
   jobTitle,
@@ -829,15 +826,15 @@ export function ShortlistTab({
           <Users className="w-6 h-6 text-slate-400" />
         </div>
         <p className="text-slate-700 font-semibold mb-1">No shortlist yet</p>
-            <p className="text-slate-400 text-sm max-w-xs mb-5">
-              Upload resumes on the Upload tab to get AI recommendations.
-            </p>
-            <button
-              onClick={onSwitchToCandidates}
-              className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              Go to Upload
-            </button>
+        <p className="text-slate-400 text-sm max-w-xs mb-5">
+          Upload resumes from the job overview to get AI recommendations.
+        </p>
+        <Link
+          to={`/jobs/${jobId}`}
+          className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+        >
+          Go to job overview
+        </Link>
       </div>
     )
   }

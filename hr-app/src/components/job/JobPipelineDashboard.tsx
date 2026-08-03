@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { Link, useNavigate } from 'react-router-dom'
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Users, Phone, Calendar, CheckCircle2, AlertCircle } from 'lucide-react'
 import { api } from '@/lib/api'
 import { fetchJobCandidates } from '@/lib/workflow'
@@ -12,6 +12,8 @@ import type {
   SystemSettings,
 } from '@/types/api'
 import { buildScreeningRows, countByTab } from '@/components/screening/screeningRows'
+import { ResumeUploadZone } from '@/components/ResumeUploadZone'
+import { isArchivedJobStatus } from '@/lib/jobStatus'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -130,7 +132,10 @@ function StageCardSkeleton() {
 
 export function JobPipelineDashboard({ job }: Props) {
   const jobId = job.id
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const screeningEffective = job.voice_screening_enabled !== false
+  const uploadDisabled = isArchivedJobStatus(job.status)
 
   const [shortlistQuery, screeningQuery, candidatesQuery, pipelineQuery] = useQueries({
     queries: [
@@ -208,6 +213,16 @@ export function JobPipelineDashboard({ job }: Props) {
     void screeningQuery.refetch()
     void candidatesQuery.refetch()
     void pipelineQuery.refetch()
+  }
+
+  const handleUploadSuccess = () => {
+    void queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
+    void queryClient.invalidateQueries({ queryKey: ['candidates', jobId, 'pipeline'] })
+    void queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
+    void shortlistQuery.refetch()
+    void candidatesQuery.refetch()
+    void pipelineQuery.refetch()
+    navigate(`/jobs/${jobId}/shortlist?tab=processing`)
   }
 
   const stages: StageConfig[] = useMemo(() => {
@@ -302,13 +317,21 @@ export function JobPipelineDashboard({ job }: Props) {
     <section aria-label="Hiring pipeline">
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 px-5 py-4 sm:px-6">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Hiring pipeline</h2>
-            <p className="mt-0.5 text-sm text-slate-500">
-              {totalInPipeline > 0
-                ? `${totalInPipeline} candidate${totalInPipeline === 1 ? '' : 's'} across all stages`
-                : 'Candidates will appear here as they move through hiring'}
-            </p>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold text-slate-900">Hiring pipeline</h2>
+              <p className="mt-0.5 text-sm text-slate-500">
+                {totalInPipeline > 0
+                  ? `${totalInPipeline} candidate${totalInPipeline === 1 ? '' : 's'} across all stages`
+                  : 'Candidates will appear here as they move through hiring'}
+              </p>
+            </div>
+            <ResumeUploadZone
+              jobId={jobId}
+              variant="compact"
+              disabled={uploadDisabled}
+              onUploadSuccess={handleUploadSuccess}
+            />
           </div>
         </div>
 

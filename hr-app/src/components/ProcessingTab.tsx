@@ -113,7 +113,7 @@ export function ProcessingTab({
             </div>
           ) : displayList.length === 0 ? (
             <div className="px-6 py-16 text-center text-sm text-slate-400">
-              No resumes are being reviewed right now. Upload resumes to start AI scoring.
+              No resumes are being reviewed right now. Upload resumes from the job overview to start AI scoring.
             </div>
           ) : (
             <ul className="divide-y divide-slate-200">

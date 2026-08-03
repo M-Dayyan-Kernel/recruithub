@@ -536,6 +536,32 @@ export async function mockGetCandidates(
   })
 }
 
+/** Mock POST /api/jobs/:id/resumes */
+export async function mockPostResumes(
+  page: Page,
+  jobId: string,
+  response: {
+    created?: number
+    candidate_ids?: string[]
+  } = {},
+) {
+  await page.route(`**/api/jobs/${jobId}/resumes`, (route: Route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        created: response.created ?? 1,
+        skipped: 0,
+        skipped_files: [],
+        candidate_ids: response.candidate_ids ?? [CANDIDATE_IDS.charlie],
+        extracted_from_zip: 0,
+        skipped_oversized: [],
+      }),
+    })
+  })
+}
+
 /** Mock POST /api/jobs/:id/shortlist */
 export async function mockPostShortlist(
   page: Page,
