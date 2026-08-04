@@ -30,6 +30,7 @@ from app.services.authentication_context_service import AuthenticationContextSer
 from app.services.platform_tenant_service import PlatformTenantService
 from app.services.system_settings_service import SystemSettingsService
 from app.services.candidate_service import CandidateService
+from app.services.candidate_directory_service import CandidateDirectoryService
 from app.services.job_description_parse_service import JobDescriptionParseService
 from app.services.job_service import JobService
 from app.services.resume_upload_service import ResumeUploadService
@@ -125,6 +126,12 @@ def get_resume_upload_service(db: AsyncSession = Depends(get_db)) -> ResumeUploa
 
 def get_candidate_service(db: AsyncSession = Depends(get_db)) -> CandidateService:
     return CandidateService(db)
+
+
+def get_candidate_directory_service(
+    db: AsyncSession = Depends(get_db),
+) -> CandidateDirectoryService:
+    return CandidateDirectoryService(db)
 
 
 def get_shortlist_trigger_service(

@@ -9,6 +9,8 @@ import JobShortlistPage from '@/pages/JobShortlistPage'
 import JobScreeningPage from '@/pages/JobScreeningPage'
 import JobInterviewsPage from '@/pages/JobInterviewsPage'
 import JobFinalistsPage from '@/pages/JobFinalistsPage'
+import CandidatesPage from '@/pages/CandidatesPage'
+import CandidateProfilePage from '@/pages/CandidateProfilePage'
 import ArchivedJobsPage from '@/pages/ArchivedJobsPage'
 import SettingsPage from '@/pages/SettingsPage'
 import UsersPage from '@/pages/UsersPage'
@@ -62,6 +64,9 @@ export default function App() {
               path="jobs/:jobId/shortlist/:shortlistId"
               element={<ShortlistReportPage />}
             />
+
+            <Route path="candidates" element={<CandidatesPage />} />
+            <Route path="candidates/:candidateId" element={<CandidateProfilePage />} />
 
             <Route element={<AdminRoute />}>
               <Route path="activity" element={<ActivityPage />} />

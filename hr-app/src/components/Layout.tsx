@@ -12,6 +12,7 @@ import {
   Users,
   X,
   Zap,
+  Contact,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
@@ -66,6 +67,9 @@ export default function Layout() {
   const pageTitle = (() => {
     if (location.pathname === '/') return 'Dashboard'
     if (location.pathname === '/jobs') return 'Jobs'
+    if (location.pathname === '/candidates' || location.pathname.startsWith('/candidates/')) {
+      return 'Candidates'
+    }
     if (location.pathname === '/jobs/new') return 'Create Job'
     if (location.pathname === '/jobs/archived') return 'Archived jobs'
     if (location.pathname.match(/^\/jobs\/[^/]+\/screening/)) return 'Screening'
@@ -129,6 +133,10 @@ export default function Layout() {
             >
               <Briefcase className="h-4 w-4 shrink-0 opacity-80" />
               Jobs
+            </NavLink>
+            <NavLink to="/candidates" onClick={closeSidebar} className={navLinkClass}>
+              <Contact className="h-4 w-4 shrink-0 opacity-80" />
+              Candidates
             </NavLink>
           </div>
         </nav>

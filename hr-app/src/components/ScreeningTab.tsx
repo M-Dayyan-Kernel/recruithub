@@ -72,6 +72,7 @@ function ScreeningTableRow({
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['candidates'] })
       toast.success(`Calling ${row.candidateName}`)
     },
     onError: (err: Error) => toast.error(err.message || 'Failed to start call'),

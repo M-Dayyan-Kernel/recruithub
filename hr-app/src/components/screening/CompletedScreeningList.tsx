@@ -42,6 +42,7 @@ function CompletedScreeningRow({
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
     queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
+    queryClient.invalidateQueries({ queryKey: ['candidates'] })
   }
 
   const rejectMutation = useMutation({

@@ -1,6 +1,6 @@
 import re
 import uuid
-from datetime import datetime, time
+from datetime import date, datetime, time
 from typing import Literal, Optional, List
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator, model_validator
@@ -308,10 +308,16 @@ class CandidateCreate(BaseModel):
 
 
 class CandidateUpdate(BaseModel):
-    """Partial update for a candidate's mutable contact fields."""
+    """Partial update for a candidate's mutable fields."""
     phone: Optional[str] = None
     name: Optional[str] = None
     email: Optional[str] = None
+    status: Optional[str] = None
+    years_experience: Optional[float] = None
+    current_ctc: Optional[str] = None
+    expected_ctc: Optional[str] = None
+    notice_period: Optional[str] = None
+    last_working_day: Optional[date] = None
 
 
 class CandidateResponse(BaseModel):
@@ -325,6 +331,12 @@ class CandidateResponse(BaseModel):
     phone: Optional[str] = None
     original_filename: Optional[str] = None
     pipeline_status: str
+    status: str = "active"
+    years_experience: Optional[float] = None
+    current_ctc: Optional[str] = None
+    expected_ctc: Optional[str] = None
+    notice_period: Optional[str] = None
+    last_working_day: Optional[date] = None
     created_at: datetime
 
 
@@ -332,6 +344,36 @@ class CandidateDetailResponse(CandidateResponse):
     """Full candidate detail including parsed resume data (HR/admin only)."""
     resume_file_path: Optional[str] = None
     parsed_data: Optional[dict] = None
+
+
+class CandidateListItem(BaseModel):
+    """Tenant-wide candidate directory list row."""
+    id: uuid.UUID
+    job_id: uuid.UUID
+    job_title: str
+    name: str
+    email: str
+    phone: Optional[str] = None
+    years_experience: Optional[float] = None
+    current_ctc: Optional[str] = None
+    expected_ctc: Optional[str] = None
+    notice_period: Optional[str] = None
+    last_working_day: Optional[date] = None
+    hiring_stage: str
+    match_score: Optional[float] = None
+    status: str
+    date_applied: datetime
+    pipeline_status: str
+
+
+class CandidateProfileResponse(CandidateListItem):
+    """Full candidate profile for the directory module."""
+    parsed_data: Optional[dict] = None
+    resume_file_path: Optional[str] = None
+    shortlist: Optional["ShortlistResultResponse"] = None
+    screening: Optional["ScreeningCallResponse"] = None
+    interview_sessions: List["InterviewSessionResponse"] = []
+    timeline: List["AuditLogResponse"] = []
 
 
 class ResumeUploadResponse(BaseModel):

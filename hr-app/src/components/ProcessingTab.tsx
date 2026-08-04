@@ -66,6 +66,7 @@ export function ProcessingTab({
       api.post(`/api/jobs/${jobId}/candidates/${candidateId}/retry-processing`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['candidates'] })
       toast.success('Re-queued for AI review')
     },
     onError: () => toast.error('Failed to retry'),

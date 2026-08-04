@@ -300,6 +300,7 @@ function ShortlistCard({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
       queryClient.invalidateQueries({ queryKey: ['candidates', jobId, 'pipeline'] })
+      queryClient.invalidateQueries({ queryKey: ['candidates'] })
       toast.success('Resume removed')
     },
     onError: () => toast.error('Failed to remove resume'),
@@ -694,6 +695,7 @@ export function ShortlistTab({
       toast.error('Failed to approve all. Please try again.')
     } finally {
       queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['candidates'] })
       setApprovingAll(false)
     }
   }
@@ -721,6 +723,7 @@ export function ShortlistTab({
       toast.error('Failed to reject all. Please try again.')
     } finally {
       queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['candidates'] })
       setRejectingAll(false)
     }
   }

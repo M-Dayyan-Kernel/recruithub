@@ -38,6 +38,7 @@ export function useShortlistDecision(jobId: string, shortlistId: string, options
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['candidates'] })
     },
   })
 }

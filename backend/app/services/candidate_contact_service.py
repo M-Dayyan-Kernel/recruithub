@@ -1,6 +1,8 @@
-"""Resolve candidate contact fields from parsed resume data or stored columns."""
+"""Resolve and normalize candidate contact fields."""
 
 from __future__ import annotations
+
+import re
 
 from app.models.models import Candidate
 
@@ -20,3 +22,21 @@ def resolve_candidate_name(candidate: Candidate | None) -> str:
         return "Candidate"
     parsed = candidate.parsed_data or {}
     return str(parsed.get("name") or candidate.name or "Candidate")
+
+
+def normalize_email(email: str | None) -> str | None:
+    if not email:
+        return None
+    value = email.strip().lower()
+    if not value or value.endswith("@upload.pending"):
+        return None
+    return value
+
+
+def normalize_phone(phone: str | None) -> str | None:
+    if not phone:
+        return None
+    digits = re.sub(r"\D", "", phone)
+    if len(digits) < 7:
+        return None
+    return digits

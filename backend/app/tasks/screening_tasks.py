@@ -1069,7 +1069,7 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
     """Async inner: parse payload, classify outcome, run GPT-4o extraction, update DB."""
     import openai
 
-    from app.models.models import ScreeningCall, Job
+    from app.models.models import ScreeningCall, Job, Candidate
     from app.services.tenant_integrations_service import load_tenant_integrations
 
     _, transcript, ended_reason = _extract_vapi_end_fields(payload)
@@ -1158,6 +1158,17 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
                 job_id=screening_call.job_id,
                 except_call_id=screening_call.id,
             )
+
+            candidate_result = await session.execute(
+                select(Candidate).where(Candidate.id == screening_call.candidate_id)
+            )
+            candidate = candidate_result.scalar_one_or_none()
+            if candidate is not None:
+                from app.services.candidate_field_sync import (
+                    prefill_candidate_compensation_from_screening,
+                )
+
+                prefill_candidate_compensation_from_screening(candidate, screening_call)
 
             await session.commit()
             logger.info(

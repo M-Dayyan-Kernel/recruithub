@@ -66,6 +66,7 @@ export function ResumeUploadZone({
         candidate_ids?: string[]
       }
       queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['candidates'] })
       if (result.created > 0) {
         toast.success(
           `${result.created} resume${result.created !== 1 ? 's' : ''} queued for AI review`,
