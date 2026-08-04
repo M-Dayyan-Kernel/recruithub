@@ -215,14 +215,16 @@ export function JobPipelineDashboard({ job }: Props) {
     void pipelineQuery.refetch()
   }
 
-  const handleUploadSuccess = () => {
+  const handleUploadSuccess = (createdIds: string[] = []) => {
     void queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
     void queryClient.invalidateQueries({ queryKey: ['candidates', jobId, 'pipeline'] })
     void queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
     void shortlistQuery.refetch()
     void candidatesQuery.refetch()
     void pipelineQuery.refetch()
-    navigate(`/jobs/${jobId}/shortlist?tab=processing`)
+    const qs = new URLSearchParams({ tab: 'processing' })
+    if (createdIds.length > 0) qs.set('watch', createdIds.join(','))
+    navigate(`/jobs/${jobId}/shortlist?${qs.toString()}`)
   }
 
   const stages: StageConfig[] = useMemo(() => {

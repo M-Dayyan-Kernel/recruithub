@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import type { JobOutletContext } from '@/components/JobLayout'
 import { ShortlistTab } from '@/components/ShortlistTab'
@@ -16,7 +16,14 @@ export default function JobShortlistPage() {
   const { job, jobId } = useOutletContext<JobOutletContext>()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = resolveShortlistTab(searchParams.get('tab'))
-  const [watchCandidateIds, setWatchCandidateIds] = useState<string[]>([])
+
+  const watchCandidateIds = useMemo(() => {
+    const raw = searchParams.get('watch') ?? ''
+    return raw
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean)
+  }, [searchParams])
 
   useEffect(() => {
     if (!searchParams.get('tab')) {
@@ -26,23 +33,19 @@ export default function JobShortlistPage() {
     }
   }, [searchParams, setSearchParams])
 
-  const setActiveTab = (tab: ShortlistTabId) => {
+  const setActiveTab = (tab: ShortlistTabId, clearWatch = false) => {
     const next = new URLSearchParams(searchParams)
     next.set('tab', shortlistTabParam(tab))
+    if (clearWatch) next.delete('watch')
     setSearchParams(next, { replace: true })
   }
 
   const pipeline = useJobPipelineCandidates(jobId, { watchCandidateIds })
 
   const handleProcessingComplete = () => {
-    setWatchCandidateIds([])
-    setActiveTab('AI Shortlisted')
+    pipeline.clearProgressBatch()
+    setActiveTab('AI Shortlisted', true)
   }
-
-  const watchedCandidates =
-    watchCandidateIds.length > 0
-      ? pipeline.candidates.filter((c) => watchCandidateIds.includes(c.id))
-      : pipeline.processingCandidates.concat(pipeline.failedCandidates)
 
   return (
     <>
@@ -61,7 +64,7 @@ export default function JobShortlistPage() {
       ) : (
         <ProcessingTab
           jobId={jobId}
-          candidates={watchedCandidates}
+          candidates={pipeline.watchedCandidates}
           watchedTotal={pipeline.watchedTotal}
           watchedDone={pipeline.watchedDone}
           isLoading={pipeline.isLoading}

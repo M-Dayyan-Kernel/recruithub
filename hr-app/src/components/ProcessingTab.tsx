@@ -90,8 +90,9 @@ export function ProcessingTab({
         <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-2 flex items-center justify-between text-sm">
             <span className="font-medium text-slate-700">
-              Reviewing {Math.min(done + inFlight.length, total)} of {total} resume
-              {total !== 1 ? 's' : ''}…
+              {allSettled
+                ? `Finished ${total} resume${total !== 1 ? 's' : ''}`
+                : `Reviewed ${done} of ${total} resume${total !== 1 ? 's' : ''}…`}
             </span>
             <span className="tabular-nums text-slate-500">{progressPct}%</span>
           </div>
