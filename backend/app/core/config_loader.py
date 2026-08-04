@@ -178,7 +178,6 @@ class ParsingConfig(BaseModel):
 
 class ConcurrencyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    max_parses: int = 10
     max_shortlists: int = 10
     max_resume_processing: int = 10
     max_live_screening_calls: int = 5
@@ -268,9 +267,7 @@ class AssessmentRetryConfig(BaseModel):
 class InterviewConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     max_follow_ups_per_topic: int = 2
-    thin_answer_word_limit: int = 25
     session_link_ttl_days: int = 7
-    invite_ttl_days: int = 7
     schedule_early_grace_sec: int = 120
     public_rate_limit_per_minute: int = 20
     max_concurrent_interviews: int = 25
@@ -325,6 +322,18 @@ class CeleryRetryConfig(BaseModel):
     queues: CeleryQueuesConfig = Field(default_factory=CeleryQueuesConfig)
 
 
+class LoggingConfig(BaseModel):
+    """File handlers always write nested JSON NDJSON; ``format`` controls stdout only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    level: str = "INFO"
+    format: str = "text"  # text | json
+    dir: str = "logs"
+    max_bytes: int = 10_485_760
+    backup_count: int = 5
+
+
 class AppConfig(BaseModel):
     """Typed non-secret configuration loaded from YAML."""
 
@@ -341,6 +350,7 @@ class AppConfig(BaseModel):
     storage: StorageConfig = Field(default_factory=StorageConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     celery: CeleryRetryConfig = Field(default_factory=CeleryRetryConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
 
 # ---------------------------------------------------------------------------
@@ -445,6 +455,10 @@ class RuntimeConfig:
     @property
     def celery(self) -> CeleryRetryConfig:
         return self._app.celery
+
+    @property
+    def logging(self) -> LoggingConfig:
+        return self._app.logging
 
     def celery_queue_concurrency(self, queue: str) -> int:
         """Per-queue worker concurrency; env CELERY_<QUEUE>_CONCURRENCY overrides YAML."""

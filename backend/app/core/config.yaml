@@ -103,7 +103,6 @@ parsing:
   default_question_score: 10
 
 concurrency:
-  max_parses: 30
   max_shortlists: 30
   max_resume_processing: 30
   max_live_screening_calls: 5
@@ -150,9 +149,7 @@ screening:
 
 interview:
   max_follow_ups_per_topic: 2
-  thin_answer_word_limit: 25
   session_link_ttl_days: 7
-  invite_ttl_days: 7
   # Platform-wide cap on simultaneous in_progress AI interviews (shared agent pool).
   max_concurrent_interviews: 25
   # Suggested wait time shown when capacity is full.
@@ -194,3 +191,13 @@ celery:
       concurrency: 8
     interviews:
       concurrency: 2
+
+logging:
+  # DEBUG | INFO | WARNING | ERROR
+  level: INFO
+  # text = human stdout; json = nested JSON on stdout.
+  # Files under dir are always nested JSON NDJSON (events/errors/http).
+  format: text
+  dir: logs
+  max_bytes: 10485760
+  backup_count: 5

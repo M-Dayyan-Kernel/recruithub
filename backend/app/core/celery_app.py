@@ -50,14 +50,27 @@ celery_app.conf.update(
 )
 
 
+def _setup_celery_logging() -> None:
+    setup_logging(
+        config.logging.level,
+        log_format=config.logging.format,
+        log_dir=config.logging.dir,
+        log_max_bytes=config.logging.max_bytes,
+        log_backup_count=config.logging.backup_count,
+        service_name="ai-recruitment-worker",
+        service_env=config.APP_ENV,
+        service_version="1.0.0",
+    )
+
+
 @after_setup_logger.connect
 def _on_celery_setup_logger(**_kwargs):
-    setup_logging(config.LOG_LEVEL)
+    _setup_celery_logging()
 
 
 @after_setup_task_logger.connect
 def _on_celery_setup_task_logger(**_kwargs):
-    setup_logging(config.LOG_LEVEL)
+    _setup_celery_logging()
 
 
 @task_prerun.connect

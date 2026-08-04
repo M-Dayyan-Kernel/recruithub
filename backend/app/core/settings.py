@@ -69,10 +69,6 @@ class Settings(BaseSettings):
     SEED_SUPERADMIN_PASSWORD: str = ""
     SEED_SUPERADMIN_NAME: str = "Super Admin"
 
-    # Logging — DEBUG | INFO | WARNING | ERROR; LOG_FORMAT=text|json
-    LOG_LEVEL: str = "INFO"
-    LOG_FORMAT: str = "text"
-
     # Optional observability
     SENTRY_DSN: str = ""
     INTERNAL_HEALTH_API_KEY: str = ""
