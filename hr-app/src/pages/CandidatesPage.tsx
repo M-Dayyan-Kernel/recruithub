@@ -16,7 +16,7 @@ export default function CandidatesPage() {
   const jobId = searchParams.get('job_id') ?? ''
   const stageParam = searchParams.get('stage') ?? ''
   const stage = (
-    ['pipeline', 'ai_shortlisted', 'screening', 'interview', 'finalists'] as const
+    ['ai_shortlisted', 'screening', 'interview', 'finalists'] as const
   ).includes(stageParam as CandidateStageFilter)
     ? (stageParam as CandidateStageFilter)
     : ''

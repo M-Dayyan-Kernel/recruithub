@@ -15,7 +15,6 @@ export interface CandidatesListParams {
 }
 
 export type CandidateStageFilter =
-  | 'pipeline'
   | 'ai_shortlisted'
   | 'screening'
   | 'interview'
@@ -26,7 +25,6 @@ export const CANDIDATE_STAGE_FILTERS: Array<{
   label: string
 }> = [
   { value: '', label: 'All stages' },
-  { value: 'pipeline', label: 'Pipeline' },
   { value: 'ai_shortlisted', label: 'AI Shortlisted' },
   { value: 'screening', label: 'Screening' },
   { value: 'interview', label: 'Interview' },

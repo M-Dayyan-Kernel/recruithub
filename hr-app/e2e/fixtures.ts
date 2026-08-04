@@ -554,7 +554,6 @@ export async function mockGetCandidateDirectory(
     const stage = url.searchParams.get('stage')
     const q = (url.searchParams.get('q') ?? '').toLowerCase()
     const stageLabels: Record<string, string> = {
-      pipeline: 'Processing',
       ai_shortlisted: 'AI Shortlisted',
       screening: 'Screening',
       interview: 'Interview',

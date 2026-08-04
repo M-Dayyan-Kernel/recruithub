@@ -53,12 +53,12 @@ test('stage filter narrows candidate list', async ({ page }) => {
   await page.waitForLoadState('networkidle')
 
   await page.locator('select[aria-label="Filter by stage"]').selectOption({
-    label: 'Pipeline',
+    label: 'Interview',
   })
 
-  await expect(page.getByText('Bob Martinez')).toBeVisible()
-  await expect(page.getByText('Diana Chen')).toBeVisible()
-  await expect(page.getByText('Alice Sharma')).not.toBeVisible()
+  await expect(page.getByText('Alice Sharma')).toBeVisible()
+  await expect(page.getByText('Bob Martinez')).not.toBeVisible()
+  await expect(page.getByText('Diana Chen')).not.toBeVisible()
 })
 
 test('search filters candidates by name', async ({ page }) => {

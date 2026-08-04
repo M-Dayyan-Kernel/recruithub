@@ -41,7 +41,7 @@ async def list_tenant_candidates(
     job_id: Optional[uuid.UUID] = Query(None, description="Filter by job"),
     stage: Optional[CandidateStageFilter] = Query(
         None,
-        description="Filter by hiring stage: pipeline, ai_shortlisted, screening, interview, finalists",
+        description="Filter by hiring stage: ai_shortlisted, screening, interview, finalists",
     ),
     q: Optional[str] = Query(None, description="Search candidate name"),
     service: CandidateDirectoryService = Depends(get_candidate_directory_service),

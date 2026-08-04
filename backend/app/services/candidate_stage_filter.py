@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Literal
 
 CandidateStageFilter = Literal[
-    "pipeline",
     "ai_shortlisted",
     "screening",
     "interview",
@@ -13,7 +12,6 @@ CandidateStageFilter = Literal[
 ]
 
 STAGE_FILTER_TO_LABEL: dict[CandidateStageFilter, str] = {
-    "pipeline": "Processing",
     "ai_shortlisted": "AI Shortlisted",
     "screening": "Screening",
     "interview": "Interview",
