@@ -16,7 +16,16 @@ from app.core.logging import (
     ErrorsChannelFilter,
     HttpChannelFilter,
     NestedJsonFormatter,
+    REQUEST_ID_HEADER,
+    TENANT_ID_HEADER,
+    USER_ID_HEADER,
+    apply_logging_context_headers,
+    capture_logging_context_headers,
+    clear_logging_context,
     clear_request_id,
+    get_request_id,
+    get_tenant_id,
+    get_user_id,
     log_http_access,
     reset_logging_configuration,
     set_actor_context,
@@ -151,6 +160,13 @@ class ChannelFilterTests(unittest.TestCase):
         self.assertFalse(filt.filter(_make_record("app.services.x", logging.WARNING)))
         self.assertFalse(filt.filter(_make_record("app.services.x", logging.ERROR)))
         self.assertFalse(filt.filter(_make_record(HTTP_LOGGER_NAME, logging.INFO)))
+
+    def test_events_filter_excludes_celery_and_non_app(self) -> None:
+        filt = EventsChannelFilter()
+        self.assertFalse(filt.filter(_make_record("celery.app.trace", logging.INFO)))
+        self.assertFalse(filt.filter(_make_record("celery.beat", logging.INFO)))
+        self.assertFalse(filt.filter(_make_record("uvicorn.error", logging.INFO)))
+        self.assertTrue(filt.filter(_make_record("app.tasks.screening_tasks", logging.INFO)))
 
     def test_errors_filter_warning_plus_excludes_http(self) -> None:
         filt = ErrorsChannelFilter()
@@ -297,6 +313,48 @@ class MiddlewareRequestIdTests(unittest.TestCase):
             self.assertIn("duration_ms", http_payload)
         finally:
             http_logger.removeHandler(handler)
+
+
+class CeleryContextPropagationTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        clear_logging_context()
+
+    def test_capture_and_apply_round_trip(self) -> None:
+        set_request_id("req-propagate")
+        set_actor_context(user_id="u_42", tenant_id="t_99", role="admin", name="Ada")
+        headers = capture_logging_context_headers()
+        self.assertEqual(headers[REQUEST_ID_HEADER], "req-propagate")
+        self.assertEqual(headers[USER_ID_HEADER], "u_42")
+        self.assertEqual(headers[TENANT_ID_HEADER], "t_99")
+
+        clear_logging_context()
+        self.assertIsNone(get_user_id())
+        self.assertIsNone(get_tenant_id())
+        self.assertEqual(get_request_id(), "-")
+
+        apply_logging_context_headers(headers)
+        self.assertEqual(get_request_id(), "req-propagate")
+        self.assertEqual(get_user_id(), "u_42")
+        self.assertEqual(get_tenant_id(), "t_99")
+
+    def test_apply_empty_headers_clears_context(self) -> None:
+        set_request_id("req-old")
+        set_actor_context(user_id="u_old", tenant_id="t_old")
+        apply_logging_context_headers({})
+        self.assertEqual(get_request_id(), "-")
+        self.assertIsNone(get_user_id())
+        self.assertIsNone(get_tenant_id())
+
+    def test_before_task_publish_injects_headers(self) -> None:
+        from app.core.celery_app import _inject_logging_context_headers
+
+        set_request_id("req-pub")
+        set_actor_context(user_id="u_pub", tenant_id="t_pub")
+        headers: dict = {}
+        _inject_logging_context_headers(headers=headers)
+        self.assertEqual(headers[REQUEST_ID_HEADER], "req-pub")
+        self.assertEqual(headers[USER_ID_HEADER], "u_pub")
+        self.assertEqual(headers[TENANT_ID_HEADER], "t_pub")
 
 
 if __name__ == "__main__":

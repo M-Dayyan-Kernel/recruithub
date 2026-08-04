@@ -135,10 +135,12 @@ class HttpChannelFilter(logging.Filter):
 
 
 class EventsChannelFilter(logging.Filter):
-    """INFO-only business activity; excludes HTTP access."""
+    """INFO-only business activity from app.* loggers; excludes HTTP access."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         if record.name == HTTP_LOGGER_NAME:
+            return False
+        if not record.name.startswith("app."):
             return False
         return record.levelno == logging.INFO
 
@@ -241,6 +243,14 @@ def get_request_id() -> str:
     return request_id_ctx.get()
 
 
+def get_user_id() -> Optional[str]:
+    return user_id_ctx.get()
+
+
+def get_tenant_id() -> Optional[str]:
+    return tenant_id_ctx.get()
+
+
 def set_request_id(value: Optional[str] = None) -> str:
     rid = (value or "").strip() or str(uuid.uuid4())
     request_id_ctx.set(rid)
@@ -285,6 +295,51 @@ def clear_actor_context() -> None:
 
 def get_actor_label() -> str:
     return actor_label_ctx.get()
+
+
+# Celery message headers used to propagate logging context to workers.
+REQUEST_ID_HEADER = "x_request_id"
+USER_ID_HEADER = "x_user_id"
+TENANT_ID_HEADER = "x_tenant_id"
+
+
+def capture_logging_context_headers() -> dict[str, str]:
+    """Snapshot current request/actor context for Celery publish headers."""
+    headers: dict[str, str] = {}
+    request_id = _null_if_blank(get_request_id())
+    if request_id:
+        headers[REQUEST_ID_HEADER] = str(request_id)
+    user_id = get_user_id()
+    if user_id:
+        headers[USER_ID_HEADER] = str(user_id)
+    tenant_id = get_tenant_id()
+    if tenant_id:
+        headers[TENANT_ID_HEADER] = str(tenant_id)
+    return headers
+
+
+def apply_logging_context_headers(headers: Optional[dict[str, Any]] = None) -> None:
+    """Restore request/actor context from Celery headers (or clear if absent)."""
+    headers = headers or {}
+    request_id = headers.get(REQUEST_ID_HEADER)
+    if request_id:
+        set_request_id(str(request_id))
+    else:
+        clear_request_id()
+
+    user_id = headers.get(USER_ID_HEADER)
+    tenant_id = headers.get(TENANT_ID_HEADER)
+    if user_id is not None or tenant_id is not None:
+        set_actor_context(user_id=user_id, tenant_id=tenant_id)
+    else:
+        clear_actor_context()
+
+
+def clear_logging_context() -> None:
+    """Clear request, task, and actor context (e.g. after a Celery task)."""
+    clear_request_id()
+    clear_task_id()
+    clear_actor_context()
 
 
 def is_poll_path(path: str) -> bool:
@@ -433,7 +488,12 @@ def setup_logging(
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
-    logging.getLogger("celery").setLevel(log_level)
+    # Celery framework chatter (beat/mingle/trace) stays off INFO; app.tasks.* still log normally.
+    logging.getLogger("celery").setLevel(logging.WARNING)
+    logging.getLogger("celery.beat").setLevel(logging.WARNING)
+    logging.getLogger("celery.app.trace").setLevel(logging.WARNING)
+    logging.getLogger("celery.worker.consumer").setLevel(logging.WARNING)
     logging.getLogger("celery.worker.strategy").setLevel(logging.WARNING)
+    logging.getLogger("celery.apps.worker").setLevel(logging.WARNING)
 
     _CONFIGURED = True
