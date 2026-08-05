@@ -13,9 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_loader import config
 from app.models.models import Candidate, InterviewSession, Job, ScreeningCall
-from app.modules.talentos_integration.talentos_integration_service import (
-    waives_screening_pass,
-)
 from app.schemas.schemas import InterviewScheduleRequest, InterviewSessionResponse
 from app.services.candidate_contact_service import (
     resolve_candidate_email,
@@ -104,7 +101,7 @@ async def reschedule_interview(
     if not job:
         raise ValueError("Job not found")
 
-    if not waives_screening_pass(candidate) and not await _get_latest_pass_screening(
+    if not candidate.waives_screening_pass and not await _get_latest_pass_screening(
         db, candidate_id, candidate.job_id
     ):
         raise ValueError("Candidate has not passed screening")

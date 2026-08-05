@@ -152,6 +152,11 @@ class Candidate(Base):
     screening_calls: Mapped[List["ScreeningCall"]] = relationship("ScreeningCall", back_populates="candidate", cascade="all, delete-orphan")
     interview_sessions: Mapped[List["InterviewSession"]] = relationship("InterviewSession", back_populates="candidate", cascade="all, delete-orphan")
 
+    @property
+    def waives_screening_pass(self) -> bool:
+        """Externally-shortlisted candidates skip the POC's screening gate."""
+        return bool(self.skip_ai_shortlist)
+
 
 class ShortlistResult(Base):
     __tablename__ = "shortlist_results"

@@ -14,9 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config_loader import config
 from app.core.tenancy import get_tenant_candidate, get_tenant_job
 from app.models.models import Candidate, InterviewSession, Job, ScreeningCall, User
-from app.modules.talentos_integration.talentos_integration_service import (
-    waives_screening_pass,
-)
 from app.repositories.interview_repository import InterviewRepository
 from app.schemas.schemas import (
     FinalistsResponse,
@@ -83,7 +80,7 @@ class InterviewHrService:
         await self._mark_interview_queued(
             candidate_id,
             candidate.job_id,
-            skip_check=waives_screening_pass(candidate),
+            skip_check=candidate.waives_screening_pass,
         )
         await self._audit.log_change(
             actor=actor,
@@ -135,7 +132,7 @@ class InterviewHrService:
 
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
 
-        if not waives_screening_pass(candidate) and not await self._interviews.get_latest_pass_screening_call(
+        if not candidate.waives_screening_pass and not await self._interviews.get_latest_pass_screening_call(
             candidate.job_id, candidate_id
         ):
             raise HTTPException(
@@ -235,7 +232,7 @@ class InterviewHrService:
             )
         )
         screening_call = screening_result.scalars().first()
-        if not waives_screening_pass(candidate) and not screening_call:
+        if not candidate.waives_screening_pass and not screening_call:
             raise HTTPException(
                 status_code=400,
                 detail="Candidate has not passed screening. Interview cannot be scheduled.",
@@ -256,7 +253,7 @@ class InterviewHrService:
         await self._mark_interview_queued(
             candidate_id,
             candidate.job_id,
-            skip_check=waives_screening_pass(candidate),
+            skip_check=candidate.waives_screening_pass,
         )
 
         interview_url = f"{config.CANDIDATE_APP_URL}/interview/{interview_session.unique_token}"

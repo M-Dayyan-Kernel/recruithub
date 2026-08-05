@@ -19,12 +19,8 @@ logger = logging.getLogger(__name__)
 
 
 def waives_screening_pass(candidate: Candidate) -> bool:
-    """talentOS candidates are shortlisted/screened externally.
-
-    The POC's pass-screening gate (a ScreeningCall with result="pass") must be
-    skipped for them — the decision was made on the talentOS platform.
-    """
-    return bool(getattr(candidate, "skip_ai_shortlist", False))
+    """Backwards-compatible wrapper around Candidate.waives_screening_pass."""
+    return candidate.waives_screening_pass
 
 
 class TalentosIntegrationService:
