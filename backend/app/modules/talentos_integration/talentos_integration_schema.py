@@ -124,6 +124,8 @@ class TalentosInterviewResponse(BaseModel):
 
 class TalentosInterviewDetailResponse(TalentosInterviewResponse):
     transcript: Optional[str] = None
+    transcript_segments: Optional[List[dict]] = None
+    recording_key: Optional[str] = None
     summary: Optional[str] = None
     transcript_summary: Optional[str] = None
     overall_score: Optional[float] = None

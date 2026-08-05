@@ -347,6 +347,8 @@ class TalentosIntegrationService:
             "completed_at": session.completed_at,
             "expires_at": session.expires_at,
             "transcript": session.transcript,
+            "transcript_segments": session.transcript_segments,
+            "recording_key": session.recording_key,
         }
 
         report = session.report
