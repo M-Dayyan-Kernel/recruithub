@@ -119,6 +119,24 @@ class CandidateService:
         if payload.email is not None:
             changes["email"] = (candidate.email, payload.email)
             candidate.email = payload.email
+        if payload.status is not None:
+            changes["status"] = (candidate.status, payload.status)
+            candidate.status = payload.status
+        if payload.years_experience is not None:
+            changes["years_experience"] = (candidate.years_experience, payload.years_experience)
+            candidate.years_experience = payload.years_experience
+        if payload.current_ctc is not None:
+            changes["current_ctc"] = (candidate.current_ctc, payload.current_ctc)
+            candidate.current_ctc = payload.current_ctc
+        if payload.expected_ctc is not None:
+            changes["expected_ctc"] = (candidate.expected_ctc, payload.expected_ctc)
+            candidate.expected_ctc = payload.expected_ctc
+        if payload.notice_period is not None:
+            changes["notice_period"] = (candidate.notice_period, payload.notice_period)
+            candidate.notice_period = payload.notice_period
+        if payload.last_working_day is not None:
+            changes["last_working_day"] = (candidate.last_working_day, payload.last_working_day)
+            candidate.last_working_day = payload.last_working_day
 
         await self._audit.log_field_changes(
             actor=actor,

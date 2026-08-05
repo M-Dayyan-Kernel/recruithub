@@ -1,9 +1,9 @@
 import uuid
-from datetime import datetime, time
+from datetime import datetime, time, date
 from typing import Optional, List
 
 from sqlalchemy import (
-    String, Text, Integer, Float, Boolean, DateTime, ForeignKey, func, Time
+    String, Text, Integer, Float, Boolean, DateTime, Date, ForeignKey, func, Time
 )
 from sqlalchemy.orm import relationship, mapped_column, Mapped
 from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSON
@@ -138,6 +138,12 @@ class Candidate(Base):
     parsed_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     pipeline_status: Mapped[str] = mapped_column(String(50), nullable=False, default="queued")
     processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="active", server_default="active")
+    years_experience: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    current_ctc: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    expected_ctc: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    notice_period: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    last_working_day: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships

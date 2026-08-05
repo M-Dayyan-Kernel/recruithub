@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { Link, useNavigate } from 'react-router-dom'
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Users, Phone, Calendar, CheckCircle2, AlertCircle } from 'lucide-react'
 import { api } from '@/lib/api'
 import { fetchJobCandidates } from '@/lib/workflow'
@@ -12,6 +12,8 @@ import type {
   SystemSettings,
 } from '@/types/api'
 import { buildScreeningRows, countByTab } from '@/components/screening/screeningRows'
+import { ResumeUploadZone } from '@/components/ResumeUploadZone'
+import { isArchivedJobStatus } from '@/lib/jobStatus'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -130,7 +132,10 @@ function StageCardSkeleton() {
 
 export function JobPipelineDashboard({ job }: Props) {
   const jobId = job.id
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const screeningEffective = job.voice_screening_enabled !== false
+  const uploadDisabled = isArchivedJobStatus(job.status)
 
   const [shortlistQuery, screeningQuery, candidatesQuery, pipelineQuery] = useQueries({
     queries: [
@@ -210,6 +215,18 @@ export function JobPipelineDashboard({ job }: Props) {
     void pipelineQuery.refetch()
   }
 
+  const handleUploadSuccess = (createdIds: string[] = []) => {
+    void queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
+    void queryClient.invalidateQueries({ queryKey: ['candidates', jobId, 'pipeline'] })
+    void queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
+    void shortlistQuery.refetch()
+    void candidatesQuery.refetch()
+    void pipelineQuery.refetch()
+    const qs = new URLSearchParams({ tab: 'processing' })
+    if (createdIds.length > 0) qs.set('watch', createdIds.join(','))
+    navigate(`/jobs/${jobId}/shortlist?${qs.toString()}`)
+  }
+
   const stages: StageConfig[] = useMemo(() => {
     const base: StageConfig[] = [
       {
@@ -221,7 +238,7 @@ export function JobPipelineDashboard({ job }: Props) {
         accent: 'bg-violet-500',
         iconBg: 'bg-violet-50',
         barColor: 'bg-violet-400',
-        to: `/jobs/${jobId}/shortlist`,
+        to: `/jobs/${jobId}/shortlist?tab=results`,
       },
     ]
 
@@ -281,9 +298,14 @@ export function JobPipelineDashboard({ job }: Props) {
     return (
       <section aria-label="Hiring pipeline">
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 bg-slate-50/80 px-6 py-5">
-            <div className="h-5 w-36 animate-pulse rounded bg-slate-200" />
-            <div className="mt-2 h-4 w-56 animate-pulse rounded bg-slate-100" />
+          <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 px-5 py-4 sm:px-6">
+            <div className="space-y-4">
+              <div>
+                <div className="h-5 w-36 animate-pulse rounded bg-slate-200" />
+                <div className="mt-2 h-4 w-56 animate-pulse rounded bg-slate-100" />
+              </div>
+              <div className="h-[72px] animate-pulse rounded-xl border border-slate-100 bg-white/60" />
+            </div>
           </div>
           <div className="p-6">
             <div className="mb-6 h-2.5 animate-pulse rounded-full bg-slate-100" />
@@ -302,13 +324,21 @@ export function JobPipelineDashboard({ job }: Props) {
     <section aria-label="Hiring pipeline">
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 px-5 py-4 sm:px-6">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Hiring pipeline</h2>
-            <p className="mt-0.5 text-sm text-slate-500">
-              {totalInPipeline > 0
-                ? `${totalInPipeline} candidate${totalInPipeline === 1 ? '' : 's'} across all stages`
-                : 'Candidates will appear here as they move through hiring'}
-            </p>
+          <div className="space-y-4">
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold text-slate-900">Hiring pipeline</h2>
+              <p className="mt-0.5 text-sm text-slate-500">
+                {totalInPipeline > 0
+                  ? `${totalInPipeline} candidate${totalInPipeline === 1 ? '' : 's'} across all stages`
+                  : 'Upload resumes to start — candidates will appear here as they move through hiring'}
+              </p>
+            </div>
+            <ResumeUploadZone
+              jobId={jobId}
+              variant="pipeline"
+              disabled={uploadDisabled}
+              onUploadSuccess={handleUploadSuccess}
+            />
           </div>
         </div>
 

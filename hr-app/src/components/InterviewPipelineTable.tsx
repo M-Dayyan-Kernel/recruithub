@@ -99,6 +99,8 @@ function DecisionButtons({
     onSuccess: (_data, hr_decision) => {
       queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
       queryClient.invalidateQueries({ queryKey: ['finalists', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['candidates'] })
+      queryClient.invalidateQueries({ queryKey: ['candidate', row.candidate_id] })
       toast.success(
         hr_decision === 'approved'
           ? `${row.candidate_name ?? 'Candidate'} moved to Finalists`

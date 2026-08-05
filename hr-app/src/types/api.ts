@@ -318,7 +318,65 @@ export interface Candidate {
   parsed_data?: ParsedData | null
   pipeline_status: 'queued' | 'processing' | 'completed' | 'failed'
   skip_ai_shortlist?: boolean
+  status?: string
+  years_experience?: number | null
+  current_ctc?: string | null
+  expected_ctc?: string | null
+  notice_period?: string | null
+  last_working_day?: string | null
   created_at: string
+}
+
+export interface CandidateListItem {
+  id: string
+  job_id: string
+  job_title: string
+  name: string
+  email: string
+  phone?: string | null
+  years_experience?: number | null
+  current_ctc?: string | null
+  expected_ctc?: string | null
+  notice_period?: string | null
+  last_working_day?: string | null
+  hiring_stage: string
+  match_score?: number | null
+  status: string
+  date_applied: string
+  pipeline_status: string
+}
+
+export interface CandidateProfile extends CandidateListItem {
+  parsed_data?: ParsedData | null
+  resume_file_path?: string | null
+  shortlist?: ShortlistResult | null
+  screening?: ScreeningCall | null
+  interview_sessions?: InterviewSession[]
+  timeline?: AuditLogEntry[]
+}
+
+export interface CandidateUpdatePayload {
+  name?: string
+  email?: string
+  phone?: string | null
+  status?: string
+  years_experience?: number | null
+  current_ctc?: string | null
+  expected_ctc?: string | null
+  notice_period?: string | null
+  last_working_day?: string | null
+}
+
+export interface AuditLogEntry {
+  id: string
+  created_at: string
+  actor_name: string
+  actor_role: string
+  action: string
+  entity_type: string
+  subject_label: string
+  feature: string
+  job_id?: string | null
 }
 
 // ---------------------------------------------------------------------------

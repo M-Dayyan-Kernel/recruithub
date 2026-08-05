@@ -23,6 +23,7 @@ from app.core.async_utils import run_sync
 from app.core.config_loader import config
 from app.core.logging import log_event, plural
 from app.models.models import Candidate, Job, ShortlistResult
+from app.repositories.candidate_repository import CandidateRepository
 from app.prompts.combined_shortlist import (
     COMBINED_SHORTLIST_SYSTEM_PROMPT,
     PROMPT_VERSION,
@@ -100,6 +101,16 @@ class CombinedShortlistService:
             config.models.combined_shortlist.name,
         )
         self._apply_profile_to_candidate(candidate, profile)
+        duplicate = await CandidateRepository(db).find_duplicate_for_job(
+            job.id,
+            exclude_id=candidate.id,
+            email=candidate.email,
+            phone=candidate.phone,
+        )
+        if duplicate is not None:
+            raise ValueError(
+                f"Duplicate candidate for job (existing id={duplicate.id})"
+            )
         return await self._upsert_shortlist_from_assessment(db, job.id, candidate, combined)
 
     async def batch_rescore(
@@ -230,6 +241,13 @@ class CombinedShortlistService:
             candidate.email = profile["email"]
         if profile.get("phone") and not candidate.phone:
             candidate.phone = profile["phone"]
+        if candidate.years_experience is None:
+            exp = profile.get("total_experience_years")
+            if exp is not None:
+                try:
+                    candidate.years_experience = float(exp)
+                except (TypeError, ValueError):
+                    pass
 
     async def _upsert_shortlist_from_assessment(
         self,

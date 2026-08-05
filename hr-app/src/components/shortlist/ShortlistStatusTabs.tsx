@@ -2,21 +2,20 @@ import { useSearchParams, useParams } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useJobPipelineCandidates } from '@/hooks/useJobPipelineCandidates'
 
-export const SHORTLIST_TABS = ['AI Shortlisted', 'Upload', 'Processing'] as const
+export const SHORTLIST_TABS = ['Processing', 'AI Shortlisted'] as const
 
 export type ShortlistTabId = (typeof SHORTLIST_TABS)[number]
 
 const TAB_PARAM: Record<ShortlistTabId, string> = {
   'AI Shortlisted': 'results',
-  Upload: 'upload',
   Processing: 'processing',
 }
 
 const PARAM_TO_TAB: Record<string, ShortlistTabId> = {
   results: 'AI Shortlisted',
-  upload: 'Upload',
   processing: 'Processing',
   // Legacy URL params
+  upload: 'Processing',
   parsing: 'Processing',
   parsed: 'Processing',
   shortlisting: 'Processing',

@@ -38,6 +38,38 @@ class CandidateRepository:
         )
         return result.scalar_one_or_none()
 
+    async def find_duplicate_for_job(
+        self,
+        job_id: uuid.UUID,
+        *,
+        exclude_id: uuid.UUID,
+        email: str | None,
+        phone: str | None,
+    ) -> Candidate | None:
+        from app.services.candidate_contact_service import normalize_email, normalize_phone
+
+        norm_email = normalize_email(email)
+        norm_phone = normalize_phone(phone)
+        if not norm_email and not norm_phone:
+            return None
+
+        result = await self._session.execute(
+            select(Candidate).where(
+                Candidate.job_id == job_id,
+                Candidate.id != exclude_id,
+            )
+        )
+        for other in result.scalars().all():
+            other_email = normalize_email(
+                (other.parsed_data or {}).get("email") or other.email
+            )
+            other_phone = normalize_phone(other.phone)
+            if norm_email and other_email == norm_email:
+                return other
+            if norm_phone and other_phone and other_phone == norm_phone:
+                return other
+        return None
+
     def _list_query(
         self,
         job_id: uuid.UUID,

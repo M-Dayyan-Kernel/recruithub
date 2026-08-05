@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import logging
+import time
 import uuid
 
 from fastapi import FastAPI, Request
@@ -30,14 +31,23 @@ from app.core.logging import (
     clear_actor_context,
     clear_request_id,
     get_request_id,
-    is_poll_path,
+    log_http_access,
     set_request_id,
     setup_logging,
 )
 from app.clients.mocks import active_mock_services
 from app.services.user_seed_service import seed_admin_user, seed_superadmin_user
 
-setup_logging(app_settings.LOG_LEVEL, log_format=app_settings.LOG_FORMAT)
+setup_logging(
+    app_settings.logging.level,
+    log_format=app_settings.logging.format,
+    log_dir=app_settings.logging.dir,
+    log_max_bytes=app_settings.logging.max_bytes,
+    log_backup_count=app_settings.logging.backup_count,
+    service_name="ai-recruitment-api",
+    service_env=app_settings.APP_ENV,
+    service_version="1.0.0",
+)
 logger = logging.getLogger(__name__)
 
 if app_settings.SENTRY_DSN:
@@ -51,45 +61,45 @@ if app_settings.SENTRY_DSN:
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """Assign X-Request-ID. Successful reads stay quiet; failures are worded plainly."""
+    """Assign X-Request-ID and emit a nested JSON HTTP access record per request."""
 
     async def dispatch(self, request: Request, call_next):
         incoming = request.headers.get("x-request-id")
         request_id = set_request_id(incoming)
         request.state.request_id = request_id
+        started = time.perf_counter()
+        client_ip = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
         try:
             response = await call_next(request)
         except Exception:
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            log_http_access(
+                method=request.method,
+                path=request.url.path,
+                status=500,
+                duration_ms=duration_ms,
+                client_ip=client_ip,
+                user_agent=user_agent,
+            )
             clear_request_id()
             clear_actor_context()
             raise
+
+        duration_ms = int((time.perf_counter() - started) * 1000)
         response.headers["X-Request-ID"] = request_id
-        path = request.url.path
-        method = request.method
-
-        # Successful traffic is covered by business-event sentences; keep access quiet.
-        if response.status_code < 400:
-            if method == "GET" or path == "/health" or is_poll_path(path):
-                logger.debug("Request completed successfully")
-            else:
-                logger.debug("Request completed successfully")
-        elif response.status_code >= 500:
-            logger.error("A server error occurred while handling this request")
-        elif response.status_code == 401:
-            logger.warning("Someone tried to access a protected resource without signing in")
-        elif response.status_code == 403:
-            logger.warning("Someone was denied access to a protected resource")
-        elif response.status_code == 404:
-            logger.warning("Someone asked for something that was not found")
-        elif response.status_code == 409:
-            logger.warning("Someone tried an action that conflicts with current state")
-        elif response.status_code == 422:
-            logger.warning("Someone submitted a request that could not be processed")
-        elif response.status_code == 503:
-            logger.warning("A required service was temporarily unavailable")
-        else:
-            logger.warning("Someone's request was rejected")
-
+        content_length = response.headers.get("content-length")
+        bytes_out = int(content_length) if content_length and content_length.isdigit() else None
+        log_http_access(
+            method=request.method,
+            path=request.url.path,
+            status=response.status_code,
+            duration_ms=duration_ms,
+            client_ip=client_ip,
+            user_agent=user_agent,
+            route=getattr(request.scope.get("route"), "path", None),
+            bytes_out=bytes_out,
+        )
         clear_request_id()
         clear_actor_context()
         return response

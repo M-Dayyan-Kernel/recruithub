@@ -6,18 +6,22 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from app.core.pagination import PaginationParams
 from app.dependencies import (
     RequireAdminOrHr,
+    get_candidate_directory_service,
     get_candidate_service,
     get_resume_upload_service,
     hr_roles,
 )
 from app.exceptions import DomainError
 from app.schemas.schemas import (
-    CandidateDetailResponse,
+    CandidateListItem,
+    CandidateProfileResponse,
     CandidateResponse,
     CandidateUpdate,
     PaginatedResponse,
     ResumeUploadResponse,
 )
+from app.services.candidate_directory_service import CandidateDirectoryService
+from app.services.candidate_stage_filter import CandidateStageFilter
 from app.services.candidate_service import CandidateService
 from app.services.resume_upload_service import ResumeUploadService
 
@@ -28,6 +32,22 @@ def _raise_domain(exc: DomainError):
     from fastapi import HTTPException
 
     raise HTTPException(status_code=exc.status_code, detail=exc.public_message) from exc
+
+
+@router.get("/candidates", response_model=PaginatedResponse)
+async def list_tenant_candidates(
+    actor: RequireAdminOrHr,
+    pagination: PaginationParams = Depends(),
+    job_id: Optional[uuid.UUID] = Query(None, description="Filter by job"),
+    stage: Optional[CandidateStageFilter] = Query(
+        None,
+        description="Filter by hiring stage: ai_shortlisted, screening, interview, finalists",
+    ),
+    q: Optional[str] = Query(None, description="Search candidate name"),
+    service: CandidateDirectoryService = Depends(get_candidate_directory_service),
+):
+    """List all candidates in the tenant with optional job, stage, and name search."""
+    return await service.list(actor, job_id=job_id, stage=stage, q=q, pagination=pagination)
 
 
 @router.post(
@@ -76,14 +96,17 @@ async def list_candidates(
     )
 
 
-@router.get("/candidates/{candidate_id}", response_model=CandidateDetailResponse)
+@router.get("/candidates/{candidate_id}", response_model=CandidateProfileResponse)
 async def get_candidate(
     candidate_id: uuid.UUID,
     actor: RequireAdminOrHr,
-    service: CandidateService = Depends(get_candidate_service),
+    service: CandidateDirectoryService = Depends(get_candidate_directory_service),
 ):
-    """Return a single candidate by ID (includes parsed resume data)."""
-    return await service.get(actor, candidate_id)
+    """Return a candidate profile for the directory module."""
+    try:
+        return await service.get_profile(actor, candidate_id)
+    except DomainError as exc:
+        _raise_domain(exc)
 
 
 @router.post(
@@ -145,5 +168,5 @@ async def update_candidate(
     actor: RequireAdminOrHr,
     service: CandidateService = Depends(get_candidate_service),
 ):
-    """Partial update of a candidate's contact fields (name, email, phone)."""
+    """Partial update of a candidate's editable fields."""
     return await service.update(actor, candidate_id, body)

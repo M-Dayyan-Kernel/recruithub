@@ -275,7 +275,10 @@ export function JobPhaseNav({ job }: Props) {
 
               <ol className="relative">
                 {phases.map(({ label, segment, icon: Icon, description }, index) => {
-                  const to = jobPhasePath(job.id, segment)
+                  const to =
+                    segment === 'shortlist'
+                      ? `${jobPhasePath(job.id, segment)}?tab=results`
+                      : jobPhasePath(job.id, segment)
                   const isActive = phase === segment
                   const isPast = activeIndex > index
                   const isLast = index === phases.length - 1

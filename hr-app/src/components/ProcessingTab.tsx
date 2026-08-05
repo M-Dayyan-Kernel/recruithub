@@ -66,6 +66,7 @@ export function ProcessingTab({
       api.post(`/api/jobs/${jobId}/candidates/${candidateId}/retry-processing`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['candidates'] })
       toast.success('Re-queued for AI review')
     },
     onError: () => toast.error('Failed to retry'),
@@ -89,8 +90,9 @@ export function ProcessingTab({
         <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-2 flex items-center justify-between text-sm">
             <span className="font-medium text-slate-700">
-              Reviewing {Math.min(done + inFlight.length, total)} of {total} resume
-              {total !== 1 ? 's' : ''}…
+              {allSettled
+                ? `Finished ${total} resume${total !== 1 ? 's' : ''}`
+                : `Reviewed ${done} of ${total} resume${total !== 1 ? 's' : ''}…`}
             </span>
             <span className="tabular-nums text-slate-500">{progressPct}%</span>
           </div>
@@ -113,7 +115,7 @@ export function ProcessingTab({
             </div>
           ) : displayList.length === 0 ? (
             <div className="px-6 py-16 text-center text-sm text-slate-400">
-              No resumes are being reviewed right now. Upload resumes to start AI scoring.
+              No resumes are being reviewed right now. Upload resumes from the job overview to start AI scoring.
             </div>
           ) : (
             <ul className="divide-y divide-slate-200">

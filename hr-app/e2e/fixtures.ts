@@ -42,6 +42,39 @@ export const REPORT_IDS = {
   alice: 'ffffffff-0000-0000-0000-000000000001',
 }
 
+export const MOCK_HR_USER = {
+  id: 'ffffffff-0000-0000-0000-000000000099',
+  tenant_id: 'eeeeeeee-0000-0000-0000-000000000001',
+  email: 'hr@example.com',
+  full_name: 'HR Admin',
+  role: 'admin' as const,
+  is_active: true,
+  created_at: '2026-06-01T10:00:00.000Z',
+  updated_at: '2026-06-01T10:00:00.000Z',
+  tenant_name: 'Acme Corp',
+}
+
+export const MOCK_AUTH_TOKEN = 'e2e-mock-access-token'
+
+/** Seed localStorage token and mock GET /api/auth/me for protected routes */
+export async function mockAuthenticatedSession(
+  page: Page,
+  user = MOCK_HR_USER,
+) {
+  await page.addInitScript((token: string) => {
+    localStorage.setItem('hr_access_token', token)
+  }, MOCK_AUTH_TOKEN)
+
+  await page.route('**/api/auth/me', (route: Route) => {
+    if (route.request().method() !== 'GET') return route.continue()
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(user),
+    })
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Sample interview rubric
 // ---------------------------------------------------------------------------
@@ -449,6 +482,164 @@ export const MOCK_RUBRIC_REPORT = {
 }
 
 // ---------------------------------------------------------------------------
+// Mock tenant-wide candidate directory (GET /api/candidates)
+// ---------------------------------------------------------------------------
+
+export const MOCK_CANDIDATE_DIRECTORY_LIST = MOCK_CANDIDATES.map((c) => {
+  const job = MOCK_JOBS.find((j) => j.id === c.job_id)
+  const shortlist = MOCK_SHORTLIST.find((s) => s.candidate_id === c.id)
+  const screening = MOCK_SCREENING.find((s) => s.candidate_id === c.id)
+  let hiring_stage = 'Processing'
+  if (c.pipeline_status === 'failed') {
+    hiring_stage = 'Failed'
+  } else if (c.pipeline_status === 'queued' || c.pipeline_status === 'processing') {
+    hiring_stage = 'Processing'
+  } else if (c.id === CANDIDATE_IDS.alice && screening?.result === 'pass') {
+    hiring_stage = 'Interview'
+  } else if (shortlist && shortlist.hr_decision !== 'rejected') {
+    hiring_stage = 'AI Shortlisted'
+  } else if (screening?.call_status === 'completed' && screening.result === 'pass') {
+    hiring_stage = 'Screening'
+  }
+
+  return {
+    id: c.id,
+    job_id: c.job_id,
+    job_title: job?.title ?? 'Unknown',
+    name: c.name,
+    email: c.email,
+    phone: c.phone,
+    years_experience: c.parsed_data?.total_experience_years ?? null,
+    current_ctc: screening?.current_ctc ?? null,
+    expected_ctc: screening?.expected_ctc ?? null,
+    notice_period: screening?.notice_period ?? null,
+    last_working_day: null,
+    hiring_stage,
+    match_score: shortlist?.match_score ?? null,
+    status: 'active',
+    date_applied: c.created_at,
+    pipeline_status: c.pipeline_status,
+  }
+})
+
+export function buildMockCandidateProfile(candidateId: string) {
+  const base = MOCK_CANDIDATE_DIRECTORY_LIST.find((c) => c.id === candidateId)
+  const raw = MOCK_CANDIDATES.find((c) => c.id === candidateId)
+  if (!base || !raw) return null
+  const shortlist = MOCK_SHORTLIST.find((s) => s.candidate_id === candidateId) ?? null
+  const screening = MOCK_SCREENING.find((s) => s.candidate_id === candidateId) ?? null
+  const sessions = candidateId === CANDIDATE_IDS.alice ? [MOCK_INTERVIEW_SESSION] : []
+  return {
+    ...base,
+    parsed_data: raw.parsed_data,
+    resume_file_path: raw.resume_file_path,
+    shortlist,
+    screening: screening
+      ? { ...screening, has_interview_session: sessions.length > 0 }
+      : null,
+    interview_sessions: sessions,
+    timeline: [],
+  }
+}
+
+/** Mock GET /api/candidates (tenant-wide directory list) */
+export async function mockGetCandidateDirectory(
+  page: Page,
+  items = MOCK_CANDIDATE_DIRECTORY_LIST,
+) {
+  await page.route('**/api/candidates?**', (route: Route) => {
+    if (route.request().method() !== 'GET') return route.continue()
+    const url = new URL(route.request().url())
+    const jobId = url.searchParams.get('job_id')
+    const stage = url.searchParams.get('stage')
+    const q = (url.searchParams.get('q') ?? '').toLowerCase()
+    const stageLabels: Record<string, string> = {
+      ai_shortlisted: 'AI Shortlisted',
+      screening: 'Screening',
+      interview: 'Interview',
+      finalists: 'Finalist',
+    }
+    let result = [...items]
+    if (jobId) result = result.filter((c) => c.job_id === jobId)
+    if (stage && stageLabels[stage]) {
+      result = result.filter((c) => c.hiring_stage === stageLabels[stage])
+    }
+    if (q) {
+      result = result.filter((c) => c.name.toLowerCase().includes(q))
+    }
+    const limit = Number(url.searchParams.get('limit') ?? 25)
+    const offset = Number(url.searchParams.get('offset') ?? 0)
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: result.slice(offset, offset + limit),
+        total: result.length,
+        limit,
+        offset,
+      }),
+    })
+  })
+}
+
+/** Mock GET/PATCH /api/candidates/:id profile (not report or sub-resources) */
+export async function mockCandidateProfileApi(
+  page: Page,
+  onPatch?: (candidateId: string, body: Record<string, unknown>) => void,
+) {
+  await page.route(/\/api\/candidates\/[^/]+$/, (route: Route) => {
+    const url = new URL(route.request().url())
+    const candidateId = url.pathname.split('/').pop() ?? ''
+    const method = route.request().method()
+
+    if (method === 'GET') {
+      const profile = buildMockCandidateProfile(candidateId)
+      if (!profile) {
+        route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'Not found' }),
+        })
+        return
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(profile),
+      })
+      return
+    }
+
+    if (method === 'PATCH') {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      onPatch?.(candidateId, body)
+      const base = buildMockCandidateProfile(candidateId)
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...base, ...body }),
+      })
+      return
+    }
+
+    route.continue()
+  })
+}
+
+/** @deprecated use mockCandidateProfileApi */
+export async function mockGetCandidateProfile(page: Page) {
+  await mockCandidateProfileApi(page)
+}
+
+/** @deprecated use mockCandidateProfileApi */
+export async function mockPatchCandidate(
+  page: Page,
+  onPatch?: (candidateId: string, body: Record<string, unknown>) => void,
+) {
+  await mockCandidateProfileApi(page, onPatch)
+}
+
+// ---------------------------------------------------------------------------
 // Route mock helpers
 // ---------------------------------------------------------------------------
 
@@ -531,6 +722,32 @@ export async function mockGetCandidates(
         total: result.length,
         limit: Number(url.searchParams.get('limit') ?? 50),
         offset: Number(url.searchParams.get('offset') ?? 0),
+      }),
+    })
+  })
+}
+
+/** Mock POST /api/jobs/:id/resumes */
+export async function mockPostResumes(
+  page: Page,
+  jobId: string,
+  response: {
+    created?: number
+    candidate_ids?: string[]
+  } = {},
+) {
+  await page.route(`**/api/jobs/${jobId}/resumes`, (route: Route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        created: response.created ?? 1,
+        skipped: 0,
+        skipped_files: [],
+        candidate_ids: response.candidate_ids ?? [CANDIDATE_IDS.charlie],
+        extracted_from_zip: 0,
+        skipped_oversized: [],
       }),
     })
   })

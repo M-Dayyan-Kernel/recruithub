@@ -23,13 +23,14 @@ import {
   mockGetSettings,
   mockGetInterviewPipeline,
   mockPostScreeningTrigger,
+  mockPostResumes,
 } from './fixtures'
 
 const FRONTEND_JOB = MOCK_JOBS[0]
 const FRONTEND_URL = `/jobs/${JOB_IDS.frontend}`
 const FRONTEND_SHORTLIST_URL = `/jobs/${JOB_IDS.frontend}/shortlist`
 
-const WORKFLOW_TABS = ['Upload', 'Processing', 'AI Shortlisted'] as const
+const WORKFLOW_TABS = ['Processing', 'AI Shortlisted'] as const
 
 async function mockFrontendJobDetail(page: import('@playwright/test').Page) {
   await mockGetJobs(page)
@@ -67,15 +68,45 @@ test('AI Shortlisted tab is default on job shortlist load', async ({ page }) => 
   await expect(page.getByText('No candidates have been scored yet.')).toBeVisible()
 })
 
-test('Upload tab shows upload UI', async ({ page }) => {
+test('job overview shows resume upload in hiring pipeline', async ({ page }) => {
+  await mockFrontendJobDetail(page)
+
+  await page.goto(FRONTEND_URL)
+  await page.waitForLoadState('networkidle')
+
+  const pipeline = page.getByRole('region', { name: 'Hiring pipeline' })
+  await expect(pipeline.getByText('Add candidate resumes')).toBeVisible()
+})
+
+test('shortlist toolbar shows AI Shortlisted and Processing only', async ({ page }) => {
   await mockFrontendJobDetail(page)
 
   await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
-  await page.getByRole('button', { name: 'Upload', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Upload Resumes' })).toBeVisible()
-  await expect(page.getByText('No resumes uploaded yet.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'AI Shortlisted', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Processing', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Upload', exact: true })).not.toBeVisible()
+})
+
+test('upload from job overview navigates to processing tab', async ({ page }) => {
+  await mockFrontendJobDetail(page)
+  await mockPostResumes(page, JOB_IDS.frontend)
+
+  await page.goto(FRONTEND_URL)
+  await page.waitForLoadState('networkidle')
+
+  await page
+    .getByRole('region', { name: 'Hiring pipeline' })
+    .locator('input[type="file"]')
+    .setInputFiles({
+      name: 'resume.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4 test'),
+    })
+
+  await expect(page).toHaveURL(`${FRONTEND_SHORTLIST_URL}?tab=processing`)
+  await expect(page.getByRole('heading', { name: 'AI Review in Progress' })).toBeVisible()
 })
 
 test('each workflow tab shows its empty state', async ({ page }) => {
@@ -85,7 +116,6 @@ test('each workflow tab shows its empty state', async ({ page }) => {
   await page.waitForLoadState('networkidle')
 
   const emptyStates: Record<(typeof WORKFLOW_TABS)[number], string> = {
-    Upload: 'No resumes uploaded yet.',
     Processing: 'No resumes are being reviewed right now.',
     'AI Shortlisted': 'No candidates have been scored yet.',
   }
