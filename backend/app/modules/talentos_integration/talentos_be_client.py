@@ -33,3 +33,67 @@ class TalentosBEClient:
             except httpx.HTTPError as exc:
                 logger.error("Failed to fetch hiring request %s: %s", external_job_id, exc)
                 return None
+
+    async def _post(self, path: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        url = f"{self._base_url}{path}"
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.post(url, json=body, headers=self._headers, timeout=30.0)
+                if resp.is_error:
+                    logger.error(
+                        "talentOS BE POST %s failed: status=%s body=%s",
+                        path, resp.status_code, resp.text[:500],
+                    )
+                    return None
+                return resp.json() if resp.content else None
+            except httpx.HTTPError as exc:
+                logger.error("talentOS BE POST %s transport error: %s", path, exc)
+                return None
+
+    async def push_screening_completion(
+        self,
+        *,
+        external_job_id: Optional[str],
+        external_candidate_id: Optional[str],
+        screening_call_id: Optional[str],
+        result: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        if not external_job_id or not external_candidate_id:
+            logger.info(
+                "push_screening_completion skipped: missing external ids (job=%s candidate=%s)",
+                external_job_id, external_candidate_id,
+            )
+            return None
+        return await self._post(
+            "/internal/talentos/webhooks/screening",
+            {
+                "external_job_id": external_job_id,
+                "external_candidate_id": external_candidate_id,
+                "screening_call_id": screening_call_id,
+                "result": result,
+            },
+        )
+
+    async def push_interview_completion(
+        self,
+        *,
+        external_job_id: Optional[str],
+        external_candidate_id: Optional[str],
+        interview_id: Optional[str],
+        result: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        if not external_job_id or not external_candidate_id:
+            logger.info(
+                "push_interview_completion skipped: missing external ids (job=%s candidate=%s)",
+                external_job_id, external_candidate_id,
+            )
+            return None
+        return await self._post(
+            "/internal/talentos/webhooks/interview",
+            {
+                "external_job_id": external_job_id,
+                "external_candidate_id": external_candidate_id,
+                "interview_id": interview_id,
+                "result": result,
+            },
+        )
