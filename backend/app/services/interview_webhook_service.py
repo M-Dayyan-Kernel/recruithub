@@ -74,6 +74,12 @@ class InterviewWebhookService:
                     session.completed_at = datetime.now(timezone.utc)
                     await self._session.commit()
 
+                    from app.modules.talentos_integration.interview_status_sync import (
+                        sync_interview_status_to_talentos,
+                    )
+
+                    await sync_interview_status_to_talentos(self._session, session)
+
                 if session.recording_key and session.recording_ready is not True:
                     await _ensure_recording_ready(session, self._session)
 

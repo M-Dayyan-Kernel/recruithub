@@ -334,6 +334,11 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
                 screening_call.call_status = "failed"
                 screening_call.call_outcome = "failed"
                 await session.commit()
+                await _push_screening_to_talentos_be(
+                    job=job,
+                    candidate=candidate,
+                    screening_call=screening_call,
+                )
                 logger.error("Config/auth error — not retrying: %s", exc)
                 return
 
@@ -356,6 +361,11 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
                     f"Vapi dial failed after retries: {str(exc)[:400]}"
                 )
                 await session.commit()
+                await _push_screening_to_talentos_be(
+                    job=job,
+                    candidate=candidate,
+                    screening_call=screening_call,
+                )
                 logger.error(
                     "Vapi dial retries exhausted for screening_call %s",
                     screening_call_id,
@@ -1376,8 +1386,7 @@ def _serialize_screening_call(screening_call) -> dict:
 
 async def _push_screening_to_talentos_be(*, job, candidate, screening_call) -> None:
     external_job_id = getattr(job, "external_job_id", None)
-    external_candidate_id = getattr(candidate, "external_candidate_id", None)
-    if not external_job_id or not external_candidate_id:
+    if not external_job_id or not candidate.id:
         return
     try:
         from app.modules.talentos_integration.talentos_be_client import TalentosBEClient
@@ -1385,7 +1394,7 @@ async def _push_screening_to_talentos_be(*, job, candidate, screening_call) -> N
         client = TalentosBEClient()
         await client.push_screening_completion(
             external_job_id=str(external_job_id),
-            external_candidate_id=str(external_candidate_id),
+            external_candidate_id=str(candidate.id),
             screening_call_id=str(screening_call.id),
             result=_serialize_screening_call(screening_call),
         )

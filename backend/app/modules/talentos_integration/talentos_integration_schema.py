@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, time
-from typing import Optional, List
+from typing import List, Literal, Optional
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TalentosJobCreate(BaseModel):
@@ -106,7 +106,23 @@ class TalentosScreeningResultResponse(BaseModel):
     call_outcome: Optional[str] = None
     ended_reason: Optional[str] = None
     retry_count: int = 0
+    terminal_failure: bool = False
     created_at: datetime
+
+
+class TalentosScreeningStatusResponse(BaseModel):
+    """Server-computed screening disposition for a candidate (pending/completed/flagged).
+
+    Unlike TalentosScreeningResultResponse (404 when no call exists), this
+    endpoint always classifies the candidate — even before any ScreeningCall row
+    exists (e.g. flagged for a missing/invalid phone number).
+    """
+
+    disposition: Literal["pending", "completed", "flagged"]
+    flag_reason: Optional[str] = None
+    has_call: bool = False
+    latest_call: Optional[TalentosScreeningResultResponse] = None
+    updated_at: Optional[datetime] = None
 
 
 class TalentosInterviewResponse(BaseModel):
@@ -120,6 +136,26 @@ class TalentosInterviewResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     expires_at: Optional[datetime] = None
+    scheduled_interview_at: Optional[datetime] = None
+
+
+class TalentosInterviewSchedulePayload(BaseModel):
+    """Set (or clear) the scheduled slot on an existing interview session."""
+
+    scheduled_date: Optional[str] = Field(default=None, description="YYYY-MM-DD")
+    scheduled_time: Optional[str] = Field(default=None, description="HH:MM (24h)")
+    timezone: Optional[str] = Field(default=None, description="IANA timezone")
+
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        try:
+            ZoneInfo(value)
+        except Exception as exc:
+            raise ValueError(f"Invalid timezone: {value}") from exc
+        return value
 
 
 class TalentosInterviewDetailResponse(TalentosInterviewResponse):

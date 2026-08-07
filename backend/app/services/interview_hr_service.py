@@ -339,6 +339,12 @@ class InterviewHrService:
         await self._session.commit()
         await self._interviews.refresh(session)
 
+        from app.modules.talentos_integration.interview_status_sync import (
+            sync_interview_status_to_talentos,
+        )
+
+        await sync_interview_status_to_talentos(self._session, session)
+
         try:
             generate_interview_report.delay(str(session.id))
         except Exception as exc:
@@ -629,6 +635,12 @@ class InterviewHrService:
             candidate_id=candidate_id,
         )
         await self._session.commit()
+
+        from app.modules.talentos_integration.interview_status_sync import (
+            sync_interview_status_to_talentos,
+        )
+
+        await sync_interview_status_to_talentos(self._session, session)
 
         try:
             generate_interview_report.delay(str(session.id))

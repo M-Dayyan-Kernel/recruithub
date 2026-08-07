@@ -1,19 +1,25 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config_loader import config
 from app.core.constants import PLATFORM_TENANT_SLUG
 from app.core.settings import settings
-from app.exceptions import NotFoundError, ConflictError
+from app.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models.models import Candidate, InterviewSession, Job, ScreeningCall, ShortlistResult, Tenant, User
+from app.modules.talentos_integration.screening_classifier import classify_for_candidate
 from app.modules.talentos_integration.talentos_be_client import TalentosBEClient
 from app.repositories.job_repository import JobRepository
 from app.services.screening_defaults import get_default_screening_questions
+from app.services.settings_service import load_system_settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +27,42 @@ logger = logging.getLogger(__name__)
 def waives_screening_pass(candidate: Candidate) -> bool:
     """Backwards-compatible wrapper around Candidate.waives_screening_pass."""
     return candidate.waives_screening_pass
+
+
+TERMINAL_CALL_STATUSES = frozenset({"completed", "failed"})
+SCREENING_FAILURE_OUTCOMES = frozenset(
+    {"no_answer", "voicemail", "declined", "dropped", "failed"}
+)
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_TIME_RE = re.compile(r"^\d{2}:\d{2}$")
+
+
+def _parse_scheduled_slot(scheduled_date: str, scheduled_time: str, timezone_name: str) -> datetime:
+    """Parse an HR-selected slot into an aware UTC datetime.
+
+    Kept local to the talentOS integration module — intentionally does not
+    import from the POC's own interview scheduling services.
+    """
+    if not scheduled_date or not _DATE_RE.match(scheduled_date):
+        raise ValueError("scheduled_date must be YYYY-MM-DD")
+    if not scheduled_time or not _TIME_RE.match(scheduled_time):
+        raise ValueError("scheduled_time must be HH:MM")
+
+    try:
+        tz = ZoneInfo(timezone_name or "Asia/Kolkata")
+    except Exception as exc:
+        raise ValueError(f"Invalid timezone: {timezone_name}") from exc
+
+    try:
+        naive = datetime.strptime(
+            f"{scheduled_date} {scheduled_time}",
+            "%Y-%m-%d %H:%M",
+        )
+    except ValueError as exc:
+        raise ValueError("Invalid scheduled date or time") from exc
+
+    return naive.replace(tzinfo=tz).astimezone(timezone.utc)
 
 
 class TalentosIntegrationService:
@@ -245,6 +287,86 @@ class TalentosIntegrationService:
         await self._session.refresh(screening_call)
         return screening_call
 
+    async def call_now(
+        self, actor: User, job_id: uuid.UUID, candidate_id: uuid.UUID
+    ) -> tuple[ScreeningCall, bool]:
+        """Trigger a real Vapi screening call for a single candidate.
+
+        The existing ``trigger_screening`` is a talentOS-integration bypass (it
+        records a pass without dialing anyone). ``call_now`` instead places an
+        actual call: validates the phone, rejects live calls, creates a fresh
+        ``ScreeningCall`` row and enqueues the Celery dial task with
+        ``force=True`` (dial immediately — the call-window scheduling used by
+        the HR app is applied inside the dispatch).
+
+        Unlike ``ScreeningTriggerService`` this does not require a POC
+        shortlist approval row, because talentOS-moved candidates have no
+        ``ShortlistResult`` here. Returns ``(call, immediate)``.
+        """
+        tenant_id = await self._effective_tenant_id(actor)
+        await self._require_tenant_job(job_id, tenant_id)
+        candidate = await self._session.get(Candidate, candidate_id)
+        if candidate is None or candidate.job_id != job_id:
+            raise NotFoundError(public_message="Candidate not found in this job")
+
+        job = await self._session.get(Job, job_id)
+        if job is None:
+            raise NotFoundError(public_message="Job not found")
+
+        from app.core.celery_queues import SCREENING_QUEUE
+        from app.services.celery_health import (
+            celery_queue_available_async,
+            celery_queue_unavailable_message,
+        )
+        from app.services.phone_validation import validate_phone_with_reason
+        from app.services.screening_dispatch_service import enqueue_screening_call
+        from app.services.screening_gate_service import screening_disabled_reason
+        from app.services.screening_trigger_service import candidate_has_live_call
+        from app.services.settings_service import load_system_settings
+
+        if not await celery_queue_available_async(SCREENING_QUEUE):
+            raise ConflictError(
+                public_message=celery_queue_unavailable_message(SCREENING_QUEUE),
+            )
+
+        system_settings = await load_system_settings(self._session, tenant_id=tenant_id)
+        disabled_reason = screening_disabled_reason(system_settings, job)
+        if disabled_reason:
+            raise ConflictError(public_message=disabled_reason)
+
+        if await candidate_has_live_call(self._session, job_id, candidate_id):
+            raise ConflictError(
+                public_message="A screening call is already in progress for this candidate",
+            )
+
+        if not candidate.phone:
+            raise ValidationError(
+                public_message="Candidate has no phone number on file",
+            )
+
+        is_valid, normalized_phone, reject_reason = await validate_phone_with_reason(
+            candidate.phone,
+            session=self._session,
+            tenant_id=tenant_id,
+        )
+        if not is_valid:
+            raise ValidationError(
+                public_message=reject_reason or f"Invalid phone number: {candidate.phone}",
+            )
+        candidate.phone = normalized_phone
+
+        screening_call = ScreeningCall(
+            candidate_id=candidate_id,
+            job_id=job_id,
+            call_status="pending",
+        )
+        self._session.add(screening_call)
+        await self._session.commit()
+        await self._session.refresh(screening_call)
+
+        immediate = enqueue_screening_call(screening_call.id, job, force=True)
+        return screening_call, immediate
+
     async def get_screening_result(
         self, actor: User, job_id: uuid.UUID, candidate_id: uuid.UUID
     ) -> ScreeningCall | None:
@@ -259,6 +381,73 @@ class TalentosIntegrationService:
             .limit(1)
         )
         return result.scalars().first()
+
+    async def get_screening_status(
+        self, actor: User, job_id: uuid.UUID, candidate_id: uuid.UUID
+    ) -> dict | None:
+        """Server-computed disposition for a candidate (pending/completed/flagged).
+
+        Unlike get_screening_result this always returns a classification, even when
+        no screening call exists yet (e.g. flagged for a missing/invalid phone).
+        """
+        tenant_id = await self._effective_tenant_id(actor)
+        await self._require_tenant_job(job_id, tenant_id)
+        candidate = await self._session.get(Candidate, candidate_id)
+        if candidate is None or candidate.job_id != job_id:
+            raise NotFoundError(public_message="Candidate not found in this job")
+
+        call_result = await self._session.execute(
+            select(ScreeningCall)
+            .where(
+                ScreeningCall.job_id == job_id,
+                ScreeningCall.candidate_id == candidate_id,
+            )
+            .order_by(ScreeningCall.created_at.desc())
+            .limit(1)
+        )
+        call = call_result.scalars().first()
+
+        settings = await load_system_settings(self._session, tenant_id=tenant_id)
+        disposition, flag_reason = classify_for_candidate(candidate, call, settings)
+
+        if call is None:
+            return {
+                "disposition": disposition,
+                "flag_reason": flag_reason,
+                "has_call": False,
+                "latest_call": None,
+                "updated_at": candidate.created_at,
+            }
+
+        from app.modules.talentos_integration.talentos_integration_schema import (
+            TalentosScreeningResultResponse,
+        )
+
+        latest_call = TalentosScreeningResultResponse.model_validate(call)
+        latest_call.terminal_failure = self.is_terminal_screening_failure(call)
+
+        return {
+            "disposition": disposition,
+            "flag_reason": flag_reason,
+            "has_call": True,
+            "latest_call": latest_call,
+            "updated_at": call.created_at,
+        }
+
+    def is_terminal_screening_failure(self, call: ScreeningCall) -> bool:
+        """True when the screening call finished and cannot recover on its own.
+
+        Retries may still be pending when retry_count < the configured maximum,
+        so those outcomes are NOT terminal failures yet.
+        """
+        if call.call_status not in TERMINAL_CALL_STATUSES:
+            return False
+        outcome = (call.call_outcome or "").lower()
+        if outcome == "failed":
+            return True
+        if outcome in SCREENING_FAILURE_OUTCOMES:
+            return call.retry_count >= getattr(settings, "screening_max_retries", 0)
+        return False
 
     async def list_candidates(
         self, actor: User, job_id: uuid.UUID
@@ -297,6 +486,78 @@ class TalentosIntegrationService:
             status="pending",
         )
         self._session.add(session)
+        await self._session.commit()
+        await self._session.refresh(session)
+        return session
+
+    async def schedule_interview(
+        self,
+        actor: User,
+        job_id: uuid.UUID,
+        candidate_id: uuid.UUID,
+        payload,
+    ) -> InterviewSession:
+        """Set (or clear) the scheduled slot on a candidate's pending session.
+
+        payload is None → clears the slot (interview becomes immediately
+        joinable). Only pending sessions can be scheduled; in-progress or
+        completed sessions are left untouched.
+        """
+        tenant_id = await self._effective_tenant_id(actor)
+        await self._require_tenant_job(job_id, tenant_id)
+        candidate = await self._session.get(Candidate, candidate_id)
+        if candidate is None or candidate.job_id != job_id:
+            raise NotFoundError(public_message="Candidate not found in this job")
+
+        result = await self._session.execute(
+            select(InterviewSession)
+            .where(
+                InterviewSession.job_id == job_id,
+                InterviewSession.candidate_id == candidate_id,
+                InterviewSession.status == "pending",
+            )
+            .order_by(InterviewSession.created_at.desc())
+            .limit(1)
+        )
+        session = result.scalars().first()
+        if session is None:
+            raise NotFoundError(
+                public_message="No pending interview session found for this candidate"
+            )
+
+        has_slot = payload is not None and (
+            payload.scheduled_date is not None or payload.scheduled_time is not None
+        )
+        if not has_slot:
+            session.scheduled_interview_at = None
+            logger.info(
+                "Interview slot cleared: session=%s candidate=%s",
+                session.id,
+                candidate_id,
+            )
+        else:
+            try:
+                scheduled_at = _parse_scheduled_slot(
+                    payload.scheduled_date,
+                    payload.scheduled_time,
+                    payload.timezone or "Asia/Kolkata",
+                )
+            except ValueError as exc:
+                raise ValidationError(public_message=str(exc)) from exc
+            now = datetime.now(timezone.utc)
+            if scheduled_at < now - timedelta(minutes=1):
+                raise ConflictError(public_message="Scheduled time must be in the future")
+            session.scheduled_interview_at = scheduled_at
+            session.expires_at = scheduled_at + timedelta(
+                days=config.interview.session_link_ttl_days
+            )
+            logger.info(
+                "Interview slot set: session=%s candidate=%s scheduled_at=%s",
+                session.id,
+                candidate_id,
+                scheduled_at.isoformat(),
+            )
+
         await self._session.commit()
         await self._session.refresh(session)
         return session

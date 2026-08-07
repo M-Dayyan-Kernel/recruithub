@@ -107,6 +107,11 @@ class InterviewPublicService:
                 session.status = "expired"
                 await self._session.commit()
                 await self._interviews.refresh(session)
+                from app.modules.talentos_integration.interview_status_sync import (
+                    sync_interview_status_to_talentos,
+                )
+
+                await sync_interview_status_to_talentos(self._session, session)
 
         response_data = InterviewSessionResponse.model_validate(session)
         response_data.candidate_name = candidate.name if candidate else None
@@ -270,6 +275,12 @@ class InterviewPublicService:
             candidate_name,
         )
 
+        from app.modules.talentos_integration.interview_status_sync import (
+            sync_interview_status_to_talentos,
+        )
+
+        await sync_interview_status_to_talentos(self._session, session)
+
         return InterviewStartResponse(
             room_name=room_name,
             token=candidate_token,
@@ -340,6 +351,12 @@ class InterviewPublicService:
             session.transcript = _STUB_INTERVIEW_TRANSCRIPT
 
         await self._session.commit()
+
+        from app.modules.talentos_integration.interview_status_sync import (
+            sync_interview_status_to_talentos,
+        )
+
+        await sync_interview_status_to_talentos(self._session, session)
 
         from app.tasks.interview_tasks import enqueue_interview_assessment
 

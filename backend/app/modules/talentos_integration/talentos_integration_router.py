@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Body, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -17,12 +17,14 @@ from app.modules.talentos_integration.talentos_integration_schema import (
     TalentosCandidateResponse,
     TalentosInterviewDetailResponse,
     TalentosInterviewResponse,
+    TalentosInterviewSchedulePayload,
     TalentosInterviewTriggerResponse,
     TalentosJobCreate,
     TalentosJobQuestionsResponse,
     TalentosJobQuestionsUpdate,
     TalentosJobResponse,
     TalentosScreeningResultResponse,
+    TalentosScreeningStatusResponse,
     TalentosScreeningTriggerResponse,
     TalentosWithInterviewPayload,
     TalentosWithInterviewResponse,
@@ -154,6 +156,24 @@ async def trigger_screening(
         _raise_domain(exc)
 
 
+@router.post("/jobs/{job_id}/candidates/{candidate_id}/call-now", response_model=TalentosScreeningTriggerResponse)
+async def call_now(
+    job_id: uuid.UUID,
+    candidate_id: uuid.UUID,
+    actor: RequireAdmin,
+    service: TalentosIntegrationService = Depends(_get_service),
+):
+    """Place a real Vapi screening call now (bypasses the shortlist gate)."""
+    try:
+        call, immediate = await service.call_now(actor, job_id, candidate_id)
+        return TalentosScreeningTriggerResponse(
+            screening_call_id=call.id,
+            status="triggered" if immediate else "queued",
+        )
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
 @router.get("/jobs/{job_id}/candidates/{candidate_id}/screening", response_model=TalentosScreeningResultResponse)
 async def get_screening_result(
     job_id: uuid.UUID,
@@ -165,7 +185,23 @@ async def get_screening_result(
         call = await service.get_screening_result(actor, job_id, candidate_id)
         if call is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No screening call found for this candidate")
-        return TalentosScreeningResultResponse.model_validate(call)
+        response = TalentosScreeningResultResponse.model_validate(call)
+        response.terminal_failure = service.is_terminal_screening_failure(call)
+        return response
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
+@router.get("/jobs/{job_id}/candidates/{candidate_id}/screening-status", response_model=TalentosScreeningStatusResponse)
+async def get_screening_status(
+    job_id: uuid.UUID,
+    candidate_id: uuid.UUID,
+    actor: RequireAdmin,
+    service: TalentosIntegrationService = Depends(_get_service),
+):
+    try:
+        data = await service.get_screening_status(actor, job_id, candidate_id)
+        return TalentosScreeningStatusResponse.model_validate(data)
     except DomainError as exc:
         _raise_domain(exc)
 
@@ -180,6 +216,25 @@ async def trigger_interview(
     try:
         session = await service.trigger_interview(actor, job_id, candidate_id)
         return TalentosInterviewTriggerResponse(interview_session_id=session.id, status="created")
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
+@router.put("/jobs/{job_id}/candidates/{candidate_id}/interview/schedule", response_model=TalentosInterviewResponse)
+async def schedule_interview(
+    job_id: uuid.UUID,
+    candidate_id: uuid.UUID,
+    actor: RequireAdmin,
+    service: TalentosIntegrationService = Depends(_get_service),
+    payload: Optional[TalentosInterviewSchedulePayload] = Body(None),
+    external_job_id: str | None = Query(None, description="Resolve job by talentOS external_job_id first"),
+):
+    try:
+        if external_job_id:
+            job = await service.resolve_or_create_job(actor, external_job_id)
+            job_id = job.id
+        session = await service.schedule_interview(actor, job_id, candidate_id, payload)
+        return TalentosInterviewResponse.model_validate(session)
     except DomainError as exc:
         _raise_domain(exc)
 

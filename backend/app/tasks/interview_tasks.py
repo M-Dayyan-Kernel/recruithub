@@ -392,8 +392,7 @@ def _serialize_interview(interview_session, report) -> dict:
 
 async def _push_interview_to_talentos_be(*, job, candidate, interview_session, report) -> None:
     external_job_id = getattr(job, "external_job_id", None)
-    external_candidate_id = getattr(candidate, "external_candidate_id", None)
-    if not external_job_id or not external_candidate_id:
+    if not external_job_id or not candidate.id:
         return
     try:
         from app.modules.talentos_integration.talentos_be_client import TalentosBEClient
@@ -401,9 +400,10 @@ async def _push_interview_to_talentos_be(*, job, candidate, interview_session, r
         client = TalentosBEClient()
         await client.push_interview_completion(
             external_job_id=str(external_job_id),
-            external_candidate_id=str(external_candidate_id),
+            external_candidate_id=str(candidate.id),
             interview_id=str(interview_session.id),
             result=_serialize_interview(interview_session, report),
+            status="UNDER_EVALUATION",
         )
     except Exception as exc:
         logger.warning(

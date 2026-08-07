@@ -81,6 +81,8 @@ class TalentosBEClient:
         external_candidate_id: Optional[str],
         interview_id: Optional[str],
         result: dict[str, Any],
+        status: Optional[str] = None,
+        flag_reason: Optional[str] = None,
     ) -> Optional[dict[str, Any]]:
         if not external_job_id or not external_candidate_id:
             logger.info(
@@ -88,12 +90,14 @@ class TalentosBEClient:
                 external_job_id, external_candidate_id,
             )
             return None
-        return await self._post(
-            "/internal/talentos/webhooks/interview",
-            {
-                "external_job_id": external_job_id,
-                "external_candidate_id": external_candidate_id,
-                "interview_id": interview_id,
-                "result": result,
-            },
-        )
+        body: dict[str, Any] = {
+            "external_job_id": external_job_id,
+            "external_candidate_id": external_candidate_id,
+            "interview_id": interview_id,
+            "result": result,
+        }
+        if status:
+            body["status"] = status
+        if flag_reason:
+            body["flag_reason"] = flag_reason
+        return await self._post("/internal/talentos/webhooks/interview", body)
