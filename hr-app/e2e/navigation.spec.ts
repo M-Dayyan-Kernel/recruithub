@@ -101,7 +101,7 @@ test('sidebar job tree lists jobs with phase sub-links', async ({ page }) => {
 
   await page.getByRole('button', { name: /Expand Senior Frontend Engineer/i }).click()
 
-  await expect(page.getByRole('link', { name: 'AI Shortlist' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Resume Screening' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Screening' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Interviews' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Finalists' })).toBeVisible()
@@ -167,7 +167,7 @@ test('header shows Job details for job overview route', async ({ page }) => {
   await expect(topbar.getByText('Job details')).toBeVisible()
 })
 
-test('header shows AI Shortlist for job shortlist route', async ({ page }) => {
+test('header shows Resume Screening for job shortlist route', async ({ page }) => {
   await mockGetJobs(page)
   await mockGetJob(page, JOB_IDS.frontend, MOCK_JOBS[0])
   await mockGetCandidates(page, JOB_IDS.frontend, [])
@@ -179,7 +179,7 @@ test('header shows AI Shortlist for job shortlist route', async ({ page }) => {
   await page.waitForLoadState('networkidle')
 
   const topbar = page.locator('header')
-  await expect(topbar.getByText('AI Shortlist')).toBeVisible()
+  await expect(topbar.getByText('Resume Screening')).toBeVisible()
 })
 
 test('header shows Interviews for job interviews route', async ({ page }) => {

@@ -75,7 +75,7 @@ export default function Layout() {
     if (location.pathname.match(/^\/jobs\/[^/]+\/screening/)) return 'Screening'
     if (location.pathname.match(/^\/jobs\/[^/]+\/finalists/)) return 'Finalists'
     if (location.pathname.match(/^\/jobs\/[^/]+\/interviews/)) return 'Interviews'
-    if (location.pathname.match(/^\/jobs\/[^/]+\/shortlist/)) return 'AI Shortlist'
+    if (location.pathname.match(/^\/jobs\/[^/]+\/shortlist/)) return 'Resume Screening'
     if (location.pathname.match(/^\/jobs\/[^/]+$/)) return 'Job details'
     if (location.pathname.startsWith('/report/')) return 'Interview Report'
     if (location.pathname === '/settings') return 'Settings'

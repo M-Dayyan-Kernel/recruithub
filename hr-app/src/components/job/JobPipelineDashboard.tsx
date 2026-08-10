@@ -231,8 +231,8 @@ export function JobPipelineDashboard({ job }: Props) {
     const base: StageConfig[] = [
       {
         key: 'shortlisted',
-        label: 'Shortlisted',
-        description: 'AI-recommended fits',
+        label: 'Resume Shortlisted',
+        description: 'Resumes screened against the JD',
         value: metrics.shortlisted,
         icon: <Users size={20} className="text-violet-600" />,
         accent: 'bg-violet-500',

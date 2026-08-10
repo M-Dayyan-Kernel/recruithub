@@ -649,7 +649,7 @@ export function ShortlistTab({
 
   const aiShortlistedHeader = (
     <div className="space-y-1">
-      <h2 className="text-xl font-semibold text-slate-900">AI Shortlisted</h2>
+      <h2 className="text-xl font-semibold text-slate-900">Resume Screening</h2>
       <p className="text-sm text-slate-500">Candidates scored by AI with match scores and recommendations.</p>
     </div>
   )
@@ -660,7 +660,7 @@ export function ShortlistTab({
       (r) => r.recommendation === 'shortlisted' && r.hr_decision === 'pending',
     )
     if (toApprove.length === 0) {
-      toast('No AI-passed candidates pending approval.')
+      toast('No resume-passed candidates pending approval.')
       return
     }
     setApprovingAll(true)
@@ -706,7 +706,7 @@ export function ShortlistTab({
       (r) => r.recommendation === 'rejected' && r.hr_decision === 'pending',
     )
     if (toReject.length === 0) {
-      toast('No AI-failed candidates pending rejection.')
+      toast('No resume-failed candidates pending rejection.')
       return
     }
     setRejectingAll(true)
@@ -735,7 +735,7 @@ export function ShortlistTab({
 
   const handleExportShortlistedCsv = () => {
     if (aiShortlistedCandidates.length === 0) {
-      toast('No AI-shortlisted candidates to export.')
+      toast('No resume-screened candidates to export.')
       return
     }
     const csv = buildShortlistCsv(aiShortlistedCandidates, requiredSkills)
@@ -751,7 +751,7 @@ export function ShortlistTab({
 
   const handleExportShortlistedReports = () => {
     if (aiShortlistedCandidates.length === 0) {
-      toast('No AI-shortlisted candidates to export.')
+      toast('No resume-screened candidates to export.')
       return
     }
     try {

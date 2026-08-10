@@ -31,6 +31,12 @@ export const CANDIDATE_STAGE_FILTERS: Array<{
   { value: 'finalists', label: 'Finalists' },
 ]
 
+/** User-facing hiring stage label (Candidates directory keeps API wording). */
+export function formatHiringStage(stage: string | null | undefined): string {
+  if (!stage) return 'N/A'
+  return stage
+}
+
 export function displayOrNa(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === '') return 'N/A'
   return String(value)

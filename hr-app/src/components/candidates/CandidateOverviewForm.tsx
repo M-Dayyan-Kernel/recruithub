@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import type { CandidateProfile } from '@/types/api'
 import { useUpdateCandidate } from '@/hooks/useUpdateCandidate'
+import { formatHiringStage } from '@/lib/candidates'
 import { WORKFLOW_INPUT_CLASS } from '@/lib/workflow'
 import { cn } from '@/lib/utils'
 
@@ -111,7 +112,7 @@ export function CandidateOverviewForm({ profile }: Props) {
         <div>
           <label className="mb-1.5 block text-xs font-medium text-slate-500">Hiring stage</label>
           <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
-            {profile.hiring_stage}
+            {formatHiringStage(profile.hiring_stage)}
           </p>
         </div>
       </div>

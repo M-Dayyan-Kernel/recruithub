@@ -30,7 +30,7 @@ const FRONTEND_JOB = MOCK_JOBS[0]
 const FRONTEND_URL = `/jobs/${JOB_IDS.frontend}`
 const FRONTEND_SHORTLIST_URL = `/jobs/${JOB_IDS.frontend}/shortlist`
 
-const WORKFLOW_TABS = ['Processing', 'AI Shortlisted'] as const
+const WORKFLOW_TABS = ['Processing', 'Resume Screening'] as const
 
 async function mockFrontendJobDetail(page: import('@playwright/test').Page) {
   await mockGetJobs(page)
@@ -57,14 +57,14 @@ test('job detail page loads with title, skills, and experience range', async ({ 
   await expect(page.getByText('Active').first()).toBeVisible()
 })
 
-test('AI Shortlisted tab is default on job shortlist load', async ({ page }) => {
+test('Resume Screening tab is default on job shortlist load', async ({ page }) => {
   await mockFrontendJobDetail(page)
 
   await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByRole('button', { name: 'AI Shortlisted', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'AI Shortlisted' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Resume Screening', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Resume Screening' })).toBeVisible()
   await expect(page.getByText('No candidates have been scored yet.')).toBeVisible()
 })
 
@@ -78,13 +78,13 @@ test('job overview shows resume upload in hiring pipeline', async ({ page }) => 
   await expect(pipeline.getByText('Add candidate resumes')).toBeVisible()
 })
 
-test('shortlist toolbar shows AI Shortlisted and Processing only', async ({ page }) => {
+test('shortlist toolbar shows Resume Screening and Processing only', async ({ page }) => {
   await mockFrontendJobDetail(page)
 
   await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByRole('button', { name: 'AI Shortlisted', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Resume Screening', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Processing', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Upload', exact: true })).not.toBeVisible()
 })
@@ -117,7 +117,7 @@ test('each workflow tab shows its empty state', async ({ page }) => {
 
   const emptyStates: Record<(typeof WORKFLOW_TABS)[number], string> = {
     Processing: 'No resumes are being reviewed right now.',
-    'AI Shortlisted': 'No candidates have been scored yet.',
+    'Resume Screening': 'No candidates have been scored yet.',
   }
 
   for (const tab of WORKFLOW_TABS) {
@@ -183,7 +183,7 @@ test('Processing tab shows in-progress AI review', async ({ page }) => {
   await expect(page.getByText('Reviewing')).toBeVisible()
 })
 
-test('completed candidate appears on AI Shortlisted tab', async ({ page }) => {
+test('completed candidate appears on Resume Screening tab', async ({ page }) => {
   const alice = {
     ...MOCK_CANDIDATES.find((c) => c.id === CANDIDATE_IDS.alice)!,
     pipeline_status: 'completed' as const,
@@ -204,7 +204,7 @@ test('completed candidate appears on AI Shortlisted tab', async ({ page }) => {
   await expect(page.getByText(/8[78]%/).first()).toBeVisible()
 })
 
-test('AI Shortlisted tab supports table approve', async ({ page }) => {
+test('Resume Screening tab supports table approve', async ({ page }) => {
   const aliceShortlist = MOCK_SHORTLIST.find((r) => r.candidate_id === CANDIDATE_IDS.alice)!
   const patched: Array<{ id: string; hr_decision: string }> = []
 
@@ -221,7 +221,7 @@ test('AI Shortlisted tab supports table approve', async ({ page }) => {
   await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
-  await page.getByRole('button', { name: 'AI Shortlisted', exact: true }).click()
+  await page.getByRole('button', { name: 'Resume Screening', exact: true }).click()
   await expect(page.getByRole('cell', { name: 'Alice Sharma' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Report' })).toBeVisible()
 
@@ -233,7 +233,7 @@ test('AI Shortlisted tab supports table approve', async ({ page }) => {
   expect(patched[0].hr_decision).toBe('approved')
 })
 
-test('AI Shortlisted report button opens report modal on same screen', async ({ page }) => {
+test('Resume Screening report button opens report modal on same screen', async ({ page }) => {
   const aliceShortlist = MOCK_SHORTLIST.find((r) => r.candidate_id === CANDIDATE_IDS.alice)!
 
   await mockGetJobs(page)
@@ -267,7 +267,7 @@ test('job details page shows pipeline overview stats', async ({ page }) => {
   await page.waitForLoadState('networkidle')
 
   await expect(page.getByRole('heading', { name: 'Hiring pipeline' })).toBeVisible()
-  await expect(page.getByText('Shortlisted', { exact: true })).toBeVisible()
+  await expect(page.getByText('Resume Shortlisted', { exact: true })).toBeVisible()
   await expect(page.getByText('Screened', { exact: true })).toBeVisible()
   await expect(page.getByText('Scheduled', { exact: true })).toBeVisible()
   await expect(page.getByText('Finalists', { exact: true })).toBeVisible()

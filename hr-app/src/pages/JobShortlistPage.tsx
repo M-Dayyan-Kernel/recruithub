@@ -28,7 +28,7 @@ export default function JobShortlistPage() {
   useEffect(() => {
     if (!searchParams.get('tab')) {
       const next = new URLSearchParams(searchParams)
-      next.set('tab', shortlistTabParam('AI Shortlisted'))
+      next.set('tab', shortlistTabParam('Resume Screening'))
       setSearchParams(next, { replace: true })
     }
   }, [searchParams, setSearchParams])
@@ -44,12 +44,12 @@ export default function JobShortlistPage() {
 
   const handleProcessingComplete = () => {
     pipeline.clearProgressBatch()
-    setActiveTab('AI Shortlisted', true)
+    setActiveTab('Resume Screening', true)
   }
 
   return (
     <>
-      {activeTab === 'AI Shortlisted' ? (
+      {activeTab === 'Resume Screening' ? (
         <div className={WORKFLOW_SECTION_CLASS}>
           <ShortlistTab
             jobId={jobId}
