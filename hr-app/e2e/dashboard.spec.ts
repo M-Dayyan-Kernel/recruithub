@@ -14,7 +14,11 @@ import {
   MOCK_CANDIDATES,
   JOB_IDS,
   mockGetJobsSafe,
+  mockGetJobs,
   mockAllJobSubEndpoints,
+  mockAuthenticatedSession,
+  mockGetCandidateDirectory,
+  mockCandidateProfileApi,
 } from './fixtures'
 
 // ---------------------------------------------------------------------------
@@ -161,4 +165,49 @@ test('clicking View link navigates to job detail page', async ({ page }) => {
   await viewLinks.first().click()
 
   await expect(page).toHaveURL(new RegExp(`/jobs/${JOB_IDS.frontend}`))
+})
+
+// ---------------------------------------------------------------------------
+// 7. KPI cards drill down to Jobs / Candidates with stage filters
+// ---------------------------------------------------------------------------
+
+test('Active Jobs KPI navigates to Jobs page', async ({ page }) => {
+  await mockAuthenticatedSession(page)
+  await mockGetJobsSafe(page)
+  await mockGetJobs(page)
+  await mockAllJobSubEndpoints(page)
+
+  await page.goto('/')
+  await page.waitForLoadState('networkidle')
+
+  await page.getByRole('link', { name: /Active Jobs/i }).click()
+  await expect(page).toHaveURL('/jobs')
+})
+
+test('Screened KPI navigates to Candidates with stage=screening', async ({ page }) => {
+  await mockAuthenticatedSession(page)
+  await mockGetJobsSafe(page)
+  await mockAllJobSubEndpoints(page)
+  await mockGetCandidateDirectory(page)
+  await mockCandidateProfileApi(page)
+
+  await page.goto('/')
+  await page.waitForLoadState('networkidle')
+
+  await page.getByRole('link', { name: /Screened/i }).click()
+  await expect(page).toHaveURL(/\/candidates\?stage=screening/)
+})
+
+test('Interview Ready KPI navigates to Candidates with stage=interview', async ({ page }) => {
+  await mockAuthenticatedSession(page)
+  await mockGetJobsSafe(page)
+  await mockAllJobSubEndpoints(page)
+  await mockGetCandidateDirectory(page)
+  await mockCandidateProfileApi(page)
+
+  await page.goto('/')
+  await page.waitForLoadState('networkidle')
+
+  await page.getByRole('link', { name: /Interview Ready/i }).click()
+  await expect(page).toHaveURL(/\/candidates\?stage=interview/)
 })

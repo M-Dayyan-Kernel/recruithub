@@ -24,20 +24,24 @@ interface SummaryCardProps {
   icon: React.ReactNode
   iconBg: string
   subtitle?: string
+  to: string
 }
 
-function SummaryCard({ title, value, icon, iconBg, subtitle }: SummaryCardProps) {
+function SummaryCard({ title, value, icon, iconBg, subtitle, to }: SummaryCardProps) {
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-      <div className="flex items-center justify-between mb-3">
+    <Link
+      to={to}
+      className="block rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:border-indigo-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+    >
+      <div className="mb-3 flex items-center justify-between">
         <p className="text-sm font-medium text-slate-500">{title}</p>
-        <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center shrink-0`}>
+        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
           {icon}
         </div>
       </div>
       <p className="text-3xl font-bold text-slate-900">{value}</p>
-      {subtitle && <p className="text-xs text-slate-400 mt-1">{subtitle}</p>}
-    </div>
+      {subtitle && <p className="mt-1 text-xs text-slate-400">{subtitle}</p>}
+    </Link>
   )
 }
 
@@ -278,6 +282,7 @@ export default function DashboardPage() {
           icon={<Briefcase size={17} className="text-indigo-600" />}
           iconBg="bg-indigo-50"
           subtitle={`of ${jobList.length} total`}
+          to="/jobs"
         />
         <SummaryCard
           title="Total Candidates"
@@ -285,6 +290,7 @@ export default function DashboardPage() {
           icon={<Users size={17} className="text-violet-600" />}
           iconBg="bg-violet-50"
           subtitle="across all jobs"
+          to="/candidates"
         />
         <SummaryCard
           title="Screened"
@@ -292,6 +298,7 @@ export default function DashboardPage() {
           icon={<Phone size={17} className="text-emerald-600" />}
           iconBg="bg-emerald-50"
           subtitle="candidates with a completed call"
+          to="/candidates?stage=screening"
         />
         <SummaryCard
           title="Interview Ready"
@@ -299,6 +306,7 @@ export default function DashboardPage() {
           icon={<Video size={17} className="text-amber-600" />}
           iconBg="bg-amber-50"
           subtitle="passed screening"
+          to="/candidates?stage=interview"
         />
       </div>
 
