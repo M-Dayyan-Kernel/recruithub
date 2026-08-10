@@ -63,14 +63,14 @@ const REC_CONFIG = {
 type RecommendationFilter = 'all' | keyof typeof REC_CONFIG
 
 const RECOMMENDATION_FILTER_OPTIONS: { value: RecommendationFilter; label: string }[] = [
-  { value: 'all', label: 'All recommendations' },
+  { value: 'all', label: 'All' },
   { value: 'shortlisted', label: 'Pass' },
   { value: 'rejected', label: 'Fail' },
-  { value: 'review', label: 'Needs Review' },
+  { value: 'review', label: 'Review' },
 ]
 
 const SHORTLIST_FILTER_SELECT_CLASS =
-  'h-11 w-full sm:w-44 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100'
+  'h-11 w-[7.5rem] shrink-0 rounded-lg border border-slate-200 bg-white py-0 pl-3 pr-8 text-left text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100'
 
 function RecommendationBadge({ rec }: { rec: ShortlistResultWithCandidate['recommendation'] }) {
   const cfg = REC_CONFIG[rec as keyof typeof REC_CONFIG]
@@ -200,7 +200,7 @@ function BulkActionButtons({
   const disabled = approvingAll || rejectingAll
 
   return (
-    <div className="inline-grid w-full min-w-[17rem] grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-slate-200 shadow-sm sm:w-auto">
+    <div className="inline-grid w-auto shrink-0 min-w-[15rem] grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-slate-200 shadow-sm">
       <button
         type="button"
         onClick={onApproveAll}
@@ -845,12 +845,12 @@ export function ShortlistTab({
   // ── Results ───────────────────────────────────────────────────────────────
   if (isAiShortlistedMode) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         {aiShortlistedHeader}
 
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex w-full max-w-2xl flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="relative flex-1 min-w-0">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex min-w-0 flex-1 basis-[18rem] items-center gap-3">
+            <div className="relative min-w-0 flex-1">
               <Search
                 size={14}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
@@ -877,8 +877,8 @@ export function ShortlistTab({
             </select>
           </div>
 
-          <div className="flex w-full flex-col gap-3 sm:w-auto sm:items-end">
-            <p className="text-sm text-slate-500 sm:text-right">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            <p className="text-sm text-slate-500 whitespace-nowrap">
               {recommendationFilter === 'all' ? (
                 <>
                   <span className="font-semibold text-slate-800">{scoredResults.length}</span>
@@ -901,26 +901,24 @@ export function ShortlistTab({
               onApproveAll={() => void handleApproveAll()}
               onRejectAll={() => void handleRejectAll()}
             />
-            <div className="flex flex-wrap gap-2 sm:justify-end">
-              <button
-                type="button"
-                onClick={handleExportShortlistedCsv}
-                disabled={aiShortlistedCandidates.length === 0}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Download size={14} />
-                Export CSV ({aiShortlistedCandidates.length})
-              </button>
-              <button
-                type="button"
-                onClick={handleExportShortlistedReports}
-                disabled={aiShortlistedCandidates.length === 0}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <FileText size={14} />
-                Export all PDFs
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleExportShortlistedCsv}
+              disabled={aiShortlistedCandidates.length === 0}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Download size={14} />
+              Export CSV ({aiShortlistedCandidates.length})
+            </button>
+            <button
+              type="button"
+              onClick={handleExportShortlistedReports}
+              disabled={aiShortlistedCandidates.length === 0}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <FileText size={14} />
+              Export all PDFs
+            </button>
           </div>
         </div>
 
