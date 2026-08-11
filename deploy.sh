@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 #
 # deploy.sh — deploy ai-recruitment-poc (branch: stich/talentos) to the
 # two-server recruithub production topology.
