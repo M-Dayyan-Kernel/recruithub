@@ -7,11 +7,15 @@
 #   Server 2 (recruithub-dev-canary)  172.235.26.53   Celery beat + workers (resume x3, screening, interviews a/b)
 #
 # Usage (run on the server as root):
-#   bash deploy.sh server1    # deploy API + frontends + migrations on Server 1
-#   bash deploy.sh server2    # deploy workers on Server 2
-#   bash deploy.sh all        # run server1, then ssh into Server 2 and run server2
+#   bash deploy.sh            # auto-detect this server (hostname/IP) and deploy it
+#   bash deploy.sh server1    # force-deploy Server 1 steps (app + infra)
+#   bash deploy.sh server2    # force-deploy Server 2 steps (workers)
+#   bash deploy.sh all        # deploy Server 1, then ssh into Server 2 and deploy it
 #   bash deploy.sh logs       # tail service logs for the current server
 #   bash deploy.sh status     # compose ps + health checks for the current server
+#
+# Auto-detection order: hostname contains "canary" -> server2, else IP 172.235.26.53 -> server2,
+# IP 172.235.26.25 -> server1, otherwise defaults to server1.
 #
 # Requires .env.production to already exist next to this script on each server.
 # deploy.sh never creates or modifies .env.production (no data loss).
@@ -63,11 +67,18 @@ detect_server() {
   esac
   local hn hostip
   hn="$(hostname 2>/dev/null || echo unknown)"
-  hostip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  hostip="$(hostname -I 2>/dev/null)"
   case "${hn}" in
-    *canary*) echo "server2";;
-    *) echo "server1";;
+    *canary*) echo "server2"; return 0;;
+    *recruithub-dev-app*) echo "server1"; return 0;;
+    *recruithub-dev*) echo "server1"; return 0;;
   esac
+  case " ${hostip} " in
+    *" 172.235.26.53 "*) echo "server2"; return 0;;
+    *" 172.235.26.25 "*) echo "server1"; return 0;;
+  esac
+  warn "could not detect server role from hostname/IP; defaulting to server1"
+  echo "server1"
 }
 
 git_sync() {
@@ -176,6 +187,17 @@ show_status() {
 # ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
+deploy_detected() {
+  local role
+  role="$(detect_server "")"
+  log "Detected server role: ${role}"
+  if [ "${role}" = "server2" ]; then
+    deploy_server2
+  else
+    deploy_server1
+  fi
+}
+
 MODE="${1:-}"
 case "${MODE}" in
   server1) deploy_server1 ;;
@@ -189,6 +211,7 @@ case "${MODE}" in
     ;;
   logs) tail_logs ;;
   status) show_status ;;
+  "") deploy_detected ;;
   *)
     echo "Usage: bash $0 {server1|server2|all|logs|status}" >&2
     exit 1
