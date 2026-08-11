@@ -375,6 +375,7 @@ def _serialize_interview(interview_session, report) -> dict:
         "started_at": _iso(getattr(interview_session, "started_at", None)),
         "completed_at": _iso(getattr(interview_session, "completed_at", None)),
         "transcript": getattr(interview_session, "transcript", None),
+        "transcript_segments": getattr(interview_session, "transcript_segments", None),
         "summary": getattr(report, "summary", None),
         "transcript_summary": getattr(report, "transcript_summary", None),
         "overall_score": getattr(report, "overall_score", None),
