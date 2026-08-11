@@ -8,6 +8,7 @@ import { CandidateScreeningTab } from '@/components/candidates/CandidateScreenin
 import { CandidateInterviewTab } from '@/components/candidates/CandidateInterviewTab'
 import { CandidateTimelineTab } from '@/components/candidates/CandidateTimelineTab'
 import { useCandidateProfile } from '@/hooks/useCandidateProfile'
+import { formatHiringStage } from '@/lib/candidates'
 import { cn } from '@/lib/utils'
 
 const TABS = ['Overview', 'AI Analysis', 'Screening', 'Interview', 'Timeline'] as const
@@ -53,7 +54,7 @@ export default function CandidateProfilePage() {
         </Link>
         <h1 className="mt-3 text-2xl font-semibold text-slate-900">{profile.name}</h1>
         <p className="mt-1 text-sm text-slate-500">
-          {profile.job_title} · {profile.hiring_stage} ·{' '}
+          {profile.job_title} · {formatHiringStage(profile.hiring_stage)} ·{' '}
           {profile.match_score != null ? `${Math.round(profile.match_score)}% match` : 'No score yet'}
         </p>
       </div>

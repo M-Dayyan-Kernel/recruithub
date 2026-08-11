@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { CandidateListItem } from '@/types/api'
-import { displayOrNa } from '@/lib/candidates'
+import { displayOrNa, formatHiringStage } from '@/lib/candidates'
 import { formatUploadedAt } from '@/lib/workflow'
 import { WORKFLOW_CARD_CLASS, WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
 import { cn } from '@/lib/utils'
@@ -81,7 +81,7 @@ export function CandidatesTable({ items, onRowClick }: Props) {
                       stageBadgeClass(row.hiring_stage),
                     )}
                   >
-                    {row.hiring_stage}
+                    {formatHiringStage(row.hiring_stage)}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-sm text-slate-600 tabular-nums">

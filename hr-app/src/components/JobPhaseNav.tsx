@@ -22,10 +22,10 @@ import { downloadFinalistsExcel } from '@/lib/finalistsExport'
 
 const PHASES = [
   {
-    label: 'AI Shortlist',
+    label: 'Resume Screening',
     segment: 'shortlist',
     icon: ListChecks,
-    description: 'Rank and shortlist resumes',
+    description: 'Evaluate resumes against the job description',
   },
   {
     label: 'Screening',

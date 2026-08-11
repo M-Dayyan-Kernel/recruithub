@@ -105,7 +105,7 @@ function drawPageFooter(doc: jsPDF, pageNumber: number, totalPages: number) {
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
   doc.setTextColor(...COLORS.slate)
-  doc.text(`Recruitment Hub · AI Shortlist Report · Page ${pageNumber} of ${totalPages}`, PAGE_MARGIN, FOOTER_Y)
+  doc.text(`Recruitment Hub · Resume Screening Report · Page ${pageNumber} of ${totalPages}`, PAGE_MARGIN, FOOTER_Y)
   doc.text(new Date().toLocaleDateString(), PAGE_MARGIN + CONTENT_WIDTH, FOOTER_Y, { align: 'right' })
 }
 
@@ -124,7 +124,7 @@ function renderCandidateReport(
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(18)
   doc.setTextColor(...COLORS.indigo)
-  doc.text('AI Shortlist Report', PAGE_MARGIN, y)
+  doc.text('Resume Screening Report', PAGE_MARGIN, y)
 
   if (options?.jobTitle) {
     doc.setFont('helvetica', 'normal')
@@ -258,7 +258,7 @@ export function downloadAllShortlistReportsPdf(
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(20)
   doc.setTextColor(...COLORS.indigo)
-  doc.text('AI Shortlist Export', PAGE_MARGIN, 30)
+  doc.text('Resume Screening Export', PAGE_MARGIN, 30)
 
   if (options?.jobTitle) {
     doc.setFont('helvetica', 'normal')

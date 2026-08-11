@@ -1,12 +1,13 @@
 ---
 name: fastapi-feature
-description: |
-  Use this skill when building a NEW feature, endpoint, or service in a Python/FastAPI backend, so it lands clean and production-ready from the start rather than needing a later refactor. Enforces: one service class per responsibility with methods in execution order (e.g. an AI/ML pipeline: retrieve → parse → prompt → infer → persist), a layered layout (routers → services → repositories/clients), injected dependencies, deliberate batch handling, edge-case and error coverage, and a production checklist.
-
-  Trigger for: "add an endpoint," "build a new service," "implement this feature in the backend," "write the API for X," "add a route that does Y" — any new backend code in a FastAPI project.
-
-  Don't trigger for: refactoring or cleaning up EXISTING messy code (use fastapi-refactor instead), frontend work, pure debugging, or non-FastAPI frameworks unless migrating.
-license: Proprietary. Do not share.
+description: >-
+  Builds new FastAPI features to production standard: one service class per
+  responsibility with methods in execution order (retrieve → parse → prompt →
+  infer → persist), layered layout (routers → services → repositories/clients),
+  injected dependencies, batch handling, edge cases, and a production checklist.
+  Use when adding an endpoint, building a new backend service, implementing a
+  FastAPI feature, writing an API for X, or adding a route. Do not use for
+  frontend work, pure debugging, or non-FastAPI frameworks unless migrating.
 ---
 
 # Building New FastAPI Features to Production Standard

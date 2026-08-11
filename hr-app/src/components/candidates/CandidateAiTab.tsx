@@ -15,7 +15,7 @@ export function CandidateAiTab({ profile }: Props) {
 
   if (!profile.shortlist) {
     return (
-      <p className="text-sm text-slate-500">No AI shortlist analysis available yet for this candidate.</p>
+      <p className="text-sm text-slate-500">No resume screening analysis available yet for this candidate.</p>
     )
   }
 

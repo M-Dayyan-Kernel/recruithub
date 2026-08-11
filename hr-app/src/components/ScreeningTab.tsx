@@ -366,7 +366,7 @@ export function ScreeningTab({ jobId }: Props) {
           </div>
           <p className="mb-1 font-semibold text-slate-700">No approved candidates to screen</p>
           <p className="max-w-xs text-sm text-slate-400">
-            Approve candidates on the AI Shortlist tab to queue them for voice screening.
+            Approve candidates on the Resume Screening tab to queue them for voice screening.
           </p>
         </div>
       </div>

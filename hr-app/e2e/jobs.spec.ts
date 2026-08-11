@@ -63,7 +63,7 @@ test('sidebar Archived link opens archived jobs page with cards', async ({ page 
 // 2. Expanding a job shows phase links
 // ---------------------------------------------------------------------------
 
-test('expanding a job shows AI Shortlist, Screening, Interviews, and Finalists links', async ({ page }) => {
+test('expanding a job shows Resume Screening, Screening, Interviews, and Finalists links', async ({ page }) => {
   await mockLayoutWithJobs(page)
 
   await page.goto('/')
@@ -71,7 +71,7 @@ test('expanding a job shows AI Shortlist, Screening, Interviews, and Finalists l
 
   await page.getByRole('button', { name: 'Senior Frontend Engineer' }).click()
 
-  await expect(page.getByRole('link', { name: 'AI Shortlist' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Resume Screening' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Screening' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Interviews' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Finalists' })).toBeVisible()
@@ -116,10 +116,10 @@ test('Create Job form shows validation errors on empty submit', async ({ page })
 })
 
 // ---------------------------------------------------------------------------
-// 5. Create Job success flow — navigates to new job AI Shortlist page
+// 5. Create Job success flow — navigates to new job Resume Screening page
 // ---------------------------------------------------------------------------
 
-test('Create Job success navigates to new job AI Shortlist page', async ({ page }) => {
+test('Create Job success navigates to new job Resume Screening page', async ({ page }) => {
   const newJobId = 'aaaaaaaa-0000-0000-0000-000000999999'
   await mockLayoutWithJobs(page)
   await mockPostJob(page, {
@@ -194,10 +194,10 @@ test('empty state shows no jobs message in sidebar', async ({ page }) => {
 })
 
 // ---------------------------------------------------------------------------
-// 8. AI Shortlist link navigates to job page
+// 8. Resume Screening link navigates to job page
 // ---------------------------------------------------------------------------
 
-test('AI Shortlist link navigates to job shortlist page', async ({ page }) => {
+test('Resume Screening link navigates to job shortlist page', async ({ page }) => {
   await mockLayoutWithJobs(page)
   await mockGetJob(page, JOB_IDS.frontend, MOCK_JOBS_SAFE[0])
   await mockGetCandidates(page, JOB_IDS.frontend, [])
@@ -209,8 +209,8 @@ test('AI Shortlist link navigates to job shortlist page', async ({ page }) => {
   await page.waitForLoadState('networkidle')
 
   await page.getByRole('button', { name: 'Senior Frontend Engineer' }).click()
-  await page.getByRole('link', { name: 'AI Shortlist' }).click()
+  await page.getByRole('link', { name: 'Resume Screening' }).click()
 
   await expect(page).toHaveURL(`/jobs/${JOB_IDS.frontend}/shortlist`)
-  await expect(page.locator('header').getByText('AI Shortlist')).toBeVisible()
+  await expect(page.locator('header').getByText('Resume Screening')).toBeVisible()
 })

@@ -148,7 +148,7 @@ export function ProcessingTab({
                           ? 'AI is reading the resume and scoring fit against the job description…'
                           : isFailed
                             ? 'Review failed — try again or re-upload the file.'
-                            : 'Scored and ready on the AI Shortlisted tab.'}
+                            : 'Scored and ready on the Resume Screening tab.'}
                       </p>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-2">

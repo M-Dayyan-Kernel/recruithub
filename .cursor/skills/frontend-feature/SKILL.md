@@ -1,17 +1,20 @@
 ---
 name: frontend-feature
-description: |
-  Use this skill when building, editing, or reviewing frontend code in the HR app or Candidate app — React 18 + TypeScript (strict) + Vite 6 projects using React Router v6, Tailwind, Axios, and TanStack React Query v5. Enforces the shared stack's conventions: typed API layer, React Query for all server state (no server data in useState/useEffect), feature-based folder structure, the cn() styling helper, custom Tailwind components (not shadcn), and per-app differences (JWT auth + exports for HR, LiveKit for Candidate).
-
-  Trigger for: "add a page/route," "build this component," "wire up this API call," "add a screen for X," "fetch and display Y," "review my frontend code" — any React/TypeScript work in these two apps.
-
-  Don't trigger for: backend/FastAPI work (use fastapi-feature / fastapi-refactor), pure visual design exploration with no code (use frontend-design), or non-React frontends.
-license: Proprietary. Do not share.
+description: >-
+  Builds and reviews frontend code in the HR app or Candidate app — React 18 +
+  TypeScript (strict) + Vite 6, React Router v6, Tailwind, Axios, TanStack React
+  Query v5. Enforces typed API layer, React Query for all server state (no
+  server data in useState/useEffect), feature-based folders, cn() helper, custom
+  Tailwind components (not shadcn), and per-app differences (JWT auth + exports
+  for HR, LiveKit for Candidate). Use when adding a page/route, building a
+  component, wiring an API call, fetching/displaying data, or reviewing React
+  code in these apps. Do not use for backend/FastAPI (use fastapi-feature), pure
+  visual exploration with no code, or non-React frontends.
 ---
 
 # Frontend Feature Standards (HR app + Candidate app)
 
-The goal is that new frontend code is indistinguishable from well-written existing code in these two apps — same stack idioms, same structure, same patterns — so nothing needs a later cleanup pass. This is the frontend counterpart to the `fastapi-feature` backend skill: build to the standard from the first line.
+The goal is that new frontend code is indistinguishable from well-written existing code in these two apps — same stack idioms, same structure, same patterns — so nothing needs a later cleanup pass. Build to the standard from the first line (frontend counterpart to `fastapi-feature`).
 
 The fixed stack is not negotiable per-feature. Don't reach for a different data-fetching library, a different styling approach, or a component kit the project doesn't use. Consistency with the existing codebase beats any individual preference — when in doubt, grep for how it's already done and match it.
 

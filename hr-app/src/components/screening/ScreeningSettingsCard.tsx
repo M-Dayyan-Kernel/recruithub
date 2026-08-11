@@ -189,7 +189,7 @@ export function ScreeningSettingsCard({ job, eligibleCandidateIds, onCallsTrigge
               {eligibleCount === 0 ? (
                 <>
                   No candidates ready — approve resumes on{' '}
-                  <span className="font-medium text-slate-700">AI Shortlist</span> first
+                  <span className="font-medium text-slate-700">Resume Screening</span> first
                 </>
               ) : (
                 <>

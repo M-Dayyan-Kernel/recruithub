@@ -25,11 +25,21 @@ export const CANDIDATE_STAGE_FILTERS: Array<{
   label: string
 }> = [
   { value: '', label: 'All stages' },
-  { value: 'ai_shortlisted', label: 'AI Shortlisted' },
+  { value: 'ai_shortlisted', label: 'Resume Screening' },
   { value: 'screening', label: 'Screening' },
   { value: 'interview', label: 'Interview' },
   { value: 'finalists', label: 'Finalists' },
 ]
+
+const HIRING_STAGE_DISPLAY: Record<string, string> = {
+  'AI Shortlisted': 'Resume Screening',
+}
+
+/** User-facing hiring stage label (API may still return "AI Shortlisted"). */
+export function formatHiringStage(stage: string | null | undefined): string {
+  if (!stage) return 'N/A'
+  return HIRING_STAGE_DISPLAY[stage] ?? stage
+}
 
 export function displayOrNa(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === '') return 'N/A'
