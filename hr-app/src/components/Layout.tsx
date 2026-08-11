@@ -5,6 +5,7 @@ import {
   Activity,
   Archive,
   Briefcase,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -79,6 +80,7 @@ export default function Layout() {
     if (location.pathname.match(/^\/jobs\/[^/]+$/)) return 'Job details'
     if (location.pathname.startsWith('/report/')) return 'Interview Report'
     if (location.pathname === '/settings') return 'Settings'
+    if (location.pathname === '/settings/api-keys') return 'API Keys & Connections'
     if (location.pathname === '/users') return 'Users'
     if (location.pathname === '/activity') return 'Activity'
     return 'Recruitment Hub'
@@ -177,6 +179,10 @@ export default function Layout() {
                 <NavLink to="/settings" onClick={closeSidebar} className={navLinkClass}>
                   <Settings className="h-4 w-4 shrink-0 opacity-80" />
                   Settings
+                </NavLink>
+                <NavLink to="/settings/api-keys" onClick={closeSidebar} className={navLinkClass}>
+                  <KeyRound className="h-4 w-4 shrink-0 opacity-80" />
+                  API Keys
                 </NavLink>
               </div>
             </div>

@@ -20,7 +20,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import InterviewSession, Job
-from app.modules.talentos_integration.talentos_be_client import TalentosBEClient
+from app.modules.talentos_integration.talentos_be_client import (
+    get_talentos_client_for_tenant,
+)
 from app.services.interview_flag_service import get_flag_reason
 from app.services.interview_pipeline_service import classify_interview_tab
 
@@ -95,7 +97,7 @@ async def sync_interview_status_to_talentos(
         result = _serialize_session(session)
         result["talentos_status"] = status
 
-        client = TalentosBEClient()
+        client = await get_talentos_client_for_tenant(job.tenant_id if job else None)
         await client.push_interview_completion(
             external_job_id=str(external_job_id),
             external_candidate_id=str(session.candidate_id),

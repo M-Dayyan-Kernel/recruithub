@@ -10,10 +10,45 @@ from app.core.settings import settings
 logger = logging.getLogger(__name__)
 
 
+async def get_talentos_client_for_tenant(tenant_id: Optional[Any] = None) -> "TalentosBEClient":
+    """Build a TalentosBEClient using per-tenant overrides, falling back to .env.
+
+    A missing/None tenant_id always yields the plain .env-backed client so the
+    behavior is identical to the previous ``TalentosBEClient()``.
+    """
+    if tenant_id is None:
+        return TalentosBEClient()
+    try:
+        from app.core.database import get_celery_db
+
+        async with get_celery_db() as db:
+            from app.modules.talentos_integration.tenant_connection import (
+                load_tenant_connection,
+            )
+
+            data = await load_tenant_connection(db, tenant_id)
+        values = data["values"]
+        return TalentosBEClient(
+            base_url=values.get("talentos_be_url") or None,
+            api_key=values.get("talentos_be_api_key") or None,
+        )
+    except Exception:
+        logger.warning(
+            "Failed to load tenant connection overrides for tenant_id=%s; falling back to .env",
+            tenant_id,
+            exc_info=True,
+        )
+        return TalentosBEClient()
+
+
 class TalentosBEClient:
-    def __init__(self) -> None:
-        self._base_url = settings.TALENTOS_BE_URL.rstrip("/")
-        self._api_key = settings.TALENTOS_BE_API_KEY
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ) -> None:
+        self._base_url = (base_url or settings.TALENTOS_BE_URL).rstrip("/")
+        self._api_key = api_key or settings.TALENTOS_BE_API_KEY
         self._headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Accept": "application/json",

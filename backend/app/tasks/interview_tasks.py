@@ -395,9 +395,11 @@ async def _push_interview_to_talentos_be(*, job, candidate, interview_session, r
     if not external_job_id or not candidate.id:
         return
     try:
-        from app.modules.talentos_integration.talentos_be_client import TalentosBEClient
+        from app.modules.talentos_integration.talentos_be_client import (
+            get_talentos_client_for_tenant,
+        )
 
-        client = TalentosBEClient()
+        client = await get_talentos_client_for_tenant(getattr(job, "tenant_id", None))
         await client.push_interview_completion(
             external_job_id=str(external_job_id),
             external_candidate_id=str(candidate.id),

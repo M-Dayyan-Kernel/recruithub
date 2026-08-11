@@ -185,6 +185,45 @@ export interface ScreeningTriggerResponse {
 }
 
 // ---------------------------------------------------------------------------
+// API keys & talentOS connections
+// ---------------------------------------------------------------------------
+
+export interface ApiKey {
+  id: string
+  name: string
+  description?: string | null
+  key_prefix: string
+  is_active: boolean
+  last_used_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ApiKeyListResponse {
+  data: ApiKey[]
+  total: number
+}
+
+export interface ApiKeyCreatedResponse extends ApiKey {
+  full_key: string
+}
+
+export interface ConnectionFieldResponse {
+  configured: boolean
+  source: 'tenant' | 'platform' | 'missing'
+  hint?: string | null
+}
+
+export interface TalentosConnectionResponse {
+  fields: Record<string, ConnectionFieldResponse>
+}
+
+export interface TalentosConnectionUpdate {
+  talentos_be_url?: string | null
+  talentos_be_api_key?: string | null
+}
+
+// ---------------------------------------------------------------------------
 // Interview
 // ---------------------------------------------------------------------------
 

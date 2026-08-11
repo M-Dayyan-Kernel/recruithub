@@ -16,7 +16,9 @@ from app.core.settings import settings
 from app.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models.models import Candidate, InterviewSession, Job, ScreeningCall, ShortlistResult, Tenant, User
 from app.modules.talentos_integration.screening_classifier import classify_for_candidate
-from app.modules.talentos_integration.talentos_be_client import TalentosBEClient
+from app.modules.talentos_integration.talentos_be_client import (
+    get_talentos_client_for_tenant,
+)
 from app.repositories.job_repository import JobRepository
 from app.services.screening_defaults import get_default_screening_questions
 from app.services.settings_service import load_system_settings
@@ -82,7 +84,7 @@ class TalentosIntegrationService:
         if job is not None:
             return job
 
-        client = TalentosBEClient()
+        client = await get_talentos_client_for_tenant(tenant_id)
         data = await client.get_hiring_request(external_job_id)
         if data is None:
             raise NotFoundError(public_message=f"Job with external id {external_job_id} not found in talentOS")
