@@ -34,6 +34,10 @@ SERVER2_SSH_ARGS="${SERVER2_SSH_ARGS:-}"
 
 API_PUBLIC_URL="${API_PUBLIC_URL:-https://api.recruithub.webknot-dev.in}"
 
+# Host header to send on local/IP health checks. The API enforces TRUSTED_HOSTS,
+# so curling localhost:8000 gets "Invalid host header" unless we send the real host.
+HEALTH_HOST="${HEALTH_HOST:-$(printf '%s' "${API_PUBLIC_URL}" | sed -E 's#^https?://##; s#/.*$##')}"
+
 # Repo dir = directory containing this script
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROD_ENV="${REPO_DIR}/.env.production"
@@ -90,10 +94,10 @@ git_sync() {
 
 health_api() {
   local base="${1:-http://localhost:8000}"
-  log "Waiting for API health at ${base}/health/ready"
+  log "Waiting for API health at ${base}/health/ready (Host: ${HEALTH_HOST})"
   local i
   for i in $(seq 1 30); do
-    if curl -fsS "${base}/health/ready" >/dev/null 2>&1; then
+    if curl -fsS -H "Host: ${HEALTH_HOST}" "${base}/health/ready" >/dev/null 2>&1; then
       log "API ready"
       return 0
     fi
@@ -104,7 +108,7 @@ health_api() {
 
 health_celery() {
   log "Checking ${1:-http://localhost:8000}/health/celery"
-  curl -fsS "${1:-http://localhost:8000}/health/celery" || warn "celery health check failed"
+  curl -fsS -H "Host: ${HEALTH_HOST}" "${1:-http://localhost:8000}/health/celery" || warn "celery health check failed"
 }
 
 # ---------------------------------------------------------------------------
