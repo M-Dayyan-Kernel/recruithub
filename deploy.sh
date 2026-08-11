@@ -29,8 +29,12 @@ BRANCH="${DEPLOY_BRANCH:-stich/talentos}"
 
 SERVER1_IP="${SERVER1_IP:-172.235.26.25}"
 SERVER2_IP="${SERVER2_IP:-172.235.26.53}"
+SERVER1_PRIVATE_IP="${SERVER1_PRIVATE_IP:-192.168.143.191}"
 SERVER2_SSH_USER="${SERVER2_SSH_USER:-root}"
 SERVER2_SSH_ARGS="${SERVER2_SSH_ARGS:-}"
+
+# Set to "1" to skip the Server 1 readiness gate when deploying Server 2.
+SKIP_S1_GATE="${SKIP_S1_GATE:-0}"
 
 API_PUBLIC_URL="${API_PUBLIC_URL:-https://api.recruithub.webknot-dev.in}"
 
@@ -97,7 +101,7 @@ health_api() {
   log "Waiting for API health at ${base}/health/ready (Host: ${HEALTH_HOST})"
   local i
   for i in $(seq 1 30); do
-    if curl -fsS -H "Host: ${HEALTH_HOST}" "${base}/health/ready" >/dev/null 2>&1; then
+    if curl -fsS -m 10 -H "Host: ${HEALTH_HOST}" "${base}/health/ready" >/dev/null 2>&1; then
       log "API ready"
       return 0
     fi
@@ -108,7 +112,7 @@ health_api() {
 
 health_celery() {
   log "Checking ${1:-http://localhost:8000}/health/celery"
-  curl -fsS -H "Host: ${HEALTH_HOST}" "${1:-http://localhost:8000}/health/celery" || warn "celery health check failed"
+  curl -fsS -m 10 -H "Host: ${HEALTH_HOST}" "${1:-http://localhost:8000}/health/celery" || warn "celery health check failed"
 }
 
 # ---------------------------------------------------------------------------
@@ -142,8 +146,12 @@ deploy_server2() {
   require_env
   git_sync
 
-  log "Waiting for Server 1 API before starting workers"
-  health_api "http://${SERVER1_IP}:8000"
+  if [ "${SKIP_S1_GATE}" != "1" ]; then
+    log "Waiting for Server 1 API before starting workers"
+    health_api "http://${SERVER1_IP}:8000"
+  else
+    warn "SKIP_S1_GATE=1, skipping Server 1 readiness gate (workers only need Redis/Postgres)"
+  fi
 
   log "Building/starting Celery beat + resume/screening/interview workers"
   cd "${REPO_DIR}"
