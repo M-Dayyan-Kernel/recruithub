@@ -141,6 +141,95 @@ async def test_full_flow():
         assert resp.status_code == 401, f"Expected 401 with bad key, got {resp.status_code}"
 
 
+DUMMY_UUID = "00000000-0000-0000-0000-000000000000"
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_job_flows():
+    """talentOS-triggered ops resolve the job by external_job_id.
+
+    Mirrors the production pattern: talentOS creates the job once (via
+    POST /internal/talentos/jobs) and later operations reference it only by
+    external_job_id through the placeholder job path — they must resolve to
+    the same job instead of 404ing.
+    """
+    headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+    external_job_id = f"ext-{uuid.uuid4()}"
+    job_payload = {
+        "title": "Backend Engineer",
+        "description": "Backend role",
+        "required_skills": ["Python"],
+        "external_job_id": external_job_id,
+    }
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        # 1. Create the job once
+        resp = await client.post(
+            f"{BASE_URL}/internal/talentos/jobs",
+            json=job_payload,
+            headers=headers,
+        )
+        assert resp.status_code == 201, f"Create job failed: {resp.text}"
+        job_id = resp.json()["id"]
+
+        # 2. Idempotent — same external_job_id returns the same job
+        resp = await client.post(
+            f"{BASE_URL}/internal/talentos/jobs",
+            json=job_payload,
+            headers=headers,
+        )
+        assert resp.status_code == 201, f"Duplicate create failed: {resp.text}"
+        assert resp.json()["id"] == job_id, "create_job must be idempotent on external_job_id"
+
+        # 3. Create a candidate referencing the job only by external_job_id
+        resp = await client.post(
+            f"{BASE_URL}/internal/talentos/jobs/{DUMMY_UUID}/candidates",
+            json={
+                "name": "Anita Desai",
+                "email": f"anita.{external_job_id}@example.com",
+                "external_job_id": external_job_id,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 201, f"Create candidate failed: {resp.text}"
+        assert resp.json()["job_id"] == job_id, "candidate must land on the resolved job"
+
+        # 4. List candidates resolving by external_job_id
+        resp = await client.get(
+            f"{BASE_URL}/internal/talentos/jobs/{DUMMY_UUID}/candidates",
+            params={"external_job_id": external_job_id},
+            headers=headers,
+        )
+        assert resp.status_code == 200, f"List candidates failed: {resp.text}"
+        assert len(resp.json()) == 1
+
+        # 5. Questions read + update resolve by external_job_id
+        resp = await client.get(
+            f"{BASE_URL}/internal/talentos/jobs/{DUMMY_UUID}/questions",
+            params={"external_job_id": external_job_id},
+            headers=headers,
+        )
+        assert resp.status_code == 200, f"Get questions failed: {resp.text}"
+        assert resp.json()["job_id"] == job_id
+
+        resp = await client.put(
+            f"{BASE_URL}/internal/talentos/jobs/{DUMMY_UUID}/questions",
+            params={"external_job_id": external_job_id},
+            json={"interview_questions": [{"question": "Why us?"}]},
+            headers=headers,
+        )
+        assert resp.status_code == 200, f"Update questions failed: {resp.text}"
+        assert resp.json()["job_id"] == job_id
+        assert len(resp.json()["interview_questions"]) == 1
+
+        # 6. A job that cannot be resolved (no external id, unknown uuid) stays 404
+        resp = await client.get(
+            f"{BASE_URL}/internal/talentos/jobs/{uuid.uuid4()}/questions",
+            headers=headers,
+        )
+        assert resp.status_code == 404, f"Expected 404 for unresolvable job, got {resp.status_code}"
+
+
 if __name__ == "__main__":
     print("Tests written — requires running server on port 8080 with API key seeded.")
     print(f"Seed an API key named 'test-integration' and use key: {API_KEY}")

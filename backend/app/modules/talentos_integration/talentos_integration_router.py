@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Body, Depends, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -47,9 +47,18 @@ def _get_service(db: AsyncSession = Depends(get_db)) -> TalentosIntegrationServi
 
 
 def _raise_domain(exc: DomainError):
-    from fastapi import HTTPException
-
     raise HTTPException(status_code=exc.status_code, detail=exc.public_message) from exc
+
+
+async def _ensure_job(
+    service: TalentosIntegrationService,
+    actor: RequireAdmin,
+    job_id: uuid.UUID,
+    external_job_id: str | None,
+) -> uuid.UUID:
+    """Resolve-or-create the job before any talentOS-triggered operation."""
+    job = await service.ensure_job(actor, job_id, external_job_id)
+    return job.id
 
 
 @router.post("/jobs", response_model=TalentosJobResponse, status_code=status.HTTP_201_CREATED)
@@ -73,10 +82,13 @@ async def create_candidate(
     service: TalentosIntegrationService = Depends(_get_service),
 ):
     try:
+        job_id = await _ensure_job(service, actor, job_id, payload.external_job_id)
         candidate = await service.create_candidate(actor, job_id, payload)
         return TalentosCandidateResponse.model_validate(candidate)
     except DomainError as exc:
         _raise_domain(exc)
+
+
 @router.post("/jobs/{job_id}/candidates/with-screening", response_model=TalentosWithScreeningResponse, status_code=status.HTTP_201_CREATED)
 async def create_candidate_with_screening(
     job_id: uuid.UUID,
@@ -85,9 +97,7 @@ async def create_candidate_with_screening(
     service: TalentosIntegrationService = Depends(_get_service),
 ):
     try:
-        if payload.external_job_id:
-            job = await service.resolve_or_create_job(actor, payload.external_job_id)
-            job_id = job.id
+        job_id = await _ensure_job(service, actor, job_id, payload.external_job_id)
         candidate, initiated, queued, skipped, call_id = await service.create_candidate_with_screening(actor, job_id, payload)
         return TalentosWithScreeningResponse(
             candidate=TalentosCandidateResponse.model_validate(candidate),
@@ -108,9 +118,7 @@ async def create_candidate_with_interview(
     service: TalentosIntegrationService = Depends(_get_service),
 ):
     try:
-        if payload.external_job_id:
-            job = await service.resolve_or_create_job(actor, payload.external_job_id)
-            job_id = job.id
+        job_id = await _ensure_job(service, actor, job_id, payload.external_job_id)
         candidate, session = await service.create_candidate_with_interview(actor, job_id, payload)
         return TalentosWithInterviewResponse(
             candidate=TalentosCandidateResponse.model_validate(candidate),
@@ -134,8 +142,10 @@ async def list_candidates(
     job_id: uuid.UUID,
     actor: RequireAdmin,
     service: TalentosIntegrationService = Depends(_get_service),
+    external_job_id: str | None = Query(None, description="Resolve or create job by talentOS external_job_id first"),
 ):
     try:
+        job_id = await _ensure_job(service, actor, job_id, external_job_id)
         candidates = await service.list_candidates(actor, job_id)
         return [TalentosCandidateResponse.model_validate(c) for c in candidates]
     except DomainError as exc:
@@ -148,8 +158,10 @@ async def trigger_screening(
     candidate_id: uuid.UUID,
     actor: RequireAdmin,
     service: TalentosIntegrationService = Depends(_get_service),
+    external_job_id: str | None = Query(None, description="Resolve or create job by talentOS external_job_id first"),
 ):
     try:
+        job_id = await _ensure_job(service, actor, job_id, external_job_id)
         call = await service.trigger_screening(actor, job_id, candidate_id)
         return TalentosScreeningTriggerResponse(screening_call_id=call.id, status="triggered")
     except DomainError as exc:
@@ -162,9 +174,11 @@ async def call_now(
     candidate_id: uuid.UUID,
     actor: RequireAdmin,
     service: TalentosIntegrationService = Depends(_get_service),
+    external_job_id: str | None = Query(None, description="Resolve or create job by talentOS external_job_id first"),
 ):
     """Place a real Vapi screening call now (bypasses the shortlist gate)."""
     try:
+        job_id = await _ensure_job(service, actor, job_id, external_job_id)
         call, immediate = await service.call_now(actor, job_id, candidate_id)
         return TalentosScreeningTriggerResponse(
             screening_call_id=call.id,
@@ -180,8 +194,10 @@ async def get_screening_result(
     candidate_id: uuid.UUID,
     actor: RequireAdmin,
     service: TalentosIntegrationService = Depends(_get_service),
+    external_job_id: str | None = Query(None, description="Resolve or create job by talentOS external_job_id first"),
 ):
     try:
+        job_id = await _ensure_job(service, actor, job_id, external_job_id)
         call = await service.get_screening_result(actor, job_id, candidate_id)
         if call is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No screening call found for this candidate")
@@ -198,8 +214,10 @@ async def get_screening_status(
     candidate_id: uuid.UUID,
     actor: RequireAdmin,
     service: TalentosIntegrationService = Depends(_get_service),
+    external_job_id: str | None = Query(None, description="Resolve or create job by talentOS external_job_id first"),
 ):
     try:
+        job_id = await _ensure_job(service, actor, job_id, external_job_id)
         data = await service.get_screening_status(actor, job_id, candidate_id)
         return TalentosScreeningStatusResponse.model_validate(data)
     except DomainError as exc:
@@ -212,8 +230,10 @@ async def trigger_interview(
     candidate_id: uuid.UUID,
     actor: RequireAdmin,
     service: TalentosIntegrationService = Depends(_get_service),
+    external_job_id: str | None = Query(None, description="Resolve or create job by talentOS external_job_id first"),
 ):
     try:
+        job_id = await _ensure_job(service, actor, job_id, external_job_id)
         session = await service.trigger_interview(actor, job_id, candidate_id)
         return TalentosInterviewTriggerResponse(interview_session_id=session.id, status="created")
     except DomainError as exc:
@@ -227,12 +247,10 @@ async def schedule_interview(
     actor: RequireAdmin,
     service: TalentosIntegrationService = Depends(_get_service),
     payload: Optional[TalentosInterviewSchedulePayload] = Body(None),
-    external_job_id: str | None = Query(None, description="Resolve job by talentOS external_job_id first"),
+    external_job_id: str | None = Query(None, description="Resolve or create job by talentOS external_job_id first"),
 ):
     try:
-        if external_job_id:
-            job = await service.resolve_or_create_job(actor, external_job_id)
-            job_id = job.id
+        job_id = await _ensure_job(service, actor, job_id, external_job_id)
         session = await service.schedule_interview(actor, job_id, candidate_id, payload)
         return TalentosInterviewResponse.model_validate(session)
     except DomainError as exc:
@@ -245,8 +263,10 @@ async def list_interviews(
     candidate_id: uuid.UUID,
     actor: RequireAdmin,
     service: TalentosIntegrationService = Depends(_get_service),
+    external_job_id: str | None = Query(None, description="Resolve or create job by talentOS external_job_id first"),
 ):
     try:
+        job_id = await _ensure_job(service, actor, job_id, external_job_id)
         sessions = await service.list_interviews(actor, job_id, candidate_id)
         return [TalentosInterviewResponse.model_validate(s) for s in sessions]
     except DomainError as exc:
@@ -260,8 +280,10 @@ async def get_interview_detail(
     interview_id: uuid.UUID,
     actor: RequireAdmin,
     service: TalentosIntegrationService = Depends(_get_service),
+    external_job_id: str | None = Query(None, description="Resolve or create job by talentOS external_job_id first"),
 ):
     try:
+        job_id = await _ensure_job(service, actor, job_id, external_job_id)
         data = await service.get_interview_detail(actor, job_id, candidate_id, interview_id)
         if data is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
@@ -275,10 +297,11 @@ async def get_job_questions(
     job_id: uuid.UUID,
     actor: RequireAdmin,
     service: TalentosIntegrationService = Depends(_get_service),
-    external_job_id: str | None = Query(None, description="Resolve job by talentOS external_job_id first"),
+    external_job_id: str | None = Query(None, description="Resolve or create job by talentOS external_job_id first"),
 ):
     try:
-        data = await service.get_job_questions(actor, job_id, external_job_id)
+        job_id = await _ensure_job(service, actor, job_id, external_job_id)
+        data = await service.get_job_questions(actor, job_id)
         return TalentosJobQuestionsResponse(**data)
     except DomainError as exc:
         _raise_domain(exc)
@@ -293,7 +316,8 @@ async def update_job_questions(
     external_job_id: str | None = Query(None, description="Resolve or create job by talentOS external_job_id first"),
 ):
     try:
-        data = await service.update_job_questions(actor, job_id, payload, external_job_id)
+        job_id = await _ensure_job(service, actor, job_id, external_job_id)
+        data = await service.update_job_questions(actor, job_id, payload)
         return TalentosJobQuestionsResponse(**data)
     except DomainError as exc:
         _raise_domain(exc)
@@ -304,10 +328,11 @@ async def get_call_window(
     job_id: uuid.UUID,
     actor: RequireAdmin,
     service: TalentosIntegrationService = Depends(_get_service),
-    external_job_id: str | None = Query(None, description="Resolve job by talentOS external_job_id first"),
+    external_job_id: str | None = Query(None, description="Resolve or create job by talentOS external_job_id first"),
 ):
     try:
-        data = await service.get_call_window(actor, job_id, external_job_id)
+        job_id = await _ensure_job(service, actor, job_id, external_job_id)
+        data = await service.get_call_window(actor, job_id)
         return TalentosCallWindowResponse(**data)
     except DomainError as exc:
         _raise_domain(exc)
@@ -322,7 +347,8 @@ async def update_call_window(
     external_job_id: str | None = Query(None, description="Resolve or create job by talentOS external_job_id first"),
 ):
     try:
-        data = await service.update_call_window(actor, job_id, payload, external_job_id)
+        job_id = await _ensure_job(service, actor, job_id, external_job_id)
+        data = await service.update_call_window(actor, job_id, payload)
         return TalentosCallWindowResponse(**data)
     except DomainError as exc:
         _raise_domain(exc)

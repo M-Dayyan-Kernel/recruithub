@@ -36,6 +36,8 @@ SCREENING_FAILURE_OUTCOMES = frozenset(
     {"no_answer", "voicemail", "declined", "dropped", "failed"}
 )
 
+DUMMY_JOB_UUID = "00000000-0000-0000-0000-000000000000"
+
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TIME_RE = re.compile(r"^\d{2}:\d{2}$")
 
@@ -114,6 +116,43 @@ class TalentosIntegrationService:
         await self._session.refresh(job)
         return job
 
+    async def ensure_job(
+        self, actor: User, job_id: uuid.UUID, external_job_id: str | None = None
+    ) -> Job:
+        """Return the job for a talentOS-triggered operation, creating it if needed.
+
+        Resolution order:
+        1. Lookup by ``external_job_id`` (talentOS hiring-request id) + tenant.
+        2. Lookup by ``job_id`` (POC job uuid) + tenant — skipped when ``job_id``
+           is the placeholder ``00000000-...`` the caller uses when the job may
+           not exist yet.
+        3. When only an ``external_job_id`` is known, create the job by pulling
+           its data back from talentOS (``resolve_or_create_job``).
+
+        Raises NotFoundError when neither id resolves and no creation path exists.
+        """
+        tenant_id = await self._effective_tenant_id(actor)
+        if external_job_id:
+            result = await self._session.execute(
+                select(Job).where(
+                    Job.external_job_id == external_job_id,
+                    Job.tenant_id == tenant_id,
+                ).limit(1)
+            )
+            job = result.scalar_one_or_none()
+            if job is not None:
+                return job
+        if job_id and str(job_id) != DUMMY_JOB_UUID:
+            result = await self._session.execute(
+                select(Job).where(Job.id == job_id, Job.tenant_id == tenant_id).limit(1)
+            )
+            job = result.scalar_one_or_none()
+            if job is not None:
+                return job
+        if external_job_id:
+            return await self.resolve_or_create_job(actor, external_job_id)
+        raise NotFoundError(public_message="Job not found")
+
     async def _get_platform_tenant_id(self) -> uuid.UUID:
         result = await self._session.execute(
             select(Tenant).where(Tenant.slug == PLATFORM_TENANT_SLUG).limit(1)
@@ -174,8 +213,11 @@ class TalentosIntegrationService:
         return job
 
     async def create_candidate(
-        self, actor: User, job_id: uuid.UUID, payload
+        self, actor: User, job_id: uuid.UUID, payload, external_job_id: str | None = None
     ) -> Candidate:
+        if external_job_id:
+            job = await self.ensure_job(actor, job_id, external_job_id)
+            job_id = job.id
         await self._require_tenant_job(job_id, await self._effective_tenant_id(actor))
         candidate = Candidate(
             job_id=job_id,

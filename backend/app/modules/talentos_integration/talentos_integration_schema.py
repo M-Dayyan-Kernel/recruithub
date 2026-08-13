@@ -34,6 +34,7 @@ class TalentosCandidateCreate(BaseModel):
     email: str
     phone: Optional[str] = None
     external_candidate_id: Optional[str] = None
+    external_job_id: Optional[str] = None
 
 
 class TalentosCandidateResponse(BaseModel):
