@@ -73,7 +73,7 @@ export default function App() {
               <Route path="activity" element={<ActivityPage />} />
               <Route path="users" element={<UsersPage />} />
               <Route path="settings" element={<SettingsPage />} />
-              <Route path="settings/api-keys" element={<ApiKeysPage />} />
+              <Route path="connections" element={<ApiKeysPage />} />
             </Route>
             <Route path="*" element={<NotFoundPage />} />
           </Route>

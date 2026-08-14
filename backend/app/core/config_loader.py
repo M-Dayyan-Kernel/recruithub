@@ -294,6 +294,7 @@ class SchedulerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dispatch_pending_screening_seconds: float = 60.0
     recover_stuck_parses_seconds: float = 120.0
+    connect_reconcile_seconds: float = 20.0
 
 
 class CeleryQueueConfig(BaseModel):

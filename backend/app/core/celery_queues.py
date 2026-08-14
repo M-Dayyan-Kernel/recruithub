@@ -8,6 +8,7 @@ SCREENING_QUEUE = "screening"
 INTERVIEWS_QUEUE = "interviews"
 
 CELERY_QUEUE_NAMES: tuple[str, ...] = (
+    "celery",  # default queue — unrouted tasks (e.g. connect reconciler) land here
     RESUME_QUEUE,
     SHORTLIST_QUEUE,
     SCREENING_QUEUE,

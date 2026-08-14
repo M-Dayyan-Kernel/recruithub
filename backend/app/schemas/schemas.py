@@ -186,6 +186,7 @@ class JobResponse(BaseModel):
     screening_call_from: Optional[time] = None
     screening_call_to: Optional[time] = None
     screening_timezone: str = "Asia/Kolkata"
+    external_job_id: Optional[str] = None
     voice_screening_enabled: bool = True
     status: str
     created_at: datetime

@@ -1,7 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  connectTalentos,
   createApiKey,
+  disconnectTalentos,
   fetchApiKeys,
+  fetchTalentosConnectStatus,
   fetchTalentosConnection,
   revokeApiKey,
   rotateApiKey,
@@ -10,6 +13,7 @@ import {
 } from '@/lib/apiKeys'
 import type {
   ApiKey,
+  TalentosConnectResponse,
   TalentosConnectionUpdate,
 } from '@/types/api'
 
@@ -74,6 +78,38 @@ export function useUpdateTalentosConnection() {
     mutationFn: (body: TalentosConnectionUpdate) => updateTalentosConnection(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['talentos-connection'] })
+    },
+  })
+}
+
+/** Live one-click connect status. Polls every 2.5s while a flow is in flight. */
+export function useTalentosConnectStatus() {
+  return useQuery({
+    queryKey: ['talentos-connect-status'],
+    queryFn: fetchTalentosConnectStatus,
+    refetchInterval: (query) => {
+      const state = (query.state.data as TalentosConnectResponse | undefined)?.state
+      return state && state !== 'none' ? 2500 : false
+    },
+  })
+}
+
+export function useConnectTalentos() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => connectTalentos(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['talentos-connect-status'] })
+    },
+  })
+}
+
+export function useDisconnectTalentos() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => disconnectTalentos(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['talentos-connect-status'] })
     },
   })
 }

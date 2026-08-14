@@ -69,11 +69,12 @@ class TalentosBEClient:
                 logger.error("Failed to fetch hiring request %s: %s", external_job_id, exc)
                 return None
 
-    async def _post(self, path: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+    async def _post(self, path: str, body: dict[str, Any], headers: Optional[dict[str, str]] = None) -> Optional[dict[str, Any]]:
         url = f"{self._base_url}{path}"
+        merged = {**self._headers, **(headers or {})}
         async with httpx.AsyncClient() as client:
             try:
-                resp = await client.post(url, json=body, headers=self._headers, timeout=30.0)
+                resp = await client.post(url, json=body, headers=merged, timeout=30.0)
                 if resp.is_error:
                     logger.error(
                         "talentOS BE POST %s failed: status=%s body=%s",
@@ -84,6 +85,75 @@ class TalentosBEClient:
             except httpx.HTTPError as exc:
                 logger.error("talentOS BE POST %s transport error: %s", path, exc)
                 return None
+
+    async def _get(self, path: str, headers: Optional[dict[str, str]] = None) -> Optional[dict[str, Any]]:
+        url = f"{self._base_url}{path}"
+        merged = {**self._headers, **(headers or {})}
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.get(url, headers=merged, timeout=30.0)
+                if resp.is_error:
+                    logger.error(
+                        "talentOS BE GET %s failed: status=%s body=%s",
+                        path, resp.status_code, resp.text[:500],
+                    )
+                    return None
+                return resp.json() if resp.content else None
+            except httpx.HTTPError as exc:
+                logger.error("talentOS BE GET %s transport error: %s", path, exc)
+                return None
+
+    @property
+    def _service_key_headers(self) -> dict[str, str]:
+        # Always re-read the current API key so a live key rotation takes effect.
+        return {"Authorization": f"Bearer {self._api_key}", "Accept": "application/json"}
+
+    async def provision_connection(
+        self,
+        *,
+        flow_id: str,
+        tenant_name: str,
+        external_tenant_id: str,
+        rh_api_key: str,
+    ) -> Optional[dict[str, Any]]:
+        headers = {**self._service_key_headers, "Accept": "application/json"}
+        return await self._post(
+            "/internal/talentos/connections/v1",
+            {
+                "flow_id": str(flow_id),
+                "tenant_name": tenant_name,
+                "external_tenant_id": external_tenant_id,
+                "rh_api_key": rh_api_key,
+            },
+            headers=headers,
+        )
+
+    async def get_connection_status(self, flow_id: str) -> Optional[dict[str, Any]]:
+        return await self._get(
+            f"/internal/talentos/connections/v1/{flow_id}",
+            headers=self._service_key_headers,
+        )
+
+    async def disconnect_connection(
+        self, *, flow_id: str, external_tenant_id: str
+    ) -> Optional[dict[str, Any]]:
+        return await self._post(
+            "/internal/talentos/connections/v1/disconnect",
+            {
+                "flow_id": str(flow_id),
+                "external_tenant_id": external_tenant_id,
+            },
+            headers=self._service_key_headers,
+        )
+
+    async def ping_connection(self, tal_key: str, flow_id: str) -> Optional[dict[str, Any]]:
+        """Mutual ping (ping_b): present tal_ key + X-Flow-Id to talentOS."""
+        headers = {
+            "Authorization": f"Bearer {tal_key}",
+            "Accept": "application/json",
+            "X-Flow-Id": flow_id,
+        }
+        return await self._get("/internal/talentos/connections/ping", headers=headers)
 
     async def push_screening_completion(
         self,

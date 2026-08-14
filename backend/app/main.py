@@ -14,6 +14,7 @@ from app.exceptions import DomainError
 from app.modules.api_keys.api_key_router import router as api_key_router
 from app.modules.api_keys.api_key_tenant_router import router as api_key_tenant_router
 from app.modules.talentos_integration.connections_router import router as connections_router
+from app.modules.talentos_integration.connect_handshake_router import router as connect_handshake_router
 from app.modules.talentos_integration.talentos_integration_router import router as talentos_integration_router
 from app.routers import (
     audit,
@@ -199,6 +200,7 @@ app.include_router(api_key_router, prefix="/api/app-keys", tags=["app-keys"])
 app.include_router(api_key_tenant_router, prefix="/api/tenant/app-keys", tags=["app-keys"])
 app.include_router(connections_router, prefix="/api", tags=["integrations"])
 app.include_router(talentos_integration_router)
+app.include_router(connect_handshake_router)
 
 
 @app.get("/metrics", include_in_schema=False)

@@ -223,6 +223,20 @@ export interface TalentosConnectionUpdate {
   talentos_be_api_key?: string | null
 }
 
+export interface TalentosConnectResponse {
+  flow_id?: string | null
+  state: string
+  operation?: string | null
+  external_tenant_id?: string | null
+  attempts?: number
+  ping_a_verified?: boolean
+  ping_b_verified?: boolean
+  rhub_key_id?: string | null
+  tal_key_id?: string | null
+  result?: string | null
+  already_in_progress?: boolean
+}
+
 // ---------------------------------------------------------------------------
 // Interview
 // ---------------------------------------------------------------------------

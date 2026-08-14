@@ -6,6 +6,9 @@ screening/interview results back to talentOS. Values live encrypted in
 come from the server .env and are read-only here.
 
 Lives under ``/api/integrations`` — disjoint from recruithub's namespaces.
+
+Also hosts the one-click connect lifecycle (``/api/integrations/talentos/connect``
+and ``/api/integrations/talentos/disconnect``).
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.dependencies import RequireAdmin
@@ -21,6 +24,7 @@ from app.modules.talentos_integration.tenant_connection import (
     load_tenant_connection,
     save_tenant_connection,
 )
+from app.modules.talentos_integration.connect_service import ConnectService
 from app.services.tenant_integrations_service import mask_secret
 from app.core.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -93,3 +97,74 @@ async def update_talentos_connection(
         talentos_be_api_key=payload.talentos_be_api_key,
     )
     return await _response(admin.tenant_id, db)
+
+
+class TalentosConnectRequest(BaseModel):
+    flow_id: Optional[uuid.UUID] = Field(
+        None, description="Idempotency key. Omit to let the server generate one."
+    )
+    tenant_name: str | None = Field(
+        None, description="Name for the provisioned talentOS tenant (talentOS-side)."
+    )
+
+
+class TalentosDisconnectRequest(BaseModel):
+    flow_id: Optional[uuid.UUID] = Field(None, description="Idempotency key for disconnect.")
+
+
+@router.post("/integrations/talentos/connect", status_code=200)
+async def connect_talentos(
+    payload: TalentosConnectRequest,
+    admin: RequireAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """One-click connect: mint rhub_, provision talentOS, return tal_ once."""
+    try:
+        result = await ConnectService(db).start_connect(
+            actor_tenant_id=admin.tenant_id,
+            flow_id=payload.flow_id,
+            tenant_name=payload.tenant_name,
+        )
+        await db.commit()
+        return result
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Connect failed")
+
+
+@router.get("/integrations/talentos/connect", status_code=200)
+async def connect_talentos_status(
+    admin: RequireAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the tenant's most recent connect flow status (never credentials)."""
+    link = await ConnectService(db)._get_existing_link(admin.tenant_id)
+    if link is None or link.current_flow_id is None:
+        return {"state": "none", "flow_id": None}
+    status = await ConnectService(db).get_status(link.current_flow_id)
+    return status
+
+
+@router.post("/integrations/talentos/disconnect", status_code=200)
+async def disconnect_talentos(
+    payload: TalentosDisconnectRequest,
+    admin: RequireAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """One-click disconnect: revoke tal_ remotely + rhub_ locally, reset link."""
+    try:
+        result = await ConnectService(db).disconnect(
+            actor_tenant_id=admin.tenant_id,
+            flow_id=payload.flow_id,
+        )
+        await db.commit()
+        return result
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Disconnect failed")

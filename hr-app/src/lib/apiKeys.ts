@@ -3,6 +3,7 @@ import type {
   ApiKey,
   ApiKeyCreatedResponse,
   ApiKeyListResponse,
+  TalentosConnectResponse,
   TalentosConnectionResponse,
   TalentosConnectionUpdate,
 } from '@/types/api'
@@ -45,4 +46,19 @@ export async function updateTalentosConnection(
   body: TalentosConnectionUpdate,
 ): Promise<TalentosConnectionResponse> {
   return api.patch(CONNECTION_URL, body) as unknown as Promise<TalentosConnectionResponse>
+}
+
+export async function fetchTalentosConnectStatus(): Promise<TalentosConnectResponse> {
+  return api.get(`${CONNECTION_URL}/connect`) as unknown as Promise<TalentosConnectResponse>
+}
+
+export async function connectTalentos(): Promise<TalentosConnectResponse> {
+  return api.post(`${CONNECTION_URL}/connect`, {}) as unknown as Promise<TalentosConnectResponse>
+}
+
+export async function disconnectTalentos(): Promise<TalentosConnectResponse> {
+  return api.post(
+    `${CONNECTION_URL}/disconnect`,
+    {},
+  ) as unknown as Promise<TalentosConnectResponse>
 }

@@ -172,6 +172,7 @@ storage:
 scheduler:
   dispatch_pending_screening_seconds: 60
   recover_stuck_parses_seconds: 120
+  connect_reconcile_seconds: 20
 
 celery:
   default_max_retries: 3
