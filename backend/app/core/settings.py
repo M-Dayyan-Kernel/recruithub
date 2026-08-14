@@ -19,8 +19,13 @@ class Settings(BaseSettings):
     MOCK_LIVEKIT: bool = False
     MOCK_EMAIL: bool = False
 
+    # LLM provider switch: "openai" | "groq" (Groq is OpenAI-compatible)
+    LLM_PROVIDER: str = "openai"
     OPENAI_API_KEY: str = ""
     OPENAI_TIMEOUT_SECONDS: float = 60.0
+    # Groq credentials (used when LLM_PROVIDER=groq)
+    GROQ_API_KEY: str = ""
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
     VAPI_API_KEY: str = ""
     VAPI_PHONE_NUMBER_ID: str = ""
     # Shared secret appended as ?token= on Vapi serverUrl webhooks (empty = permissive in dev).

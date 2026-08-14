@@ -35,6 +35,8 @@ class ModelWorkloadConfig(BaseModel):
 
     provider: str = "openai"
     name: str
+    # Model name used when LLM_PROVIDER=groq (Groq, not OpenAI model naming).
+    groq_name: str = ""
     temperature: float = 0
     max_tokens: int = 1000
     response_format: str = "json_object"
@@ -416,6 +418,35 @@ class RuntimeConfig:
     @property
     def models(self) -> ModelsConfig:
         return self._app.models
+
+    @property
+    def llm_provider(self) -> str:
+        """Active LLM provider: 'openai' (default) or 'groq'."""
+        provider = self._env.LLM_PROVIDER.strip().lower()
+        return provider if provider in ("openai", "groq") else "openai"
+
+    def model_name(self, workload: str) -> str:
+        """Model name for the active provider (Groq model if LLM_PROVIDER=groq)."""
+        cfg = getattr(self.models, workload)
+        if self.llm_provider == "groq" and (cfg.groq_name or "").strip():
+            return cfg.groq_name.strip()
+        return cfg.name
+
+    def llm_credentials(self, api_key: str) -> tuple[str, str]:
+        """
+        Return (base_url, api_key) for the active provider.
+
+        openai: default endpoint, caller-supplied key (tenant or platform).
+        groq:   Groq OpenAI-compatible endpoint, GROQ_API_KEY setting.
+        """
+        if self.llm_provider == "groq":
+            groq_key = (self._env.GROQ_API_KEY or "").strip()
+            if not groq_key:
+                raise ValueError(
+                    "LLM_PROVIDER=groq but GROQ_API_KEY is not configured in .env"
+                )
+            return self._env.GROQ_BASE_URL.strip() or "https://api.groq.com/openai/v1", groq_key
+        return "", api_key
 
     @property
     def livekit(self) -> LiveKitConfig:

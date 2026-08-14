@@ -67,6 +67,10 @@ services:
     <<: *celery-worker
     command: celery -A app.core.celery_app.celery_app beat --loglevel=info
 
+  celery-default:
+    <<: *celery-worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q celery --autoscale=2,1
+
   celery-resume-1:
     <<: *celery-worker
     command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --autoscale=10,1

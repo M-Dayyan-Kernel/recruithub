@@ -50,6 +50,16 @@ class OpenAIClient:
             "response_format": model_cfg.openai_response_format(),
         }
 
+    def _client_kwargs(self, api_key: str) -> dict[str, Any]:
+        base_url, resolved_key = config.llm_credentials(api_key)
+        kwargs: dict[str, Any] = {
+            "api_key": resolved_key,
+            "timeout": self._resolve_timeout(),
+        }
+        if base_url:
+            kwargs["base_url"] = base_url
+        return kwargs
+
     async def chat_completion_json(
         self,
         workload: str,
@@ -59,10 +69,10 @@ class OpenAIClient:
     ) -> str:
         """Run an async chat completion and return the message content string."""
         model_cfg = self._model_config(workload)
-        client = AsyncOpenAI(api_key=api_key, timeout=self._resolve_timeout())
-        response = await client.chat.completions.create(
-            **self._completion_kwargs(model_cfg, messages)
-        )
+        kwargs = self._completion_kwargs(model_cfg, messages)
+        kwargs["model"] = config.model_name(workload)
+        client = AsyncOpenAI(**self._client_kwargs(api_key))
+        response = await client.chat.completions.create(**kwargs)
         content = response.choices[0].message.content
         if content is None:
             raise ValueError(f"OpenAI returned empty content for workload={workload}")
@@ -77,10 +87,10 @@ class OpenAIClient:
     ) -> str:
         """Run a sync chat completion and return the message content string."""
         model_cfg = self._model_config(workload)
-        client = OpenAI(api_key=api_key, timeout=self._resolve_timeout())
-        response = client.chat.completions.create(
-            **self._completion_kwargs(model_cfg, messages)
-        )
+        kwargs = self._completion_kwargs(model_cfg, messages)
+        kwargs["model"] = config.model_name(workload)
+        client = OpenAI(**self._client_kwargs(api_key))
+        response = client.chat.completions.create(**kwargs)
         content = response.choices[0].message.content
         if content is None:
             raise ValueError(f"OpenAI returned empty content for workload={workload}")

@@ -40,6 +40,13 @@ def validate_production_settings(env: Settings) -> None:
     if not (env.LIVEKIT_API_KEY or "").strip() or not (env.LIVEKIT_API_SECRET or "").strip():
         errors.append("LIVEKIT_API_KEY and LIVEKIT_API_SECRET are required in production")
 
+    if (env.LLM_PROVIDER or "openai").strip().lower() == "groq" and not (
+        env.GROQ_API_KEY or ""
+    ).strip():
+        errors.append(
+            "GROQ_API_KEY is required in production when LLM_PROVIDER=groq"
+        )
+
     if not _is_s3_configured(env):
         errors.append(
             "S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY, and S3_ENDPOINT are required in production"
