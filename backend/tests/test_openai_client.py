@@ -166,7 +166,7 @@ class OpenAIClientTests(unittest.TestCase):
 
         self.assertEqual(captured["client_api_key"], "sk-tenant-openai")
         self.assertEqual(captured["model"], cfg.model_name("combined_shortlist"))
-        self.assertEqual(captured["model"], "gpt-4o")
+        self.assertEqual(captured["model"], "gpt-5.4-mini")
 
 
 if __name__ == "__main__":
