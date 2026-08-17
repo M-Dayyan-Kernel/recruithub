@@ -175,6 +175,8 @@ class TalentosInterviewDetailResponse(TalentosInterviewResponse):
     weaknesses: Optional[List[str]] = None
     jd_fit: Optional[str] = None
     final_recommendation: Optional[str] = None
+    question_scores: Optional[List[dict]] = None
+    rubric_total: Optional[int] = None
 
 
 class TalentosInterviewTriggerResponse(BaseModel):

@@ -654,6 +654,7 @@ class TalentosIntegrationService:
 
         report = session.report
         if report is not None:
+            raw = report.raw_report or {}
             data.update({
                 "summary": report.summary,
                 "transcript_summary": report.transcript_summary,
@@ -667,6 +668,8 @@ class TalentosIntegrationService:
                 "weaknesses": report.weaknesses,
                 "jd_fit": report.jd_fit,
                 "final_recommendation": report.final_recommendation,
+                "question_scores": raw.get("question_scores"),
+                "rubric_total": raw.get("rubric_total"),
             })
         return data
 
