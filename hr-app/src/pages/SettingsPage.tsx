@@ -7,6 +7,7 @@ import type { SystemSettings } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
 import { WORKFLOW_CARD_CLASS, WORKFLOW_INPUT_CLASS, WORKFLOW_PRIMARY_BUTTON_CLASS } from '@/lib/workflow'
 import { EmailTemplatesSettings } from '@/components/EmailTemplatesSettings'
+import { clampWholeNumberInput } from '@/lib/validation'
 
 const DEFAULT_MAX_RETRIES = 3
 const DEFAULT_RETRY_DELAY_MINUTES = 30
@@ -150,7 +151,10 @@ export default function SettingsPage() {
               min={1}
               max={10}
               value={maxRetries}
-              onChange={(e) => setMaxRetries(Number(e.target.value))}
+              onChange={(e) => {
+                const next = clampWholeNumberInput(e.target.value, { min: 1, max: 10 })
+                if (next !== null) setMaxRetries(next)
+              }}
               disabled={!screeningEnabled}
               className={`${WORKFLOW_INPUT_CLASS} w-28 disabled:cursor-not-allowed disabled:opacity-50`}
             />
@@ -170,7 +174,10 @@ export default function SettingsPage() {
               min={1}
               max={10080}
               value={retryDelayMinutes}
-              onChange={(e) => setRetryDelayMinutes(Number(e.target.value))}
+              onChange={(e) => {
+                const next = clampWholeNumberInput(e.target.value, { min: 1, max: 10080 })
+                if (next !== null) setRetryDelayMinutes(next)
+              }}
               disabled={!screeningEnabled || maxRetries <= 1}
               className={`${WORKFLOW_INPUT_CLASS} w-28 disabled:cursor-not-allowed disabled:opacity-50`}
             />

@@ -13,6 +13,8 @@ import type {
   UserUpdate,
 } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
+import { PasswordInput } from '@/components/PasswordInput'
+import { RequiredMark } from '@/components/FieldError'
 import {
   fetchUsers,
   WORKFLOW_CARD_CLASS,
@@ -20,6 +22,15 @@ import {
   WORKFLOW_PRIMARY_BUTTON_CLASS,
 } from '@/lib/workflow'
 import { useAuth } from '@/context/AuthContext'
+import {
+  PASSWORD_HINT,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  PERSON_NAME_MAX_LENGTH,
+  validateEmail,
+  validateName,
+  validatePassword,
+} from '@/lib/validation'
 
 export default function UsersPage() {
   const queryClient = useQueryClient()
@@ -49,10 +60,11 @@ export default function UsersPage() {
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState<TenantMemberRole>('hr')
+  // Roles start unset so creating a user is always a deliberate choice.
+  const [role, setRole] = useState<TenantMemberRole | ''>('')
 
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState<TenantMemberRole>('hr')
+  const [inviteRole, setInviteRole] = useState<TenantMemberRole | ''>('')
   const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null)
 
   const createMutation = useMutation({
@@ -64,7 +76,7 @@ export default function UsersPage() {
       setEmail('')
       setFullName('')
       setPassword('')
-      setRole('hr')
+      setRole('')
     },
     onError: (err: Error) => toast.error(err.message || 'Failed to create user'),
   })
@@ -143,6 +155,19 @@ export default function UsersPage() {
 
   function onCreate(e: FormEvent) {
     e.preventDefault()
+
+    // Mirrors the backend UserCreate schema — reject locally instead of on a 422.
+    const fieldError =
+      validateEmail(email) ?? validateName(fullName, 'Full name') ?? validatePassword(password)
+    if (fieldError) {
+      toast.error(fieldError)
+      return
+    }
+    if (!role) {
+      toast.error('Select a role')
+      return
+    }
+
     createMutation.mutate({
       email: email.trim(),
       full_name: fullName.trim(),
@@ -153,6 +178,17 @@ export default function UsersPage() {
 
   function onInvite(e: FormEvent) {
     e.preventDefault()
+
+    const emailError = validateEmail(inviteEmail)
+    if (emailError) {
+      toast.error(emailError)
+      return
+    }
+    if (!inviteRole) {
+      toast.error('Select a role')
+      return
+    }
+
     inviteMutation.mutate({ email: inviteEmail.trim(), role: inviteRole })
   }
 
@@ -199,7 +235,10 @@ export default function UsersPage() {
         </p>
         <form onSubmit={onInvite} className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Email
+              <RequiredMark />
+            </label>
             <input
               type="email"
               required
@@ -210,12 +249,19 @@ export default function UsersPage() {
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">Role</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Role
+              <RequiredMark />
+            </label>
             <select
+              required
               value={inviteRole}
               onChange={(e) => setInviteRole(e.target.value as TenantMemberRole)}
-              className={WORKFLOW_INPUT_CLASS}
+              className={`${WORKFLOW_INPUT_CLASS} ${inviteRole ? '' : 'text-slate-400'}`}
             >
+              <option value="" disabled>
+                Select a role
+              </option>
               <option value="hr">HR</option>
               <option value="admin">Admin</option>
             </select>
@@ -256,9 +302,13 @@ export default function UsersPage() {
         </div>
         <form onSubmit={onCreate} className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">Full name</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Full name
+              <RequiredMark />
+            </label>
             <input
               required
+              maxLength={PERSON_NAME_MAX_LENGTH}
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               className={WORKFLOW_INPUT_CLASS}
@@ -266,7 +316,10 @@ export default function UsersPage() {
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Email
+              <RequiredMark />
+            </label>
             <input
               type="email"
               required
@@ -277,23 +330,34 @@ export default function UsersPage() {
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">Password</label>
-            <input
-              type="password"
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Password
+              <RequiredMark />
+            </label>
+            <PasswordInput
               required
-              minLength={6}
+              minLength={PASSWORD_MIN_LENGTH}
+              maxLength={PASSWORD_MAX_LENGTH}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className={WORKFLOW_INPUT_CLASS}
             />
+            <p className="mt-1.5 text-xs text-slate-500">{PASSWORD_HINT}</p>
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">Role</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Role
+              <RequiredMark />
+            </label>
             <select
+              required
               value={role}
               onChange={(e) => setRole(e.target.value as TenantMemberRole)}
-              className={WORKFLOW_INPUT_CLASS}
+              className={`${WORKFLOW_INPUT_CLASS} ${role ? '' : 'text-slate-400'}`}
             >
+              <option value="" disabled>
+                Select a role
+              </option>
               <option value="hr">HR</option>
               <option value="admin">Admin</option>
             </select>
@@ -336,7 +400,7 @@ export default function UsersPage() {
               {invites.map((invite) => (
                 <tr key={`invite-${invite.id}`} className="text-slate-700">
                   <td className="px-6 py-3 font-medium text-slate-400">—</td>
-                  <td className="px-6 py-3">{invite.email}</td>
+                  <td className="max-w-[18rem] break-words px-6 py-3">{invite.email}</td>
                   <td className="px-6 py-3 capitalize">{invite.role}</td>
                   <td className="px-6 py-3">
                     <span
@@ -376,8 +440,10 @@ export default function UsersPage() {
                 const isSelf = u.id === currentUser?.id
                 return (
                   <tr key={u.id} className="text-slate-700">
-                    <td className="px-6 py-3 font-medium text-slate-900">{u.full_name}</td>
-                    <td className="px-6 py-3">{u.email}</td>
+                    <td className="max-w-[16rem] break-words px-6 py-3 font-medium text-slate-900">
+                      {u.full_name}
+                    </td>
+                    <td className="max-w-[18rem] break-words px-6 py-3">{u.email}</td>
                     <td className="px-6 py-3 capitalize">{u.role}</td>
                     <td className="px-6 py-3">
                       <span

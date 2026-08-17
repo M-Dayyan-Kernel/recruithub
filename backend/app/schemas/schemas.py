@@ -11,6 +11,12 @@ _PASSWORD_PATTERN = re.compile(
     r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?\":{}|<>_\-\[\]\\/+=~`]).+$"
 )
 
+# Name fields are stored in String(255) columns, but these are names — not prose.
+# Capped well below the column width so a pasted paragraph is rejected.
+# Keep in sync with `hr-app/src/lib/validation.ts`.
+_ORG_NAME_MAX_LEN = 100
+_PERSON_NAME_MAX_LEN = 80
+
 
 def validate_password_strength(password: str) -> str:
     if len(password) < _PASSWORD_MIN_LEN:
@@ -22,13 +28,41 @@ def validate_password_strength(password: str) -> str:
     return password
 
 
+def strip_required_text(value: str) -> str:
+    """Trim a required name field.
+
+    `Field(min_length=1)` runs before this, so whitespace-only input would
+    otherwise reach the service layer, which strips it down to an empty name.
+    """
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError("Value cannot be blank")
+    return stripped
+
+
+def strip_optional_text(value: Optional[str]) -> Optional[str]:
+    """Trim an optional name field, rejecting whitespace-only input."""
+    if value is None:
+        return None
+    return strip_required_text(value)
+
+
 # ---------------------------------------------------------------------------
 # Job schemas
 # ---------------------------------------------------------------------------
 
+#: Points a single rubric question can carry. Keep in sync with the web client.
+INTERVIEW_SCORE_MIN = 1
+INTERVIEW_SCORE_MAX = 100
+
+
 class InterviewQuestionPublic(BaseModel):
     id: str
     question: str
+    # Deliberately only lower-bounded here: this model also serialises stored
+    # rows, and a legacy score above the cap must still be readable. The
+    # 1..INTERVIEW_SCORE_MAX range is enforced on input by
+    # _normalize_interview_questions.
     score: int = Field(gt=0)
 
 
@@ -39,6 +73,25 @@ class InterviewQuestion(InterviewQuestionPublic):
 class ScreeningQuestion(BaseModel):
     id: str
     question: str
+
+
+#: Sanity cap for years-of-experience fields; mirrored in the web client.
+EXPERIENCE_MAX_YEARS = 60
+
+
+def validate_experience_range(
+    minimum: Optional[int], maximum: Optional[int]
+) -> None:
+    """Reject negative years and an upper bound below the lower one."""
+    for value, label in ((minimum, "experience_min"), (maximum, "experience_max")):
+        if value is None:
+            continue
+        if value < 0:
+            raise ValueError(f"{label} cannot be negative")
+        if value > EXPERIENCE_MAX_YEARS:
+            raise ValueError(f"{label} cannot exceed {EXPERIENCE_MAX_YEARS} years")
+    if minimum is not None and maximum is not None and maximum < minimum:
+        raise ValueError("experience_max cannot be less than experience_min")
 
 
 def _normalize_screening_questions(questions: Optional[List]) -> List[dict]:
@@ -86,8 +139,11 @@ def _normalize_interview_questions(questions: Optional[List]) -> List[dict]:
             continue
         if not q.question:
             raise ValueError("Each interview question must have non-empty question text")
-        if q.score < 1:
-            raise ValueError("Each interview question must have score >= 1")
+        if q.score < INTERVIEW_SCORE_MIN or q.score > INTERVIEW_SCORE_MAX:
+            raise ValueError(
+                f"Each interview question must have a score between "
+                f"{INTERVIEW_SCORE_MIN} and {INTERVIEW_SCORE_MAX}"
+            )
         from app.services.interview_question_constraints import (
             validate_oral_interview_question,
             validate_technical_interview_question,
@@ -129,7 +185,10 @@ class JobCreate(BaseModel):
     required_skills: Optional[List[str]] = None
     experience_min: int = 0
     experience_max: int = 0
-    screening_questions: List[ScreeningQuestion] = []
+    # None means "not supplied" — the service fills in defaults. An explicit []
+    # means the caller deliberately cleared them and must be honoured, not
+    # silently repopulated.
+    screening_questions: Optional[List[ScreeningQuestion]] = None
     interview_questions: List[InterviewQuestion] = []
     voice_screening_enabled: bool = True
     status: str = "active"
@@ -141,9 +200,14 @@ class JobCreate(BaseModel):
             data = dict(data)
             if "interview_questions" in data:
                 data["interview_questions"] = _normalize_interview_questions(data.get("interview_questions"))
-            if "screening_questions" in data:
+            if data.get("screening_questions") is not None:
                 data["screening_questions"] = _normalize_screening_questions(data.get("screening_questions"))
         return data
+
+    @model_validator(mode="after")
+    def check_experience_range(self):
+        validate_experience_range(self.experience_min, self.experience_max)
+        return self
 
 
 class JobUpdate(BaseModel):
@@ -170,6 +234,13 @@ class JobUpdate(BaseModel):
             if data.get("screening_questions") is not None:
                 data["screening_questions"] = _normalize_screening_questions(data.get("screening_questions"))
         return data
+
+    @model_validator(mode="after")
+    def check_experience_range(self):
+        # Only catches what this payload carries; a PATCH that moves one bound
+        # against the job's stored other bound is checked in JobService.update.
+        validate_experience_range(self.experience_min, self.experience_max)
+        return self
 
 
 class JobResponse(BaseModel):
@@ -688,10 +759,15 @@ class TokenResponse(BaseModel):
 
 
 class SignupRequest(BaseModel):
-    organization_name: str = Field(..., min_length=1, max_length=255)
+    organization_name: str = Field(..., min_length=1, max_length=_ORG_NAME_MAX_LEN)
     email: EmailStr
     password: str = Field(..., min_length=12, max_length=128)
-    full_name: str = Field(..., min_length=1, max_length=255)
+    full_name: str = Field(..., min_length=1, max_length=_PERSON_NAME_MAX_LEN)
+
+    @field_validator("organization_name", "full_name")
+    @classmethod
+    def _strip_text(cls, v: str) -> str:
+        return strip_required_text(v)
 
     @field_validator("password")
     @classmethod
@@ -711,7 +787,12 @@ class SignupPendingResponse(BaseModel):
 class AcceptInviteRequest(BaseModel):
     token: str = Field(..., min_length=10, max_length=128)
     password: str = Field(..., min_length=12, max_length=128)
-    full_name: str = Field(..., min_length=1, max_length=255)
+    full_name: str = Field(..., min_length=1, max_length=_PERSON_NAME_MAX_LEN)
+
+    @field_validator("full_name")
+    @classmethod
+    def _strip_text(cls, v: str) -> str:
+        return strip_required_text(v)
 
     @field_validator("password")
     @classmethod
@@ -786,10 +867,15 @@ class TenantListItem(BaseModel):
 
 
 class TenantCreateRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=255)
+    name: str = Field(..., min_length=1, max_length=_ORG_NAME_MAX_LEN)
     admin_email: EmailStr
-    admin_full_name: str = Field(..., min_length=1, max_length=255)
+    admin_full_name: str = Field(..., min_length=1, max_length=_PERSON_NAME_MAX_LEN)
     admin_password: str = Field(..., min_length=12, max_length=128)
+
+    @field_validator("name", "admin_full_name")
+    @classmethod
+    def _strip_text(cls, v: str) -> str:
+        return strip_required_text(v)
 
     @field_validator("admin_password")
     @classmethod
@@ -798,15 +884,25 @@ class TenantCreateRequest(BaseModel):
 
 
 class TenantUpdateRequest(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    name: Optional[str] = Field(None, min_length=1, max_length=_ORG_NAME_MAX_LEN)
     is_active: Optional[bool] = None
+
+    @field_validator("name")
+    @classmethod
+    def _strip_text(cls, v: Optional[str]) -> Optional[str]:
+        return strip_optional_text(v)
 
 
 class UserCreate(BaseModel):
     email: EmailStr
-    full_name: str = Field(..., min_length=1, max_length=255)
+    full_name: str = Field(..., min_length=1, max_length=_PERSON_NAME_MAX_LEN)
     password: str = Field(..., min_length=12, max_length=128)
     role: TenantMemberRoleLiteral = "hr"
+
+    @field_validator("full_name")
+    @classmethod
+    def _strip_text(cls, v: str) -> str:
+        return strip_required_text(v)
 
     @field_validator("password")
     @classmethod
@@ -815,10 +911,15 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    full_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    full_name: Optional[str] = Field(None, min_length=1, max_length=_PERSON_NAME_MAX_LEN)
     role: Optional[TenantMemberRoleLiteral] = None
     password: Optional[str] = Field(None, min_length=12, max_length=128)
     is_active: Optional[bool] = None
+
+    @field_validator("full_name")
+    @classmethod
+    def _strip_text(cls, v: Optional[str]) -> Optional[str]:
+        return strip_optional_text(v)
 
     @field_validator("password")
     @classmethod

@@ -7,6 +7,9 @@ class DomainError(Exception):
     status_code = 500
     public_message = "internal error"
     headers: dict[str, str] | None = None
+    #: Stable machine-readable tag echoed to clients so the UI can branch on a
+    #: specific failure instead of string-matching the human message.
+    error_code: str | None = None
 
     def __init__(
         self,
@@ -14,11 +17,14 @@ class DomainError(Exception):
         *,
         public_message: str | None = None,
         headers: dict[str, str] | None = None,
+        error_code: str | None = None,
     ) -> None:
         self.public_message = public_message or self.public_message
         super().__init__(message or self.public_message)
         if headers is not None:
             self.headers = headers
+        if error_code is not None:
+            self.error_code = error_code
 
 
 class AuthenticationError(DomainError):
@@ -31,11 +37,13 @@ class AuthenticationError(DomainError):
         *,
         public_message: str | None = None,
         headers: dict[str, str] | None = None,
+        error_code: str | None = None,
     ) -> None:
         super().__init__(
             message,
             public_message=public_message or "Not authenticated",
             headers=headers or {"WWW-Authenticate": "Bearer"},
+            error_code=error_code,
         )
 
 

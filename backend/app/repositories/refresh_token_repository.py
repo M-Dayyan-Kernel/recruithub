@@ -7,7 +7,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -49,6 +49,23 @@ class RefreshTokenRepository:
     async def revoke(self, row: RefreshToken, *, at: datetime | None = None) -> None:
         if row.revoked_at is None:
             row.revoked_at = at or datetime.now(timezone.utc)
+
+    async def revoke_all_for_tenant(
+        self, tenant_id: uuid.UUID, *, at: datetime | None = None
+    ) -> int:
+        """Revoke every live refresh token held by a tenant's users."""
+        result = await self._session.execute(
+            update(RefreshToken)
+            .where(
+                RefreshToken.revoked_at.is_(None),
+                RefreshToken.user_id.in_(
+                    select(User.id).where(User.tenant_id == tenant_id)
+                ),
+            )
+            .values(revoked_at=at or datetime.now(timezone.utc))
+            .execution_options(synchronize_session=False)
+        )
+        return result.rowcount or 0
 
     async def flush(self) -> None:
         await self._session.flush()

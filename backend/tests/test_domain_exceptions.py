@@ -46,6 +46,18 @@ class DomainExceptionTests(unittest.TestCase):
         exc = DomainError(public_message="custom message")
         self.assertEqual(exc.public_message, "custom message")
 
+    def test_error_code_defaults_to_none(self):
+        self.assertIsNone(DomainError().error_code)
+
+    def test_error_code_preserved(self):
+        exc = AuthorizationError(error_code="organization_inactive")
+        self.assertEqual(exc.error_code, "organization_inactive")
+
+    def test_authentication_error_keeps_error_code_and_default_headers(self):
+        exc = AuthenticationError(error_code="token_expired")
+        self.assertEqual(exc.error_code, "token_expired")
+        self.assertIn("WWW-Authenticate", exc.headers or {})
+
 
 if __name__ == "__main__":
     unittest.main()

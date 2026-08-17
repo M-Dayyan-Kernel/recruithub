@@ -17,6 +17,12 @@ import { InterviewQuestionsEditor } from '@/components/InterviewQuestionsEditor'
 import { ScreeningQuestionsEditor } from '@/components/ScreeningQuestionsEditor'
 import { VoiceScreeningSwitch } from '@/components/screening/VoiceScreeningSwitch'
 import { getDefaultScreeningQuestions } from '@/lib/screeningDefaults'
+import { RequiredMark } from '@/components/FieldError'
+import {
+  EXPERIENCE_MAX_YEARS,
+  sanitizeYearsInput,
+  validateExperienceRange,
+} from '@/lib/validation'
 
 interface CreateJobPayload {
   title: string
@@ -32,6 +38,10 @@ interface CreateJobPayload {
 interface FieldErrors {
   title?: string
   description?: string
+  screeningQuestions?: string
+  interviewQuestions?: string
+  minExp?: string
+  maxExp?: string
 }
 
 interface Props {
@@ -86,7 +96,7 @@ function FieldLabel({
     <div className="mb-1.5">
       <label htmlFor={htmlFor} className="block text-sm font-medium text-slate-700">
         {children}
-        {required && <span className="ml-0.5 text-rose-500">*</span>}
+        {required && <RequiredMark />}
       </label>
       {hint && <p className="mt-0.5 text-xs text-slate-400">{hint}</p>}
     </div>
@@ -217,6 +227,24 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
     const errors: FieldErrors = {}
     if (!title.trim()) errors.title = 'Job title is required'
     if (!description.trim()) errors.description = 'Description is required'
+    const expError = validateExperienceRange(minExp, maxExp)
+    if (expError) {
+      errors[expError.field === 'min' ? 'minExp' : 'maxExp'] = expError.message
+    }
+    // The AI voice agent needs something to ask, so an empty list is only
+    // valid when voice screening is switched off.
+    const filledScreening = screeningQuestions.filter((q) => q.question.trim())
+    if (voiceScreeningEnabled && filledScreening.length === 0) {
+      errors.screeningQuestions =
+        'Add at least one screening question, or turn voice screening off'
+    } else if (filledScreening.length !== screeningQuestions.length) {
+      // Blank rows used to be dropped silently, so half-typed questions
+      // disappeared on save.
+      errors.screeningQuestions = 'Fill in or remove the empty screening question'
+    }
+    if (interviewQuestions.some((q) => !q.question.trim())) {
+      errors.interviewQuestions = 'Fill in or remove the empty interview question'
+    }
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors)
@@ -238,14 +266,17 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
       required_skills: finalSkills,
       experience_min: minExp ? Number(minExp) : undefined,
       experience_max: maxExp ? Number(maxExp) : undefined,
-      screening_questions: screeningQuestions.filter((q) => q.question.trim()),
-      interview_questions: interviewQuestions.filter((q) => q.question.trim()),
+      screening_questions: filledScreening,
+      interview_questions: interviewQuestions,
       voice_screening_enabled: voiceScreeningEnabled,
     })
   }
 
   const isParsing = parseMutation.isPending
   const isBusy = mutation.isPending || isParsing
+  // Voice screening needs at least one question to ask.
+  const missingScreeningQuestions =
+    voiceScreeningEnabled && !screeningQuestions.some((q) => q.question.trim())
 
   return (
     <>
@@ -438,15 +469,30 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
                   id="min-exp"
                   type="number"
                   min={0}
+                  max={EXPERIENCE_MAX_YEARS}
+                  step={1}
                   value={minExp}
-                  onChange={(e) => setMinExp(e.target.value)}
+                  onChange={(e) => {
+                    const next = sanitizeYearsInput(e.target.value)
+                    if (next === null) return
+                    setMinExp(next)
+                    setFieldErrors((p) => ({ ...p, minExp: undefined, maxExp: undefined }))
+                  }}
                   placeholder="3"
-                  className={inputClass}
+                  className={`${inputClass} ${
+                    fieldErrors.minExp ? 'border-rose-300 ring-rose-500/15' : ''
+                  }`}
                 />
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
                   yrs
                 </span>
               </div>
+              {fieldErrors.minExp && (
+                <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600">
+                  <AlertCircle size={11} />
+                  {fieldErrors.minExp}
+                </p>
+              )}
             </div>
             <div>
               <FieldLabel htmlFor="max-exp">Max experience</FieldLabel>
@@ -455,15 +501,30 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
                   id="max-exp"
                   type="number"
                   min={0}
+                  max={EXPERIENCE_MAX_YEARS}
+                  step={1}
                   value={maxExp}
-                  onChange={(e) => setMaxExp(e.target.value)}
+                  onChange={(e) => {
+                    const next = sanitizeYearsInput(e.target.value)
+                    if (next === null) return
+                    setMaxExp(next)
+                    setFieldErrors((p) => ({ ...p, minExp: undefined, maxExp: undefined }))
+                  }}
                   placeholder="6"
-                  className={inputClass}
+                  className={`${inputClass} ${
+                    fieldErrors.maxExp ? 'border-rose-300 ring-rose-500/15' : ''
+                  }`}
                 />
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
                   yrs
                 </span>
               </div>
+              {fieldErrors.maxExp && (
+                <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600">
+                  <AlertCircle size={11} />
+                  {fieldErrors.maxExp}
+                </p>
+              )}
             </div>
           </div>
         </FormSection>
@@ -481,19 +542,46 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
             className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5"
           />
 
-          <ScreeningQuestionsEditor
-            questions={screeningQuestions}
-            onChange={setScreeningQuestions}
-            disabled={isBusy}
-            scrollable
-          />
+          <div>
+            <ScreeningQuestionsEditor
+              questions={screeningQuestions}
+              onChange={(next) => {
+                setScreeningQuestions(next)
+                if (fieldErrors.screeningQuestions) {
+                  setFieldErrors((p) => ({ ...p, screeningQuestions: undefined }))
+                }
+              }}
+              disabled={isBusy}
+              scrollable
+            />
+            {missingScreeningQuestions && (
+              <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600">
+                <AlertCircle size={11} />
+                {fieldErrors.screeningQuestions ??
+                  'Add at least one screening question, or turn voice screening off'}
+              </p>
+            )}
+          </div>
 
-          <InterviewQuestionsEditor
-            questions={interviewQuestions}
-            onChange={setInterviewQuestions}
-            disabled={isBusy}
-            scrollable
-          />
+          <div>
+            <InterviewQuestionsEditor
+              questions={interviewQuestions}
+              onChange={(next) => {
+                setInterviewQuestions(next)
+                if (fieldErrors.interviewQuestions) {
+                  setFieldErrors((p) => ({ ...p, interviewQuestions: undefined }))
+                }
+              }}
+              disabled={isBusy}
+              scrollable
+            />
+            {fieldErrors.interviewQuestions && (
+              <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600">
+                <AlertCircle size={11} />
+                {fieldErrors.interviewQuestions}
+              </p>
+            )}
+          </div>
         </FormSection>
       </div>
 
@@ -516,7 +604,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={isBusy}
+            disabled={isBusy || missingScreeningQuestions}
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-indigo-700 hover:shadow disabled:cursor-not-allowed disabled:opacity-50"
           >
             {mutation.isPending ? (

@@ -6,13 +6,18 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import ValidationError
 from app.models.models import Job, User
 from app.repositories.job_repository import JobRepository
-from app.schemas.schemas import JobCreate, JobUpdate
+from app.schemas.schemas import JobCreate, JobUpdate, validate_experience_range
 from app.services.audit_service import AuditService
 from app.services.expected_answer_service import ExpectedAnswerService
 from app.services.screening_defaults import get_default_screening_questions
 from app.services.tenant_integrations_service import TenantIntegrationsService
+
+_NO_SCREENING_QUESTIONS_MESSAGE = (
+    "Add at least one screening question, or turn voice screening off."
+)
 
 _JOB_AUDIT_FIELDS = (
     "title",
@@ -48,10 +53,15 @@ class JobService:
 
     async def create(self, actor: User, payload: JobCreate) -> Job:
         data = payload.model_dump()
-        if not data.get("screening_questions"):
+        if data.get("screening_questions") is None:
+            # Field omitted entirely (JD parsing, API clients): seed the defaults.
             data["screening_questions"] = get_default_screening_questions(
                 data.get("title") or ""
             )
+        elif not data["screening_questions"] and data.get("voice_screening_enabled"):
+            # Explicitly cleared. Refilling here would resurrect questions the
+            # user just deleted, so reject instead of silently overriding them.
+            raise ValidationError(public_message=_NO_SCREENING_QUESTIONS_MESSAGE)
         if data.get("interview_questions"):
             data["interview_questions"] = await self._enrich_interview_questions(
                 actor.tenant_id,
@@ -92,6 +102,23 @@ class JobService:
     async def update(self, actor: User, job_id: uuid.UUID, payload: JobUpdate) -> Job:
         job = await self._jobs.get_for_tenant(job_id, actor.tenant_id)
         updates = payload.model_dump(exclude_unset=True)
+        if "experience_min" in updates or "experience_max" in updates:
+            # Compare against the stored bound the request leaves untouched, so
+            # lowering only the max below the existing min is still caught.
+            effective_min = updates.get("experience_min", job.experience_min)
+            effective_max = updates.get("experience_max", job.experience_max)
+            try:
+                validate_experience_range(effective_min, effective_max)
+            except ValueError as exc:
+                raise ValidationError(public_message=str(exc)) from exc
+        if "screening_questions" in updates and not updates["screening_questions"]:
+            # Voice screening needs something to ask, whether the flag is being
+            # changed in this same request or was already on.
+            voice_on = updates.get(
+                "voice_screening_enabled", job.voice_screening_enabled
+            )
+            if voice_on:
+                raise ValidationError(public_message=_NO_SCREENING_QUESTIONS_MESSAGE)
         if "interview_questions" in updates and updates["interview_questions"] is not None:
             updates["interview_questions"] = await self._enrich_interview_questions(
                 actor.tenant_id,

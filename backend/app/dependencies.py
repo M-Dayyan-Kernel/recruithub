@@ -94,11 +94,11 @@ async def get_current_user(
     try:
         return await AuthenticationContextService(db).resolve_user_from_token(token)
     except DomainError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=exc.public_message,
-            headers=exc.headers,
-        ) from exc
+        # Re-raised as-is so the app-level DomainError handler (main.py:147)
+        # renders the body, keeping `error_code` (which HTTPException has no
+        # room for) on the wire. An organization deactivated mid-session must
+        # surface its code so the UI can sign out.
+        raise exc from None
 
 
 def require_roles(*allowed_roles: str) -> Callable:

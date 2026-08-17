@@ -9,9 +9,10 @@ from pathlib import Path
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.constants import PLATFORM_TENANT_SLUG
+from app.core.constants import DEFAULT_TENANT_SLUG, PLATFORM_TENANT_SLUG
 from app.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.models.models import Tenant, User
+from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.tenant_repository import TenantRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.schemas import (
@@ -38,6 +39,7 @@ class PlatformTenantService:
         tenant_service: TenantService | None = None,
         audit_service: AuditService | None = None,
         gst_documents: GstDocumentService | None = None,
+        refresh_token_repo: RefreshTokenRepository | None = None,
     ) -> None:
         self._session = session
         self._tenants = tenant_repo or TenantRepository(session)
@@ -45,6 +47,21 @@ class PlatformTenantService:
         self._tenant_service = tenant_service or TenantService(session)
         self._audit = audit_service or AuditService(session)
         self._gst = gst_documents or GstDocumentService()
+        self._refresh_tokens = refresh_token_repo or RefreshTokenRepository(session)
+
+    async def _revoke_tenant_sessions(self, tenant: Tenant) -> None:
+        """Kill refresh tokens so a disabled org cannot extend live sessions.
+
+        Access tokens already in the wild stay valid until they expire, but
+        every request they make is rejected by TenantAccessPolicy.
+        """
+        revoked = await self._refresh_tokens.revoke_all_for_tenant(tenant.id)
+        if revoked:
+            logger.info(
+                "Revoked %s refresh token(s) after disabling organization %s",
+                revoked,
+                tenant.name,
+            )
 
     async def list_tenants(self) -> list[TenantListItem]:
         users_by_tenant = await self._users.count_by_tenant_excluding_superadmin()
@@ -112,7 +129,13 @@ class PlatformTenantService:
                 raise BadRequestError(
                     public_message="Approve the organization before activating it",
                 )
+            if not data["is_active"] and tenant.slug == DEFAULT_TENANT_SLUG:
+                raise BadRequestError(
+                    public_message="The default organization cannot be deactivated",
+                )
             tenant.is_active = data["is_active"]
+            if not tenant.is_active and before["is_active"]:
+                await self._revoke_tenant_sessions(tenant)
 
         await self._audit.log_change(
             actor=admin,
@@ -162,6 +185,7 @@ class PlatformTenantService:
         }
         tenant.verification_status = "rejected"
         tenant.is_active = False
+        await self._revoke_tenant_sessions(tenant)
         await self._audit.log_change(
             actor=admin,
             action="tenant.rejected",

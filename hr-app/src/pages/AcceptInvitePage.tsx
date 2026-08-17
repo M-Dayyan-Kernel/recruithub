@@ -6,6 +6,16 @@ import { api } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import type { InvitePublic } from '@/types/api'
 import { WORKFLOW_INPUT_CLASS, WORKFLOW_PRIMARY_BUTTON_CLASS } from '@/lib/workflow'
+import { PasswordInput } from '@/components/PasswordInput'
+import { RequiredMark } from '@/components/FieldError'
+import {
+  PASSWORD_HINT,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  PERSON_NAME_MAX_LENGTH,
+  validateName,
+  validatePassword,
+} from '@/lib/validation'
 
 export default function AcceptInvitePage() {
   const { acceptInvite, isAuthenticated, isLoading } = useAuth()
@@ -55,6 +65,14 @@ export default function AcceptInvitePage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     if (!token) return
+
+    // Mirrors the backend AcceptInviteRequest schema.
+    const fieldError = validateName(fullName, 'Full name') ?? validatePassword(password)
+    if (fieldError) {
+      toast.error(fieldError)
+      return
+    }
+
     setSubmitting(true)
     try {
       await acceptInvite({ token, full_name: fullName.trim(), password })
@@ -107,10 +125,12 @@ export default function AcceptInvitePage() {
             <div>
               <label htmlFor="fullName" className="mb-1.5 block text-sm font-medium text-slate-700">
                 Full name
+                <RequiredMark />
               </label>
               <input
                 id="fullName"
                 required
+                maxLength={PERSON_NAME_MAX_LENGTH}
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 className={WORKFLOW_INPUT_CLASS}
@@ -120,18 +140,20 @@ export default function AcceptInvitePage() {
             <div>
               <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-slate-700">
                 Password
+                <RequiredMark />
               </label>
-              <input
+              <PasswordInput
                 id="password"
-                type="password"
                 autoComplete="new-password"
                 required
-                minLength={6}
+                minLength={PASSWORD_MIN_LENGTH}
+                maxLength={PASSWORD_MAX_LENGTH}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className={WORKFLOW_INPUT_CLASS}
                 placeholder="••••••••"
               />
+              <p className="mt-1.5 text-xs text-slate-500">{PASSWORD_HINT}</p>
             </div>
             <button
               type="submit"

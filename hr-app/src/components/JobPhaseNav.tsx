@@ -63,6 +63,31 @@ function phaseLabel(phase: string, phases: Array<(typeof PHASES)[number]>): stri
   return phases.find((p) => p.segment === phase)?.label ?? 'Pipeline'
 }
 
+/**
+ * Label for a pipeline segment, for callers outside the nav (breadcrumbs).
+ * Looks at every phase, not the filtered set, so a segment reached by URL
+ * still names itself even when its tab is hidden.
+ */
+export function jobPhaseLabel(segment: string): string {
+  return phaseLabel(segment, [...PHASES])
+}
+
+export interface JobPhaseStep {
+  segment: string
+  label: string
+}
+
+/**
+ * The pipeline steps in order, filtered exactly as the nav tabs are, so a
+ * breadcrumb trail never offers a step this job does not actually have.
+ */
+export function jobPhaseSteps(job: { voice_screening_enabled?: boolean }): JobPhaseStep[] {
+  const phases = isVoiceScreeningEffective(null, job)
+    ? [...PHASES]
+    : PHASES.filter((p) => p.segment !== 'screening')
+  return phases.map(({ segment, label }) => ({ segment, label }))
+}
+
 function PhaseToolbar({
   children,
   end,
