@@ -151,6 +151,8 @@ async def domain_exception_handler(request: Request, exc: DomainError):
         content = getattr(exc, "response_content", None) or {
             "detail": exc.public_message
         }
+    if getattr(exc, "error_code", None) and "error_code" not in content:
+        content = {**content, "error_code": exc.error_code}
     return JSONResponse(
         status_code=exc.status_code,
         content=content,

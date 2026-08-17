@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { RequiredMark } from '@/components/FieldError'
 import { useMutation } from '@tanstack/react-query'
 import { CalendarClock, Loader2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -117,10 +118,12 @@ export function ScheduleInterviewModal({
             <div>
               <label htmlFor="interview-schedule-date" className="mb-1 block text-xs font-medium text-slate-600">
                 Date
+                <RequiredMark />
               </label>
               <input
                 id="interview-schedule-date"
                 type="date"
+                aria-required="true"
                 value={scheduledDate}
                 min={new Date().toISOString().slice(0, 10)}
                 onChange={(e) => setScheduledDate(e.target.value)}
@@ -131,10 +134,12 @@ export function ScheduleInterviewModal({
             <div>
               <label htmlFor="interview-schedule-time" className="mb-1 block text-xs font-medium text-slate-600">
                 Time
+                <RequiredMark />
               </label>
               <input
                 id="interview-schedule-time"
                 type="time"
+                aria-required="true"
                 value={scheduledTime}
                 onChange={(e) => setScheduledTime(e.target.value)}
                 className={inputClass}

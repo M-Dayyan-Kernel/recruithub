@@ -30,7 +30,7 @@ function JobCard({ job }: { job: Job }) {
   const expLabel = experienceLabel(job)
 
   return (
-    <article className="group relative flex h-full flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:border-slate-300 hover:shadow-md">
+    <article className="group relative flex h-full min-w-0 flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:border-slate-300 hover:shadow-md">
       <Link
         to={`/jobs/${job.id}`}
         className="absolute inset-0 z-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
@@ -38,7 +38,7 @@ function JobCard({ job }: { job: Job }) {
       />
       <div className="pointer-events-none relative z-10 flex min-h-0 flex-1 flex-col">
         <div className="mb-1.5 flex flex-wrap items-center gap-2">
-          <h2 className="text-lg font-semibold text-slate-900 transition-colors group-hover:text-indigo-700">
+          <h2 className="min-w-0 break-words text-lg font-semibold text-slate-900 transition-colors group-hover:text-indigo-700">
             {job.title}
           </h2>
           <JobStatusBadge status={job.status} />
@@ -46,7 +46,7 @@ function JobCard({ job }: { job: Job }) {
 
         {expLabel && <p className="mb-1.5 text-xs text-slate-500">{expLabel}</p>}
 
-        <p className="line-clamp-2 text-sm leading-relaxed text-slate-600">
+        <p className="line-clamp-2 break-words text-sm leading-relaxed text-slate-600">
           {job.description || 'No description provided.'}
         </p>
 
@@ -55,7 +55,7 @@ function JobCard({ job }: { job: Job }) {
             {job.required_skills!.slice(0, 6).map((skill) => (
               <span
                 key={skill}
-                className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600"
+                className="max-w-full truncate rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600"
               >
                 {skill}
               </span>

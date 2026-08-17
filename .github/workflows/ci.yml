@@ -38,6 +38,12 @@ jobs:
         run: |
           pip install uv
           uv sync --extra dev
+      # The service container starts an empty database. Without this the
+      # integration tests fail with: relation "users" does not exist.
+      - name: Run database migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_recruitment
+        run: uv run alembic upgrade head
       - name: Run tests
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_recruitment

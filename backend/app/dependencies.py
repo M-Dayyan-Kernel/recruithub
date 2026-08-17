@@ -58,16 +58,12 @@ async def get_current_user(
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    try:
-        return await AuthenticationContextService(db).resolve_user_from_token(
-            credentials.credentials
-        )
-    except DomainError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=exc.public_message,
-            headers=exc.headers,
-        ) from exc
+    # DomainError propagates to the app-level handler, which renders the same
+    # `{"detail": ...}` body plus the `error_code` clients branch on (an
+    # organization deactivated mid-session, say). HTTPException would drop it.
+    return await AuthenticationContextService(db).resolve_user_from_token(
+        credentials.credentials
+    )
 
 
 def require_roles(*allowed_roles: str) -> Callable:

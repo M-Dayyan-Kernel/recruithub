@@ -24,17 +24,23 @@ export function ScreeningCriteriaModal({ job, open, onClose }: Props) {
       : getDefaultScreeningQuestions(job.title),
   )
 
+  // This modal only edits questions, so voice screening stays as configured —
+  // saving an empty list would leave the agent with nothing to ask.
+  const filled = questions.filter((q) => q.question.trim())
+  const canSave = filled.length > 0 || job.voice_screening_enabled === false
+
   const mutation = useMutation({
     mutationFn: () =>
       api.patch(`/api/jobs/${job.id}`, {
-        screening_questions: questions.filter((q) => q.question.trim()),
+        screening_questions: filled,
       }) as unknown as Promise<Job>,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['job', job.id] })
       toast.success('Screening questions saved')
       onClose()
     },
-    onError: () => toast.error('Failed to save screening questions'),
+    onError: (err: Error) =>
+      toast.error(err.message || 'Failed to save screening questions'),
   })
 
   if (!open) return null
@@ -67,6 +73,11 @@ export function ScreeningCriteriaModal({ job, open, onClose }: Props) {
             embedded
             scrollable
           />
+          {!canSave && (
+            <p className="mt-2 text-xs text-rose-600">
+              Add at least one screening question, or turn voice screening off on the job.
+            </p>
+          )}
         </div>
 
         <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-100 px-5 py-3">
@@ -90,7 +101,7 @@ export function ScreeningCriteriaModal({ job, open, onClose }: Props) {
             <button
               type="button"
               onClick={() => mutation.mutate()}
-              disabled={mutation.isPending}
+              disabled={mutation.isPending || !canSave}
               className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
             >
               {mutation.isPending && <Loader2 size={14} className="animate-spin" />}

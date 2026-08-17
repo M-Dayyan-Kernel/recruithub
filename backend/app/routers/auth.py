@@ -21,13 +21,9 @@ router = APIRouter()
 
 
 def _raise_domain(exc: DomainError):
-    from fastapi import HTTPException
-
-    raise HTTPException(
-        status_code=exc.status_code,
-        detail=exc.public_message,
-        headers=exc.headers,
-    ) from exc
+    # Re-raised as-is so the app-level DomainError handler renders the body,
+    # keeping `error_code` (which HTTPException has no room for) on the wire.
+    raise exc
 
 
 @router.post(

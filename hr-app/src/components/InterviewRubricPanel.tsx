@@ -32,6 +32,7 @@ export function InterviewRubricPanel({ job, headerEnd }: Props) {
 
   const isDirty = normalize(questions) !== savedSnapshot
   const filledCount = questions.filter((q) => q.question.trim()).length
+  const hasEmptyQuestion = questions.some((q) => !q.question.trim())
   const totalScore = questions.reduce((sum, q) => sum + (Number(q.score) || 0), 0)
 
   useEffect(() => {
@@ -56,7 +57,13 @@ export function InterviewRubricPanel({ job, headerEnd }: Props) {
   })
 
   const handleSave = () => {
-    saveMutation.mutate(questions.filter((q) => q.question.trim()))
+    // Previously blank rows were filtered out silently, so a half-typed
+    // question vanished on save. Reject instead, and let the editor mark it.
+    if (hasEmptyQuestion) {
+      toast.error('Fill in or remove the empty question before saving')
+      return
+    }
+    saveMutation.mutate(questions)
   }
 
   const handleDiscard = () => {
@@ -134,8 +141,13 @@ export function InterviewRubricPanel({ job, headerEnd }: Props) {
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={saveMutation.isPending}
-                className="inline-flex h-8 items-center gap-1 rounded-md bg-indigo-600 px-2.5 text-[11px] font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+                disabled={saveMutation.isPending || hasEmptyQuestion}
+                title={
+                  hasEmptyQuestion
+                    ? 'Fill in or remove the empty question before saving'
+                    : undefined
+                }
+                className="inline-flex h-8 items-center gap-1 rounded-md bg-indigo-600 px-2.5 text-[11px] font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saveMutation.isPending ? (
                   <Loader2 size={11} className="animate-spin" />

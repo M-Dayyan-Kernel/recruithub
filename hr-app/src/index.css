@@ -39,4 +39,31 @@
     background-color: #334155;
     border-radius: 3px;
   }
+
+  /*
+   * Light-surface variant. The browser default paints an opaque track, which
+   * reads as a stray bar against a white card; this keeps the track invisible
+   * and leaves only a slim thumb.
+   */
+  .scrollbar-thin-light {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.slate.300') transparent;
+  }
+
+  .scrollbar-thin-light::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin-light::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin-light::-webkit-scrollbar-thumb {
+    background-color: theme('colors.slate.300');
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin-light:hover::-webkit-scrollbar-thumb {
+    background-color: theme('colors.slate.400');
+  }
 }

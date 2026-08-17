@@ -6,11 +6,13 @@ from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import DomainError
 from app.models.models import User
 from app.repositories.refresh_token_repository import (
     RefreshTokenRepository,
     hash_refresh_token,
 )
+from app.services.tenant_access_policy import TenantAccessPolicy
 
 
 class RefreshTokenService:
@@ -19,9 +21,11 @@ class RefreshTokenService:
         session: AsyncSession,
         *,
         repo: RefreshTokenRepository | None = None,
+        access_policy: TenantAccessPolicy | None = None,
     ) -> None:
         self._session = session
         self._repo = repo or RefreshTokenRepository(session)
+        self._access_policy = access_policy or TenantAccessPolicy()
 
     async def issue(self, user: User) -> str:
         _, raw = self._repo.create_token(user.id)
@@ -37,6 +41,14 @@ class RefreshTokenService:
         user = await self._repo.get_user_for_token(row.user_id)
         if user is None or not user.is_active:
             return None
+        if user.role != "superadmin":
+            try:
+                self._access_policy.assert_can_access(user.tenant)
+            except DomainError:
+                # Organization deactivated/rejected since the token was issued:
+                # burn it so the session cannot be extended.
+                await self._repo.revoke(row)
+                return None
         await self._repo.revoke(row)
         new_raw = await self.issue(user)
         return user, new_raw
