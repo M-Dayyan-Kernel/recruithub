@@ -38,6 +38,8 @@ class _FakeCandidate:
         self.email = "pending_abc@upload.pending"
         self.phone = None
         self.parsed_data = None
+        # _apply_profile_to_candidate backfills this, so the stub needs it.
+        self.years_experience = None
 
 
 class _ScalarResult:
