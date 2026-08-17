@@ -14,6 +14,9 @@ interface Props {
 const fieldClass =
   'w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/15 disabled:bg-slate-50 disabled:text-slate-500'
 
+/** Highlights a row whose question text is still blank, which blocks saving. */
+const emptyFieldClass = 'border-rose-300 focus:border-rose-400 focus:ring-rose-500/15'
+
 export function createScreeningQuestion(): ScreeningQuestion {
   return {
     id: crypto.randomUUID(),
@@ -54,7 +57,7 @@ export function ScreeningQuestionsEditor({
         ) : (
           <div
             className={`overflow-hidden rounded-lg border border-slate-200 ${
-              scrollable ? 'max-h-[15.5rem] overflow-y-auto' : ''
+              scrollable ? 'scrollbar-thin-light max-h-[15.5rem] overflow-y-auto' : ''
             }`}
           >
             <table className="w-full">
@@ -83,7 +86,10 @@ export function ScreeningQuestionsEditor({
                         disabled={disabled}
                         placeholder="Screening question…"
                         aria-label={`Question ${index + 1}`}
-                        className={fieldClass}
+                        aria-invalid={!q.question.trim()}
+                        className={`${fieldClass} ${
+                          q.question.trim() ? '' : emptyFieldClass
+                        }`}
                       />
                     </td>
                     <td className="px-1 py-1 text-center">
@@ -138,7 +144,9 @@ export function ScreeningQuestionsEditor({
       ) : (
         <div
           className={
-            scrollable ? 'max-h-[15.5rem] space-y-2 overflow-y-auto pr-0.5' : 'space-y-2'
+            scrollable
+              ? 'scrollbar-thin-light max-h-[15.5rem] space-y-2 overflow-y-auto pr-1.5'
+              : 'space-y-2'
           }
         >
           {questions.map((q, index) => (
@@ -153,7 +161,8 @@ export function ScreeningQuestionsEditor({
                 disabled={disabled}
                 placeholder={`Question ${index + 1}…`}
                 aria-label={`Question ${index + 1}`}
-                className={fieldClass}
+                aria-invalid={!q.question.trim()}
+                className={`${fieldClass} ${q.question.trim() ? '' : emptyFieldClass}`}
               />
               <button
                 type="button"

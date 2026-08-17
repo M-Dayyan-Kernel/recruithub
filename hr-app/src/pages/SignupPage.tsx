@@ -4,6 +4,19 @@ import { FileText, Upload, X, Zap } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/context/AuthContext'
 import { WORKFLOW_INPUT_CLASS, WORKFLOW_PRIMARY_BUTTON_CLASS } from '@/lib/workflow'
+import { PasswordInput } from '@/components/PasswordInput'
+import { RequiredMark } from '@/components/FieldError'
+import {
+  PASSWORD_HINT,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  ORG_NAME_MAX_LENGTH,
+  PERSON_NAME_MAX_LENGTH,
+  validateEmail,
+  validateName,
+  validateOrgName,
+  validatePassword,
+} from '@/lib/validation'
 
 const MAX_GST_BYTES = 10 * 1024 * 1024
 
@@ -81,6 +94,18 @@ export default function SignupPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
+
+    // Mirrors the backend SignupRequest schema so invalid input never leaves the browser.
+    // HTML5 type=email accepts hosts without a TLD (e.g. user@localhost / user@itcart).
+    const fieldError =
+      validateOrgName(organizationName) ??
+      validateName(fullName, 'Your name') ??
+      validateEmail(email, 'Work email') ??
+      validatePassword(password)
+    if (fieldError) {
+      toast.error(fieldError)
+      return
+    }
     if (!gstDocument) {
       toast.error('GST document (PDF) is required')
       return
@@ -90,11 +115,6 @@ export default function SignupPage() {
       return
     }
     const emailNorm = email.trim()
-    // HTML5 type=email accepts hosts without a TLD (e.g. user@localhost / user@itcart).
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailNorm)) {
-      toast.error('Enter a valid email address (for example, you@company.com)')
-      return
-    }
     setSubmitting(true)
     try {
       const result = await signup({
@@ -133,10 +153,12 @@ export default function SignupPage() {
           <div>
             <label htmlFor="org" className="mb-1.5 block text-sm font-medium text-slate-700">
               Organization name
+              <RequiredMark />
             </label>
             <input
               id="org"
               required
+              maxLength={ORG_NAME_MAX_LENGTH}
               value={organizationName}
               onChange={(e) => setOrganizationName(e.target.value)}
               className={WORKFLOW_INPUT_CLASS}
@@ -146,10 +168,12 @@ export default function SignupPage() {
           <div>
             <label htmlFor="fullName" className="mb-1.5 block text-sm font-medium text-slate-700">
               Your name
+              <RequiredMark />
             </label>
             <input
               id="fullName"
               required
+              maxLength={PERSON_NAME_MAX_LENGTH}
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               className={WORKFLOW_INPUT_CLASS}
@@ -159,6 +183,7 @@ export default function SignupPage() {
           <div>
             <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-slate-700">
               Work email
+              <RequiredMark />
             </label>
             <input
               id="email"
@@ -174,24 +199,27 @@ export default function SignupPage() {
           <div>
             <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-slate-700">
               Password
+              <RequiredMark />
             </label>
-            <input
+            <PasswordInput
               id="password"
-              type="password"
               autoComplete="new-password"
               required
-              minLength={6}
+              minLength={PASSWORD_MIN_LENGTH}
+              maxLength={PASSWORD_MAX_LENGTH}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className={WORKFLOW_INPUT_CLASS}
               placeholder="••••••••"
             />
+            <p className="mt-1.5 text-xs text-slate-500">{PASSWORD_HINT}</p>
           </div>
 
           <div>
             <div className="mb-1.5 flex items-baseline justify-between gap-2">
               <span className="block text-sm font-medium text-slate-700">
-                GST document <span className="text-red-500">*</span>
+                GST document
+                <RequiredMark />
               </span>
               <span className="text-xs text-slate-400">PDF · max 10 MB</span>
             </div>

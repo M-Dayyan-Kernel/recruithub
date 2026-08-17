@@ -4,6 +4,7 @@ import { Eye, Loader2, Mail, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import type { EmailTemplatesResponse } from '@/types/api'
+import { RequiredMark } from '@/components/FieldError'
 import {
   WORKFLOW_CARD_CLASS,
   WORKFLOW_INPUT_CLASS,
@@ -237,10 +238,14 @@ export function EmailTemplatesSettings() {
       </div>
 
       <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <label className="mb-1 block text-xs font-medium text-slate-600">Company name</label>
+        <label className="mb-1 block text-xs font-medium text-slate-600">
+          Company name
+          <RequiredMark />
+        </label>
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="text"
+            aria-required="true"
             value={companyName}
             onChange={(e) => {
               setCompanyName(e.target.value)

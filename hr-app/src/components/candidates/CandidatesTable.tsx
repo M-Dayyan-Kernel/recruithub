@@ -56,10 +56,14 @@ export function CandidatesTable({ items, onRowClick }: Props) {
                 onClick={() => onRowClick(row.id)}
                 className="cursor-pointer hover:bg-slate-50/80"
               >
-                <td className="px-4 py-3 text-sm font-medium text-slate-900">{row.name}</td>
-                <td className="px-4 py-3 text-sm text-slate-600">{displayOrNa(row.email)}</td>
+                <td className="max-w-[14rem] break-words px-4 py-3 text-sm font-medium text-slate-900">
+                  {row.name}
+                </td>
+                <td className="max-w-[16rem] break-words px-4 py-3 text-sm text-slate-600">
+                  {displayOrNa(row.email)}
+                </td>
                 <td className="px-4 py-3 text-sm text-slate-600">{displayOrNa(row.phone)}</td>
-                <td className="px-4 py-3 text-sm text-slate-600">
+                <td className="max-w-[14rem] break-words px-4 py-3 text-sm text-slate-600">
                   <Link
                     to={`/jobs/${row.job_id}/shortlist?tab=results`}
                     onClick={(e) => e.stopPropagation()}

@@ -181,7 +181,7 @@ export function JobHeader({ job, showDelete = false }: Props) {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2.5">
-                <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
+                <h1 className="min-w-0 break-words text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
                   {job.title}
                 </h1>
                 <JobStatusBadge status={job.status} />

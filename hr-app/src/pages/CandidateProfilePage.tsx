@@ -52,8 +52,8 @@ export default function CandidateProfilePage() {
           <ArrowLeft size={14} />
           Back to candidates
         </Link>
-        <h1 className="mt-3 text-2xl font-semibold text-slate-900">{profile.name}</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="mt-3 break-words text-2xl font-semibold text-slate-900">{profile.name}</h1>
+        <p className="mt-1 break-words text-sm text-slate-500">
           {profile.job_title} · {formatHiringStage(profile.hiring_stage)} ·{' '}
           {profile.match_score != null ? `${Math.round(profile.match_score)}% match` : 'No score yet'}
         </p>

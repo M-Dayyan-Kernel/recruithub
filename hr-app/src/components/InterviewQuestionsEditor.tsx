@@ -14,12 +14,21 @@ interface Props {
 const fieldClass =
   'w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/15 disabled:bg-slate-50 disabled:text-slate-500'
 
+/** Highlights a row whose question text is still blank, which blocks saving. */
+const emptyFieldClass = 'border-rose-300 focus:border-rose-400 focus:ring-rose-500/15'
+
 const scoreInputClass = `${fieldClass} w-14 min-w-[3.5rem] shrink-0 px-1.5 text-center tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`
 
+/** Points a single rubric question can be worth. Keep in sync with the API. */
+export const INTERVIEW_SCORE_MIN = 1
+export const INTERVIEW_SCORE_MAX = 100
+
 function parseScoreInput(raw: string): number {
+  // Stripping non-digits drops any "-", so negatives can never be entered.
   const digits = raw.replace(/\D/g, '')
-  if (!digits) return 1
-  return Math.max(1, parseInt(digits, 10))
+  if (!digits) return INTERVIEW_SCORE_MIN
+  const value = parseInt(digits, 10)
+  return Math.min(Math.max(value, INTERVIEW_SCORE_MIN), INTERVIEW_SCORE_MAX)
 }
 
 export function createInterviewQuestion(): InterviewQuestion {
@@ -65,7 +74,7 @@ export function InterviewQuestionsEditor({
         ) : (
           <div
             className={`overflow-hidden rounded-lg border border-slate-200 ${
-              scrollable ? 'max-h-[15.5rem] overflow-y-auto' : ''
+              scrollable ? 'scrollbar-thin-light max-h-[15.5rem] overflow-y-auto' : ''
             }`}
           >
             <table className="w-full">
@@ -95,7 +104,10 @@ export function InterviewQuestionsEditor({
                         disabled={disabled}
                         placeholder="Interview question…"
                         aria-label={`Question ${index + 1}`}
-                        className={fieldClass}
+                        aria-invalid={!q.question.trim()}
+                        className={`${fieldClass} ${
+                          q.question.trim() ? '' : emptyFieldClass
+                        }`}
                       />
                     </td>
                     <td className="w-16 px-1 py-1">
@@ -170,7 +182,9 @@ export function InterviewQuestionsEditor({
       ) : (
         <div
           className={
-            scrollable ? 'max-h-[15.5rem] space-y-2 overflow-y-auto pr-0.5' : 'space-y-2'
+            scrollable
+              ? 'scrollbar-thin-light max-h-[15.5rem] space-y-2 overflow-y-auto pr-1.5'
+              : 'space-y-2'
           }
         >
           {questions.map((q, index) => (
@@ -185,7 +199,8 @@ export function InterviewQuestionsEditor({
                 disabled={disabled}
                 placeholder={`Question ${index + 1}…`}
                 aria-label={`Question ${index + 1}`}
-                className={fieldClass}
+                aria-invalid={!q.question.trim()}
+                className={`${fieldClass} ${q.question.trim() ? '' : emptyFieldClass}`}
               />
               <input
                 type="text"

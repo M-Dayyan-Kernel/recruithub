@@ -21,7 +21,52 @@ import axios from 'axios'
 import { api, getStoredToken } from '@/lib/api'
 import type { TenantCreateRequest, TenantListItem, TenantUpdateRequest } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
+import { CharCount, FieldError, RequiredMark } from '@/components/FieldError'
+import { PasswordInput } from '@/components/PasswordInput'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { useAuth } from '@/context/AuthContext'
+import {
+  ORG_NAME_MAX_LENGTH,
+  PASSWORD_HINT,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  PERSON_NAME_MAX_LENGTH,
+  isValid,
+  validateEmail,
+  validateName,
+  validateOrgName,
+  validatePassword,
+} from '@/lib/validation'
+
+interface CreateFormErrors {
+  name?: string | null
+  adminName?: string | null
+  adminEmail?: string | null
+  adminPassword?: string | null
+}
+
+/** Slug of the built-in organization the backend refuses to deactivate. */
+const DEFAULT_TENANT_SLUG = 'default'
+
+/** Row action awaiting confirmation in the dialog. */
+type PendingConfirm = {
+  tenant: TenantListItem
+  action: 'activate' | 'deactivate' | 'reject' | 'delete'
+}
+
+/** The default organization must stay reachable, so it can never be switched off. */
+function isProtectedFromDeactivation(tenant: TenantListItem): boolean {
+  return tenant.is_active && tenant.slug === DEFAULT_TENANT_SLUG
+}
+
+/** Input styling for the create-organization form, reddened when invalid. */
+function fieldClass(hasError?: string | null): string {
+  const base =
+    'w-full rounded-lg border bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-1'
+  return hasError
+    ? `${base} border-red-500/70 focus:border-red-500 focus:ring-red-500`
+    : `${base} border-slate-700 focus:border-teal-600 focus:ring-teal-600`
+}
 
 function verificationBadge(status: TenantListItem['verification_status'], isActive: boolean) {
   if (status === 'pending') {
@@ -170,7 +215,9 @@ export default function OrganizationsPage() {
   const [adminEmail, setAdminEmail] = useState('')
   const [adminName, setAdminName] = useState('')
   const [adminPassword, setAdminPassword] = useState('')
+  const [createErrors, setCreateErrors] = useState<CreateFormErrors>({})
   const [gstViewer, setGstViewer] = useState<GstViewerState | null>(null)
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
 
   useEffect(() => {
     return () => {
@@ -227,6 +274,7 @@ export default function OrganizationsPage() {
       setAdminEmail('')
       setAdminName('')
       setAdminPassword('')
+      setCreateErrors({})
       setShowCreate(false)
     },
     onError: (err: Error) => toast.error(err.message || 'Failed to create organization'),
@@ -311,22 +359,98 @@ export default function OrganizationsPage() {
     }
   }
 
-  function onDelete(tenant: TenantListItem) {
-    const ok = window.confirm(
-      `Delete "${tenant.name}" permanently?\n\nThis removes all users, jobs, candidates, and settings for this organization. This cannot be undone.`,
-    )
-    if (!ok) return
-    deleteMutation.mutate(tenant.id)
+  /** Copy + styling for the dialog backing each confirmable row action. */
+  function confirmProps(request: PendingConfirm) {
+    const { tenant, action } = request
+    if (action === 'deactivate') {
+      return {
+        tone: 'warning' as const,
+        title: `Deactivate "${tenant.name}"?`,
+        message: `Everyone in this organization is signed out immediately and cannot sign back in until it is reactivated.\nIts jobs, candidates, and settings are kept and come back on reactivation.`,
+        confirmLabel: 'Deactivate',
+        busy: updateMutation.isPending,
+      }
+    }
+    if (action === 'activate') {
+      return {
+        tone: 'default' as const,
+        title: `Activate "${tenant.name}"?`,
+        message: `${tenant.user_count} user(s) in this organization will be able to sign in and use the platform again.`,
+        confirmLabel: 'Activate',
+        busy: updateMutation.isPending,
+      }
+    }
+    if (action === 'reject') {
+      return {
+        tone: 'danger' as const,
+        title: `Reject "${tenant.name}"?`,
+        message: 'The organization is marked rejected and deactivated. Its admin will not be able to sign in.',
+        confirmLabel: 'Reject',
+        busy: rejectMutation.isPending,
+      }
+    }
+    return {
+      tone: 'danger' as const,
+      title: `Delete "${tenant.name}" permanently?`,
+      message: `This removes all users, jobs, candidates, and settings for this organization.\nThis cannot be undone.`,
+      confirmLabel: 'Delete',
+      busy: deleteMutation.isPending,
+    }
+  }
+
+  function runConfirmedAction() {
+    if (!pendingConfirm) return
+    const { tenant, action } = pendingConfirm
+    // Dismiss on settle rather than on click, so the dialog shows its busy
+    // state and errors surface (as a toast) before it disappears.
+    const close = { onSettled: () => setPendingConfirm(null) }
+    switch (action) {
+      case 'deactivate':
+        updateMutation.mutate({ id: tenant.id, body: { is_active: false } }, close)
+        break
+      case 'activate':
+        updateMutation.mutate({ id: tenant.id, body: { is_active: true } }, close)
+        break
+      case 'reject':
+        rejectMutation.mutate(tenant.id, close)
+        break
+      case 'delete':
+        deleteMutation.mutate(tenant.id, close)
+        break
+    }
+  }
+
+  function onToggleActive(tenant: TenantListItem) {
+    if (isProtectedFromDeactivation(tenant)) return
+    setPendingConfirm({
+      tenant,
+      action: tenant.is_active ? 'deactivate' : 'activate',
+    })
   }
 
   function onCreate(e: FormEvent) {
     e.preventDefault()
+
+    const errors: CreateFormErrors = {
+      name: validateOrgName(name),
+      adminName: validateName(adminName, 'Admin name'),
+      adminEmail: validateEmail(adminEmail, 'Admin email'),
+      adminPassword: validatePassword(adminPassword, 'Admin password'),
+    }
+    setCreateErrors(errors)
+    if (!isValid(errors)) return
+
     createMutation.mutate({
       name: name.trim(),
       admin_email: adminEmail.trim(),
       admin_full_name: adminName.trim(),
       admin_password: adminPassword,
     })
+  }
+
+  /** Clear a field's error as soon as the user edits it. */
+  function clearCreateError(field: keyof CreateFormErrors) {
+    setCreateErrors((prev) => (prev[field] ? { ...prev, [field]: null } : prev))
   }
 
   if (isLoading) {
@@ -380,6 +504,7 @@ export default function OrganizationsPage() {
 
       {showCreate && (
         <form
+          noValidate
           onSubmit={onCreate}
           className="rounded-2xl border border-slate-800 bg-slate-900 p-6"
         >
@@ -389,50 +514,98 @@ export default function OrganizationsPage() {
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
-              <label className="mb-1.5 block text-xs font-medium text-slate-400">
-                Organization name
-              </label>
+              <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                <label className="block text-xs font-medium text-slate-400">
+                  Organization name
+                  <RequiredMark />
+                </label>
+                <CharCount value={name} max={ORG_NAME_MAX_LENGTH} />
+              </div>
               <input
                 required
+                maxLength={ORG_NAME_MAX_LENGTH}
+                aria-invalid={Boolean(createErrors.name)}
                 value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                onChange={(e) => {
+                  setName(e.target.value)
+                  clearCreateError('name')
+                }}
+                className={fieldClass(createErrors.name)}
                 placeholder="Acme Corp"
               />
+              <FieldError message={createErrors.name} />
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-400">Admin name</label>
+              <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                <label className="block text-xs font-medium text-slate-400">
+                  Admin name
+                  <RequiredMark />
+                </label>
+                <CharCount value={adminName} max={PERSON_NAME_MAX_LENGTH} />
+              </div>
               <input
                 required
+                maxLength={PERSON_NAME_MAX_LENGTH}
+                aria-invalid={Boolean(createErrors.adminName)}
                 value={adminName}
-                onChange={(e) => setAdminName(e.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                onChange={(e) => {
+                  setAdminName(e.target.value)
+                  clearCreateError('adminName')
+                }}
+                className={fieldClass(createErrors.adminName)}
                 placeholder="Jane Doe"
               />
+              <FieldError message={createErrors.adminName} />
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-400">Admin email</label>
+              <label className="mb-1.5 block text-xs font-medium text-slate-400">
+                Admin email
+                <RequiredMark />
+              </label>
               <input
                 type="email"
                 required
+                maxLength={254}
+                aria-invalid={Boolean(createErrors.adminEmail)}
                 value={adminEmail}
-                onChange={(e) => setAdminEmail(e.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                onChange={(e) => {
+                  setAdminEmail(e.target.value)
+                  clearCreateError('adminEmail')
+                }}
+                onBlur={() =>
+                  setCreateErrors((prev) => ({
+                    ...prev,
+                    adminEmail: adminEmail ? validateEmail(adminEmail, 'Admin email') : null,
+                  }))
+                }
+                className={fieldClass(createErrors.adminEmail)}
                 placeholder="admin@acme.com"
               />
+              <FieldError message={createErrors.adminEmail} />
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1.5 block text-xs font-medium text-slate-400">
                 Admin password
+                <RequiredMark />
               </label>
-              <input
-                type="password"
+              <PasswordInput
                 required
-                minLength={6}
+                minLength={PASSWORD_MIN_LENGTH}
+                maxLength={PASSWORD_MAX_LENGTH}
+                aria-invalid={Boolean(createErrors.adminPassword)}
                 value={adminPassword}
-                onChange={(e) => setAdminPassword(e.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                onChange={(e) => {
+                  setAdminPassword(e.target.value)
+                  clearCreateError('adminPassword')
+                }}
+                className={fieldClass(createErrors.adminPassword)}
+                toggleClassName="hover:text-slate-200"
               />
+              {createErrors.adminPassword ? (
+                <FieldError message={createErrors.adminPassword} />
+              ) : (
+                <p className="mt-1.5 text-xs text-slate-500">{PASSWORD_HINT}</p>
+              )}
             </div>
           </div>
           <div className="mt-4 flex justify-end">
@@ -464,12 +637,16 @@ export default function OrganizationsPage() {
           return (
             <div
               key={t.id}
-              className="flex flex-col rounded-2xl border border-slate-800 bg-slate-900/90 p-5"
+              className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/90 p-5"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h3 className="truncate text-base font-semibold text-white">{t.name}</h3>
-                  <p className="mt-0.5 font-mono text-[11px] text-slate-500">{t.slug}</p>
+                  <h3 title={t.name} className="truncate text-base font-semibold text-white">
+                    {t.name}
+                  </h3>
+                  <p title={t.slug} className="mt-0.5 truncate font-mono text-[11px] text-slate-500">
+                    {t.slug}
+                  </p>
                 </div>
                 <span
                   className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${badge.className}`}
@@ -480,7 +657,7 @@ export default function OrganizationsPage() {
 
               <div className="mt-4 space-y-1.5 text-xs text-slate-400">
                 {t.admin_email && (
-                  <p className="inline-flex min-w-0 items-center gap-1.5">
+                  <p className="flex min-w-0 items-center gap-1.5">
                     <Mail className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate text-slate-300">
                       {t.admin_full_name ? `${t.admin_full_name} · ` : ''}
@@ -499,7 +676,7 @@ export default function OrganizationsPage() {
                   </span>
                 </div>
                 {t.company_registration_number && (
-                  <p>
+                  <p className="truncate">
                     Reg. no:{' '}
                     <span className="text-slate-300">{t.company_registration_number}</span>
                   </p>
@@ -508,10 +685,12 @@ export default function OrganizationsPage() {
                   <button
                     type="button"
                     onClick={() => void openGstDocument(t.id, t.gst_document_filename)}
-                    className="inline-flex items-center gap-1.5 text-teal-400 hover:text-teal-300"
+                    className="flex min-w-0 items-center gap-1.5 text-teal-400 hover:text-teal-300"
                   >
-                    <FileText className="h-3.5 w-3.5" />
-                    {t.gst_document_filename || 'View GST PDF'}
+                    <FileText className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">
+                      {t.gst_document_filename || 'View GST PDF'}
+                    </span>
                   </button>
                 )}
               </div>
@@ -531,11 +710,7 @@ export default function OrganizationsPage() {
                     <button
                       type="button"
                       disabled={approveMutation.isPending || rejectMutation.isPending}
-                      onClick={() => {
-                        if (window.confirm(`Reject "${t.name}"?`)) {
-                          rejectMutation.mutate(t.id)
-                        }
-                      }}
+                      onClick={() => setPendingConfirm({ tenant: t, action: 'reject' })}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-red-900/60 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950/40 disabled:opacity-50"
                     >
                       <X className="h-3.5 w-3.5" />
@@ -565,26 +740,32 @@ export default function OrganizationsPage() {
                       <LogIn className="h-3.5 w-3.5" />
                       Enter
                     </button>
-                    <button
-                      type="button"
-                      disabled={updateMutation.isPending}
-                      onClick={() =>
-                        updateMutation.mutate({
-                          id: t.id,
-                          body: { is_active: !t.is_active },
-                        })
+                    {/* A disabled button fires no hover events, so the tooltip
+                        lives on the wrapper to stay visible when greyed out. */}
+                    <span
+                      title={
+                        isProtectedFromDeactivation(t)
+                          ? 'The default organization cannot be deactivated'
+                          : undefined
                       }
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                      className="inline-flex"
                     >
-                      <Power className="h-3.5 w-3.5" />
-                      {t.is_active ? 'Deactivate' : 'Activate'}
-                    </button>
+                      <button
+                        type="button"
+                        disabled={updateMutation.isPending || isProtectedFromDeactivation(t)}
+                        onClick={() => onToggleActive(t)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                      >
+                        <Power className="h-3.5 w-3.5" />
+                        {t.is_active ? 'Deactivate' : 'Activate'}
+                      </button>
+                    </span>
                   </>
                 )}
                 <button
                   type="button"
                   disabled={deleteMutation.isPending}
-                  onClick={() => onDelete(t)}
+                  onClick={() => setPendingConfirm({ tenant: t, action: 'delete' })}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-red-900/60 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950/50 disabled:opacity-50"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -609,6 +790,15 @@ export default function OrganizationsPage() {
 
       {gstViewer && (
         <GstDocumentViewer viewer={gstViewer} onClose={closeGstViewer} />
+      )}
+
+      {pendingConfirm && (
+        <ConfirmDialog
+          open
+          {...confirmProps(pendingConfirm)}
+          onConfirm={runConfirmedAction}
+          onCancel={() => setPendingConfirm(null)}
+        />
       )}
     </div>
   )
