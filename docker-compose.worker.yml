@@ -18,7 +18,7 @@ x-openbao: &openbao-common
     TZ: ${TZ:-Asia/Kolkata}
   volumes:
     - bao-data:/bao/data       # encrypted secrets at rest
-    - bao-shared:/shared       # scoped app token (rh.token) only
+    - ./.bao-shared:/shared       # scoped app token (rh.token) only
     - ./.bao-keys:/bao-keys    # unseal key + root token (root-only host dir)
   healthcheck:
     test: ["CMD-SHELL", "test -f /shared/.bao-ready"]
@@ -46,7 +46,7 @@ x-worker-common: &worker-common
   volumes:
     # Nested JSON logs (events/errors) → host ./backend/logs
     - ./backend/logs:/app/logs
-    - bao-shared:/shared:ro
+    - ./.bao-shared:/shared:ro
   restart: unless-stopped
 
 services:
@@ -93,4 +93,3 @@ services:
 
 volumes:
   bao-data:
-  bao-shared:

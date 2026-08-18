@@ -38,7 +38,7 @@ import {
   validatePassword,
 } from '@/lib/validation'
 
-interface CreateFormErrors {
+type CreateFormErrors = {
   name?: string | null
   adminName?: string | null
   adminEmail?: string | null
