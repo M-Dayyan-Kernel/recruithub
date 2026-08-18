@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-# ──────────────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # OpenBao provisioning entrypoint.
 # On first boot: init -> unseal -> enable KV v2 -> write policy -> seed
 # secrets (from the container env, never hardcoded) -> create scoped app token.
@@ -12,7 +12,7 @@ set -e
 #   - /shared holds ONLY the scoped app token (rh.token) + the health marker.
 #     /shared is mounted read-only into app containers, so the root token must
 #     never live there.
-# ──────────────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 export BAO_ADDR="${BAO_ADDR:-http://127.0.0.1:8200}"
 export BAO_SKIP_VERIFY=true
@@ -30,7 +30,7 @@ SERVER_PID=$!
 trap 'echo "[openbao] stopping..."; kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; exit 0' TERM INT
 
 wait_ready() {
-  set +e   # `bao status` returns 2 while sealed — must not abort the script
+  set +e   # `bao status` returns 2 while sealed ΓÇö must not abort the script
   for i in $(seq 1 60); do
     bao status >/dev/null 2>&1
     code=$?
@@ -48,7 +48,7 @@ wait_ready() {
 
 wait_ready
 
-# ── Initialize (one time — keys persist in the root-only host dir) ────────
+# ΓöÇΓöÇ Initialize (one time ΓÇö keys persist in the root-only host dir) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 if [ -f "$KEYS_DIR/unseal.key" ] && [ -f "$KEYS_DIR/root.token" ]; then
   echo "[openbao] already initialized (keys present in /bao-keys)"
   UNSEAL_KEY="$(cat "$KEYS_DIR/unseal.key")"
@@ -58,7 +58,7 @@ elif bao operator init -status >/dev/null 2>&1; then
   echo "        (bao-data persisted without ./.bao-keys? wipe both or restore the key)" >&2
   exit 1
 else
-  echo "[openbao] initializing (1 unseal share / 1 threshold — demo mode)"
+  echo "[openbao] initializing (1 unseal share / 1 threshold ΓÇö demo mode)"
   INIT_JSON="$(bao operator init -key-shares=1 -key-threshold=1 -format=json | tr -d '\n ')"
   UNSEAL_KEY="$(echo "$INIT_JSON" | sed -n 's/.*"unseal_keys_b64":\["\([^"]*\)"\].*/\1/p')"
   ROOT_TOKEN="$(echo "$INIT_JSON" | sed -n 's/.*"root_token":"\([^"]*\)".*/\1/p')"
@@ -71,7 +71,7 @@ fi
 [ -n "$UNSEAL_KEY" ] || { echo "[openbao] ERROR: no unseal key found"; exit 1; }
 [ -n "$ROOT_TOKEN" ] || { echo "[openbao] ERROR: no root token found"; exit 1; }
 
-# ── Unseal ──────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Unseal ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 if bao status >/dev/null 2>&1; then
   echo "[openbao] already unsealed"
 else
@@ -81,14 +81,14 @@ fi
 
 export BAO_TOKEN="$ROOT_TOKEN"
 
-# ── KV v2 secrets engine ────────────────────────────────────────────────────
+# ΓöÇΓöÇ KV v2 secrets engine ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 bao secrets enable -path=secret kv-v2 2>/dev/null || echo "[openbao] kv-v2 already enabled at secret/"
 
-# ── ACL policy for the service token ────────────────────────────────────────
+# ΓöÇΓöÇ ACL policy for the service token ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 bao policy write rh-read /policies/rh-read.hcl >/dev/null
 echo "[openbao] policy 'rh-read' written"
 
-# ── Seed secrets (values injected from the .env passed via compose, never
+# ΓöÇΓöÇ Seed secrets (values injected from the .env passed via compose, never
 #    hardcoded). Values are written via the `@file` syntax so arbitrary content
 #    (JSON blobs, dollar signs, spaces) is stored verbatim.
 seed_secret() {
@@ -97,7 +97,7 @@ seed_secret() {
   envvar="${3:-$key}"          # optional source env var (DEV_* override)
   value="$(eval "printf '%s' \"\${$envvar:-}\"")"
   if [ -z "$value" ] && [ "$envvar" != "$key" ]; then
-    # No DEV_* override — fall back to the base (deployed) value so the dev
+    # No DEV_* override ΓÇö fall back to the base (deployed) value so the dev
     # namespace keeps its own independent entry with the shared value.
     value="$(eval "printf '%s' \"\${$key:-}\"")"
   fi
@@ -115,18 +115,24 @@ seed_secret() {
   fi
 }
 
-# Backend (api + workers + interview agent) secrets — namespace `recruithub`
+# Backend (api + workers + interview agent) secrets ΓÇö namespace `recruithub`
 # (the deployed stack).
 for key in \
   OPENAI_API_KEY GROQ_API_KEY VAPI_API_KEY VAPI_WEBHOOK_SECRET \
   LIVEKIT_API_KEY LIVEKIT_API_SECRET S3_ACCESS_KEY S3_SECRET_KEY \
   GMAIL_CREDENTIALS_JSON GMAIL_TOKEN_JSON RESEND_API_KEY \
   JWT_SECRET_KEY INTEGRATIONS_ENCRYPTION_KEY TALENTOS_BE_API_KEY \
-  INTERNAL_HEALTH_API_KEY AIC_API_KEY; do
+  INTERNAL_HEALTH_API_KEY AIC_API_KEY SEED_ADMIN_PASSWORD SEED_SUPERADMIN_PASSWORD \
+  APP_ENV DATABASE_URL REDIS_URL CORS_ORIGINS LLM_PROVIDER GROQ_BASE_URL \
+  VAPI_PHONE_NUMBER_ID LIVEKIT_URL CANDIDATE_APP_URL HR_APP_URL \
+  JWT_ALGORITHM JWT_EXPIRE_MINUTES SEED_ADMIN_EMAIL SEED_ADMIN_NAME \
+  SEED_SUPERADMIN_EMAIL SEED_SUPERADMIN_NAME UPLOAD_DIR S3_ENDPOINT S3_REGION \
+  S3_BUCKET S3_FORCE_PATH_STYLE MOCK_EXTERNAL_APIS MOCK_OPENAI MOCK_VAPI \
+  MOCK_EMAIL MOCK_LIVEKIT TALENTOS_BE_URL; do
   seed_secret recruithub "$key"
 done
 
-# Backend dev namespace — `dev` (local dev). Independent of the deployed one:
+# Backend dev namespace ΓÇö `dev` (local dev). Independent of the deployed one:
 # every key is its own entry, sourced from a DEV_<KEY> override falling back to
 # the deployed value when unset.
 for key in \
@@ -134,11 +140,17 @@ for key in \
   LIVEKIT_API_KEY LIVEKIT_API_SECRET S3_ACCESS_KEY S3_SECRET_KEY \
   GMAIL_CREDENTIALS_JSON GMAIL_TOKEN_JSON RESEND_API_KEY \
   JWT_SECRET_KEY INTEGRATIONS_ENCRYPTION_KEY TALENTOS_BE_API_KEY \
-  INTERNAL_HEALTH_API_KEY AIC_API_KEY; do
+  INTERNAL_HEALTH_API_KEY AIC_API_KEY SEED_ADMIN_PASSWORD SEED_SUPERADMIN_PASSWORD \
+  APP_ENV DATABASE_URL REDIS_URL CORS_ORIGINS LLM_PROVIDER GROQ_BASE_URL \
+  VAPI_PHONE_NUMBER_ID LIVEKIT_URL CANDIDATE_APP_URL HR_APP_URL \
+  JWT_ALGORITHM JWT_EXPIRE_MINUTES SEED_ADMIN_EMAIL SEED_ADMIN_NAME \
+  SEED_SUPERADMIN_EMAIL SEED_SUPERADMIN_NAME UPLOAD_DIR S3_ENDPOINT S3_REGION \
+  S3_BUCKET S3_FORCE_PATH_STYLE MOCK_EXTERNAL_APIS MOCK_OPENAI MOCK_VAPI \
+  MOCK_EMAIL MOCK_LIVEKIT TALENTOS_BE_URL; do
   seed_secret dev "$key" "DEV_${key}"
 done
 
-# ── Scoped service token (evergreen for this demo) ─────────────────────────
+# ΓöÇΓöÇ Scoped service token (evergreen for this demo) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 TOKEN_JSON="$(bao token create -policy=rh-read -ttl=0 -format=json | tr -d '\n ')"
 TOKEN="$(echo "$TOKEN_JSON" | sed -n 's/.*"client_token":"\([^"]*\)".*/\1/p')"
 if [ -n "$TOKEN" ]; then
@@ -149,6 +161,6 @@ else
 fi
 
 printf '%s' "ready" > "$SHARED/.bao-ready"
-echo "[openbao] provisioning complete — ready"
+echo "[openbao] provisioning complete ΓÇö ready"
 
 wait "$SERVER_PID"

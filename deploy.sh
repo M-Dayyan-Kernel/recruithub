@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# deploy.sh — deploy ai-recruitment-poc (branch: stich/talentos) to the
+# deploy.sh ΓÇö deploy ai-recruitment-poc (branch: stich/talentos) to the
 # two-server recruithub production topology.
 #
 #   Server 1 (recruithub-dev-app)     172.235.26.25   Postgres, Redis, API, hr-app, candidate-app, interview-agent
@@ -97,11 +97,11 @@ ensure_bao_config() {
     printf 'allow %s;\n' "${ip}" >> .bao-allowlist.conf
   done
   printf 'deny all;\n' >> .bao-allowlist.conf
-  chmod 600 .bao-allowlist.conf
+  chmod 644 .bao-allowlist.conf
   if [ -n "${allowed}" ]; then
     log "allowlist: ${allowed}"
   else
-    warn "BAO_TOKEN_ALLOWED_IPS is empty — every request to /v1* and /bao-token/* will be denied"
+    warn "BAO_TOKEN_ALLOWED_IPS is empty ΓÇö every request to /v1* and /bao-token/* will be denied"
   fi
 
   if [ -n "${user}" ] && [ -n "${pass}" ]; then
@@ -109,13 +109,13 @@ ensure_bao_config() {
       local hash
       hash="$(printf '%s' "${pass}" | openssl passwd -apr1 -stdin)"
       printf '%s:%s\n' "${user}" "${hash}" > .bao-htpasswd
-      chmod 600 .bao-htpasswd
+      chown root:www-data .bao-htpasswd; chmod 640 .bao-htpasswd
       log "htpasswd written for user '${user}'"
     else
-      warn "openssl not found — leaving .bao-htpasswd unchanged (install openssl or write it manually)"
+      warn "openssl not found ΓÇö leaving .bao-htpasswd unchanged (install openssl or write it manually)"
     fi
   else
-    warn "BAO_TOKEN_USER / BAO_TOKEN_PASS not set in .env.production — /bao-token/rh.token will 401"
+    warn "BAO_TOKEN_USER / BAO_TOKEN_PASS not set in .env.production ΓÇö /bao-token/rh.token will 401"
   fi
 }
 

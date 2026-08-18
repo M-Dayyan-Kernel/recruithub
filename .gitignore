@@ -26,3 +26,5 @@ seed.env
 .bao-keys/
 .bao-htpasswd
 .bao-allowlist.conf
+.bao-shared/
+.env.bak-*
