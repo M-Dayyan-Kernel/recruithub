@@ -1,4 +1,20 @@
+import logging
+import os
+
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
+
+# Settings fields the app pulls from OpenBao at startup (comma-separated).
+# Override with BAO_SECRET_KEYS. OpenBao values win over .env.
+_DEFAULT_BAO_KEYS = (
+    "OPENAI_API_KEY,GROQ_API_KEY,VAPI_API_KEY,VAPI_WEBHOOK_SECRET,"
+    "LIVEKIT_API_KEY,LIVEKIT_API_SECRET,S3_ACCESS_KEY,S3_SECRET_KEY,"
+    "GMAIL_CREDENTIALS_JSON,GMAIL_TOKEN_JSON,RESEND_API_KEY,"
+    "JWT_SECRET_KEY,INTEGRATIONS_ENCRYPTION_KEY,TALENTOS_BE_API_KEY,"
+    "INTERNAL_HEALTH_API_KEY,AIC_API_KEY"
+)
 
 
 class Settings(BaseSettings):
@@ -78,6 +94,18 @@ class Settings(BaseSettings):
     SENTRY_DSN: str = ""
     INTERNAL_HEALTH_API_KEY: str = ""
 
+    # OpenBao (central secrets manager). When BAO_ADDR + a token are present,
+    # the _DEFAULT_BAO_KEYS secrets are fetched from OpenBao at startup and
+    # override the .env values. In local dev leave BAO_ADDR empty to fall back
+    # to environment values.
+    BAO_ADDR: str = ""
+    BAO_TOKEN: str = ""
+    BAO_TOKEN_FILE: str = ""
+    BAO_KV_MOUNT: str = "secret"
+    BAO_KV_PATH: str = "recruithub"
+    BAO_REQUIRED: bool = False
+    BAO_SECRET_KEYS: str = ""
+
     # talentOS Backend API
     TALENTOS_BE_URL: str = ""
     TALENTOS_BE_API_KEY: str = ""
@@ -93,5 +121,44 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return (self.APP_ENV or "development").strip().lower() == "production"
 
+
+# Load the local .env into the environment so the OpenBao bootstrap vars
+# (BAO_ADDR / BAO_TOKEN_FILE) are visible before Settings() is built.
+load_dotenv()
+
+
+def _inject_openbao_secrets() -> None:
+    """Fetch secrets from OpenBao and inject them into os.environ.
+
+    Runs BEFORE ``Settings()`` is constructed so settings resolve from OpenBao
+    exactly like env vars. OpenBao values win over .env. No-op when BAO_ADDR is
+    empty (local dev without OpenBao).
+    """
+    addr = os.environ.get("BAO_ADDR", "").strip()
+    if not addr:
+        return
+
+    # Local import: avoids a circular import (settings -> openbao -> settings).
+    from app.core.openbao import fetch_secrets
+
+    keys = [
+        k.strip()
+        for k in os.environ.get("BAO_SECRET_KEYS", _DEFAULT_BAO_KEYS).split(",")
+        if k.strip()
+    ]
+    fetched = fetch_secrets(keys)
+    if not fetched and os.environ.get("BAO_REQUIRED", "").lower() in ("1", "true", "yes"):
+        raise RuntimeError(
+            f"OpenBao is required (BAO_REQUIRED=true) but no secrets could be fetched from {addr}"
+        )
+    for key, value in fetched.items():
+        os.environ[key] = value
+    if fetched:
+        logger.info("Loaded %d/%d secrets from OpenBao at %s", len(fetched), len(keys), addr)
+    else:
+        logger.warning("No secrets loaded from OpenBao at %s — using environment values", addr)
+
+
+_inject_openbao_secrets()
 
 settings = Settings()

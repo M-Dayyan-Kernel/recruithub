@@ -34,7 +34,7 @@ async def health_live():
 
 @router.get("/health/ready", tags=["health"])
 async def health_ready():
-    """Readiness: Postgres + Redis (+ optional S3)."""
+    """Readiness: Postgres + Redis (+ optional S3 + secrets source)."""
     checks: dict[str, str] = {}
 
     try:
@@ -74,9 +74,11 @@ async def health_ready():
     code = status.HTTP_200_OK if status_value == "ok" else status.HTTP_503_SERVICE_UNAVAILABLE
     from fastapi.responses import JSONResponse
 
+    from app.core.openbao import source as secrets_source
+
     return JSONResponse(
         status_code=code,
-        content={"status": status_value, "checks": checks},
+        content={"status": status_value, "checks": checks, "secretsSource": secrets_source},
     )
 
 

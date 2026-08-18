@@ -22,3 +22,7 @@ backend/celerybeat-schedule*
 backend/logs/*.log
 backend/logs/*.log.*
 .env.production
+seed.env
+.bao-keys/
+.bao-htpasswd
+.bao-allowlist.conf

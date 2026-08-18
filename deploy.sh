@@ -17,8 +17,9 @@
 # Auto-detection order: hostname contains "canary" -> server2, else IP 172.235.26.53 -> server2,
 # IP 172.235.26.25 -> server1, otherwise defaults to server1.
 #
-# Requires .env.production to already exist next to this script on each server.
-# deploy.sh never creates or modifies .env.production (no data loss).
+# Requires .env.production (non-secrets) and seed.env (openbao-only secrets,
+# copied from seed.env.example) to already exist next to this script on each
+# server. deploy.sh never creates or modifies either (no data loss).
 
 set -euo pipefail
 
@@ -45,6 +46,7 @@ HEALTH_HOST="${HEALTH_HOST:-$(printf '%s' "${API_PUBLIC_URL}" | sed -E 's#^https
 # Repo dir = directory containing this script
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROD_ENV="${REPO_DIR}/.env.production"
+SEED_ENV="${REPO_DIR}/seed.env"
 
 DOCKER_COMPOSE="${DOCKER_COMPOSE:-docker compose}"
 
@@ -64,6 +66,56 @@ require_root() {
 require_env() {
   if [ ! -f "${PROD_ENV}" ]; then
     die ".env.production not found at ${PROD_ENV}. Create it from backend/.env.example on this server first. deploy.sh will NOT create it for you."
+  fi
+  if [ ! -f "${SEED_ENV}" ]; then
+    die "seed.env not found at ${SEED_ENV}. Create it from seed.env.example on this server first (openbao-only secrets). deploy.sh will NOT create it for you."
+  fi
+}
+
+# Read one KEY=value from a dotenv file (last occurrence wins, surrounding
+# single/double quotes stripped).
+get_env() {
+  local key="$1" raw
+  raw="$(grep -E "^${key}=" "${PROD_ENV}" | tail -n1)"
+  [ -n "${raw}" ] || return 0
+  printf '%s' "${raw#${key}=}" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+}
+
+# Regenerate the OpenBao gateway ACL files (Server 1 only) from .env.production:
+#   .bao-allowlist.conf  <- BAO_TOKEN_ALLOWED_IPS (space-separated IP/CIDR)
+#   .bao-htpasswd        <- BAO_TOKEN_USER / BAO_TOKEN_PASS
+# Always edit .env.production, never these files directly (they get overwritten).
+ensure_bao_config() {
+  log "Regenerating .bao-allowlist.conf + .bao-htpasswd from .env.production"
+  local allowed user pass
+  allowed="$(get_env BAO_TOKEN_ALLOWED_IPS)"
+  user="$(get_env BAO_TOKEN_USER)"
+  pass="$(get_env BAO_TOKEN_PASS)"
+
+  : > .bao-allowlist.conf
+  for ip in ${allowed}; do
+    printf 'allow %s;\n' "${ip}" >> .bao-allowlist.conf
+  done
+  printf 'deny all;\n' >> .bao-allowlist.conf
+  chmod 600 .bao-allowlist.conf
+  if [ -n "${allowed}" ]; then
+    log "allowlist: ${allowed}"
+  else
+    warn "BAO_TOKEN_ALLOWED_IPS is empty — every request to /v1* and /bao-token/* will be denied"
+  fi
+
+  if [ -n "${user}" ] && [ -n "${pass}" ]; then
+    if command -v openssl >/dev/null 2>&1; then
+      local hash
+      hash="$(printf '%s' "${pass}" | openssl passwd -apr1 -stdin)"
+      printf '%s:%s\n' "${user}" "${hash}" > .bao-htpasswd
+      chmod 600 .bao-htpasswd
+      log "htpasswd written for user '${user}'"
+    else
+      warn "openssl not found — leaving .bao-htpasswd unchanged (install openssl or write it manually)"
+    fi
+  else
+    warn "BAO_TOKEN_USER / BAO_TOKEN_PASS not set in .env.production — /bao-token/rh.token will 401"
   fi
 }
 
@@ -122,12 +174,13 @@ deploy_server1() {
   require_root
   require_env
   git_sync
+  ensure_bao_config
 
   log "Starting Postgres + Redis (base compose, existing volume untouched)"
   cd "${REPO_DIR}"
   $DOCKER_COMPOSE up -d
 
-  log "Building/starting API, hr-app, candidate-app, interview-agent"
+  log "Building/starting API, gateway proxy, hr-app, candidate-app, interview-agent"
   VITE_API_URL="${API_PUBLIC_URL}" $DOCKER_COMPOSE -f docker-compose.app.yml --profile interviews up -d --build
 
   log "Running Alembic migrations (upgrade head)"

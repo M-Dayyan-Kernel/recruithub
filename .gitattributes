@@ -1,0 +1,5 @@
+# Keep OpenBao provisioning + gateway files LF so scripts/CLI work in Linux containers.
+openbao/** text eol=lf
+proxy/** text eol=lf
+*.sh text eol=lf
+*.hcl text eol=lf

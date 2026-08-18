@@ -4,20 +4,55 @@
 # Screening: 1 worker × autoscale 10,1.
 # Interviews: 2 workers × autoscale 12,1 and 13,1 (peak 25).
 
+# OpenBao (central secrets manager), self-hosted per server. Self-provisions on
+# first boot �?" see openbao/entrypoint.sh. Seeded from seed.env (gitignored,
+# openbao-only); api/workers fetch the values from OpenBao at runtime.
+x-openbao: &openbao-common
+  build: ./openbao
+  restart: unless-stopped
+  ports:
+    - "127.0.0.1:8200:8200"   # host-local admin access only
+  env_file:
+    - seed.env
+  environment:
+    TZ: ${TZ:-Asia/Kolkata}
+  volumes:
+    - bao-data:/bao/data       # encrypted secrets at rest
+    - bao-shared:/shared       # scoped app token (rh.token) only
+    - ./.bao-keys:/bao-keys    # unseal key + root token (root-only host dir)
+  healthcheck:
+    test: ["CMD-SHELL", "test -f /shared/.bao-ready"]
+    interval: 5s
+    timeout: 5s
+    retries: 30
+    start_period: 10s
+
 x-worker-common: &worker-common
   build:
     context: ./backend
     dockerfile: Dockerfile.worker
   env_file:
     - .env.production
+  environment:
+    # Secrets are read from OpenBao at startup via the scoped token.
+    BAO_ADDR: http://openbao:8200
+    BAO_TOKEN_FILE: /shared/rh.token
+    BAO_REQUIRED: "true"
+  depends_on:
+    openbao:
+      condition: service_healthy
   extra_hosts:
     - "host.docker.internal:host-gateway"
   volumes:
     # Nested JSON logs (events/errors) → host ./backend/logs
     - ./backend/logs:/app/logs
+    - bao-shared:/shared:ro
   restart: unless-stopped
 
 services:
+  openbao:
+    <<: *openbao-common
+
   celery-beat:
     <<: *worker-common
     command: celery -A app.core.celery_app.celery_app beat --loglevel=info
@@ -55,3 +90,7 @@ services:
     command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q interviews --autoscale=13,1
     profiles:
       - full
+
+volumes:
+  bao-data:
+  bao-shared:
