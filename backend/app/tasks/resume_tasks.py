@@ -1,6 +1,8 @@
 import asyncio
 import logging
 
+from celery.exceptions import Retry
+
 from app.core.celery_app import celery_app
 from app.core.config_loader import config
 from app.core.database import get_celery_db
@@ -28,6 +30,8 @@ def process_resume_shortlist(self, candidate_id: str):
         asyncio.run(_async_process_resume_shortlist(self, candidate_id))
     except _NoRetryError:
         pass
+    except Retry:
+        raise
     except Exception as exc:
         logger.error(
             "process_resume_shortlist failed for candidate %s: %s", candidate_id, exc

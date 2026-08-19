@@ -148,21 +148,30 @@ class ResumeProcessingService:
             return ProcessingResult(ProcessingOutcome.SKIPPED)
 
         except openai.RateLimitError as exc:
-            candidate.pipeline_status = "queued"
-            await self._session.commit()
+            logger.warning(
+                "OpenAI rate limited for candidate %s: %s", candidate_id, exc
+            )
             return ProcessingResult(ProcessingOutcome.RETRY_RATE_LIMIT, exc)
 
         except openai.APIConnectionError as exc:
-            candidate.pipeline_status = "queued"
-            await self._session.commit()
+            logger.warning(
+                "OpenAI connection error for candidate %s: %s", candidate_id, exc
+            )
             return ProcessingResult(ProcessingOutcome.RETRY_CONNECTION, exc)
+
+        except openai.NotFoundError as exc:
+            logger.error(
+                "OpenAI model/endpoint not found for candidate %s: %s",
+                candidate_id,
+                exc,
+            )
+            await self._mark_failed(candidate, job_id)
+            return ProcessingResult(ProcessingOutcome.FAILED_NO_RETRY, exc)
 
         except Exception as exc:
             logger.error(
                 "Unexpected error processing candidate %s: %s", candidate_id, exc
             )
-            candidate.pipeline_status = "queued"
-            await self._session.commit()
             return ProcessingResult(ProcessingOutcome.RETRY_TRANSIENT, exc)
 
         finally:
