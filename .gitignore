@@ -28,3 +28,4 @@ seed.env
 .bao-allowlist.conf
 .bao-shared/
 .env.bak-*
+_tmp_deploy_remote.py
