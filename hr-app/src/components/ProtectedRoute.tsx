@@ -43,14 +43,14 @@ export function AppShellRoute() {
 
   if (onPlatform) {
     // Keep superadmin on the platform console — no jobs/dashboard/archived
-    if (location.pathname !== '/admin') {
+    if (location.pathname !== '/admin' && !location.pathname.startsWith('/admin/')) {
       return <Navigate to="/admin" replace />
     }
     return <PlatformLayout />
   }
 
-  // Acting superadmin or tenant user — block bare /admin (send to jobs)
-  if (location.pathname === '/admin') {
+  // Acting superadmin or tenant user — block platform console routes (send to jobs)
+  if (location.pathname === '/admin' || location.pathname.startsWith('/admin/')) {
     return <Navigate to="/jobs" replace />
   }
 

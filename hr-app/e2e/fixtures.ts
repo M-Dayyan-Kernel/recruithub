@@ -54,6 +54,49 @@ export const MOCK_HR_USER = {
   tenant_name: 'Acme Corp',
 }
 
+export const PLATFORM_TENANT_ID = 'eeeeeeee-0000-0000-0000-000000000099'
+
+export const MOCK_SUPERADMIN_USER = {
+  id: 'ffffffff-0000-0000-0000-000000000098',
+  tenant_id: PLATFORM_TENANT_ID,
+  home_tenant_id: PLATFORM_TENANT_ID,
+  active_tenant_id: PLATFORM_TENANT_ID,
+  email: 'superadmin@example.com',
+  full_name: 'Super Admin',
+  role: 'superadmin' as const,
+  is_active: true,
+  created_at: '2026-06-01T10:00:00.000Z',
+  updated_at: '2026-06-01T10:00:00.000Z',
+  tenant_name: 'Platform',
+}
+
+export type MockPlatformTenant = {
+  id: string
+  name: string
+  slug: string
+  is_active: boolean
+  verification_status: 'pending' | 'approved' | 'rejected'
+  created_at: string
+  user_count: number
+  job_count: number
+  admin_email?: string
+  admin_full_name?: string
+}
+
+export type MockPlatformConnection = {
+  tenant_id: string
+  name: string
+  slug: string
+  is_active: boolean
+  verification_status: 'pending' | 'approved' | 'rejected'
+  state: string
+  flow_id?: string | null
+  ping_a_verified?: boolean
+  ping_b_verified?: boolean
+  connected_at?: string | null
+  last_error?: string | null
+}
+
 export const MOCK_AUTH_TOKEN = 'e2e-mock-access-token'
 
 /** Seed localStorage token and mock GET /api/auth/me for protected routes */
@@ -981,4 +1024,127 @@ export async function mockAllJobSubEndpoints(page: Page, jobs = MOCK_JOBS_SAFE) 
     await mockGetScreening(page, job.id,  MOCK_SCREENING.filter(s => s.job_id === job.id))
     await mockGetInterviewPipeline(page, job.id)
   }
+}
+
+export function connectionFromTenant(
+  tenant: MockPlatformTenant,
+  state = 'none',
+): MockPlatformConnection {
+  return {
+    tenant_id: tenant.id,
+    name: tenant.name,
+    slug: tenant.slug,
+    is_active: tenant.is_active,
+    verification_status: tenant.verification_status,
+    state,
+  }
+}
+
+/**
+ * In-memory platform tenants + talentOS connections for superadmin e2e.
+ * POST create appends both lists; POST connect/disconnect mutates connection state.
+ */
+export async function mockPlatformConsole(
+  page: Page,
+  store: {
+    tenants: MockPlatformTenant[]
+    connections: MockPlatformConnection[]
+    connectCalls?: string[]
+    disconnectCalls?: string[]
+  },
+) {
+  await page.route('**/api/platform/**', (route: Route) => {
+    const url = new URL(route.request().url())
+    const method = route.request().method()
+    const path = url.pathname
+
+    if (method === 'GET' && path.endsWith('/api/platform/tenants')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(store.tenants),
+      })
+    }
+
+    if (method === 'GET' && path.endsWith('/api/platform/connections')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(store.connections),
+      })
+    }
+
+    if (method === 'POST' && path.endsWith('/api/platform/tenants')) {
+      const body = route.request().postDataJSON() as {
+        name: string
+        admin_email: string
+        admin_full_name: string
+        admin_password: string
+      }
+      const id = `eeeeeeee-0000-0000-0000-${String(store.tenants.length + 1).padStart(12, '0')}`
+      const created: MockPlatformTenant = {
+        id,
+        name: body.name,
+        slug: body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+        is_active: true,
+        verification_status: 'approved',
+        created_at: '2026-08-23T00:00:00.000Z',
+        user_count: 1,
+        job_count: 0,
+        admin_email: body.admin_email,
+        admin_full_name: body.admin_full_name,
+      }
+      store.tenants.push(created)
+      store.connections.push(connectionFromTenant(created))
+      return route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(created),
+      })
+    }
+
+    const connectMatch = path.match(
+      /\/api\/platform\/tenants\/([^/]+)\/connections\/connect$/,
+    )
+    if (method === 'POST' && connectMatch) {
+      const tenantId = connectMatch[1]
+      store.connectCalls?.push(tenantId)
+      const row = store.connections.find((c) => c.tenant_id === tenantId)
+      if (row) {
+        row.state = 'keys_exchanged'
+        row.flow_id = 'ffffffff-0000-0000-0000-000000000001'
+        row.ping_a_verified = false
+        row.ping_b_verified = false
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          flow_id: 'ffffffff-0000-0000-0000-000000000001',
+          state: 'keys_exchanged',
+        }),
+      })
+    }
+
+    const disconnectMatch = path.match(
+      /\/api\/platform\/tenants\/([^/]+)\/connections\/disconnect$/,
+    )
+    if (method === 'POST' && disconnectMatch) {
+      const tenantId = disconnectMatch[1]
+      store.disconnectCalls?.push(tenantId)
+      const row = store.connections.find((c) => c.tenant_id === tenantId)
+      if (row) {
+        row.state = 'none'
+        row.flow_id = null
+        row.connected_at = null
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ flow_id: null, state: 'none', result: 'ok' }),
+      })
+    }
+
+    return route.continue()
+  })
 }

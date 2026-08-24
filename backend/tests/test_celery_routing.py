@@ -33,6 +33,10 @@ class CeleryRoutingTests(unittest.TestCase):
     def test_celery_app_uses_central_routes(self) -> None:
         self.assertEqual(dict(celery_app.conf.task_routes), TASK_ROUTES)
 
+    def test_connect_reconciler_uses_default_queue(self) -> None:
+        self.assertEqual(TASK_ROUTES["tasks.reconcile_pending_connections"]["queue"], "celery")
+        self.assertIn("celery", CELERY_QUEUE_NAMES)
+
 
 if __name__ == "__main__":
     unittest.main()

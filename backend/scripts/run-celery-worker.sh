@@ -27,13 +27,13 @@ PY
 }
 
 if [[ "${QUEUE}" == "all" ]]; then
-  QUEUES="resume,shortlist,screening,interviews"
+  QUEUES="celery,resume,shortlist,screening,interviews"
   CONCURRENCY="${CELERY_ALL_QUEUES_CONCURRENCY:-4}"
 else
   case "${QUEUE}" in
-    resume|shortlist|screening|interviews) ;;
+    celery|resume|shortlist|screening|interviews) ;;
     *)
-      echo "Unknown queue '${QUEUE}'. Use: resume, shortlist, screening, interviews, or all." >&2
+      echo "Unknown queue '${QUEUE}'. Use: celery, resume, shortlist, screening, interviews, or all." >&2
       exit 1
       ;;
   esac

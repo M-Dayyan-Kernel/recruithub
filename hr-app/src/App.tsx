@@ -23,6 +23,7 @@ import LoginPage from '@/pages/LoginPage'
 import SignupPage from '@/pages/SignupPage'
 import AcceptInvitePage from '@/pages/AcceptInvitePage'
 import OrganizationsPage from '@/pages/OrganizationsPage'
+import PlatformConnectionsPage from '@/pages/PlatformConnectionsPage'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AdminRoute, AppShellRoute, ProtectedRoute } from '@/components/ProtectedRoute'
 
@@ -45,6 +46,7 @@ export default function App() {
           <Route element={<AppShellRoute />}>
             <Route index element={<DashboardPage />} />
             <Route path="admin" element={<OrganizationsPage />} />
+            <Route path="admin/connections" element={<PlatformConnectionsPage />} />
             <Route path="organizations" element={<Navigate to="/admin" replace />} />
 
             <Route path="jobs" element={<JobsPage />} />

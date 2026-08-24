@@ -4,7 +4,7 @@
 #   .\scripts\run-celery-worker.ps1 all
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("resume", "shortlist", "screening", "interviews", "all")]
+    [ValidateSet("celery", "resume", "shortlist", "screening", "interviews", "all")]
     [string]$Queue = "all"
 )
 
@@ -25,7 +25,7 @@ function Get-QueueConcurrency([string]$QueueName) {
 }
 
 if ($Queue -eq "all") {
-    $Queues = "resume,shortlist,screening,interviews"
+    $Queues = "celery,resume,shortlist,screening,interviews"
     $Concurrency = if ($env:CELERY_ALL_QUEUES_CONCURRENCY) { $env:CELERY_ALL_QUEUES_CONCURRENCY } else { "4" }
     $Pool = "solo"
     celery -A $App worker --loglevel=$LogLevel --pool=$Pool --queues=$Queues --concurrency=$Concurrency

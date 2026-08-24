@@ -29,6 +29,7 @@ from app.models.models import User
 from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.authentication_context_service import AuthenticationContextService
+from app.services.platform_connections_service import PlatformConnectionsService
 from app.services.platform_tenant_service import PlatformTenantService
 from app.services.system_settings_service import SystemSettingsService
 from app.services.candidate_service import CandidateService
@@ -127,6 +128,12 @@ def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
 
 def get_platform_tenant_service(db: AsyncSession = Depends(get_db)) -> PlatformTenantService:
     return PlatformTenantService(db)
+
+
+def get_platform_connections_service(
+    db: AsyncSession = Depends(get_db),
+) -> PlatformConnectionsService:
+    return PlatformConnectionsService(db)
 
 
 def get_user_management_service(db: AsyncSession = Depends(get_db)) -> UserManagementService:

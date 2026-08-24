@@ -6,15 +6,21 @@ import uuid
 
 from fastapi import APIRouter, Depends, status
 
-from app.dependencies import RequireSuperAdmin, get_platform_tenant_service
+from app.dependencies import (
+    RequireSuperAdmin,
+    get_platform_connections_service,
+    get_platform_tenant_service,
+)
 from app.exceptions import DomainError
 from app.schemas.schemas import (
+    PlatformConnectionItem,
     TenantCreateRequest,
     TenantListItem,
     TenantResponse,
     TenantUpdateRequest,
     UserResponse,
 )
+from app.services.platform_connections_service import PlatformConnectionsService
 from app.services.platform_tenant_service import PlatformTenantService
 
 router = APIRouter()
@@ -32,6 +38,38 @@ async def list_tenants(
     service: PlatformTenantService = Depends(get_platform_tenant_service),
 ):
     return await service.list_tenants()
+
+
+@router.get("/connections", response_model=list[PlatformConnectionItem])
+async def list_connections(
+    _admin: RequireSuperAdmin,
+    service: PlatformConnectionsService = Depends(get_platform_connections_service),
+):
+    return await service.list_connections()
+
+
+@router.post("/tenants/{tenant_id}/connections/connect")
+async def connect_tenant(
+    tenant_id: uuid.UUID,
+    _admin: RequireSuperAdmin,
+    service: PlatformConnectionsService = Depends(get_platform_connections_service),
+):
+    try:
+        return await service.connect_tenant(tenant_id)
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
+@router.post("/tenants/{tenant_id}/connections/disconnect")
+async def disconnect_tenant(
+    tenant_id: uuid.UUID,
+    _admin: RequireSuperAdmin,
+    service: PlatformConnectionsService = Depends(get_platform_connections_service),
+):
+    try:
+        return await service.disconnect_tenant(tenant_id)
+    except DomainError as exc:
+        _raise_domain(exc)
 
 
 @router.post("/tenants", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)

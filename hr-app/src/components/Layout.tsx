@@ -80,7 +80,7 @@ export default function Layout() {
     if (location.pathname.match(/^\/jobs\/[^/]+$/)) return 'Job details'
     if (location.pathname.startsWith('/report/')) return 'Interview Report'
     if (location.pathname === '/settings') return 'Settings'
-    if (location.pathname === '/connections') return 'Connections'
+    if (location.pathname === '/connections') return 'API Keys'
     if (location.pathname === '/users') return 'Users'
     if (location.pathname === '/activity') return 'Activity'
     return 'Recruitment Hub'
@@ -182,7 +182,7 @@ export default function Layout() {
                 </NavLink>
                 <NavLink to="/connections" onClick={closeSidebar} className={navLinkClass}>
                   <KeyRound className="h-4 w-4 shrink-0 opacity-80" />
-                  Connections
+                  API Keys
                 </NavLink>
               </div>
             </div>

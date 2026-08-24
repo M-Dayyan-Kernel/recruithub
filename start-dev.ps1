@@ -59,11 +59,30 @@ function Start-ServiceWindow([string]$Title, [string]$Command) {
 Write-Host "AI Recruitment POC - starting local dev environment" -ForegroundColor Green
 Write-Host "Project root: $Root"
 
+function Test-PythonRunnable([string]$PythonExe) {
+    try {
+        & $PythonExe -c "raise SystemExit(0)" | Out-Null
+        return $LASTEXITCODE -eq 0
+    } catch {
+        return $false
+    }
+}
+
 # --- Prerequisites ---
+$venvPython = Join-Path $Root "backend\.venv\Scripts\python.exe"
 $venvActivate = Join-Path $Root "backend\.venv\Scripts\Activate.ps1"
 if (-not (Test-Path $venvActivate)) {
     Write-Host "ERROR: Python venv not found at backend\.venv" -ForegroundColor Red
-    Write-Host "Run: cd backend; python -m venv .venv; .venv\Scripts\Activate.ps1; pip install -r requirements.txt"
+    Write-Host "Run: cd backend; python -m venv .venv; .\.venv\Scripts\python.exe -m pip install -r requirements.txt"
+    exit 1
+}
+if (-not (Test-PythonRunnable $venvPython)) {
+    Write-Host "ERROR: backend\.venv\Scripts\python.exe is blocked by Windows Application Control." -ForegroundColor Red
+    Write-Host "The uv-managed venv copy is often blocked. Recreate it with:" -ForegroundColor Yellow
+    Write-Host "  cd backend"
+    Write-Host "  Remove-Item -Recurse -Force .venv"
+    Write-Host "  python -m venv .venv   # or: uv python find 3.12 | ForEach-Object { & `$_ -m venv .venv }"
+    Write-Host "  uv pip install -r requirements.txt --python .\.venv\Scripts\python.exe"
     exit 1
 }
 
@@ -101,7 +120,7 @@ finally {
 Write-Step "Running database migrations"
 Push-Location (Join-Path $Root "backend")
 try {
-    & .\.venv\Scripts\python.exe -m alembic upgrade head
+    & $venvPython -m alembic upgrade head
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 finally {
@@ -123,7 +142,7 @@ $hrAppDir = Join-Path $Root "hr-app"
 $candidateAppDir = Join-Path $Root "candidate-app"
 
 $apiCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
-$celeryWorkerCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; celery -A app.core.celery_app.celery_app worker --loglevel=info --pool=solo --queues=resume,shortlist,screening,interviews"
+$celeryWorkerCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; celery -A app.core.celery_app.celery_app worker --loglevel=info --pool=solo --queues=celery,resume,shortlist,screening,interviews"
 $celeryBeatCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; celery -A app.core.celery_app.celery_app beat --loglevel=info"
 $agentCmd = "Set-Location '$backendDir'; . .\.venv\Scripts\Activate.ps1; python interview_agent.py dev"
 $hrCmd = "Set-Location '$hrAppDir'; `$env:VITE_API_URL='$ViteApiUrl'; npm run dev"

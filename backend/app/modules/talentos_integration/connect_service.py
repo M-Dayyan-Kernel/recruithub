@@ -167,9 +167,15 @@ class ConnectService:
             "Provisioned talentOS link | flow_id=%s talentos_tenant_id=%s",
             flow_id, link.external_tenant_id,
         )
+        # Prove ping_b in-request so handshake is not Celery-only. talentOS
+        # still has to complete ping_a (its in-process reconciler).
+        try:
+            await self.reconcile_flow(flow)
+        except Exception:
+            logger.exception("Immediate ping_b after provision failed | flow_id=%s", flow_id)
         return {
             "flow_id": str(flow_id),
-            "state": STATE_KEYS_EXCHANGED,
+            "state": flow.state,
             "rhub_key_id": created.id,
             "tal_key_id": prov["tal_key_id"],
         }

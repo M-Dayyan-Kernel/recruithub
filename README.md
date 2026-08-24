@@ -83,7 +83,7 @@ Manual start from `backend/` with `.venv` activated:
 
 ```bash
 # Worker — all queues (dev)
-celery -A app.core.celery_app.celery_app worker --loglevel=info --pool=solo --queues=resume,shortlist,screening,interviews
+celery -A app.core.celery_app.celery_app worker --loglevel=info --pool=solo --queues=celery,resume,shortlist,screening,interviews
 
 # Beat — exactly one instance per environment
 celery -A app.core.celery_app.celery_app beat --loglevel=info

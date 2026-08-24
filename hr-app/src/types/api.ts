@@ -237,6 +237,20 @@ export interface TalentosConnectResponse {
   already_in_progress?: boolean
 }
 
+export interface PlatformConnectionItem {
+  tenant_id: string
+  name: string
+  slug: string
+  is_active: boolean
+  verification_status: 'pending' | 'approved' | 'rejected'
+  state: string
+  flow_id?: string | null
+  ping_a_verified?: boolean
+  ping_b_verified?: boolean
+  connected_at?: string | null
+  last_error?: string | null
+}
+
 // ---------------------------------------------------------------------------
 // Interview
 // ---------------------------------------------------------------------------

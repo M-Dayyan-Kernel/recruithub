@@ -30,6 +30,9 @@ TASK_ROUTES: dict[str, dict[str, str]] = {
     "tasks.dispatch_pending_screening_calls": {"queue": SCREENING_QUEUE},
     "tasks.schedule_interview_assessment": {"queue": INTERVIEWS_QUEUE},
     "tasks.generate_interview_report": {"queue": INTERVIEWS_QUEUE},
+    # Beat / default-queue work — the all-queues worker must include `celery`.
+    "tasks.reconcile_pending_connections": {"queue": "celery"},
+    "tasks.apply_data_retention": {"queue": "celery"},
 }
 
 ROUTED_TASK_NAMES: frozenset[str] = frozenset(TASK_ROUTES)

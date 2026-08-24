@@ -866,6 +866,20 @@ class TenantListItem(BaseModel):
     job_count: int = 0
 
 
+class PlatformConnectionItem(BaseModel):
+    tenant_id: uuid.UUID
+    name: str
+    slug: str
+    is_active: bool
+    verification_status: Literal["pending", "approved", "rejected"] = "approved"
+    state: str = "none"
+    flow_id: Optional[uuid.UUID] = None
+    ping_a_verified: bool = False
+    ping_b_verified: bool = False
+    connected_at: Optional[datetime] = None
+    last_error: Optional[str] = None
+
+
 class TenantCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=_ORG_NAME_MAX_LEN)
     admin_email: EmailStr

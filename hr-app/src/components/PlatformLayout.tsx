@@ -1,6 +1,15 @@
 import { Building2, LogOut, Shield } from 'lucide-react'
-import { Outlet } from 'react-router-dom'
+import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+
+function platformNavClass({ isActive }: { isActive: boolean }) {
+  return [
+    'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+    isActive
+      ? 'bg-slate-800 text-white'
+      : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-100',
+  ].join(' ')
+}
 
 function userInitials(name?: string | null, email?: string | null) {
   const source = name?.trim() || email?.trim() || '?'
@@ -25,6 +34,14 @@ export default function PlatformLayout() {
               <p className="text-sm font-semibold tracking-tight text-white">Platform Console</p>
               <p className="text-[11px] text-slate-500">Organization management</p>
             </div>
+            <nav className="ml-2 flex items-center gap-1 sm:ml-4">
+              <NavLink to="/admin" end className={platformNavClass}>
+                Organizations
+              </NavLink>
+              <NavLink to="/admin/connections" className={platformNavClass}>
+                Connections
+              </NavLink>
+            </nav>
           </div>
 
           <div className="flex items-center gap-3">
