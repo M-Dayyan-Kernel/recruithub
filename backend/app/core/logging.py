@@ -42,6 +42,10 @@ _SERVICE_NAME = "ai-recruitment-api"
 _SERVICE_ENV = "development"
 _SERVICE_VERSION = "1.0.0"
 
+_HEALTH_PROBE_PATH_RE = re.compile(
+    r"^/(?:api/)?health(?:/(?:live|ready|celery))?$"
+)
+
 _POLL_PATH_RE = re.compile(
     r"("
     r"/health$"
@@ -340,6 +344,11 @@ def clear_logging_context() -> None:
     clear_request_id()
     clear_task_id()
     clear_actor_context()
+
+
+def is_health_probe_path(path: str) -> bool:
+    """Liveness/readiness/celery checks — omit from routine access logs."""
+    return bool(_HEALTH_PROBE_PATH_RE.match(path or ""))
 
 
 def is_poll_path(path: str) -> bool:
