@@ -84,8 +84,8 @@ export function validateOrgName(value: string, label = 'Organization name'): str
 }
 
 /** True when every entry of a field-error map is null/undefined. */
-export function isValid(errors: Record<string, string | null | undefined>): boolean {
-  return Object.values(errors).every((e) => !e)
+export function isValid(errors: object): boolean {
+  return (Object.values(errors) as Array<string | null | undefined>).every((e) => !e)
 }
 
 /** Upper bound for a years-of-experience field — a sanity cap, not a real limit. */
