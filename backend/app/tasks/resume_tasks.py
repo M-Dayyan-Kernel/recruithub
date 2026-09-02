@@ -28,8 +28,12 @@ def process_resume_shortlist(self, candidate_id: str):
     """Extract resume, run combined AI profile+shortlist, persist results."""
     try:
         asyncio.run(_async_process_resume_shortlist(self, candidate_id))
-    except _NoRetryError:
-        pass
+    except _NoRetryError as exc:
+        logger.error(
+            "process_resume_shortlist: unrecoverable failure for candidate %s: %s",
+            candidate_id,
+            exc,
+        )
     except Retry:
         raise
     except Exception as exc:
