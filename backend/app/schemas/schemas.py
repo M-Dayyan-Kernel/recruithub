@@ -415,6 +415,7 @@ class CandidateDetailResponse(CandidateResponse):
     """Full candidate detail including parsed resume data (HR/admin only)."""
     resume_file_path: Optional[str] = None
     parsed_data: Optional[dict] = None
+    pipeline_error: Optional[str] = None
 
 
 class CandidateListItem(BaseModel):
@@ -441,6 +442,7 @@ class CandidateProfileResponse(CandidateListItem):
     """Full candidate profile for the directory module."""
     parsed_data: Optional[dict] = None
     resume_file_path: Optional[str] = None
+    pipeline_error: Optional[str] = None
     shortlist: Optional["ShortlistResultResponse"] = None
     screening: Optional["ScreeningCallResponse"] = None
     interview_sessions: List["InterviewSessionResponse"] = []
