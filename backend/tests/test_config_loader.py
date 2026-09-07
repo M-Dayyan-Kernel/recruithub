@@ -52,8 +52,8 @@ class ConfigLoaderTests(unittest.TestCase):
 
     def test_shipped_config_loads_expected_models(self) -> None:
         cfg = load_config(reload=True)
-        self.assertEqual(cfg.models.combined_shortlist.name, "gpt-4o")
-        self.assertEqual(cfg.models.interview_assessment.name, "gpt-4o-mini")
+        self.assertEqual(cfg.models.combined_shortlist.name, "gpt-5.4-mini")
+        self.assertEqual(cfg.models.interview_assessment.name, "gpt-5.4-mini")
         self.assertEqual(cfg.livekit.tts.voice, "nova")
         self.assertEqual(cfg.vapi.voice.voice_id, "asteria")
         self.assertEqual(cfg.vapi.transcriber.model, "nova-2")
