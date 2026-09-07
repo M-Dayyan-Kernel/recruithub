@@ -8,10 +8,20 @@ from sqlalchemy.pool import NullPool
 from app.core.config_loader import config
 
 # ── FastAPI engine (persistent pool — fine for async web server) ──────────────
+# Under test the pool is disabled for the same reason Celery uses NullPool
+# below: TestClient runs each test on a fresh event loop, and an asyncpg
+# connection belongs to the loop that opened it, so one held in the pool and
+# reused by a later test raises "attached to a different loop".
+_engine_pool_options = (
+    {"poolclass": NullPool}
+    if (config.APP_ENV or "").strip().lower() == "test"
+    else {"pool_pre_ping": True}
+)
+
 engine = create_async_engine(
     config.DATABASE_URL,
     echo=False,
-    pool_pre_ping=True,
+    **_engine_pool_options,
 )
 
 AsyncSessionLocal = async_sessionmaker(
