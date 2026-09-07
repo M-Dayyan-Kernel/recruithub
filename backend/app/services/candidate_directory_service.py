@@ -157,6 +157,7 @@ class CandidateDirectoryService:
             **base.model_dump(),
             parsed_data=row.candidate.parsed_data,
             resume_file_path=row.candidate.resume_file_path,
+            pipeline_error=row.candidate.pipeline_error,
             shortlist=(
                 ShortlistResultResponse.model_validate(row.shortlist)
                 if row.shortlist

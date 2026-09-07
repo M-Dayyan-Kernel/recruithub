@@ -71,6 +71,7 @@ class ResumeProcessingService:
 
         job_id = candidate.job_id
         candidate.pipeline_status = "processing"
+        candidate.pipeline_error = None
         if candidate.processing_started_at is None:
             candidate.processing_started_at = datetime.now(timezone.utc)
         await self._session.commit()
@@ -79,10 +80,9 @@ class ResumeProcessingService:
             job_result = await self._session.execute(select(Job).where(Job.id == job_id))
             job = job_result.scalar_one_or_none()
             if not job:
-                return ProcessingResult(
-                    ProcessingOutcome.FAILED_NO_RETRY,
-                    ValueError(f"Job {job_id} not found"),
-                )
+                exc = ValueError(f"Job {job_id} not found")
+                await self._mark_failed(candidate, job_id, exc)
+                return ProcessingResult(ProcessingOutcome.FAILED_NO_RETRY, exc)
 
             integrations = await load_tenant_integrations(self._session, job.tenant_id)
             integrations.require("openai_api_key")
@@ -94,6 +94,7 @@ class ResumeProcessingService:
                 integrations.openai_api_key,
             )
             candidate.pipeline_status = "completed"
+            candidate.pipeline_error = None
             candidate.processing_started_at = None
             await self._session.commit()
             logger.info(
@@ -109,7 +110,7 @@ class ResumeProcessingService:
                 candidate_id,
                 exc,
             )
-            await self._mark_failed(candidate, job_id)
+            await self._mark_failed(candidate, job_id, exc)
             return ProcessingResult(ProcessingOutcome.FAILED_NO_RETRY, exc)
 
         except FileNotFoundError as exc:
@@ -118,7 +119,7 @@ class ResumeProcessingService:
                 candidate_id,
                 exc,
             )
-            await self._mark_failed(candidate, job_id)
+            await self._mark_failed(candidate, job_id, exc)
             return ProcessingResult(ProcessingOutcome.FAILED_NO_RETRY, exc)
 
         except ValueError as exc:
@@ -127,15 +128,15 @@ class ResumeProcessingService:
                 candidate_id,
                 exc,
             )
-            await self._mark_failed(candidate, job_id)
+            await self._mark_failed(candidate, job_id, exc)
             return ProcessingResult(ProcessingOutcome.FAILED_NO_RETRY, exc)
 
         except openai.AuthenticationError as exc:
             logger.error(
                 "OpenAI auth failed for candidate %s: %s", candidate_id, exc
             )
-            await self._mark_failed(candidate, job_id)
-            return ProcessingResult(ProcessingOutcome.SKIPPED)
+            await self._mark_failed(candidate, job_id, exc)
+            return ProcessingResult(ProcessingOutcome.SKIPPED, exc)
 
         except openai.RateLimitError as exc:
             logger.warning(
@@ -155,7 +156,7 @@ class ResumeProcessingService:
                 candidate_id,
                 exc,
             )
-            await self._mark_failed(candidate, job_id)
+            await self._mark_failed(candidate, job_id, exc)
             return ProcessingResult(ProcessingOutcome.FAILED_NO_RETRY, exc)
 
         except Exception as exc:
@@ -167,8 +168,11 @@ class ResumeProcessingService:
         finally:
             await self._queue.dispatch_slots(job_id)
 
-    async def _mark_failed(self, candidate: Candidate, job_id: uuid.UUID) -> None:
+    async def _mark_failed(
+        self, candidate: Candidate, job_id: uuid.UUID, error: Exception | str
+    ) -> None:
         candidate.pipeline_status = "failed"
+        candidate.pipeline_error = str(error)[:2000]
         candidate.processing_started_at = None
         await self._session.commit()
         await self._queue.dispatch_slots(job_id)
