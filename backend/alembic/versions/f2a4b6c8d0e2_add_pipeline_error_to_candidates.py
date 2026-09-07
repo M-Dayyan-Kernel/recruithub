@@ -1,7 +1,7 @@
 """add pipeline_error to candidates
 
 Revision ID: f2a4b6c8d0e2
-Revises: e7a3d1f2b6c8
+Revises: c1d1e1f1a2b3
 Create Date: 2026-09-01
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "f2a4b6c8d0e2"
-down_revision: Union[str, None] = "e7a3d1f2b6c8"
+down_revision: Union[str, None] = "c1d1e1f1a2b3"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
