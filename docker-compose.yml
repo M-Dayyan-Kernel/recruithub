@@ -5,9 +5,9 @@ services:
     image: ankane/pgvector:latest
     container_name: ai_recruitment_postgres
     environment:
-      POSTGRES_DB: ai_recruitment
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5433:5432"
     volumes:
