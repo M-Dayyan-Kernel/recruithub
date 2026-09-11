@@ -17,10 +17,16 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "candidates",
-        sa.Column("pipeline_error", sa.Text(), nullable=True),
-    )
+    # Idempotent: production DBs deployed from stich/talentos already carry
+    # this column (added out-of-band), so only add it when it is missing.
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {col["name"] for col in inspector.get_columns("candidates")}
+    if "pipeline_error" not in columns:
+        op.add_column(
+            "candidates",
+            sa.Column("pipeline_error", sa.Text(), nullable=True),
+        )
 
 
 def downgrade() -> None:
