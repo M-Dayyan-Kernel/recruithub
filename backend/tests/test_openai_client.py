@@ -44,11 +44,8 @@ class OpenAIClientTests(unittest.TestCase):
             config_loader.config.models.combined_shortlist.name,
         )
         model_cfg = config_loader.config.models.combined_shortlist
-        if model_cfg.name.lower().startswith(("o1", "o3", "o4", "gpt-5", "gpt-4.1", "gpt-4.5")):
-            self.assertEqual(captured["max_completion_tokens"], model_cfg.max_tokens)
-            self.assertNotIn("max_tokens", captured)
-        else:
-            self.assertEqual(captured["max_tokens"], model_cfg.max_tokens)
+        self.assertEqual(captured["max_completion_tokens"], model_cfg.max_tokens)
+        self.assertNotIn("max_tokens", captured)
 
     def test_gpt5_workload_uses_max_completion_tokens(self) -> None:
         captured: dict = {}
@@ -122,6 +119,11 @@ class OpenAIClientTests(unittest.TestCase):
             captured["model"],
             config_loader.config.models.interview_assessment.name,
         )
+        self.assertEqual(
+            captured["max_completion_tokens"],
+            config_loader.config.models.interview_assessment.max_tokens,
+        )
+        self.assertNotIn("max_tokens", captured)
 
     def test_unknown_workload_raises(self) -> None:
         client = OpenAIClient()
