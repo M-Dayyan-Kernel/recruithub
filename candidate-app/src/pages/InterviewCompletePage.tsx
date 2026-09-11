@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { CheckCircle2 } from 'lucide-react'
+import { CheckCircle2, ShieldAlert } from 'lucide-react'
 import { api } from '@/lib/api'
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { getProctorSession } from '@/proctoring/session'
+import { StatusCard } from '@/components/GradientShell'
 
 interface InterviewInfo {
   id: string
@@ -16,13 +14,11 @@ interface InterviewInfo {
   created_at: string
 }
 
-// ---------------------------------------------------------------------------
-// InterviewCompletePage
-// ---------------------------------------------------------------------------
-
 export default function InterviewCompletePage() {
   const { token } = useParams<{ token: string }>()
   const [info, setInfo] = useState<InterviewInfo | null>(null)
+  // Set when the enforcement policy ended the interview (proctoring/policy.ts).
+  const endedReason = token ? getProctorSession(token).getEndedReason() : null
 
   useEffect(() => {
     if (!token) return
@@ -34,62 +30,60 @@ export default function InterviewCompletePage() {
         if (!cancelled) setInfo(data as unknown as InterviewInfo)
       })
       .catch(() => {
-        // Best effort — don't surface errors on thank-you page
+        // Best effort, never surface errors on the thank you page.
       })
 
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [token])
 
+  const name = info?.candidate_name ? `${info.candidate_name}, ` : ''
+
   return (
-    <div className="flex-1 flex items-center justify-center p-6">
-      <div className="text-center max-w-md">
-        {/* Big checkmark */}
-        <div className="flex items-center justify-center mb-6">
-          <div className="w-20 h-20 rounded-full bg-emerald-900/40 flex items-center justify-center">
-            <CheckCircle2 className="w-10 h-10 text-emerald-400" />
-          </div>
-        </div>
-
-        {/* Heading */}
-        <h1 className="text-3xl font-extrabold text-slate-100 mb-3">Interview Complete!</h1>
-
-        {/* Personalised message */}
-        <p className="text-slate-300 text-base leading-relaxed mb-2">
-          {info?.candidate_name ? (
-            <>
-              Thank you, <span className="font-medium">{info.candidate_name}</span>!
-            </>
-          ) : (
-            'Thank you!'
-          )}
-        </p>
-
-        {info?.job_title && (
-          <p className="text-slate-400 text-sm mb-4">
-            Interview for: <span className="font-medium text-slate-300">{info.job_title}</span>
+    <StatusCard
+      icon={endedReason ? <ShieldAlert size={22} /> : <CheckCircle2 size={22} />}
+      tone={endedReason ? 'danger' : 'success'}
+      title={endedReason ? 'Interview ended early' : 'Interview complete'}
+      footer={
+        <>
+          <p className="text-[13px] text-slate-400">
+            Questions? Reach out to{' '}
+            <a
+              href="mailto:careers@webknot.in"
+              className="font-medium text-indigo-600 hover:text-indigo-700"
+            >
+              careers@webknot.in
+            </a>
           </p>
-        )}
-
-        <p className="text-slate-400 text-sm leading-relaxed">
-          Thank you for completing your interview. The hiring team will review your responses and
-          be in touch soon.
-        </p>
-
-        {/* Contact info */}
-        <div className="mt-8 pt-6 border-t border-slate-800 text-center">
-          <p className="text-slate-400 text-sm">Questions? Reach out to the hiring team</p>
-          <a
-            href="mailto:careers@webknot.in"
-            className="text-indigo-400 hover:text-indigo-300 text-sm font-medium mt-1 inline-block"
-          >
-            careers@webknot.in
-          </a>
+          <p className="mt-1 text-[12px] text-slate-400">
+            You can close this tab, your responses are saved.
+          </p>
+        </>
+      }
+      body={
+        endedReason
+          ? `${name}the hiring team will review the part of the interview you completed and will be in touch.`
+          : `${name}thank you for your time. The hiring team will review your interview and be in touch soon.`
+      }
+    >
+      {endedReason && (
+        <div className="mt-5 w-full rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3.5 text-left">
+          <p className="text-[14px] font-medium text-rose-900">{endedReason}</p>
+          <p className="mt-1 text-[13px] leading-relaxed text-rose-700/80">
+            You were warned once before this happened. Everything recorded up to that point has
+            been submitted.
+          </p>
         </div>
+      )}
 
-        <p className="text-xs text-slate-600 mt-4">
-          You may close this tab. Your responses have been saved.
-        </p>
-      </div>
-    </div>
+      {info?.job_title && (
+        <div className="mt-5 w-full rounded-2xl bg-slate-50 px-4 py-3">
+          <p className="text-[12px] uppercase tracking-wide text-slate-400">Interview for</p>
+          <p className="mt-0.5 text-[14px] font-medium text-slate-700">{info.job_title}</p>
+        </div>
+      )}
+
+    </StatusCard>
   )
 }

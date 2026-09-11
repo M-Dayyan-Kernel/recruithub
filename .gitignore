@@ -31,3 +31,4 @@ seed.env
 _tmp_deploy_remote.py
 .env.production.bak*
 get-docker.sh
+_server_env/

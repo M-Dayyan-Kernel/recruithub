@@ -344,7 +344,7 @@ async def call_combined_shortlist(
     api_key: str,
 ) -> CombinedShortlistOutput:
     if mocks.mock_openai_enabled():
-        return mocks.mock_combined_shortlist()
+        return mocks.mock_combined_shortlist(resume_text)
 
     return await asyncio.to_thread(
         _combined_shortlist_sync, resume_text, jd_summary, api_key

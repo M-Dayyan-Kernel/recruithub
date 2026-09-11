@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback, useRef, Component, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, Component, type ReactNode } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Loader2, AlertCircle, Mic, MicOff, Video, VideoOff, PhoneOff } from 'lucide-react'
+import { AlertCircle, Loader2, Mic, MicOff, PhoneOff, Video, VideoOff } from 'lucide-react'
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -15,19 +15,29 @@ import type { TrackReference } from '@livekit/components-react'
 import '@livekit/components-styles'
 import { api, getRetryAfterMinutes, isInterviewCapacityError } from '@/lib/api'
 import InterviewBusyScreen from '@/components/InterviewBusyScreen'
+import AiOrb from '@/components/AiOrb'
+import { EndedNotice, RecoveryPrompts, WarningNotice } from '@/components/ProctorOverlays'
+import { useActiveProctoring } from '@/hooks/useProctoring'
+import { exitFullscreen, isFullscreen } from '@/proctoring/browser'
+import { getProctorSession } from '@/proctoring/session'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
   state = { error: null }
-  static getDerivedStateFromError(e: Error) { return { error: e.message } }
+  static getDerivedStateFromError(e: Error) {
+    return { error: e.message }
+  }
   render() {
-    if (this.state.error) return (
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="text-center">
-          <p className="text-rose-400 font-bold mb-2">Room error (check console)</p>
-          <p className="text-slate-400 text-xs font-mono break-all max-w-md">{this.state.error}</p>
+    if (this.state.error)
+      return (
+        <div className="flex flex-1 items-center justify-center p-6 text-center">
+          <div>
+            <p className="mb-2 text-sm font-medium text-rose-400">Room error</p>
+            <p className="max-w-md break-all font-mono text-xs text-slate-500">
+              {this.state.error}
+            </p>
+          </div>
         </div>
-      </div>
-    )
+      )
     return this.props.children
   }
 }
@@ -38,12 +48,7 @@ interface RoomCredentials {
   livekit_url: string
 }
 
-// ---------------------------------------------------------------------------
-// Agent participant detection
-// ---------------------------------------------------------------------------
-function findAgentParticipant(
-  participants: RemoteParticipant[],
-): RemoteParticipant | undefined {
+function findAgentParticipant(participants: RemoteParticipant[]): RemoteParticipant | undefined {
   return participants.find(
     (p) =>
       p.identity.toLowerCase().includes('agent') ||
@@ -52,35 +57,91 @@ function findAgentParticipant(
 }
 
 // ---------------------------------------------------------------------------
-// Animated waveform — pure CSS, no hook dependencies
+// Presentational pieces
 // ---------------------------------------------------------------------------
-function WaveformBars() {
+
+function Tile({
+  label,
+  children,
+  active,
+}: {
+  label: string
+  children: ReactNode
+  active?: boolean
+}) {
   return (
-    <div className="flex items-end justify-center gap-1.5 h-12" aria-hidden>
-      {[40, 56, 48, 64, 48, 56, 40, 56, 48].map((h, i) => (
-        <span
-          key={i}
-          className="w-1.5 rounded-full bg-indigo-400"
-          style={{
-            height: `${h}%`,
-            animation: `waveform 1.2s ease-in-out ${i * 0.1}s infinite alternate`,
-          }}
-        />
-      ))}
-      <style>{`
-        @keyframes waveform {
-          from { transform: scaleY(0.3); opacity: 0.5; }
-          to   { transform: scaleY(1);   opacity: 1; }
-        }
-      `}</style>
+    <div
+      className={`relative aspect-video w-full overflow-hidden rounded-2xl border bg-slate-900/50 backdrop-blur-sm transition-colors duration-300 ${
+        active ? 'border-indigo-400/60 shadow-lg shadow-indigo-500/10' : 'border-white/10'
+      }`}
+    >
+      {children}
+      <span className="absolute bottom-3 left-4 rounded-full bg-slate-950/60 px-2.5 py-1 text-[11px] font-medium text-slate-300 backdrop-blur">
+        {label}
+      </span>
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// End interview confirmation dialog
-// ---------------------------------------------------------------------------
-function ConfirmEndDialog({
+/** Split in two: useIsSpeaking needs a real participant, so it can only be
+ *  called once the agent has actually joined the room. */
+function AgentJoined({ participant }: { participant: RemoteParticipant }) {
+  const speaking = useIsSpeaking(participant)
+  return (
+    <Tile label="AI Interviewer" active={speaking}>
+      <div className="flex h-full flex-col items-center justify-center gap-3 pb-7">
+        <AiOrb speaking={speaking} size={104} />
+        <p className={`text-[13px] ${speaking ? 'text-indigo-200' : 'text-slate-400'}`}>
+          {speaking ? 'Speaking' : 'Listening to you'}
+        </p>
+      </div>
+    </Tile>
+  )
+}
+
+function AgentTile({ participant }: { participant?: RemoteParticipant }) {
+  if (participant) return <AgentJoined participant={participant} />
+  return (
+    <Tile label="AI Interviewer">
+      <div className="flex h-full flex-col items-center justify-center gap-3 pb-7">
+        <AiOrb connecting size={104} />
+        <p className="text-[13px] text-slate-400">Joining your interview</p>
+      </div>
+    </Tile>
+  )
+}
+
+function ControlButton({
+  onClick,
+  disabled,
+  label,
+  danger,
+  children,
+}: {
+  onClick?: () => void
+  disabled?: boolean
+  label: string
+  danger?: boolean
+  children: ReactNode
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className={`flex h-11 w-11 cursor-pointer items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed ${
+        danger
+          ? 'bg-rose-600/90 text-white hover:bg-rose-500'
+          : 'bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-60 disabled:hover:bg-slate-800'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function ConfirmEnd({
   onCancel,
   onConfirm,
   ending,
@@ -90,26 +151,27 @@ function ConfirmEndDialog({
   ending: boolean
 }) {
   return (
-    <div className="absolute inset-0 z-50 bg-slate-950/80 flex items-center justify-center p-6">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
-        <h3 className="text-lg font-bold text-slate-100 mb-2">End Interview?</h3>
-        <p className="text-slate-400 text-sm leading-relaxed mb-6">
-          Are you sure you want to end the interview? This action cannot be undone.
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/92 p-6">
+      <div className="w-full max-w-sm rounded-lg border border-slate-800 bg-slate-900 p-6">
+        <h2 className="mb-1.5 text-base font-medium text-slate-100">End this interview?</h2>
+        <p className="mb-5 text-sm leading-relaxed text-slate-400">
+          Your answers so far are submitted for review. You cannot rejoin afterwards.
         </p>
-        <div className="flex gap-3">
+        <div className="flex gap-2">
           <button
             onClick={onCancel}
             disabled={ending}
-            className="flex-1 py-2.5 px-4 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-100 text-sm font-medium rounded-xl transition-colors"
+            className="h-10 flex-1 cursor-pointer rounded-md bg-slate-800 text-sm font-medium text-slate-100 transition-colors hover:bg-slate-700 disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
             disabled={ending}
-            className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors inline-flex items-center justify-center gap-2"
+            className="inline-flex h-10 flex-1 cursor-pointer items-center justify-center gap-2 rounded-md bg-rose-600 text-sm font-medium text-white transition-colors hover:bg-rose-500 disabled:opacity-50"
           >
-            {ending ? <><Loader2 size={14} className="animate-spin" /> Ending…</> : 'End Interview'}
+            {ending && <Loader2 size={14} className="animate-spin" aria-hidden />}
+            End interview
           </button>
         </div>
       </div>
@@ -118,84 +180,20 @@ function ConfirmEndDialog({
 }
 
 // ---------------------------------------------------------------------------
-// AgentWaiting — shown before agent joins
+// Room
 // ---------------------------------------------------------------------------
-function AgentWaiting() {
-  return (
-    <>
-      <div className="w-32 h-32 rounded-full bg-slate-800 border-2 border-slate-700 flex items-center justify-center mb-4">
-        <span className="text-5xl select-none">🤖</span>
-      </div>
-      <div className="h-12 mb-3" />
-      <p className="text-sm text-slate-400 mb-8 text-center">
-        Waiting for AI interviewer to join…
-        <span className="block text-xs text-slate-500 mt-2">
-          If this takes more than 30s, ensure the interview agent is running locally.
-        </span>
-      </p>
-    </>
-  )
-}
 
-// ---------------------------------------------------------------------------
-// AgentDisplay — shown when agent is in the room (useIsSpeaking safe here)
-// ---------------------------------------------------------------------------
-function AgentDisplay({ participant }: { participant: RemoteParticipant }) {
-  const isAgentSpeaking = useIsSpeaking(participant)
-  const [thinking, setThinking] = useState(false)
-  const wasSpeaking = useRef(false)
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    if (isAgentSpeaking) {
-      if (timer.current) clearTimeout(timer.current)
-      setThinking(false)
-      wasSpeaking.current = true
-    } else if (wasSpeaking.current) {
-      setThinking(true)
-      timer.current = setTimeout(() => setThinking(false), 2500)
-      wasSpeaking.current = false
-    }
-    return () => { if (timer.current) clearTimeout(timer.current) }
-  }, [isAgentSpeaking])
-
-  const statusText = isAgentSpeaking ? 'AI Interviewer is speaking…'
-    : thinking ? 'AI is thinking…'
-    : 'Speak now — AI is listening'
-
-  return (
-    <>
-      <div className="relative flex items-center justify-center mb-4">
-        {isAgentSpeaking && (
-          <span className="absolute inset-0 rounded-full border-2 border-indigo-400 animate-ping opacity-30 scale-125" />
-        )}
-        <div className={`w-32 h-32 rounded-full bg-slate-800 border-2 flex items-center justify-center transition-colors duration-500 ${
-          isAgentSpeaking ? 'border-indigo-400' : 'border-slate-700'
-        }`}>
-          <span className="text-5xl select-none">🤖</span>
-        </div>
-      </div>
-      <div className="h-12 flex items-center mb-3">
-        {isAgentSpeaking ? <WaveformBars /> : <div className="h-12" />}
-      </div>
-      <p className="text-sm text-slate-400 mb-8 text-center">{statusText}</p>
-    </>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// InterviewRoom — inner UI (runs inside LiveKitRoom context)
-// ---------------------------------------------------------------------------
 function InterviewRoom({ token }: { token: string }) {
   const navigate = useNavigate()
   const connectionState = useConnectionState()
   const remoteParticipants = useRemoteParticipants()
-  const { localParticipant, isMicrophoneEnabled, isCameraEnabled, cameraTrack } = useLocalParticipant()
+  const { localParticipant, isMicrophoneEnabled, isCameraEnabled, cameraTrack } =
+    useLocalParticipant()
 
   const [confirmEnd, setConfirmEnd] = useState(false)
   const [ending, setEnding] = useState(false)
+  const finishedRef = useRef(false)
 
-  // Warn before leaving while interview is in progress
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault()
@@ -205,116 +203,199 @@ function InterviewRoom({ token }: { token: string }) {
     return () => window.removeEventListener('beforeunload', handler)
   }, [])
 
-  const agentParticipant = findAgentParticipant(remoteParticipants)
+  const agent = findAgentParticipant(remoteParticipants)
 
-  const handleEndConfirm = useCallback(async () => {
-    if (ending) return
+  /** Closes the session server side, then leaves the room. */
+  const finishInterview = useCallback(async () => {
+    if (finishedRef.current) return
+    finishedRef.current = true
     setEnding(true)
-    try { await api.post(`/api/interview/${token}/complete`) } catch { /* best-effort */ }
-    navigate(`/interview/${token}/complete`)
-  }, [ending, token, navigate])
 
-  // Self-view camera track reference
+    const session = getProctorSession(token)
+    session.setState('SESSION_COMPLETION')
+    session.engine.closeAll('session_completion')
+    await session.transport.flush(() => {
+      const snap = session.engine.snapshot()
+      const state = session.snapshot()
+      return {
+        events: snap.events,
+        signals: snap.signals,
+        preconditions: state.preconditions,
+        attempts: state.attempts,
+      }
+    })
+
+    try {
+      await api.post(`/api/interview/${token}/complete`)
+    } catch {
+      /* best effort, LiveKit room_finished is the server side backstop */
+    }
+
+    session.releaseAll()
+    await exitFullscreen()
+    navigate(`/interview/${token}/complete`)
+  }, [token, navigate])
+
+  const handlePolicyEnd = useCallback(() => {
+    void localParticipant?.setMicrophoneEnabled(false)
+    void localParticipant?.setCameraEnabled(false)
+    void finishInterview()
+  }, [localParticipant, finishInterview])
+
+  const proctor = useActiveProctoring(token, true, handlePolicyEnd)
+  const endedReason = proctor.session.getEndedReason()
+
+  // PR-STATE-016: leaving without submitting is abandonment, not a completion.
+  // The state is recorded and what was captured is kept, but the session never
+  // routes through completion or review.
+  useEffect(() => {
+    const markAbandoned = () => {
+      if (finishedRef.current) return
+      const session = getProctorSession(token)
+      if (session.getState() !== 'PROCTORING_ACTIVE') return
+      session.engine.closeAll('abandoned')
+      session.setState('INCOMPLETE')
+    }
+    window.addEventListener('pagehide', markAbandoned)
+    return () => {
+      window.removeEventListener('pagehide', markAbandoned)
+      markAbandoned()
+    }
+  }, [token])
+
+  // Camera and microphone interruptions come from the published tracks. The
+  // first report is skipped: tracks are not published the instant we mount.
+  const { reportCamera, reportMicrophone } = proctor
+  const cameraSeen = useRef(false)
+  const micSeen = useRef(false)
+
+  useEffect(() => {
+    if (isCameraEnabled) cameraSeen.current = true
+    if (cameraSeen.current) reportCamera(isCameraEnabled)
+  }, [isCameraEnabled, reportCamera])
+
+  useEffect(() => {
+    if (isMicrophoneEnabled) micSeen.current = true
+    if (micSeen.current) reportMicrophone(isMicrophoneEnabled)
+  }, [isMicrophoneEnabled, reportMicrophone])
+
   const cameraTrackRef: TrackReference | null =
     cameraTrack && localParticipant
       ? { participant: localParticipant, publication: cameraTrack, source: Track.Source.Camera }
       : null
 
   return (
-    <div className="flex-1 flex flex-col relative overflow-hidden">
-      {/* Reconnecting overlay */}
+    <div className="relative flex flex-1 select-none flex-col overflow-hidden bg-[radial-gradient(ellipse_90%_60%_at_50%_-10%,#312e81_0%,#0b1020_45%,#020617_100%)]">
+      {endedReason ? (
+        <EndedNotice reason={endedReason} />
+      ) : (
+        <>
+          <RecoveryPrompts
+            prompts={proctor.snapshot.prompts}
+            onFullscreen={() => void proctor.recoverFullscreen()}
+            onScreenShare={() => void proctor.recoverScreenShare()}
+          />
+          {proctor.warning && proctor.snapshot.prompts.length === 0 && (
+            <WarningNotice
+              message={proctor.warning.message}
+              remaining={proctor.warning.remaining}
+              onDismiss={proctor.dismissWarning}
+            />
+          )}
+        </>
+      )}
+
       {connectionState === ConnectionState.Reconnecting && (
-        <div className="absolute inset-0 z-40 bg-slate-950/85 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <Loader2 size={32} className="animate-spin text-indigo-400" />
-            <p className="text-slate-300 text-sm font-medium">Reconnecting…</p>
-            <p className="text-slate-500 text-xs">Please wait, do not close this tab</p>
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/90">
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 size={20} className="animate-spin text-slate-400" aria-hidden />
+            <p className="text-sm text-slate-300">Reconnecting</p>
+            <p className="text-xs text-slate-500">Please keep this tab open</p>
           </div>
         </div>
       )}
 
-      {/* End interview confirmation */}
       {confirmEnd && (
-        <ConfirmEndDialog
+        <ConfirmEnd
           onCancel={() => setConfirmEnd(false)}
-          onConfirm={handleEndConfirm}
+          onConfirm={() => void finishInterview()}
           ending={ending}
         />
       )}
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col items-center justify-center p-6">
-        {/* Recording badge */}
-        <div className="flex items-center gap-2 mb-6">
-          <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-          <span className="text-xs text-red-400 font-semibold uppercase tracking-wider">Recording</span>
+      <div className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
+        <div className="flex w-full max-w-4xl items-center justify-between text-[12px] text-slate-400">
+          <span className="inline-flex items-center gap-2">
+            <span className="relative flex h-2 w-2" aria-hidden>
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-500 opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500" />
+            </span>
+            Recording
+          </span>
+          <span>Monitored session</span>
         </div>
 
-        {/* Side-by-side on md+, stacked on mobile: AI avatar + candidate video */}
-        <div className="flex flex-col md:flex-row items-stretch justify-center gap-4 md:gap-6 w-full max-w-2xl mb-6">
-          {/* AI side */}
-          <div className="flex-1 w-full md:w-1/2 flex flex-col items-center justify-center bg-slate-900 border border-slate-700 rounded-2xl p-6 min-h-[240px]">
-            <p className="text-xs text-slate-500 uppercase tracking-widest mb-3 font-medium">AI Interviewer</p>
-            {agentParticipant
-              ? <AgentDisplay participant={agentParticipant} />
-              : <AgentWaiting />}
-          </div>
+        <div className="grid w-full max-w-4xl gap-4 sm:grid-cols-2">
+          <AgentTile participant={agent} />
 
-          {/* Candidate video side */}
-          <div className="flex-1 w-full md:w-1/2 flex flex-col items-center justify-center bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden min-h-[240px] relative">
-            <p className="absolute top-3 left-0 right-0 text-center text-xs text-slate-500 uppercase tracking-widest font-medium z-10">You</p>
+          <Tile label="You">
             {cameraTrackRef && isCameraEnabled ? (
-              <VideoTrack trackRef={cameraTrackRef} className="w-full h-full object-cover scale-x-[-1]" />
+              <VideoTrack
+                trackRef={cameraTrackRef}
+                className="h-full w-full scale-x-[-1] object-cover"
+              />
             ) : (
-              <div className="flex flex-col items-center gap-3">
-                <div className="w-20 h-20 rounded-full bg-slate-700 flex items-center justify-center">
-                  <VideoOff size={28} className="text-slate-500" />
-                </div>
-                <p className="text-xs text-slate-500">Camera off</p>
+              <div className="flex h-full items-center justify-center">
+                <VideoOff size={20} className="text-slate-600" aria-hidden />
               </div>
             )}
-          </div>
+            {!isMicrophoneEnabled && (
+              <span className="absolute right-2 top-2 rounded bg-slate-950/80 p-1.5">
+                <MicOff size={13} className="text-slate-400" aria-hidden />
+              </span>
+            )}
+          </Tile>
         </div>
 
-        {/* Controls */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => localParticipant?.setMicrophoneEnabled(!isMicrophoneEnabled)}
-            title={isMicrophoneEnabled ? 'Mute' : 'Unmute'}
-            className={`min-w-[44px] min-h-[44px] w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
-              isMicrophoneEnabled ? 'bg-slate-700 hover:bg-slate-600 text-slate-100' : 'bg-rose-700 hover:bg-rose-600 text-white'
-            }`}
+        <div className="flex items-center gap-2">
+          <ControlButton
+            onClick={() => void localParticipant?.setMicrophoneEnabled(!isMicrophoneEnabled)}
+            label={isMicrophoneEnabled ? 'Mute microphone' : 'Unmute microphone'}
           >
-            {isMicrophoneEnabled ? <Mic size={18} /> : <MicOff size={18} />}
-          </button>
+            {isMicrophoneEnabled ? <Mic size={17} /> : <MicOff size={17} />}
+          </ControlButton>
 
-          <button
-            onClick={() => localParticipant?.setCameraEnabled(!isCameraEnabled)}
-            title={isCameraEnabled ? 'Camera off' : 'Camera on'}
-            className={`min-w-[44px] min-h-[44px] w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
-              isCameraEnabled ? 'bg-slate-700 hover:bg-slate-600 text-slate-100' : 'bg-rose-700 hover:bg-rose-600 text-white'
-            }`}
+          <ControlButton
+            onClick={() => {
+              if (!isCameraEnabled) void localParticipant?.setCameraEnabled(true)
+            }}
+            disabled={isCameraEnabled}
+            label={
+              isCameraEnabled
+                ? 'Your camera stays on for the whole interview'
+                : 'Turn camera back on'
+            }
           >
-            {isCameraEnabled ? <Video size={18} /> : <VideoOff size={18} />}
-          </button>
+            {isCameraEnabled ? <Video size={17} /> : <VideoOff size={17} />}
+          </ControlButton>
 
           <button
             onClick={() => setConfirmEnd(true)}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white text-sm font-medium rounded-xl transition-colors"
+            className="ml-2 inline-flex h-11 cursor-pointer items-center gap-2 rounded-full bg-rose-600/90 px-5 text-sm font-medium text-white transition-colors hover:bg-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
           >
-            <PhoneOff size={15} /> End Interview
+            <PhoneOff size={15} aria-hidden />
+            End interview
           </button>
         </div>
       </div>
-
-
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// InterviewRoomPage — outer shell (fetches credentials, mounts LiveKitRoom)
+// Page shell
 // ---------------------------------------------------------------------------
+
 export default function InterviewRoomPage() {
   const { token } = useParams<{ token: string }>()
   const navigate = useNavigate()
@@ -323,17 +404,32 @@ export default function InterviewRoomPage() {
   const [error, setError] = useState<string | null>(null)
   const [capacityBusy, setCapacityBusy] = useState(false)
   const [retryAfterMinutes, setRetryAfterMinutes] = useState(45)
-  const [roomReady, setRoomReady] = useState(false)
+  const [rejoinNeeded, setRejoinNeeded] = useState(false)
   const startedRef = useRef(false)
 
   useEffect(() => {
     if (startedRef.current) return
     startedRef.current = true
 
+    // The pre-flight gate is checked once, before the room is created. A missing
+    // precondition sends the candidate back to the gate that failed; it never
+    // ends anything. A fullscreen exit later on is handled inside the room.
+    const proctorSession = getProctorSession(token ?? '')
+    if (!isFullscreen()) proctorSession.reset('fullscreen')
+    if (!proctorSession.canEnterActive()) {
+      navigate(`/interview/${token ?? ''}`, { replace: true })
+      return
+    }
+
     async function startInterview() {
-      if (!token) { setError('No interview token.'); setLoading(false); return }
+      if (!token) {
+        setError('No interview token.')
+        setLoading(false)
+        return
+      }
       try {
         const data = (await api.post(`/api/interview/${token}/start`)) as RoomCredentials
+        getProctorSession(token).setState('PROCTORING_ACTIVE')
         setCredentials(data)
       } catch (err: unknown) {
         if (isInterviewCapacityError(err)) {
@@ -342,10 +438,11 @@ export default function InterviewRoomPage() {
           return
         }
         const msg = err instanceof Error ? err.message : String(err)
-        // api.ts strips HTTP status — detect 409 by message content
-        if (msg.toLowerCase().includes('already started') || msg.toLowerCase().includes('not in pending')) {
-          // Session already started — this is fine, show rejoin UI
-          setRoomReady(true)
+        if (
+          msg.toLowerCase().includes('already started') ||
+          msg.toLowerCase().includes('not in pending')
+        ) {
+          setRejoinNeeded(true)
           return
         }
         setError(msg)
@@ -355,7 +452,7 @@ export default function InterviewRoomPage() {
     }
 
     startInterview()
-  }, [token])
+  }, [token, navigate])
 
   if (capacityBusy) {
     return (
@@ -366,23 +463,21 @@ export default function InterviewRoomPage() {
     )
   }
 
-  // 409 path: interview already in progress — send user to landing page rejoin screen
-  if (roomReady && !credentials) {
+  if (rejoinNeeded && !credentials) {
     return (
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="text-center max-w-md">
-          <div className="w-10 h-10 rounded-full bg-indigo-900 flex items-center justify-center mx-auto mb-4">
-            <span className="text-indigo-400 text-xl">↩</span>
-          </div>
-          <h2 className="text-xl font-bold text-slate-100 mb-2">Interview Already In Progress</h2>
-          <p className="text-slate-400 text-sm mb-6">
-            Your interview session was already started.
+      <div className="flex flex-1 items-center justify-center p-6">
+        <div className="max-w-sm text-center">
+          <h2 className="mb-1.5 text-base font-medium text-slate-100">
+            Interview already in progress
+          </h2>
+          <p className="mb-6 text-sm leading-relaxed text-slate-400">
+            This session was already started. Go back to run the checks again and rejoin.
           </p>
           <button
             onClick={() => navigate(`/interview/${token ?? ''}`)}
-            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-xl"
+            className="h-10 cursor-pointer rounded-md bg-indigo-600 px-5 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
           >
-            Rejoin Interview
+            Rejoin interview
           </button>
         </div>
       </div>
@@ -391,10 +486,10 @@ export default function InterviewRoomPage() {
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4 text-slate-400">
-          <Loader2 size={32} className="animate-spin" />
-          <p className="text-sm">Connecting to interview room…</p>
+      <div className="flex flex-1 items-center justify-center">
+        <div className="flex flex-col items-center gap-2 text-slate-400">
+          <Loader2 size={20} className="animate-spin" aria-hidden />
+          <p className="text-sm">Connecting to your interview</p>
         </div>
       </div>
     )
@@ -402,14 +497,18 @@ export default function InterviewRoomPage() {
 
   if (error || !credentials) {
     return (
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="text-center max-w-md">
-          <AlertCircle className="w-10 h-10 text-rose-400 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-slate-100 mb-2">Failed to Connect</h2>
-          <p className="text-slate-400 text-sm mb-6">{error ?? 'Unable to connect. Please try again.'}</p>
-          <button onClick={() => navigate(`/interview/${token ?? ''}`)}
-            className="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-100 text-sm font-medium rounded-xl">
-            Go Back
+      <div className="flex flex-1 items-center justify-center p-6">
+        <div className="max-w-sm text-center">
+          <AlertCircle className="mx-auto mb-4 h-6 w-6 text-rose-400" aria-hidden />
+          <h2 className="mb-1.5 text-base font-medium text-slate-100">Could not connect</h2>
+          <p className="mb-6 text-sm leading-relaxed text-slate-400">
+            {error ?? 'Unable to connect. Please try again.'}
+          </p>
+          <button
+            onClick={() => navigate(`/interview/${token ?? ''}`)}
+            className="h-10 cursor-pointer rounded-md bg-slate-800 px-5 text-sm font-medium text-slate-100 transition-colors hover:bg-slate-700"
+          >
+            Go back
           </button>
         </div>
       </div>
@@ -417,14 +516,14 @@ export default function InterviewRoomPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex flex-1 flex-col">
       <LiveKitRoom
         serverUrl={credentials.livekit_url}
         token={credentials.token}
         connect={true}
         audio={true}
         video={true}
-        className="flex-1 flex flex-col"
+        className="flex flex-1 flex-col"
       >
         <RoomAudioRenderer />
         <ErrorBoundary>

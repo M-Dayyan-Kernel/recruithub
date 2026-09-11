@@ -6,6 +6,7 @@ Enable with MOCK_EXTERNAL_APIS=true in backend/.env (or granular flags below).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import uuid
@@ -62,10 +63,14 @@ def log_mock_usage(service: str, action: str) -> None:
 
 def mock_resume_parse(raw_text: str) -> dict:
     log_mock_usage("openai", "resume parse (gpt-5.4-mini)")
+    # Derive a stable-but-distinct identity from the resume content so mock mode
+    # doesn't make every upload collide on the same fake email in duplicate checks.
+    suffix = hashlib.sha1((raw_text or "").encode("utf-8")).hexdigest()[:8]
+    phone_digits = str(int(suffix, 16) % 10_000_000_000).zfill(10)
     return {
-        "name": "Rahul mock",
-        "email": "rahulag5282@gmail.com",
-        "phone": "+918217691992",
+        "name": f"Mock Candidate {suffix}",
+        "email": f"mock.{suffix}@example.test",
+        "phone": f"+91{phone_digits}",
         "skills": ["Python", "FastAPI", "React", "PostgreSQL", "Docker"],
         "total_experience_years": 4.5,
         "experience": [
@@ -126,11 +131,11 @@ def mock_jd_parse(raw_text: str) -> dict:
     }
 
 
-def mock_combined_shortlist():
+def mock_combined_shortlist(raw_text: str = ""):
     from app.schemas.ai_outputs import CombinedShortlistOutput, ParsedResumeData, ShortlistAssessment
 
     log_mock_usage("openai", "combined resume shortlist (gpt-5.4-mini)")
-    profile = ParsedResumeData.model_validate(mock_resume_parse(""))
+    profile = ParsedResumeData.model_validate(mock_resume_parse(raw_text))
     assessment = ShortlistAssessment(
         match_score=72.0,
         recommendation="shortlisted",

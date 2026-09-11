@@ -23,6 +23,13 @@ MODEL_WORKLOADS = frozenset({
 })
 
 
+def _uses_max_completion_tokens(model_name: str) -> bool:
+    """GPT-5+ and reasoning models reject max_tokens on chat completions."""
+    lower = model_name.lower()
+    prefixes = ("o1", "o3", "o4", "gpt-5", "gpt-4.1", "gpt-4.5")
+    return any(lower.startswith(prefix) for prefix in prefixes)
+
+
 class OpenAIClient:
     """Configured OpenAI SDK wrapper for JSON chat completions."""
 
@@ -42,13 +49,19 @@ class OpenAIClient:
     def _completion_kwargs(
         self, model_cfg: ModelWorkloadConfig, messages: list[dict[str, Any]]
     ) -> dict[str, Any]:
-        return {
+        kwargs: dict[str, Any] = {
             "model": model_cfg.name,
             "messages": messages,
             "temperature": model_cfg.temperature,
-            "max_tokens": model_cfg.max_tokens,
             "response_format": model_cfg.openai_response_format(),
         }
+        token_param = (
+            "max_completion_tokens"
+            if _uses_max_completion_tokens(model_cfg.name)
+            else "max_tokens"
+        )
+        kwargs[token_param] = model_cfg.max_tokens
+        return kwargs
 
     def _client_kwargs(self, api_key: str) -> dict[str, Any]:
         base_url, resolved_key = config.llm_credentials(api_key)

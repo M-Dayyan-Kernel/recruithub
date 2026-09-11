@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 
 from app.core.async_utils import run_sync
 from app.core.config_loader import config
@@ -18,11 +18,14 @@ router = APIRouter()
 
 def _require_internal_health_key(
     x_health_key: str | None = Header(default=None, alias="X-Health-Key"),
+    health_key: str | None = Query(default=None, alias="key"),
 ) -> None:
+    """Optional shared secret — header (preferred) or ?key= for uptime monitors."""
     expected = (config.INTERNAL_HEALTH_API_KEY or "").strip()
     if not expected:
         return
-    if not x_health_key or x_health_key != expected:
+    provided = (x_health_key or health_key or "").strip()
+    if not provided or provided != expected:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
 
@@ -71,14 +74,14 @@ async def health_ready():
         checks["s3"] = "skipped"
 
     status_value = "ok" if all(v in ("ok", "skipped") for v in checks.values()) else "degraded"
-    code = status.HTTP_200_OK if status_value == "ok" else status.HTTP_503_SERVICE_UNAVAILABLE
     from fastapi.responses import JSONResponse
 
-    from app.core.openbao import source as secrets_source
+    from app.core import openbao as secrets_bao
 
+    # Always HTTP 200 — body carries ok/degraded so uptime probes do not spam 4xx/5xx logs.
     return JSONResponse(
-        status_code=code,
-        content={"status": status_value, "checks": checks, "secretsSource": secrets_source},
+        status_code=status.HTTP_200_OK,
+        content={"status": status_value, "checks": checks, "secretsSource": secrets_bao.source},
     )
 
 

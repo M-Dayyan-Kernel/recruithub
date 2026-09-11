@@ -137,6 +137,7 @@ class Candidate(Base):
     skip_ai_shortlist: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)  # Shortlist decision made externally (talentOS) — skip AI resume review
     parsed_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     pipeline_status: Mapped[str] = mapped_column(String(50), nullable=False, default="queued")
+    pipeline_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="active", server_default="active")
     years_experience: Mapped[Optional[float]] = mapped_column(Float, nullable=True)

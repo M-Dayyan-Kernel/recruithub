@@ -300,7 +300,7 @@ class MiddlewareRequestIdTests(unittest.TestCase):
         http_logger = logging.getLogger(HTTP_LOGGER_NAME)
         http_logger.addHandler(handler)
         try:
-            resp = self.client.get("/health")
+            resp = self.client.get("/metrics")
             self.assertEqual(resp.status_code, 200)
             self.assertTrue(captured)
             record = captured[-1]
@@ -308,7 +308,7 @@ class MiddlewareRequestIdTests(unittest.TestCase):
             http_payload = getattr(record, "http", None)
             self.assertIsInstance(http_payload, dict)
             self.assertEqual(http_payload["method"], "GET")
-            self.assertEqual(http_payload["path"], "/health")
+            self.assertEqual(http_payload["path"], "/metrics")
             self.assertEqual(http_payload["status"], 200)
             self.assertIn("duration_ms", http_payload)
         finally:
