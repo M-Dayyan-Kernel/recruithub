@@ -1,3 +1,7 @@
+
+# UNUSED as of [today's date] — Server 1 no longer hosts its own Postgres/Redis.
+# Database migrated to Server 3 (see deployment doc). Kept for reference only.
+# Do NOT run `docker compose up -d` with this file on Server 1.
 version: "3.9"
 
 services:
