@@ -29,3 +29,5 @@ seed.env
 .bao-shared/
 .env.bak-*
 _tmp_deploy_remote.py
+.env.production.bak*
+get-docker.sh
