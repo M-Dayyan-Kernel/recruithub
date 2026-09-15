@@ -31,8 +31,8 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: string |
       return (
         <div className="flex flex-1 items-center justify-center p-6 text-center">
           <div>
-            <p className="mb-2 text-sm font-medium text-rose-400">Room error</p>
-            <p className="max-w-md break-all font-mono text-xs text-slate-500">
+            <p className="mb-2 text-[0.9rem] font-semibold text-warn">Room error</p>
+            <p className="max-w-md break-all font-mono text-[0.75rem] text-ink-muted">
               {this.state.error}
             </p>
           </div>
@@ -60,52 +60,65 @@ function findAgentParticipant(participants: RemoteParticipant[]): RemoteParticip
 // Presentational pieces
 // ---------------------------------------------------------------------------
 
+/** One participant's panel. The pair sit side by side, equal weight. */
 function Tile({
   label,
-  children,
+  status,
   active,
+  children,
 }: {
   label: string
-  children: ReactNode
+  status?: string
   active?: boolean
+  children: ReactNode
 }) {
   return (
     <div
-      className={`relative aspect-video w-full overflow-hidden rounded-2xl border bg-slate-900/50 backdrop-blur-sm transition-colors duration-300 ${
-        active ? 'border-indigo-400/60 shadow-lg shadow-indigo-500/10' : 'border-white/10'
+      className={`flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border bg-panel transition-colors duration-300 ${
+        active ? 'border-accent shadow-md shadow-accent/10' : 'border-line'
       }`}
     >
-      {children}
-      <span className="absolute bottom-3 left-4 rounded-full bg-slate-950/60 px-2.5 py-1 text-[11px] font-medium text-slate-300 backdrop-blur">
-        {label}
-      </span>
+      <div className="relative aspect-video w-full bg-panel-alt">{children}</div>
+      <div className="flex items-baseline justify-between gap-3 border-t border-line px-4 py-2.5">
+        <p className="truncate font-display text-[0.86rem] font-semibold text-ink">{label}</p>
+        {status && (
+          <p className={`shrink-0 text-[0.76rem] ${active ? 'text-accent' : 'text-ink-muted'}`}>
+            {status}
+          </p>
+        )}
+      </div>
     </div>
   )
 }
 
-/** Split in two: useIsSpeaking needs a real participant, so it can only be
- *  called once the agent has actually joined the room. */
-function AgentJoined({ participant }: { participant: RemoteParticipant }) {
-  const speaking = useIsSpeaking(participant)
-  return (
-    <Tile label="AI Interviewer" active={speaking}>
-      <div className="flex h-full flex-col items-center justify-center gap-3 pb-7">
-        <AiOrb speaking={speaking} size={104} />
-        <p className={`text-[13px] ${speaking ? 'text-indigo-200' : 'text-slate-400'}`}>
-          {speaking ? 'Speaking' : 'Listening to you'}
-        </p>
-      </div>
-    </Tile>
-  )
+/**
+ * The interviewer's half. There is no question text to show - the interview is
+ * a live spoken conversation, so the state of the voice is the status.
+ */
+function AgentTile({ participant }: { participant?: RemoteParticipant }) {
+  if (!participant) {
+    return (
+      <Tile label="AI Interviewer" status="Joining">
+        <div className="flex h-full items-center justify-center">
+          <AiOrb connecting size={132} />
+        </div>
+      </Tile>
+    )
+  }
+  return <AgentSpeakingTile participant={participant} />
 }
 
-function AgentTile({ participant }: { participant?: RemoteParticipant }) {
-  if (participant) return <AgentJoined participant={participant} />
+/** Split out: useIsSpeaking needs a participant that has actually joined. */
+function AgentSpeakingTile({ participant }: { participant: RemoteParticipant }) {
+  const speaking = useIsSpeaking(participant)
   return (
-    <Tile label="AI Interviewer">
-      <div className="flex h-full flex-col items-center justify-center gap-3 pb-7">
-        <AiOrb connecting size={104} />
-        <p className="text-[13px] text-slate-400">Joining your interview</p>
+    <Tile
+      label="AI Interviewer"
+      status={speaking ? 'Speaking' : 'Listening to you'}
+      active={speaking}
+    >
+      <div className="flex h-full items-center justify-center">
+        <AiOrb speaking={speaking} size={132} />
       </div>
     </Tile>
   )
@@ -130,10 +143,10 @@ function ControlButton({
       disabled={disabled}
       aria-label={label}
       title={label}
-      className={`flex h-11 w-11 cursor-pointer items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed ${
+      className={`flex h-11 w-11 cursor-pointer items-center justify-center rounded-[9px] border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed ${
         danger
-          ? 'bg-rose-600/90 text-white hover:bg-rose-500'
-          : 'bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-60 disabled:hover:bg-slate-800'
+          ? 'border-warn bg-warn text-white hover:opacity-90'
+          : 'border-line bg-panel text-ink-muted hover:bg-panel-alt disabled:opacity-50'
       }`}
     >
       {children}
@@ -151,24 +164,26 @@ function ConfirmEnd({
   ending: boolean
 }) {
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/92 p-6">
-      <div className="w-full max-w-sm rounded-lg border border-slate-800 bg-slate-900 p-6">
-        <h2 className="mb-1.5 text-base font-medium text-slate-100">End this interview?</h2>
-        <p className="mb-5 text-sm leading-relaxed text-slate-400">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-ink/40 p-6">
+      <div className="w-full max-w-sm rounded-[14px] border border-line bg-panel p-6 shadow-xl">
+        <h2 className="mb-1.5 font-display text-[1.05rem] font-semibold text-ink">
+          End this interview?
+        </h2>
+        <p className="mb-5 text-[0.86rem] leading-relaxed text-ink-muted">
           Your answers so far are submitted for review. You cannot rejoin afterwards.
         </p>
         <div className="flex gap-2">
           <button
             onClick={onCancel}
             disabled={ending}
-            className="h-10 flex-1 cursor-pointer rounded-md bg-slate-800 text-sm font-medium text-slate-100 transition-colors hover:bg-slate-700 disabled:opacity-50"
+            className="h-11 flex-1 cursor-pointer rounded-[9px] border border-line bg-panel text-[0.9rem] font-semibold text-ink transition-colors hover:bg-panel-alt disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
             disabled={ending}
-            className="inline-flex h-10 flex-1 cursor-pointer items-center justify-center gap-2 rounded-md bg-rose-600 text-sm font-medium text-white transition-colors hover:bg-rose-500 disabled:opacity-50"
+            className="inline-flex h-11 flex-1 cursor-pointer items-center justify-center gap-2 rounded-[9px] bg-warn text-[0.9rem] font-semibold text-white transition-colors hover:opacity-90 disabled:opacity-50"
           >
             {ending && <Loader2 size={14} className="animate-spin" aria-hidden />}
             End interview
@@ -285,7 +300,7 @@ function InterviewRoom({ token }: { token: string }) {
       : null
 
   return (
-    <div className="relative flex flex-1 select-none flex-col overflow-hidden bg-[radial-gradient(ellipse_90%_60%_at_50%_-10%,#312e81_0%,#0b1020_45%,#020617_100%)]">
+    <div className="relative flex flex-1 select-none flex-col overflow-hidden bg-page bg-app font-sans">
       {endedReason ? (
         <EndedNotice reason={endedReason} />
       ) : (
@@ -306,11 +321,11 @@ function InterviewRoom({ token }: { token: string }) {
       )}
 
       {connectionState === ConnectionState.Reconnecting && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/90">
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-panel/95">
           <div className="flex flex-col items-center gap-2">
-            <Loader2 size={20} className="animate-spin text-slate-400" aria-hidden />
-            <p className="text-sm text-slate-300">Reconnecting</p>
-            <p className="text-xs text-slate-500">Please keep this tab open</p>
+            <Loader2 size={20} className="animate-spin text-accent" aria-hidden />
+            <p className="text-[0.92rem] text-ink">Reconnecting</p>
+            <p className="text-[0.8rem] text-ink-muted">Please keep this tab open</p>
           </div>
         </div>
       )}
@@ -323,22 +338,24 @@ function InterviewRoom({ token }: { token: string }) {
         />
       )}
 
-      <div className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
-        <div className="flex w-full max-w-4xl items-center justify-between text-[12px] text-slate-400">
-          <span className="inline-flex items-center gap-2">
-            <span className="relative flex h-2 w-2" aria-hidden>
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-500 opacity-60" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500" />
-            </span>
-            Recording
+      {/* Status bar - recording state left, session state right (mockup step 7). */}
+      <div className="flex w-full flex-none items-center justify-between border-b border-line px-5 py-3 text-[0.72rem] text-ink-muted sm:px-8">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="relative flex h-[7px] w-[7px]" aria-hidden>
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warn opacity-60" />
+            <span className="relative inline-flex h-[7px] w-[7px] rounded-full bg-warn" />
           </span>
-          <span>Monitored session</span>
-        </div>
+          Recording
+        </span>
+        <span>Monitored session</span>
+      </div>
 
-        <div className="grid w-full max-w-4xl gap-4 sm:grid-cols-2">
+      {/* Interviewer and candidate side by side, equal weight. */}
+      <div className="flex flex-1 items-center justify-center p-5 sm:p-8">
+        <div className="flex w-full max-w-5xl flex-col items-stretch gap-4 sm:flex-row">
           <AgentTile participant={agent} />
 
-          <Tile label="You">
+          <Tile label="You" status={isMicrophoneEnabled ? undefined : 'Muted'}>
             {cameraTrackRef && isCameraEnabled ? (
               <VideoTrack
                 trackRef={cameraTrackRef}
@@ -346,47 +363,46 @@ function InterviewRoom({ token }: { token: string }) {
               />
             ) : (
               <div className="flex h-full items-center justify-center">
-                <VideoOff size={20} className="text-slate-600" aria-hidden />
+                <VideoOff size={22} className="text-ink-muted" aria-hidden />
               </div>
             )}
             {!isMicrophoneEnabled && (
-              <span className="absolute right-2 top-2 rounded bg-slate-950/80 p-1.5">
-                <MicOff size={13} className="text-slate-400" aria-hidden />
+              <span className="absolute right-2 top-2 rounded bg-ink/70 p-1.5">
+                <MicOff size={12} className="text-white" aria-hidden />
               </span>
             )}
           </Tile>
         </div>
+      </div>
 
-        <div className="flex items-center gap-2">
-          <ControlButton
-            onClick={() => void localParticipant?.setMicrophoneEnabled(!isMicrophoneEnabled)}
-            label={isMicrophoneEnabled ? 'Mute microphone' : 'Unmute microphone'}
-          >
-            {isMicrophoneEnabled ? <Mic size={17} /> : <MicOff size={17} />}
-          </ControlButton>
+      {/* Action bar, right-aligned as in the mockup. */}
+      <div className="flex w-full flex-none items-center justify-end gap-2 border-t border-line px-5 py-3 sm:px-8">
+        <ControlButton
+          onClick={() => void localParticipant?.setMicrophoneEnabled(!isMicrophoneEnabled)}
+          label={isMicrophoneEnabled ? 'Mute microphone' : 'Unmute microphone'}
+        >
+          {isMicrophoneEnabled ? <Mic size={17} /> : <MicOff size={17} />}
+        </ControlButton>
 
-          <ControlButton
-            onClick={() => {
-              if (!isCameraEnabled) void localParticipant?.setCameraEnabled(true)
-            }}
-            disabled={isCameraEnabled}
-            label={
-              isCameraEnabled
-                ? 'Your camera stays on for the whole interview'
-                : 'Turn camera back on'
-            }
-          >
-            {isCameraEnabled ? <Video size={17} /> : <VideoOff size={17} />}
-          </ControlButton>
+        <ControlButton
+          onClick={() => {
+            if (!isCameraEnabled) void localParticipant?.setCameraEnabled(true)
+          }}
+          disabled={isCameraEnabled}
+          label={
+            isCameraEnabled ? 'Your camera stays on for the whole interview' : 'Turn camera back on'
+          }
+        >
+          {isCameraEnabled ? <Video size={17} /> : <VideoOff size={17} />}
+        </ControlButton>
 
-          <button
-            onClick={() => setConfirmEnd(true)}
-            className="ml-2 inline-flex h-11 cursor-pointer items-center gap-2 rounded-full bg-rose-600/90 px-5 text-sm font-medium text-white transition-colors hover:bg-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-          >
-            <PhoneOff size={15} aria-hidden />
-            End interview
-          </button>
-        </div>
+        <button
+          onClick={() => setConfirmEnd(true)}
+          className="ml-1 inline-flex h-11 cursor-pointer items-center gap-2 rounded-[9px] bg-warn px-5 text-[0.9rem] font-semibold text-white transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn focus-visible:ring-offset-2"
+        >
+          <PhoneOff size={15} aria-hidden />
+          End interview
+        </button>
       </div>
     </div>
   )
@@ -465,17 +481,17 @@ export default function InterviewRoomPage() {
 
   if (rejoinNeeded && !credentials) {
     return (
-      <div className="flex flex-1 items-center justify-center p-6">
+      <div className="flex flex-1 items-center justify-center bg-page bg-app p-6">
         <div className="max-w-sm text-center">
-          <h2 className="mb-1.5 text-base font-medium text-slate-100">
+          <h2 className="mb-1.5 font-display text-[1.05rem] font-semibold text-ink">
             Interview already in progress
           </h2>
-          <p className="mb-6 text-sm leading-relaxed text-slate-400">
+          <p className="mb-6 text-[0.86rem] leading-relaxed text-ink-muted">
             This session was already started. Go back to run the checks again and rejoin.
           </p>
           <button
             onClick={() => navigate(`/interview/${token ?? ''}`)}
-            className="h-10 cursor-pointer rounded-md bg-indigo-600 px-5 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+            className="h-11 cursor-pointer rounded-[9px] bg-accent px-5 text-[0.9rem] font-semibold text-accent-ink transition-colors hover:bg-primary-700"
           >
             Rejoin interview
           </button>
@@ -486,10 +502,10 @@ export default function InterviewRoomPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <div className="flex flex-col items-center gap-2 text-slate-400">
+      <div className="flex flex-1 items-center justify-center bg-page">
+        <div className="flex flex-col items-center gap-2 text-ink-muted">
           <Loader2 size={20} className="animate-spin" aria-hidden />
-          <p className="text-sm">Connecting to your interview</p>
+          <p className="text-[0.9rem]">Connecting to your interview</p>
         </div>
       </div>
     )
@@ -497,16 +513,16 @@ export default function InterviewRoomPage() {
 
   if (error || !credentials) {
     return (
-      <div className="flex flex-1 items-center justify-center p-6">
+      <div className="flex flex-1 items-center justify-center bg-page bg-app p-6">
         <div className="max-w-sm text-center">
-          <AlertCircle className="mx-auto mb-4 h-6 w-6 text-rose-400" aria-hidden />
-          <h2 className="mb-1.5 text-base font-medium text-slate-100">Could not connect</h2>
-          <p className="mb-6 text-sm leading-relaxed text-slate-400">
+          <AlertCircle className="mx-auto mb-4 h-6 w-6 text-warn" aria-hidden />
+          <h2 className="mb-1.5 font-display text-[1.05rem] font-semibold text-ink">Could not connect</h2>
+          <p className="mb-6 text-[0.86rem] leading-relaxed text-ink-muted">
             {error ?? 'Unable to connect. Please try again.'}
           </p>
           <button
             onClick={() => navigate(`/interview/${token ?? ''}`)}
-            className="h-10 cursor-pointer rounded-md bg-slate-800 px-5 text-sm font-medium text-slate-100 transition-colors hover:bg-slate-700"
+            className="h-11 cursor-pointer rounded-[9px] border border-line bg-panel px-5 text-[0.9rem] font-semibold text-ink transition-colors hover:bg-panel-alt"
           >
             Go back
           </button>

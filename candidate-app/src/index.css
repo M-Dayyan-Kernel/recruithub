@@ -5,7 +5,7 @@
 @layer base {
   * {
     box-sizing: border-box;
-    border-color: theme('colors.slate.700');
+    border-color: theme('colors.line');
   }
 
   html {
@@ -14,9 +14,9 @@
   }
 
   body {
-    font-family: 'Inter', system-ui, sans-serif;
-    background-color: theme('colors.slate.950');
-    color: theme('colors.slate.100');
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    background-color: theme('colors.page');
+    color: theme('colors.ink.DEFAULT');
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 }

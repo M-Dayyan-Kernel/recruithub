@@ -18,8 +18,8 @@ const RECOVERY_ICONS: Partial<Record<SignalType, typeof AlertTriangle>> = {
 
 function Sheet({ children }: { children: React.ReactNode }) {
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/92 p-6">
-      <div className="w-full max-w-sm rounded-lg border border-slate-800 bg-slate-900 p-6">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-ink/40 p-6">
+      <div className="w-full max-w-sm rounded-[14px] border border-line bg-panel p-6 shadow-xl">
         {children}
       </div>
     </div>
@@ -47,25 +47,25 @@ export function RecoveryPrompts({
 
   return (
     <Sheet>
-      <Icon size={20} className="mb-4 text-slate-400" aria-hidden />
-      <h2 className="mb-1.5 text-base font-medium text-slate-100">{prompt.title}</h2>
-      <p className="mb-5 text-sm leading-relaxed text-slate-400">{prompt.message}</p>
+      <Icon size={20} className="mb-4 text-accent" aria-hidden />
+      <h2 className="mb-1.5 text-base font-medium text-ink">{prompt.title}</h2>
+      <p className="mb-5 text-sm leading-relaxed text-ink-muted">{prompt.message}</p>
 
       {action ? (
         <button
           onClick={action}
-          className="h-10 w-full cursor-pointer rounded-md bg-indigo-600 text-sm font-medium text-white transition-colors hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
+          className="h-11 w-full cursor-pointer rounded-[9px] bg-accent text-[0.9rem] font-semibold text-accent-ink transition-colors hover:bg-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
         >
           {prompt.action}
         </button>
       ) : (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-ink-muted">
           This clears on its own once the device reconnects.
         </p>
       )}
 
       {prompts.length > 1 && (
-        <p className="mt-4 border-t border-slate-800 pt-3 text-xs text-slate-500">
+        <p className="mt-4 border-t border-line pt-3 text-xs text-ink-muted">
           {prompts.length - 1} other issue{prompts.length > 2 ? 's' : ''} still needs attention.
         </p>
       )}
@@ -85,8 +85,8 @@ export function WarningNotice({
   return (
     <Sheet>
       <AlertTriangle size={20} className="mb-4 text-amber-400" aria-hidden />
-      <h2 className="mb-1.5 text-base font-medium text-slate-100">Warning</h2>
-      <p className="mb-2 text-sm leading-relaxed text-slate-300">{message}</p>
+      <h2 className="mb-1.5 text-base font-medium text-ink">Warning</h2>
+      <p className="mb-2 text-sm leading-relaxed text-ink">{message}</p>
       <p className="mb-5 text-sm leading-relaxed text-amber-300/90">
         {remaining > 0
           ? `You have ${remaining} warning left. Leaving the interview screen again will end your interview.`
@@ -94,7 +94,7 @@ export function WarningNotice({
       </p>
       <button
         onClick={onDismiss}
-        className="h-10 w-full cursor-pointer rounded-md bg-slate-800 text-sm font-medium text-slate-100 transition-colors hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
+        className="h-11 w-full cursor-pointer rounded-[9px] border border-line bg-panel text-[0.9rem] font-semibold text-ink transition-colors hover:bg-panel-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
       >
         Continue interview
       </button>
@@ -104,11 +104,11 @@ export function WarningNotice({
 
 export function EndedNotice({ reason }: { reason: string }) {
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950 p-6">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-panel p-6">
       <div className="max-w-sm text-center">
-        <h2 className="mb-2 text-lg font-medium text-slate-100">Interview ended</h2>
-        <p className="mb-6 text-sm leading-relaxed text-slate-400">{reason}</p>
-        <p className="inline-flex items-center gap-2 text-xs text-slate-500">
+        <h2 className="mb-2 text-lg font-medium text-ink">Interview ended</h2>
+        <p className="mb-6 text-sm leading-relaxed text-ink-muted">{reason}</p>
+        <p className="inline-flex items-center gap-2 text-xs text-ink-muted">
           <Loader2 size={13} className="animate-spin" aria-hidden />
           Saving your session
         </p>

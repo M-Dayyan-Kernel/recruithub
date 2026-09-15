@@ -28,15 +28,22 @@ export type ProctorState =
   | 'SESSION_COMPLETION'
   | 'INCOMPLETE'
 
-/** Ordered pre-flight sequence (§8). PROCTORING_ACTIVE is gated on all of it. */
+/**
+ * Ordered pre-flight sequence (§8). PROCTORING_ACTIVE is gated on all of it.
+ *
+ * SYSTEM_CHECK and BASELINE_FACE_CAPTURE are deliberately not in this build:
+ * the approved candidate screens drop both, so neither is presented and
+ * neither gates the session. The states and their preconditions are kept in
+ * the type so stored sessions from an earlier build still parse, and so
+ * restoring either gate is a one-line change here plus in
+ * MANDATORY_PRECONDITIONS.
+ */
 export const PREFLIGHT_SEQUENCE: ProctorState[] = [
   'CONSENT_PENDING',
-  'SYSTEM_CHECK',
   'PERMISSION_ACQUISITION',
   'SCREEN_SHARE_VALIDATION',
-  'ENVIRONMENT_PREPARATION',
   'FULLSCREEN_VALIDATION',
-  'BASELINE_FACE_CAPTURE',
+  'ENVIRONMENT_PREPARATION',
 ]
 
 // ---------------------------------------------------------------------------
@@ -55,17 +62,22 @@ export type PreconditionType =
   | 'fullscreen'
   | 'baseline'
 
-/** Location is optional by deployment; everything else gates the session (§8.1). */
+/**
+ * The gates that must all pass before PROCTORING_ACTIVE (§8.1).
+ *
+ * 'permission_location' is optional by deployment. 'system_check' and
+ * 'baseline' are absent because those screens are not part of this flow - were
+ * they left here, canEnterActive() could never return true and no candidate
+ * would ever reach the room.
+ */
 export const MANDATORY_PRECONDITIONS: PreconditionType[] = [
   'consent',
-  'system_check',
   'permission_camera',
   'permission_microphone',
   'permission_screen',
   'screen_share',
-  'environment',
   'fullscreen',
-  'baseline',
+  'environment',
 ]
 
 export type PreconditionStatus = 'pending' | 'passed' | 'failed'

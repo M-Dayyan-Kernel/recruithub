@@ -1,5 +1,5 @@
 import { Loader2, Users } from 'lucide-react'
-import { PrimaryButton, StatusCard } from '@/components/GradientShell'
+import { PrimaryButton, StatusScreen } from '@/components/Shell'
 
 interface InterviewBusyScreenProps {
   retryAfterMinutes: number
@@ -13,7 +13,7 @@ export default function InterviewBusyScreen({
   retrying = false,
 }: InterviewBusyScreenProps) {
   return (
-    <StatusCard
+    <StatusScreen
       icon={<Users size={22} />}
       tone="brand"
       title="All interviewers are busy"
