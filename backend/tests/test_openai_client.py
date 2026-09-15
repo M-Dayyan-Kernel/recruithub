@@ -134,6 +134,29 @@ class OpenAIClientTests(unittest.TestCase):
                 api_key="sk-test",
             )
 
+    def test_errors_include_api_key_suffix(self) -> None:
+        class FakeCompletions:
+            def create(self, **kwargs):
+                raise RuntimeError("boom")
+
+        class FakeClient:
+            def __init__(self, api_key: str, timeout: float):
+                self.chat = type("C", (), {"completions": FakeCompletions()})()
+
+        client = OpenAIClient(timeout_seconds=30.0)
+        with mock.patch("app.clients.openai_client.OpenAI", FakeClient):
+            with self.assertRaises(RuntimeError) as ctx:
+                client.chat_completion_json_sync(
+                    "jd_parse",
+                    [{"role": "user", "content": "hi"}],
+                    api_key="sk-proj-abcdefghij1234",
+                )
+
+        message = str(ctx.exception)
+        self.assertIn("openai_api_key_suffix=...1234", message)
+        self.assertIn("workload=jd_parse", message)
+        self.assertNotIn("sk-proj-abcdefghij1234", message)
+
 
 if __name__ == "__main__":
     unittest.main()

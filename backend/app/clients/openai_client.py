@@ -22,6 +22,30 @@ MODEL_WORKLOADS = frozenset({
     "interview_assessment",
 })
 
+_API_KEY_SUFFIX_LEN = 4
+
+
+def _api_key_suffix(api_key: str) -> str:
+    """Return last few characters of the key for error diagnostics (never the full key)."""
+    key = (api_key or "").strip()
+    if not key:
+        return "(empty)"
+    if len(key) <= _API_KEY_SUFFIX_LEN:
+        return key
+    return key[-_API_KEY_SUFFIX_LEN:]
+
+
+def _annotate_exception(exc: BaseException, *, api_key: str, workload: str) -> None:
+    """Append masked key suffix to the exception message in-place (keeps exception type)."""
+    suffix = _api_key_suffix(api_key)
+    annotation = f" (openai_api_key_suffix=...{suffix}, workload={workload})"
+    if exc.args and isinstance(exc.args[0], str):
+        if annotation in exc.args[0]:
+            return
+        exc.args = (exc.args[0] + annotation, *exc.args[1:])
+    else:
+        exc.args = (f"{type(exc).__name__}{annotation}",)
+
 
 class OpenAIClient:
     """Configured OpenAI SDK wrapper for JSON chat completions."""
@@ -61,14 +85,18 @@ class OpenAIClient:
     ) -> str:
         """Run an async chat completion and return the message content string."""
         model_cfg = self._model_config(workload)
-        client = AsyncOpenAI(api_key=api_key, timeout=self._resolve_timeout())
-        response = await client.chat.completions.create(
-            **self._completion_kwargs(model_cfg, messages)
-        )
-        content = response.choices[0].message.content
-        if content is None:
-            raise ValueError(f"OpenAI returned empty content for workload={workload}")
-        return content
+        try:
+            client = AsyncOpenAI(api_key=api_key, timeout=self._resolve_timeout())
+            response = await client.chat.completions.create(
+                **self._completion_kwargs(model_cfg, messages)
+            )
+            content = response.choices[0].message.content
+            if content is None:
+                raise ValueError(f"OpenAI returned empty content for workload={workload}")
+            return content
+        except Exception as exc:
+            _annotate_exception(exc, api_key=api_key, workload=workload)
+            raise
 
     def chat_completion_json_sync(
         self,
@@ -79,11 +107,15 @@ class OpenAIClient:
     ) -> str:
         """Run a sync chat completion and return the message content string."""
         model_cfg = self._model_config(workload)
-        client = OpenAI(api_key=api_key, timeout=self._resolve_timeout())
-        response = client.chat.completions.create(
-            **self._completion_kwargs(model_cfg, messages)
-        )
-        content = response.choices[0].message.content
-        if content is None:
-            raise ValueError(f"OpenAI returned empty content for workload={workload}")
-        return content
+        try:
+            client = OpenAI(api_key=api_key, timeout=self._resolve_timeout())
+            response = client.chat.completions.create(
+                **self._completion_kwargs(model_cfg, messages)
+            )
+            content = response.choices[0].message.content
+            if content is None:
+                raise ValueError(f"OpenAI returned empty content for workload={workload}")
+            return content
+        except Exception as exc:
+            _annotate_exception(exc, api_key=api_key, workload=workload)
+            raise
