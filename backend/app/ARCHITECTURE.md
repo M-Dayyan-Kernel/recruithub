@@ -915,7 +915,6 @@ This is the largest route module and orchestrates most interview lifecycle opera
 
 - LiveKit webhook has no signature validation.
 - The start endpoint commits `in_progress` before room creation. A LiveKit failure leaves an in-progress session with no room; subsequent calls may not cleanly retry.
-- HR force-complete inserts a realistic stub transcript if no meaningful transcript exists, creating potentially misleading evidence.
 - Candidate link token is the only authorization on public interview endpoints.
 - Large module should be split into HR command, candidate session, report, pipeline, and webhook routers.
 
@@ -1473,7 +1472,6 @@ All protected endpoints require `Authorization: Bearer <JWT>`. Standard FastAPI 
 | POST | `/api/candidates/{id}/interview/queue` | Admin/HR | Path | 200 | Queue timestamp |
 | POST | `/api/candidates/{id}/interview/schedule` | Admin/HR | Schedule | 201 | Session/email |
 | POST | `/api/candidates/{id}/interview/send` | Admin/HR | Path | 201 | Session/email |
-| POST | `/api/candidates/{id}/interview/mark-complete` | Admin/HR | Path | 202 | Stub/report task |
 | POST | `/api/candidates/{id}/interview/reschedule` | Admin/HR | Optional schedule | 201 | Replace/email |
 | PATCH | `/api/candidates/{id}/interview/decision` | Admin/HR | Approved/rejected | 200 | Finalist state |
 | POST | `/api/candidates/{id}/interview/retry-assessment` | Admin/HR | Path | 202 | Report task |
@@ -1695,7 +1693,6 @@ This section consolidates findings from full reverse-engineering of startup/core
 7. **Scheduled interviews can start immediately.** `scheduled_interview_at` is stored/emailed but `/start` never enforces it (`interview_schedule_service.py`, `interviews.py`).
 8. **Phone geography enforcement is broken for non-India regions.** When `enforce_geography=True` and allowed regions do not contain `IN`, validation falls into a permissive branch that accepts arbitrary numbers (`phone_validation.py`).
 9. **Concurrent Vapi refresh shares one AsyncSession.** List-screening refresh uses `asyncio.gather` over finalizers on the same SQLAlchemy session (`screening_tasks.py`).
-10. **HR force-complete fabricates a production transcript.** `_STUB_INTERVIEW_TRANSCRIPT` is inserted whenever a meaningful transcript is missing, then assessed as if the candidate said it (`interviews.py`).
 
 ## Critical/high security
 
@@ -1791,10 +1788,9 @@ This section consolidates findings from full reverse-engineering of startup/core
 2. Add webhook signature verification for Vapi and LiveKit.
 3. Replace global error body with stable error ID and server-side logging.
 4. Add HTML sanitizer/escaping for templates and substitutions.
-5. Remove or gate the HR force-complete stub transcript outside explicit test mode.
-6. Fix phone geography enforcement for non-India region lists.
-7. Add uniqueness/check constraints and handle `IntegrityError`.
-8. Add rate limiting on auth, invite, public interview, and webhook routes.
+5. Fix phone geography enforcement for non-India region lists.
+6. Add uniqueness/check constraints and handle `IntegrityError`.
+7. Add rate limiting on auth, invite, public interview, and webhook routes.
 
 ## Phase 2: Reliability
 

@@ -284,21 +284,6 @@ function CandidateInterviewCard({
     },
   })
 
-  const markCompleteMutation = useMutation<InterviewSession, Error>({
-    mutationFn: () =>
-      api.post(
-        `/api/candidates/${candidateId}/interview/mark-complete`,
-      ) as Promise<InterviewSession>,
-    onSuccess: (data) => {
-      setLocalSession(data)
-      invalidatePipeline()
-      toast.success(`${candidateName} moved to Completed`)
-    },
-    onError: (err: Error) => {
-      toast.error(err.message || 'Failed to mark interview complete')
-    },
-  })
-
   const resendEmailMutation = useMutation<InterviewSession, Error>({
     mutationFn: () =>
       api.post(
@@ -319,11 +304,6 @@ function CandidateInterviewCard({
 
   const showEmailWarning =
     session?.status === 'pending' && !session.email_sent_at && interviewStatus !== 'not_sent'
-
-  const canMarkComplete =
-    !hasReport &&
-    Boolean(session) &&
-    (session?.status === 'pending' || session?.status === 'in_progress')
 
   const statusHint =
     interviewStatus === 'not_sent'
@@ -403,22 +383,6 @@ function CandidateInterviewCard({
             <FileText size={13} />
             View Report
           </Link>
-        )}
-
-        {canMarkComplete && (
-          <button
-            type="button"
-            onClick={() => markCompleteMutation.mutate()}
-            disabled={markCompleteMutation.isPending}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {markCompleteMutation.isPending ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <CheckCircle2 size={13} />
-            )}
-            Mark as completed
-          </button>
         )}
 
         {canResendEmail && (

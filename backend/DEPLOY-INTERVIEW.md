@@ -55,10 +55,6 @@ On `room_finished`, only `in_progress` sessions are completed. No stub transcrip
 
 `/start` creates the LiveKit room **before** committing durable `in_progress` + room metadata. If room/token creation fails, the session stays **`pending`** and the candidate can retry (**502**).
 
-## Force-complete / transcripts
-
-HR `mark-complete` seeds the FastAPI stub transcript **only** when mock LiveKit is enabled. In production, empty/thin transcripts go to assessment as soft **`needs_review`**.
-
 ## Assessment failures
 
 `generate_interview_report`:

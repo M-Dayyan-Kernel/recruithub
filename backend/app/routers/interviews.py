@@ -94,20 +94,6 @@ async def start_interview(
     return await service.start(token)
 
 
-@router.post(
-    "/candidates/{candidate_id}/interview/mark-complete",
-    response_model=InterviewSessionResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[_hr_auth],
-)
-async def mark_interview_complete(
-    candidate_id: uuid.UUID,
-    actor: RequireAdminOrHr,
-    service: InterviewHrService = Depends(get_interview_hr_service),
-):
-    return await service.mark_complete(actor, candidate_id)
-
-
 @router.post("/interview/{token}/complete", status_code=status.HTTP_202_ACCEPTED)
 async def complete_interview(
     token: str,
