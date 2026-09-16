@@ -354,3 +354,87 @@ async def _async_generate_report(task_self, interview_session_id: str) -> None:
             report.final_recommendation,
         )
 
+
+# ---------------------------------------------------------------------------
+# Video proctoring (external analyze API)
+# ---------------------------------------------------------------------------
+
+VIDEO_PROCTORING_POLL_INTERVAL_SEC = int(config.VIDEO_PROCTORING_POLL_INTERVAL_SEC)
+VIDEO_PROCTORING_MAX_POLLS = int(config.VIDEO_PROCTORING_MAX_POLLS)
+
+
+def enqueue_video_proctoring(interview_session_id: str) -> None:
+    """Enqueue analyze job when recording is ready. No-op if URL unset."""
+    from app.services.video_proctoring_service import video_proctoring_configured
+
+    if not video_proctoring_configured():
+        logger.info(
+            "enqueue_video_proctoring: VIDEO_PROCTORING_URL unset — skip session=%s",
+            interview_session_id,
+        )
+        return
+    run_video_proctoring.delay(str(interview_session_id), 0)
+
+
+@celery_app.task(name="tasks.run_video_proctoring", bind=True, max_retries=0)
+def run_video_proctoring(self, interview_session_id: str, poll_attempt: int = 0):
+    """
+    Submit video analyze (or poll existing job) and persist result on InterviewSession.
+
+    Re-schedules with countdown while status is queued/started.
+    """
+    try:
+        action = asyncio.run(_async_run_video_proctoring(interview_session_id, poll_attempt))
+    except Exception as exc:
+        logger.error(
+            "run_video_proctoring failed for session %s (attempt %s): %s",
+            interview_session_id,
+            poll_attempt,
+            exc,
+        )
+        if poll_attempt < VIDEO_PROCTORING_MAX_POLLS:
+            run_video_proctoring.apply_async(
+                args=[interview_session_id, poll_attempt + 1],
+                countdown=VIDEO_PROCTORING_POLL_INTERVAL_SEC,
+            )
+        else:
+            asyncio.run(
+                _mark_video_proctoring_failed(
+                    interview_session_id, f"Proctoring worker error: {exc}"[:500]
+                )
+            )
+        return
+
+    if action == "retry":
+        run_video_proctoring.apply_async(
+            args=[interview_session_id, poll_attempt + 1],
+            countdown=VIDEO_PROCTORING_POLL_INTERVAL_SEC,
+        )
+
+
+async def _mark_video_proctoring_failed(interview_session_id: str, error: str) -> None:
+    from app.models.models import InterviewSession
+
+    session_uuid = uuid.UUID(interview_session_id)
+    async with get_celery_db() as db:
+        result = await db.execute(
+            select(InterviewSession).where(InterviewSession.id == session_uuid)
+        )
+        session = result.scalars().first()
+        if not session or session.video_proctoring_status == "succeeded":
+            return
+        session.video_proctoring_status = "failed"
+        session.video_proctoring_error = error
+        session.video_proctoring_result = None
+        await db.commit()
+
+
+async def _async_run_video_proctoring(
+    interview_session_id: str, poll_attempt: int
+) -> str:
+    from app.services.video_proctoring_service import VideoProctoringService
+
+    async with get_celery_db() as db:
+        service = VideoProctoringService(db)
+        return await service.process_tick(interview_session_id, poll_attempt)
+

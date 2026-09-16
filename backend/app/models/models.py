@@ -255,6 +255,10 @@ class InterviewSession(Base):
     egress_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # LiveKit egress recording ID
     recording_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)  # S3 object key for egress recording
     recording_ready: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)  # True after egress_ended webhook
+    video_proctoring_job_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    video_proctoring_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    video_proctoring_result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    video_proctoring_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)  # Link expiry (7 days from send)
     scheduled_interview_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     rescheduled_from_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(

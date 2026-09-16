@@ -118,6 +118,11 @@ class InterviewWebhookService:
                         session.id,
                         egress_id,
                     )
+                    from app.services.interview_public_service import (
+                        _enqueue_video_proctoring_safe,
+                    )
+
+                    _enqueue_video_proctoring_safe(session.id)
                 elif session:
                     logger.info(
                         "livekit_webhook: egress_ended — already ready session=%s",

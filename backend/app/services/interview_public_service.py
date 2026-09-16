@@ -48,7 +48,22 @@ async def _ensure_recording_ready(session: InterviewSession, db: AsyncSession) -
     session.recording_ready = True
     await db.commit()
     logger.info("Recording ready via S3 check: session=%s key=%s", session.id, key)
+    _enqueue_video_proctoring_safe(session.id)
     return True
+
+
+def _enqueue_video_proctoring_safe(session_id: uuid.UUID) -> None:
+    """Best-effort enqueue of video analyze; never raise into callers."""
+    try:
+        from app.tasks.interview_tasks import enqueue_video_proctoring
+
+        enqueue_video_proctoring(str(session_id))
+    except Exception as exc:
+        logger.error(
+            "Failed to enqueue video proctoring for session %s: %s",
+            session_id,
+            exc,
+        )
 
 
 async def _apply_interview_capacity_fields(

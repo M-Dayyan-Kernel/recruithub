@@ -88,6 +88,12 @@ class InterviewReportService:
 
             report_dict["recording_url"] = await generate_presigned_get_url_async(recording_key)
 
+        from app.services.video_proctoring_service import session_video_proctoring_payload
+
+        if session:
+            await self._session.refresh(session)
+        report_dict["video_proctoring"] = session_video_proctoring_payload(session)
+
         return InterviewReportResponse.model_validate(report_dict)
 
     async def refresh_report(
