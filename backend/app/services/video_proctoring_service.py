@@ -81,6 +81,17 @@ class VideoProctoringService:
                 return await self._submit(session, video_key, interview_session_id)
             return await self._poll(session, poll_attempt)
         except VideoProctoringError as exc:
+            if exc.operation == "submit":
+                session.video_proctoring_status = "failed"
+                session.video_proctoring_error = str(exc)[:500]
+                session.video_proctoring_result = None
+                await self._db.commit()
+                logger.error(
+                    "video_proctoring: submit failed session=%s: %s",
+                    interview_session_id,
+                    exc,
+                )
+                return "done"
             if exc.status_code == 400:
                 session.video_proctoring_status = "failed"
                 session.video_proctoring_error = str(exc)[:500]

@@ -16,9 +16,16 @@ logger = logging.getLogger(__name__)
 class VideoProctoringError(Exception):
     """Non-retryable or transport failure talking to the proctoring API."""
 
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        operation: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.operation = operation
 
 
 class VideoProctoringClient:
@@ -45,24 +52,37 @@ class VideoProctoringClient:
             "Content-Type": "application/json",
             "Idempotency-Key": idempotency_key,
         }
-        with httpx.Client(timeout=self._timeout) as client:
-            response = client.post(
-                self._analyze_url(),
-                json={"video_key": video_key},
-                headers=headers,
-            )
+        try:
+            with httpx.Client(timeout=self._timeout) as client:
+                response = client.post(
+                    self._analyze_url(),
+                    json={"video_key": video_key},
+                    headers=headers,
+                )
+        except httpx.TimeoutException as exc:
+            raise VideoProctoringError(
+                "Analyze request timed out before job_id was recorded.",
+                operation="submit",
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise VideoProctoringError(
+                f"Analyze transport error: {exc}",
+                operation="submit",
+            ) from exc
         if response.status_code == 202:
             data = response.json()
             if not data.get("job_id"):
                 raise VideoProctoringError(
                     f"Analyze response missing job_id: {data!r}",
                     status_code=response.status_code,
+                    operation="submit",
                 )
             return data
         detail = _response_detail(response)
         raise VideoProctoringError(
             f"Analyze failed ({response.status_code}): {detail}",
             status_code=response.status_code,
+            operation="submit",
         )
 
     async def submit_analyze(self, video_key: str, idempotency_key: str) -> dict[str, Any]:
@@ -71,14 +91,26 @@ class VideoProctoringClient:
         )
 
     def get_job_sync(self, job_id: str) -> dict[str, Any]:
-        with httpx.Client(timeout=self._timeout) as client:
-            response = client.get(self._job_url(job_id))
+        try:
+            with httpx.Client(timeout=self._timeout) as client:
+                response = client.get(self._job_url(job_id))
+        except httpx.TimeoutException as exc:
+            raise VideoProctoringError(
+                "Get job request timed out.",
+                operation="poll",
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise VideoProctoringError(
+                f"Get job transport error: {exc}",
+                operation="poll",
+            ) from exc
         if response.status_code == 200:
             return response.json()
         detail = _response_detail(response)
         raise VideoProctoringError(
             f"Get job failed ({response.status_code}): {detail}",
             status_code=response.status_code,
+            operation="poll",
         )
 
     async def get_job(self, job_id: str) -> dict[str, Any]:
