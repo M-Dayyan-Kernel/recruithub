@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { CheckCircle2, ShieldAlert } from 'lucide-react'
 import { api } from '@/lib/api'
 import { getProctorSession } from '@/proctoring/session'
-import { StatusCard } from '@/components/GradientShell'
+import { StatusScreen } from '@/components/Shell'
 
 interface InterviewInfo {
   id: string
@@ -41,22 +41,22 @@ export default function InterviewCompletePage() {
   const name = info?.candidate_name ? `${info.candidate_name}, ` : ''
 
   return (
-    <StatusCard
+    <StatusScreen
       icon={endedReason ? <ShieldAlert size={22} /> : <CheckCircle2 size={22} />}
       tone={endedReason ? 'danger' : 'success'}
       title={endedReason ? 'Interview ended early' : 'Interview complete'}
       footer={
         <>
-          <p className="text-[13px] text-slate-400">
+          <p className="text-[0.8rem] text-ink-muted">
             Questions? Reach out to{' '}
             <a
               href="mailto:careers@webknot.in"
-              className="font-medium text-indigo-600 hover:text-indigo-700"
+              className="font-medium text-accent underline underline-offset-[3px]"
             >
               careers@webknot.in
             </a>
           </p>
-          <p className="mt-1 text-[12px] text-slate-400">
+          <p className="mt-1.5 text-[0.75rem] text-ink-muted">
             You can close this tab, your responses are saved.
           </p>
         </>
@@ -68,9 +68,9 @@ export default function InterviewCompletePage() {
       }
     >
       {endedReason && (
-        <div className="mt-5 w-full rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3.5 text-left">
-          <p className="text-[14px] font-medium text-rose-900">{endedReason}</p>
-          <p className="mt-1 text-[13px] leading-relaxed text-rose-700/80">
+        <div className="mt-6 w-full rounded-[10px] border border-warn/25 bg-warn-soft px-4 py-3.5 text-left">
+          <p className="text-[0.86rem] font-semibold text-warn">{endedReason}</p>
+          <p className="mt-1 text-[0.8rem] leading-relaxed text-warn/80">
             You were warned once before this happened. Everything recorded up to that point has
             been submitted.
           </p>
@@ -78,12 +78,12 @@ export default function InterviewCompletePage() {
       )}
 
       {info?.job_title && (
-        <div className="mt-5 w-full rounded-2xl bg-slate-50 px-4 py-3">
-          <p className="text-[12px] uppercase tracking-wide text-slate-400">Interview for</p>
-          <p className="mt-0.5 text-[14px] font-medium text-slate-700">{info.job_title}</p>
+        <div className="mt-6 w-full rounded-[10px] border border-line bg-panel-alt px-4 py-3 text-left">
+          <p className="text-[0.68rem] uppercase tracking-wide text-ink-muted">Interview for</p>
+          <p className="mt-0.5 text-[0.86rem] font-semibold text-ink">{info.job_title}</p>
         </div>
       )}
 
-    </StatusCard>
+    </StatusScreen>
   )
 }

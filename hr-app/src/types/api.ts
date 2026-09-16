@@ -339,6 +339,35 @@ export interface TranscriptSegment {
   end_sec: number
 }
 
+export interface VideoProctoringFlag {
+  timestamp: string
+  event: string
+  severity: string
+  confidence: number
+}
+
+export interface VideoProctoringBreakdown {
+  face: number
+  gaze: number
+  objects: number
+}
+
+export interface VideoProctoringResult {
+  duration?: string | null
+  frame_count?: number | null
+  flags?: VideoProctoringFlag[]
+  verdict?: string | null
+  score?: number | null
+  flag_count?: number | null
+  breakdown?: VideoProctoringBreakdown | null
+}
+
+export interface VideoProctoringSummary {
+  status: string
+  error?: string | null
+  result?: VideoProctoringResult | null
+}
+
 export interface InterviewReport {
   id: string
   candidate_id: string
@@ -361,6 +390,7 @@ export interface InterviewReport {
   transcript_segments?: TranscriptSegment[] | null
   recording_url?: string | null
   recording_key?: string | null
+  video_proctoring?: VideoProctoringSummary | null
   candidate_name?: string | null
   job_title?: string | null
   created_at: string

@@ -116,6 +116,11 @@ class Settings(BaseSettings):
     TALENTOS_BE_URL: str = ""
     TALENTOS_BE_API_KEY: str = ""
 
+    # External video proctoring (service base URL, e.g. http://172.232.97.59:8000)
+    VIDEO_PROCTORING_URL: str = ""
+    VIDEO_PROCTORING_POLL_INTERVAL_SEC: int = 10
+    VIDEO_PROCTORING_MAX_POLLS: int = 60
+
     # Auth rate limits (per IP per window)
     AUTH_RATE_LIMIT_PER_MINUTE: int = 20
     AUTH_LOCKOUT_MAX_FAILURES: int = 10

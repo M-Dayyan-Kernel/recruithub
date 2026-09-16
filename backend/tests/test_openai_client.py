@@ -122,6 +122,11 @@ class OpenAIClientTests(unittest.TestCase):
             captured["model"],
             config_loader.config.model_name("interview_assessment"),
         )
+        self.assertEqual(
+            captured["max_completion_tokens"],
+            config_loader.config.models.interview_assessment.max_tokens,
+        )
+        self.assertNotIn("max_tokens", captured)
 
     def test_unknown_workload_raises(self) -> None:
         client = OpenAIClient()
@@ -210,6 +215,29 @@ class OpenAIClientTests(unittest.TestCase):
         self.assertEqual(captured["client_api_key"], "sk-tenant-openai")
         self.assertEqual(captured["model"], cfg.model_name("combined_shortlist"))
         self.assertEqual(captured["model"], "gpt-5.4-mini")
+
+    def test_errors_include_api_key_suffix(self) -> None:
+        class FakeCompletions:
+            def create(self, **kwargs):
+                raise RuntimeError("boom")
+
+        class FakeClient:
+            def __init__(self, api_key: str, timeout: float):
+                self.chat = type("C", (), {"completions": FakeCompletions()})()
+
+        client = OpenAIClient(timeout_seconds=30.0)
+        with mock.patch("app.clients.openai_client.OpenAI", FakeClient):
+            with self.assertRaises(RuntimeError) as ctx:
+                client.chat_completion_json_sync(
+                    "jd_parse",
+                    [{"role": "user", "content": "hi"}],
+                    api_key="sk-proj-abcdefghij1234",
+                )
+
+        message = str(ctx.exception)
+        self.assertIn("openai_api_key_suffix=...1234", message)
+        self.assertIn("workload=jd_parse", message)
+        self.assertNotIn("sk-proj-abcdefghij1234", message)
 
 
 if __name__ == "__main__":

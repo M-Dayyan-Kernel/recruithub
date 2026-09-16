@@ -2,9 +2,9 @@ import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { ArrowLeft, AlertCircle, Check, Download, Loader2, MessageSquareText, Video, X } from 'lucide-react'
+import { ArrowLeft, AlertCircle, Check, Download, Loader2, MessageSquareText, ShieldAlert, Video, X } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { InterviewReport, InterviewQuestionScore } from '@/types/api'
+import type { InterviewReport, InterviewQuestionScore, VideoProctoringSummary } from '@/types/api'
 import { downloadInterviewReportPdf } from '@/lib/interviewReportPdf'
 import TranscriptChat from '@/components/TranscriptChat'
 import { parseTranscript } from '@/lib/transcript'
@@ -16,6 +16,119 @@ import { parseTranscript } from '@/lib/transcript'
 function coveredCount(qs: InterviewQuestionScore): number | null {
   if (!qs.point_coverage?.length) return null
   return qs.point_coverage.filter((p) => p.covered).length
+}
+
+function VerdictBadge({ verdict }: { verdict?: string | null }) {
+  const v = (verdict || '').toLowerCase()
+  let classes = 'bg-slate-100 text-slate-700 border-slate-200'
+  if (v === 'clear') classes = 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  else if (v === 'suspicious') classes = 'bg-amber-50 text-amber-800 border-amber-200'
+  else if (v.includes('malpractice')) classes = 'bg-rose-50 text-rose-700 border-rose-200'
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${classes}`}>
+      {verdict || '—'}
+    </span>
+  )
+}
+
+function VideoProctoringSection({ proctoring }: { proctoring: VideoProctoringSummary }) {
+  const pending = proctoring.status === 'queued' || proctoring.status === 'started'
+  const failed = proctoring.status === 'failed'
+  const result = proctoring.result
+  const flags = result?.flags ?? []
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+      <h2 className="mb-4 inline-flex items-center gap-2 text-base font-semibold text-slate-800">
+        <ShieldAlert size={18} className="text-indigo-500" />
+        Video Proctoring
+      </h2>
+
+      {pending && (
+        <div className="flex items-center gap-2 text-sm text-slate-600">
+          <Loader2 size={16} className="animate-spin text-indigo-500" />
+          Analysis in progress ({proctoring.status})…
+        </div>
+      )}
+
+      {failed && (
+        <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+          <span>{proctoring.error || 'Proctoring analysis failed.'}</span>
+        </div>
+      )}
+
+      {proctoring.status === 'succeeded' && result && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Verdict</p>
+              <div className="mt-1">
+                <VerdictBadge verdict={result.verdict} />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Score</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{result.score ?? 0}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Flags</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">
+                {result.flag_count ?? flags.length}
+              </p>
+            </div>
+            {result.duration && (
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Duration</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800">{result.duration}</p>
+              </div>
+            )}
+          </div>
+
+          {flags.length > 0 ? (
+            <div className="overflow-hidden rounded-lg border border-slate-100">
+              <table className="min-w-full divide-y divide-slate-100 text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium text-slate-500">Time</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-500">Event</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-500">Severity</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-500">Confidence</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {flags.map((flag, idx) => (
+                    <tr key={`${flag.timestamp}-${flag.event}-${idx}`}>
+                      <td className="whitespace-nowrap px-3 py-2 text-slate-600">{flag.timestamp}</td>
+                      <td className="px-3 py-2 text-slate-800">{flag.event}</td>
+                      <td className="px-3 py-2">
+                        <span
+                          className={
+                            flag.severity === 'HARD'
+                              ? 'font-medium text-rose-700'
+                              : 'font-medium text-amber-700'
+                          }
+                        >
+                          {flag.severity}
+                        </span>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right text-slate-600">
+                        {typeof flag.confidence === 'number'
+                          ? `${Math.round(flag.confidence * 100)}%`
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">No proctoring flags detected.</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function QuestionScoreCard({ qs, index }: { qs: InterviewQuestionScore; index: number }) {
@@ -217,7 +330,13 @@ export default function ReportPage() {
       api.get(`/api/candidates/${candidateId}/report`) as unknown as Promise<InterviewReport>,
     enabled: !!candidateId,
     retry: false,
-    refetchInterval: (query) => (query.state.data ? false : 10_000),
+    refetchInterval: (query) => {
+      const data = query.state.data
+      if (!data) return 10_000
+      const status = data.video_proctoring?.status
+      if (status === 'queued' || status === 'started') return 10_000
+      return false
+    },
   })
 
   // ── 404 / not-ready detection ─────────────────────────────────────────────
@@ -381,6 +500,11 @@ export default function ReportPage() {
                 </video>
               )}
             </div>
+          )}
+
+          {/* Video proctoring (external analyze) */}
+          {report.video_proctoring && (
+            <VideoProctoringSection proctoring={report.video_proctoring} />
           )}
 
           {/* Header card — candidate name + job title + recommendation */}

@@ -23,7 +23,6 @@ from app.schemas.schemas import (
     InterviewSessionResponse,
 )
 from app.services.audit_service import AuditService
-from app.services.interview_public_service import _STUB_INTERVIEW_TRANSCRIPT
 
 logger = logging.getLogger(__name__)
 
@@ -282,92 +281,6 @@ class InterviewHrService:
         response_data.candidate_name = candidate.name
         response_data.job_title = job_title
 
-        return response_data
-
-    async def mark_complete(
-        self, actor: User, candidate_id: uuid.UUID
-    ) -> InterviewSessionResponse:
-        """
-        HR action: force-complete a pending/in-progress interview so the candidate
-        moves to the Completed pipeline tab (and assessment is generated).
-        """
-        from app.services.interview_flag_service import has_meaningful_transcript
-        from app.tasks.interview_tasks import generate_interview_report
-
-        candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
-
-        result = await self._session.execute(
-            select(InterviewSession)
-            .where(
-                InterviewSession.candidate_id == candidate_id,
-                InterviewSession.job_id == candidate.job_id,
-                InterviewSession.status.in_(["pending", "in_progress"]),
-            )
-            .order_by(InterviewSession.created_at.desc())
-        )
-        session = result.scalars().first()
-        if not session:
-            raise HTTPException(
-                status_code=404,
-                detail="No active interview session found to mark complete.",
-            )
-
-        now = datetime.now(timezone.utc)
-        before_status = session.status
-        session.status = "completed"
-        session.completed_at = now
-        if not session.started_at:
-            session.started_at = now
-
-        from app.clients.mocks import mock_livekit_enabled
-
-        if not has_meaningful_transcript(session.transcript) and mock_livekit_enabled():
-            session.transcript = _STUB_INTERVIEW_TRANSCRIPT
-
-        await self._audit.log_change(
-            actor=actor,
-            action="interview.mark_complete",
-            entity_type="interview_session",
-            entity_id=session.id,
-            subject_label=await self._candidate_label(candidate, candidate_id),
-            job_id=candidate.job_id,
-            candidate_id=candidate_id,
-            feature="status",
-            before={"status": before_status},
-            after={"status": "completed"},
-        )
-        await self._session.commit()
-        await self._interviews.refresh(session)
-
-        from app.modules.talentos_integration.interview_status_sync import (
-            sync_interview_status_to_talentos,
-        )
-
-        await sync_interview_status_to_talentos(self._session, session)
-
-        try:
-            generate_interview_report.delay(str(session.id))
-        except Exception as exc:
-            logger.error(
-                "Failed to enqueue assessment after mark_complete for session %s: %s",
-                session.id,
-                exc,
-            )
-
-        job_result = await self._session.execute(select(Job).where(Job.id == candidate.job_id))
-        job = job_result.scalars().first()
-
-        response_data = InterviewSessionResponse.model_validate(session)
-        response_data.interview_url = (
-            f"{config.CANDIDATE_APP_URL}/interview/{session.unique_token}"
-        )
-        response_data.candidate_name = candidate.name
-        response_data.job_title = job.title if job else None
-        logger.info(
-            "HR marked interview complete: session=%s candidate=%s",
-            session.id,
-            candidate_id,
-        )
         return response_data
 
     async def list_for_job(

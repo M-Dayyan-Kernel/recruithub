@@ -690,6 +690,41 @@ class TranscriptSegment(BaseModel):
     end_sec: float
 
 
+class VideoProctoringFlag(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    timestamp: str = ""
+    event: str = ""
+    severity: str = ""
+    confidence: float = 0.0
+
+
+class VideoProctoringBreakdown(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    face: int = 0
+    gaze: int = 0
+    objects: int = 0
+
+
+class VideoProctoringResult(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    duration: Optional[str] = None
+    frame_count: Optional[int] = None
+    flags: Optional[List[VideoProctoringFlag]] = None
+    verdict: Optional[str] = None
+    score: Optional[int] = None
+    flag_count: Optional[int] = None
+    breakdown: Optional[VideoProctoringBreakdown] = None
+
+
+class VideoProctoringSummary(BaseModel):
+    status: str
+    error: Optional[str] = None
+    result: Optional[VideoProctoringResult] = None
+
+
 class InterviewReportResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -721,6 +756,7 @@ class InterviewReportResponse(BaseModel):
     # Presigned Linode/S3 URL for LiveKit egress recording (short-lived; not stored)
     recording_url: Optional[str] = None
     recording_key: Optional[str] = None
+    video_proctoring: Optional[VideoProctoringSummary] = None
 
 
 # ---------------------------------------------------------------------------

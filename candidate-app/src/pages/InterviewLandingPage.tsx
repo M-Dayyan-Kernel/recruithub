@@ -4,7 +4,7 @@ import { Loader2, AlertCircle, CheckCircle2, Clock } from 'lucide-react'
 import { api } from '@/lib/api'
 import InterviewBusyScreen from '@/components/InterviewBusyScreen'
 import Preflight from '@/components/preflight/Preflight'
-import { Card, GradientShell, StatusCard } from '@/components/GradientShell'
+import { Screen, StatusScreen } from '@/components/Shell'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -118,21 +118,19 @@ export default function InterviewLandingPage() {
   // ── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <GradientShell>
-        <Card>
-          <div className="flex flex-col items-center gap-3 py-10">
-            <Loader2 size={22} className="animate-spin text-indigo-600" aria-hidden />
-            <p className="text-[14px] text-slate-500">Loading your interview</p>
-          </div>
-        </Card>
-      </GradientShell>
+      <Screen>
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 size={22} className="animate-spin text-accent" aria-hidden />
+          <p className="text-[0.92rem] text-ink-muted">Loading your interview</p>
+        </div>
+      </Screen>
     )
   }
 
   // Error / 404
   if (error || !info) {
     return (
-      <StatusCard
+      <StatusScreen
         icon={<AlertCircle size={22} />}
         tone="muted"
         title={is404 ? 'This interview link is not valid' : 'Something went wrong'}
@@ -147,7 +145,7 @@ export default function InterviewLandingPage() {
 
   if (info.status === 'expired')
     return (
-      <StatusCard
+      <StatusScreen
         icon={<Clock size={22} />}
         tone="muted"
         title="This link has expired"
@@ -157,7 +155,7 @@ export default function InterviewLandingPage() {
 
   if (info.status === 'completed')
     return (
-      <StatusCard
+      <StatusScreen
         icon={<CheckCircle2 size={22} />}
         tone="success"
         title="Interview already completed"
@@ -181,15 +179,13 @@ export default function InterviewLandingPage() {
     <div className="relative flex flex-1 flex-col">
       {info.mock_mode && (
         <div className="pointer-events-auto absolute left-1/2 top-4 z-20 w-full max-w-md -translate-x-1/2 px-4">
-          <div className="flex items-center gap-3 rounded-2xl bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
-            <p className="text-[13px] text-slate-600">
-              Mock mode: LiveKit is disabled.
-            </p>
+          <div className="flex items-center gap-3 rounded-[10px] border border-line bg-panel px-4 py-3 shadow-sm">
+            <p className="text-[0.8rem] text-ink-muted">Mock mode: LiveKit is disabled.</p>
             <button
               type="button"
               onClick={handleMockComplete}
               disabled={mockCompleting}
-              className="ml-auto shrink-0 cursor-pointer rounded-full bg-slate-900 px-3.5 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-slate-700 disabled:opacity-50"
+              className="ml-auto shrink-0 cursor-pointer rounded-[7px] bg-accent px-3.5 py-1.5 text-[0.78rem] font-semibold text-accent-ink transition-colors hover:bg-primary-700 disabled:opacity-50"
             >
               {mockCompleting ? 'Completing' : 'Skip to complete'}
             </button>
