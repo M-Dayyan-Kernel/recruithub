@@ -4,6 +4,9 @@ Revision ID: c1d1e1f1a2b3
 Revises: 5f6a7b8c9d0e
 Create Date: 2026-08-14
 
+Do not restore ``c1d1e1f1a2b3_compat_talentos_integration_links.py`` from
+``dev`` merges. That file uses this same revision id as a no-op, so Alembic
+reports "present more than once" and ``upgrade head`` fails.
 """
 from __future__ import annotations
 

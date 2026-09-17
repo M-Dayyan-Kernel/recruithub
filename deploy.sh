@@ -146,6 +146,16 @@ git_sync() {
   git -C "${REPO_DIR}" fetch origin
   git -C "${REPO_DIR}" checkout "${BRANCH}"
   git -C "${REPO_DIR}" pull origin "${BRANCH}"
+
+  # A merge from `dev` can reintroduce c1d1e1f1a2b3_compat_*.py next to the
+  # real integration_links revision. Alembic then has two files with the same
+  # id and `upgrade head` fails with multiple heads.
+  local dupes
+  dupes=$(grep -hE '^revision(: str)?[[:space:]]*=' "${REPO_DIR}"/backend/alembic/versions/*.py \
+    | sed 's/.*=[[:space:]]*//' | tr -d "\"'" | sort | uniq -d)
+  if [ -n "${dupes}" ]; then
+    die "duplicate Alembic revision IDs (do not keep the dev compat file on ${BRANCH}): ${dupes}"
+  fi
 }
 
 health_api() {

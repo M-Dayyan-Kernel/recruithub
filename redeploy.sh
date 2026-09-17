@@ -11,6 +11,16 @@ cd "$REPO_DIR"
 git checkout stich/talentos
 git pull origin stich/talentos
 
+# A merge from `dev` can reintroduce c1d1e1f1a2b3_compat_*.py next to the
+# real integration_links revision. Alembic then has two files with the same
+# id and `upgrade head` fails with multiple heads.
+dupes=$(grep -hE '^revision(: str)?[[:space:]]*=' backend/alembic/versions/*.py \
+  | sed 's/.*=[[:space:]]*//' | tr -d "\"'" | sort | uniq -d)
+if [ -n "$dupes" ]; then
+  echo "FATAL: duplicate Alembic revision IDs (do not keep the dev compat file on this branch): $dupes"
+  exit 1
+fi
+
 echo "Rebuilding app containers (API, HR app, Candidate app, interview-agent)..."
 VITE_API_URL=$DOMAIN \
   docker compose -f docker-compose.app.yml --profile interviews build --no-cache api hr-app candidate-app interview-agent
