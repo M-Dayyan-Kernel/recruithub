@@ -11,59 +11,23 @@ Functions:
 import json
 import logging
 
-from app.core.config import settings
+from app.clients import mocks, openai_client
+from app.core.config_loader import config
+from app.prompts.assessment import (
+    ASSESSMENT_SYSTEM_PROMPT,
+    build_assessment_user_prompt,
+    build_rubric_assessment_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
-# Minimum transcript length to attempt a real assessment
-MIN_TRANSCRIPT_LENGTH = 100
-
-ASSESSMENT_SYSTEM_PROMPT = """You are an expert technical interviewer and talent evaluator.
-You will be given:
-1. An interview transcript
-2. The job description and requirements
-3. The candidate's profile
-
-Your task is to objectively assess the candidate's performance and fit for the role.
-Return ONLY valid JSON with the following exact fields (no extra keys, no markdown):
-
-{
-  "technical_fit_score": <integer 0-100>,
-  "communication_score": <integer 0-100>,
-  "problem_solving_score": <integer 0-100>,
-  "experience_score": <integer 0-100>,
-  "role_alignment_score": <integer 0-100>,
-  "overall_score": <integer 0-100>,
-  "strengths": ["<strength 1>", "<strength 2>", "..."],
-  "weaknesses": ["<weakness 1>", "<weakness 2>", "..."],
-  "jd_fit": "<2-3 sentence assessment of how well the candidate fits the JD requirements>",
-  "final_recommendation": "<one of: strong_hire | hire | hold | no_hire>",
-  "summary": "<3-5 sentence executive summary of the interview performance>",
-  "transcript_summary": "<2-3 sentence factual summary of what was discussed in the interview>"
-}
-
-Scoring guidelines:
-- technical_fit_score: depth of technical knowledge demonstrated relevant to the role
-- communication_score: clarity, articulation, structured thinking in responses
-- problem_solving_score: ability to break down problems and reason through solutions
-- experience_score: relevance and depth of prior experience relative to JD requirements
-- role_alignment_score: motivation, cultural fit indicators, enthusiasm for the specific role
-- overall_score: holistic assessment — NOT a simple average; weight by role importance
-
-Recommendation guidelines:
-- strong_hire: Exceptional candidate, clearly exceeds requirements, high confidence
-- hire: Good candidate, meets requirements, recommend moving forward
-- hold: Mixed signals, some concerns, may need additional evaluation
-- no_hire: Does not meet requirements, or significant red flags observed
-
-Be objective and evidence-based. Reference specific things said in the transcript.
-If certain dimensions weren't assessable from the transcript, score conservatively (40-50) and note it.
-"""
+# Backward-compatible private alias for existing imports/tests.
+_rubric_assessment_prompt = build_rubric_assessment_prompt
 
 
-def _build_needs_review_report() -> dict:
+def _build_needs_review_report(rubric: list[dict] | None = None) -> dict:
     """Return a default report when transcript is too short to assess."""
-    return {
+    report = {
         "technical_fit_score": None,
         "communication_score": None,
         "problem_solving_score": None,
@@ -76,35 +40,198 @@ def _build_needs_review_report() -> dict:
         "final_recommendation": "needs_review",
         "summary": "No assessable transcript was recorded for this interview. Manual review required.",
         "transcript_summary": "No transcript available.",
+        "assessment_mode": "legacy",
     }
+    if rubric:
+        report["assessment_mode"] = "rubric"
+        report["rubric_total"] = sum(int(q.get("score") or 0) for q in rubric)
+        report["question_scores"] = [
+            _empty_question_score_entry(q)
+            for q in rubric
+        ]
+    return report
 
 
-async def generate_assessment(transcript: str, job, candidate) -> dict:
-    """
-    Generate a structured interview assessment using GPT-4o.
+def _empty_question_score_entry(q: dict) -> dict:
+    expected = _coerce_expected_points(q.get("expected_points"))
+    entry = {
+        "id": q.get("id", ""),
+        "question": q.get("question", ""),
+        "score": int(q.get("score") or 0),
+        "earned_score": 0 if expected else None,
+        "notes": "Not assessable — transcript too short.",
+        "candidate_answer": "",
+        "expected_points": expected or None,
+        "candidate_points": [],
+        "point_coverage": (
+            [{"point": p, "covered": False} for p in expected] if expected else None
+        ),
+    }
+    return entry
 
-    Args:
-        transcript: Full interview transcript text
-        job: Job ORM model instance (has .title, .description, .required_skills, etc.)
-        candidate: Candidate ORM model instance (has .name, .parsed_data, etc.)
 
-    Returns:
-        dict with all scorecard fields. Never raises — returns needs_review on failure.
-    """
-    import openai
+def _coerce_expected_points(raw) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return [str(p).strip() for p in raw if str(p).strip()]
 
-    # Guard: insufficient transcript
-    if not transcript or len(transcript.strip()) < MIN_TRANSCRIPT_LENGTH:
-        logger.warning(
-            "generate_assessment: transcript too short (%d chars) — returning needs_review",
-            len(transcript) if transcript else 0,
+
+def rubric_has_expected_points(rubric: list | None) -> bool:
+    if not rubric:
+        return False
+    for item in rubric:
+        if isinstance(item, dict) and _coerce_expected_points(item.get("expected_points")):
+            return True
+    return False
+
+
+def question_scores_need_coverage_refresh(
+    question_scores: list | None,
+    rubric: list | None,
+) -> bool:
+    """True when rubric has expected_points but stored scores lack point_coverage."""
+    if not rubric_has_expected_points(rubric):
+        return False
+    if not question_scores:
+        return True
+
+    rubric_ids_with_expected = {
+        str(q.get("id"))
+        for q in (rubric or [])
+        if isinstance(q, dict) and _coerce_expected_points(q.get("expected_points"))
+    }
+    if not rubric_ids_with_expected:
+        return False
+
+    scores_by_id = {
+        str(qs.get("id")): qs
+        for qs in question_scores
+        if isinstance(qs, dict) and qs.get("id")
+    }
+    for qid in rubric_ids_with_expected:
+        qs = scores_by_id.get(qid)
+        if not qs or not qs.get("point_coverage"):
+            return True
+    return False
+
+
+def _normalize_point_coverage(
+    expected_points: list[str],
+    gpt_coverage: list | None,
+) -> list[dict]:
+    if not expected_points:
+        return []
+    coverage_by_point: dict[str, bool] = {}
+    if isinstance(gpt_coverage, list):
+        for item in gpt_coverage:
+            if not isinstance(item, dict):
+                continue
+            point = str(item.get("point") or "").strip()
+            if point:
+                coverage_by_point[point.lower()] = bool(item.get("covered"))
+
+    normalized = []
+    for point in expected_points:
+        key = point.lower()
+        covered = coverage_by_point.get(key, False)
+        if not covered and isinstance(gpt_coverage, list):
+            for item in gpt_coverage:
+                if not isinstance(item, dict):
+                    continue
+                gpt_point = str(item.get("point") or "").strip().lower()
+                if gpt_point and (gpt_point in key or key in gpt_point):
+                    covered = bool(item.get("covered"))
+                    break
+        normalized.append({"point": point, "covered": covered})
+    return normalized
+
+
+def _coverage_earned_score(max_score: int, point_coverage: list[dict]) -> int:
+    if not point_coverage:
+        return 0
+    covered = sum(1 for p in point_coverage if p.get("covered"))
+    total = len(point_coverage) or 1
+    return round(max_score * covered / total)
+
+
+def _normalize_rubric_questions(raw: list | None) -> list[dict]:
+    if not raw:
+        return []
+    normalized = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        question = (item.get("question") or "").strip()
+        if not question:
+            continue
+        normalized.append({
+            "id": str(item.get("id") or ""),
+            "question": question,
+            "score": int(item.get("score") or 0),
+            "expected_points": _coerce_expected_points(item.get("expected_points")) or None,
+        })
+    return [q for q in normalized if q["score"] > 0]
+
+
+def _merge_rubric_scores(rubric: list[dict], gpt_scores: list[dict]) -> tuple[list[dict], int]:
+    by_id = {str(s.get("id")): s for s in gpt_scores if isinstance(s, dict)}
+    merged = []
+    total_earned = 0
+    for q in rubric:
+        qid = str(q.get("id") or "")
+        gpt = by_id.get(qid, {})
+        max_score = int(q.get("score") or 0)
+        expected_points = _coerce_expected_points(q.get("expected_points"))
+
+        raw_candidate_points = gpt.get("candidate_points")
+        candidate_points = (
+            [str(p).strip() for p in raw_candidate_points if str(p).strip()]
+            if isinstance(raw_candidate_points, list)
+            else []
         )
-        return _build_needs_review_report()
 
-    # Build context for the prompt
-    required_skills_str = ", ".join(job.required_skills or []) or "Not specified"
-    experience_range = f"{job.experience_min}–{job.experience_max} years"
-    candidate_summary = ""
+        if expected_points:
+            point_coverage = _normalize_point_coverage(
+                expected_points,
+                gpt.get("point_coverage"),
+            )
+            earned = _coverage_earned_score(max_score, point_coverage)
+        else:
+            point_coverage = None
+            try:
+                earned = int(gpt.get("earned_score", 0))
+            except (TypeError, ValueError):
+                earned = 0
+            earned = max(0, min(earned, max_score))
+
+        total_earned += earned
+        merged.append({
+            "id": qid,
+            "question": q.get("question", ""),
+            "score": max_score,
+            "earned_score": earned,
+            "notes": gpt.get("notes") or "",
+            "candidate_answer": (gpt.get("candidate_answer") or "").strip(),
+            "expected_points": expected_points or None,
+            "candidate_points": candidate_points or None,
+            "point_coverage": point_coverage,
+        })
+    return merged, total_earned
+
+
+async def _run_gpt_assessment(system_prompt: str, user_content: str, api_key: str) -> dict:
+    content = await openai_client().chat_completion_json(
+        "interview_assessment",
+        [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        api_key=api_key,
+    )
+    return json.loads(content)
+
+
+def _build_user_content(transcript: str, job, candidate) -> str:
     if candidate.parsed_data:
         parsed = candidate.parsed_data
         exp = parsed.get("total_experience_years", "Unknown")
@@ -116,66 +243,100 @@ async def generate_assessment(transcript: str, job, candidate) -> dict:
     else:
         candidate_summary = f"Name: {candidate.name}"
 
-    user_content = f"""== JOB DESCRIPTION ==
-Title: {job.title}
-Required Skills: {required_skills_str}
-Experience Required: {experience_range}
-Description:
-{job.description[:3000]}
+    return build_assessment_user_prompt(
+        job_title=job.title,
+        required_skills=job.required_skills or [],
+        experience_min=job.experience_min,
+        experience_max=job.experience_max,
+        job_description=job.description or "",
+        candidate_name=candidate.name,
+        candidate_summary=candidate_summary,
+        transcript=transcript,
+    )
 
-== CANDIDATE PROFILE ==
-Name: {candidate.name}
-{candidate_summary}
 
-== INTERVIEW TRANSCRIPT ==
-{transcript[:14000]}
-"""
+async def generate_assessment(transcript: str, job, candidate, api_key: str) -> dict:
+    """
+    Generate a structured interview assessment using GPT-4o.
+    Uses rubric-based scoring when job.interview_questions is set; otherwise legacy 0-100 dimensions.
+    """
+    import openai
+
+    rubric = _normalize_rubric_questions(job.interview_questions)
+
+    if not transcript or len(transcript.strip()) < config.parsing.min_transcript_chars:
+        logger.warning(
+            "generate_assessment: transcript too short (%d chars) — returning needs_review",
+            len(transcript) if transcript else 0,
+        )
+        return _build_needs_review_report(rubric if rubric else None)
+
+    if mocks.mock_openai_enabled():
+        return mocks.mock_interview_assessment(transcript, job, candidate)
+
+    user_content = _build_user_content(transcript, job, candidate)
 
     try:
-        client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-
-        response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": ASSESSMENT_SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0,
-            max_tokens=1500,
-        )
-
-        raw_content = response.choices[0].message.content
-        result = json.loads(raw_content)
-
-        # Validate required keys are present; fill missing ones defensively
-        required_keys = [
-            "technical_fit_score", "communication_score", "problem_solving_score",
-            "experience_score", "role_alignment_score", "overall_score",
-            "strengths", "weaknesses", "jd_fit", "final_recommendation",
-            "summary", "transcript_summary",
-        ]
-        for key in required_keys:
-            if key not in result:
-                result[key] = 0 if "score" in key else ("needs_review" if key == "final_recommendation" else "")
+        if rubric:
+            system_prompt = _rubric_assessment_prompt(rubric)
+            result = await _run_gpt_assessment(system_prompt, user_content, api_key)
+            question_scores, total_earned = _merge_rubric_scores(
+                rubric, result.get("question_scores") or []
+            )
+            rubric_total = sum(q["score"] for q in rubric)
+            report = {
+                "assessment_mode": "rubric",
+                "question_scores": question_scores,
+                "rubric_total": rubric_total,
+                "overall_score": total_earned,
+                "technical_fit_score": None,
+                "communication_score": None,
+                "problem_solving_score": None,
+                "experience_score": None,
+                "role_alignment_score": None,
+                "strengths": result.get("strengths") or [],
+                "weaknesses": result.get("weaknesses") or [],
+                "jd_fit": result.get("jd_fit", ""),
+                "final_recommendation": result.get("final_recommendation", "needs_review"),
+                "summary": result.get("summary", ""),
+                "transcript_summary": result.get("transcript_summary", ""),
+            }
+        else:
+            result = await _run_gpt_assessment(ASSESSMENT_SYSTEM_PROMPT, user_content, api_key)
+            required_keys = [
+                "technical_fit_score", "communication_score", "problem_solving_score",
+                "experience_score", "role_alignment_score", "overall_score",
+                "strengths", "weaknesses", "jd_fit", "final_recommendation",
+                "summary", "transcript_summary",
+            ]
+            for key in required_keys:
+                if key not in result:
+                    result[key] = 0 if "score" in key else (
+                        "needs_review" if key == "final_recommendation" else ""
+                    )
+            result["assessment_mode"] = "legacy"
+            report = result
 
         logger.info(
-            "Assessment generated for candidate=%s job=%s overall_score=%s recommendation=%s",
+            "Assessment generated for candidate=%s job=%s mode=%s overall_score=%s recommendation=%s",
             candidate.name,
             job.title,
-            result.get("overall_score"),
-            result.get("final_recommendation"),
+            report.get("assessment_mode"),
+            report.get("overall_score"),
+            report.get("final_recommendation"),
         )
-        return result
+        return report
 
     except openai.AuthenticationError as exc:
         logger.error("OpenAI auth error during assessment: %s", exc)
-        report = _build_needs_review_report()
-        report["summary"] = "Assessment failed due to authentication error. Manual review required."
-        return report
+        raise
+
+    except (openai.RateLimitError, openai.APIConnectionError) as exc:
+        logger.warning("OpenAI transient error during assessment: %s", exc)
+        raise
 
     except Exception as exc:
         logger.error("generate_assessment failed: %s", exc)
-        report = _build_needs_review_report()
+        report = _build_needs_review_report(rubric if rubric else None)
         report["summary"] = f"Assessment failed: {type(exc).__name__}. Manual review required."
         return report

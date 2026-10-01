@@ -1,17 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import {
-  Loader2,
-  AlertCircle,
-  CheckCircle2,
-  Mic,
-  Wifi,
-  MapPin,
-  Clock,
-  Video,
-  ShieldAlert,
-} from 'lucide-react'
+import { Loader2, AlertCircle, CheckCircle2, Clock } from 'lucide-react'
 import { api } from '@/lib/api'
+import InterviewBusyScreen from '@/components/InterviewBusyScreen'
+import Preflight from '@/components/preflight/Preflight'
+import { Screen, StatusScreen } from '@/components/Shell'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,58 +17,21 @@ interface InterviewInfo {
   candidate_name?: string
   job_title?: string
   created_at: string
+  mock_mode?: boolean
+  capacity_available?: boolean | null
+  retry_after_minutes?: number | null
 }
 
 // ---------------------------------------------------------------------------
-// Rejoin screen — interview already in progress
+// Terminal states
 // ---------------------------------------------------------------------------
-
-function RejoinScreen({ onRejoin }: { onRejoin: () => void }) {
-  return (
-    <div className="flex-1 flex items-center justify-center p-6">
-      <div className="text-center max-w-md">
-        <div className="w-16 h-16 rounded-full bg-indigo-900/40 flex items-center justify-center mx-auto mb-4">
-          <Video className="w-7 h-7 text-indigo-400" />
-        </div>
-        <h2 className="text-xl font-bold text-slate-100 mb-2">Interview In Progress</h2>
-        <p className="text-slate-400 text-sm leading-relaxed mb-6">
-          Your interview is in progress. Click below to rejoin.
-        </p>
-        <button
-          onClick={onRejoin}
-          className="w-full py-3.5 px-6 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-base transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-950"
-        >
-          Rejoin Interview
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Expired screen
-// ---------------------------------------------------------------------------
-
-function ExpiredScreen() {
-  return (
-    <div className="flex-1 flex items-center justify-center p-6">
-      <div className="text-center max-w-md">
-        <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-4">
-          <AlertCircle className="w-7 h-7 text-slate-400" />
-        </div>
-        <h2 className="text-xl font-bold text-slate-100 mb-2">Interview Link Expired</h2>
-        <p className="text-slate-400 text-sm leading-relaxed">
-          This interview link has expired. Please contact the hiring team to receive a new link.
-        </p>
-      </div>
-    </div>
-  )
-}
-
-type PermissionState = 'idle' | 'checking' | 'granted' | 'denied'
 
 // ---------------------------------------------------------------------------
 // InterviewLandingPage
+//
+// Session validation (§8.1) followed by the pre-flight gate sequence. Rejoining
+// an in-progress session runs the gates again - the preconditions for
+// PROCTORING_ACTIVE have to hold every time the room is entered.
 // ---------------------------------------------------------------------------
 
 export default function InterviewLandingPage() {
@@ -86,26 +42,29 @@ export default function InterviewLandingPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [is404, setIs404] = useState(false)
+  const [mockCompleting, setMockCompleting] = useState(false)
+  const [refreshingCapacity, setRefreshingCapacity] = useState(false)
 
-  const [permissionState, setPermissionState] = useState<PermissionState>('idle')
+  const fetchInterviewInfo = async () => {
+    if (!token) {
+      setError('No interview token provided.')
+      setLoading(false)
+      return
+    }
 
-  // ── Fetch interview info ──────────────────────────────────────────────────
+    const data = (await api.get(`/api/interview/${token}`)) as InterviewInfo
+    setInfo(data)
+    setError(null)
+    setIs404(false)
+    setLoading(false)
+  }
+
   useEffect(() => {
     let cancelled = false
 
-    async function fetchInterview() {
-      if (!token) {
-        setError('No interview token provided.')
-        setLoading(false)
-        return
-      }
-
+    async function load() {
       try {
-        const data = (await api.get(`/api/interview/${token}`)) as InterviewInfo
-        if (!cancelled) {
-          setInfo(data)
-          setLoading(false)
-        }
+        await fetchInterviewInfo()
       } catch (err: unknown) {
         if (!cancelled) {
           const msg = err instanceof Error ? err.message : String(err)
@@ -120,222 +79,126 @@ export default function InterviewLandingPage() {
       }
     }
 
-    fetchInterview()
+    load()
     return () => {
       cancelled = true
     }
   }, [token])
 
-  // ── Permission check ──────────────────────────────────────────────────────
-  const handleCheckPermissions = async () => {
-    setPermissionState('checking')
+  const handleRetryCapacity = async () => {
+    if (!token) return
+    setRefreshingCapacity(true)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      })
-      // Stop all tracks immediately — we only needed to trigger the permission prompt
-      stream.getTracks().forEach((t) => t.stop())
-      setPermissionState('granted')
-    } catch {
-      setPermissionState('denied')
+      await fetchInterviewInfo()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(msg)
+    } finally {
+      setRefreshingCapacity(false)
     }
   }
 
-  const handleStart = () => {
-    navigate(`/interview/${token}/room`)
+  const handleMockComplete = async () => {
+    if (!token) return
+    setMockCompleting(true)
+    try {
+      await api.post(`/api/interview/${token}/complete`)
+      navigate(`/interview/${token}/complete`)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to complete mock interview'
+      setError(msg)
+      setMockCompleting(false)
+    }
   }
+
+  const handleReady = useCallback(() => {
+    navigate(`/interview/${token}/room`)
+  }, [navigate, token])
 
   // ── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4 text-slate-400">
-          <Loader2 size={32} className="animate-spin" />
-          <p className="text-sm">Loading your interview…</p>
+      <Screen>
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 size={22} className="animate-spin text-accent" aria-hidden />
+          <p className="text-[0.92rem] text-ink-muted">Loading your interview</p>
         </div>
-      </div>
+      </Screen>
     )
   }
 
-  // ── Error / 404 ───────────────────────────────────────────────────────────
+  // Error / 404
   if (error || !info) {
     return (
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="text-center max-w-md">
-          <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-4">
-            <AlertCircle className="w-7 h-7 text-slate-400" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-100 mb-2">
-            {is404 ? 'Invalid Interview Link' : 'Something went wrong'}
-          </h2>
-          <p className="text-slate-400 text-sm leading-relaxed">
-            {is404
-              ? 'This interview link is invalid or has expired. Please contact the hiring team if you believe this is a mistake.'
-              : 'We encountered an error loading your interview. Please try again or contact support.'}
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  // ── In progress — rejoin ──────────────────────────────────────────────────
-  if (info.status === 'in_progress') {
-    return (
-      <RejoinScreen
-        onRejoin={() => navigate(`/interview/${token}/room`)}
+      <StatusScreen
+        icon={<AlertCircle size={22} />}
+        tone="muted"
+        title={is404 ? 'This interview link is not valid' : 'Something went wrong'}
+        body={
+          is404
+            ? 'This link may have expired or been replaced. Get in touch if you think that is a mistake.'
+            : 'We could not load your interview. Refresh the page, or get in touch if it keeps happening.'
+        }
       />
     )
   }
 
-  // ── Expired ───────────────────────────────────────────────────────────────
-  if (info.status === 'expired') {
-    return <ExpiredScreen />
-  }
-
-  // ── Already completed ─────────────────────────────────────────────────────
-  if (info.status === 'completed') {
+  if (info.status === 'expired')
     return (
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="text-center max-w-md">
-          <div className="w-16 h-16 rounded-full bg-emerald-900/40 flex items-center justify-center mx-auto mb-4">
-            <CheckCircle2 className="w-7 h-7 text-emerald-400" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-100 mb-2">Interview Already Completed</h2>
-          <p className="text-slate-400 text-sm leading-relaxed">
-            You have already completed this interview. Thank you for your time! The hiring team
-            will be in touch soon.
-          </p>
-        </div>
-      </div>
+      <StatusScreen
+        icon={<Clock size={22} />}
+        tone="muted"
+        title="This link has expired"
+        body="Your interview link is no longer valid. The hiring team can send you a new one."
+      />
+    )
+
+  if (info.status === 'completed')
+    return (
+      <StatusScreen
+        icon={<CheckCircle2 size={22} />}
+        tone="success"
+        title="Interview already completed"
+        body="Thank you for your time. The hiring team is reviewing your interview and will be in touch."
+      />
+    )
+
+  // ── Capacity full (pending session) ───────────────────────────────────────
+  if (info.status === 'pending' && info.capacity_available === false) {
+    return (
+      <InterviewBusyScreen
+        retryAfterMinutes={info.retry_after_minutes ?? 45}
+        onRetry={handleRetryCapacity}
+        retrying={refreshingCapacity}
+      />
     )
   }
 
-  // ── Pending — show landing ────────────────────────────────────────────────
-  const instructions = [
-    {
-      icon: MapPin,
-      text: 'Find a quiet place with a good internet connection',
-    },
-    {
-      icon: Mic,
-      text: 'Allow camera and microphone access when prompted by your browser',
-    },
-    {
-      icon: Wifi,
-      text: 'The AI interviewer will guide the conversation — speak clearly and naturally',
-    },
-    {
-      icon: Clock,
-      text: 'Expected duration: 15–20 minutes',
-    },
-  ]
-
+  // ── Pre-flight (§8) - pending, or rejoining an in-progress session ─────────
   return (
-    <div className="flex-1 flex items-center justify-center p-6">
-      <div className="w-full max-w-lg">
-        {/* Job title */}
-        <div className="text-center mb-8">
-          <p className="text-xs font-medium text-indigo-400 uppercase tracking-widest mb-2">
-            AI Interview
-          </p>
-          <h1 className="text-2xl font-bold text-slate-100 mb-2">
-            {info.job_title ?? 'Interview'}
-          </h1>
-          {info.candidate_name && (
-            <p className="text-slate-300">
-              Hello, <span className="font-medium">{info.candidate_name}</span>!
-            </p>
-          )}
-        </div>
-
-        {/* Instructions card */}
-        <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 mb-4">
-          <h2 className="text-sm font-semibold text-slate-300 mb-4 uppercase tracking-wider">
-            Before you begin
-          </h2>
-          <ul className="space-y-3">
-            {instructions.map(({ icon: Icon, text }, i) => (
-              <li key={i} className="flex items-start gap-3">
-                <div className="mt-0.5 w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center shrink-0">
-                  <Icon size={14} className="text-indigo-400" />
-                </div>
-                <p className="text-sm text-slate-300 leading-relaxed">{text}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* Recording notice */}
-        <div className="flex items-start gap-2 bg-slate-900/60 border border-slate-700/60 rounded-xl px-4 py-3 mb-6">
-          <Video size={14} className="text-slate-500 mt-0.5 shrink-0" />
-          <p className="text-xs text-slate-500 leading-relaxed">
-            This interview will be recorded (audio and video) and analysed by AI. Your responses
-            will be reviewed by the hiring team.
-          </p>
-        </div>
-
-        {/* Permission check + start button */}
-        {permissionState === 'idle' && (
-          <button
-            onClick={handleCheckPermissions}
-            className="w-full py-3.5 px-6 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-base transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-950 inline-flex items-center justify-center gap-2"
-          >
-            <Video size={18} />
-            Allow Camera &amp; Microphone
-          </button>
-        )}
-
-        {permissionState === 'checking' && (
-          <button
-            disabled
-            className="w-full py-3.5 px-6 bg-indigo-600/60 text-white/60 font-semibold rounded-xl text-base cursor-not-allowed inline-flex items-center justify-center gap-2"
-          >
-            <Loader2 size={18} className="animate-spin" />
-            Checking permissions…
-          </button>
-        )}
-
-        {permissionState === 'denied' && (
-          <div className="space-y-4">
-            <div className="flex items-start gap-3 bg-rose-950/40 border border-rose-800/50 rounded-xl px-4 py-3">
-              <ShieldAlert size={16} className="text-rose-400 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-rose-300 mb-1">Permission denied</p>
-                <p className="text-xs text-rose-400/80 leading-relaxed">
-                  Please allow camera and microphone access to continue. Check your browser's
-                  address bar or site settings and reload the page once access is granted.
-                </p>
-              </div>
-            </div>
+    <div className="relative flex flex-1 flex-col">
+      {info.mock_mode && (
+        <div className="pointer-events-auto absolute left-1/2 top-4 z-20 w-full max-w-md -translate-x-1/2 px-4">
+          <div className="flex items-center gap-3 rounded-[10px] border border-line bg-panel px-4 py-3 shadow-sm">
+            <p className="text-[0.8rem] text-ink-muted">Mock mode: LiveKit is disabled.</p>
             <button
-              onClick={handleCheckPermissions}
-              className="w-full py-3 px-6 bg-slate-700 hover:bg-slate-600 text-slate-100 font-medium rounded-xl text-sm transition-colors"
+              type="button"
+              onClick={handleMockComplete}
+              disabled={mockCompleting}
+              className="ml-auto shrink-0 cursor-pointer rounded-[7px] bg-accent px-3.5 py-1.5 text-[0.78rem] font-semibold text-accent-ink transition-colors hover:bg-primary-700 disabled:opacity-50"
             >
-              Try again
+              {mockCompleting ? 'Completing' : 'Skip to complete'}
             </button>
           </div>
-        )}
+        </div>
+      )}
 
-        {permissionState === 'granted' && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 text-emerald-400 text-sm justify-center mb-1">
-              <CheckCircle2 size={16} />
-              <span>Camera &amp; microphone access granted</span>
-            </div>
-            <button
-              onClick={handleStart}
-              className="w-full py-3.5 px-6 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-base transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-950"
-            >
-              Start Interview
-            </button>
-          </div>
-        )}
-
-        <p className="text-center text-xs text-slate-600 mt-4">
-          By starting, you agree to the recording and AI analysis of this interview session.
-        </p>
-      </div>
+      <Preflight
+        token={token ?? ''}
+        candidateName={info.candidate_name}
+        jobTitle={info.job_title}
+        onReady={handleReady}
+      />
     </div>
   )
 }

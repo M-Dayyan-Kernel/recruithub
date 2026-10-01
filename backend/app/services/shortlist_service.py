@@ -1,298 +1,327 @@
-"""
-Shortlist Service — Sprint 4
+"""Shortlist query and HR decision orchestration."""
 
-Cosine similarity + GPT-4o structured assessment for candidate shortlisting.
-Called by both the Celery task (shortlist_tasks.py) and potentially directly
-from tests. Uses AsyncSession passed by the caller (NullPool for Celery,
-regular pool for FastAPI).
-"""
+from __future__ import annotations
 
-import json
 import logging
-import math
 import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
-from app.models.models import Candidate, Job, ShortlistResult
-from app.services.embedding_service import generate_embedding
+from app.core.async_utils import run_sync
+from app.core.logging import get_actor_label, log_event
+from app.core.tenancy import get_tenant_job
+from app.exceptions import ValidationError
+from app.models.models import Candidate, Job, User
+from app.repositories.shortlist_repository import ShortlistRepository
+from app.schemas.schemas import (
+    ShortlistDecisionResponse,
+    ShortlistDecisionUpdate,
+    ShortlistFeedbackCreate,
+    ShortlistResultResponse,
+    ShortlistResultWithCandidateResponse,
+    ShortlistStatusResponse,
+)
+from app.services.audit_service import AuditService
+from app.services.candidate_contact_service import (
+    resolve_candidate_email,
+    resolve_candidate_name,
+)
+from app.services.shortlist_batch_store import ShortlistBatchStore
 
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Pure-Python cosine similarity. Returns 0.0 on zero-magnitude vectors."""
-    dot = sum(x * y for x, y in zip(a, b))
-    mag_a = math.sqrt(sum(x ** 2 for x in a))
-    mag_b = math.sqrt(sum(x ** 2 for x in b))
-    if mag_a == 0.0 or mag_b == 0.0:
-        return 0.0
-    return dot / (mag_a * mag_b)
+_VALID_DECISIONS = frozenset({"approved", "rejected", "overridden"})
 
 
-def _build_jd_text(job: Job) -> str:
-    """Build a single text string representing the Job Description for embedding."""
-    parts = [job.title, job.description]
-    if job.required_skills:
-        parts.append("Required skills: " + ", ".join(job.required_skills))
-    if job.screening_criteria:
-        parts.append(job.screening_criteria)
-    if job.interview_evaluation_criteria:
-        parts.append(job.interview_evaluation_criteria)
-    return "\n\n".join(p for p in parts if p)
+class ShortlistService:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        shortlist_repo: ShortlistRepository | None = None,
+        batch_store: ShortlistBatchStore | None = None,
+        audit_service: AuditService | None = None,
+    ) -> None:
+        self._session = session
+        self._shortlist = shortlist_repo or ShortlistRepository(session)
+        self._batch_store = batch_store or ShortlistBatchStore()
+        self._audit = audit_service or AuditService(session)
 
+    async def get_status(
+        self, actor: User, job_id: uuid.UUID
+    ) -> ShortlistStatusResponse:
+        await get_tenant_job(self._session, job_id, actor.tenant_id)
 
-def _build_candidate_summary(candidate: Candidate) -> dict:
-    """Extract the subset of parsed_data relevant for GPT-4o assessment."""
-    parsed = candidate.parsed_data or {}
-    return {
-        "name": candidate.name,
-        "skills": parsed.get("skills", []),
-        "total_experience_years": parsed.get("total_experience_years", 0),
-        "experience": parsed.get("experience", []),
-        "education": parsed.get("education", []),
-        "current_company": parsed.get("current_company"),
-        "current_role": parsed.get("current_role"),
-    }
-
-
-def _build_jd_summary(job: Job) -> dict:
-    """Extract the subset of job fields relevant for GPT-4o assessment."""
-    return {
-        "title": job.title,
-        # Truncate to 1200 chars — enough context, avoids ballooning prompt
-        "description": (job.description or "")[:1200],
-        "required_skills": job.required_skills or [],
-        "experience_min": job.experience_min,
-        "experience_max": job.experience_max,
-        "screening_criteria": job.screening_criteria,
-    }
-
-
-# ---------------------------------------------------------------------------
-# GPT-4o assessment (Task 4.6)
-# ---------------------------------------------------------------------------
-
-async def _gpt4o_assess(
-    client,
-    jd_summary: dict,
-    candidate_summary: dict,
-    similarity: float,
-) -> tuple[float, str, list[str], list[str], str]:
-    """
-    Call GPT-4o for structured shortlist assessment.
-
-    Returns: (match_score, recommendation, strengths, gaps, reason)
-    Raises openai.* exceptions — let the caller handle retries.
-    """
-    response = await client.chat.completions.create(
-        model="gpt-4o",
-        response_format={"type": "json_object"},
-        temperature=0,
-        max_tokens=1000,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are an expert recruiter assessing candidate-JD fit. "
-                    "Analyse the candidate profile against the job description and return "
-                    "a structured JSON assessment with these exact keys:\n"
-                    "  match_score: integer 0-100 (overall fit percentage)\n"
-                    "  recommendation: one of 'shortlisted' | 'rejected' | 'review'\n"
-                    "  strengths: array of 2-5 short strings (candidate's matching strengths)\n"
-                    "  gaps: array of 0-5 short strings (missing skills or experience gaps)\n"
-                    "  reason: string, 1-2 sentences explaining the recommendation\n\n"
-                    "Scoring guide:\n"
-                    "  80-100 → shortlisted (strong match)\n"
-                    "  50-79  → review (partial match, HR should decide)\n"
-                    "  0-49   → rejected (poor fit)\n\n"
-                    "Use the cosine similarity hint as supporting signal, "
-                    "but base your final score primarily on skill and experience fit."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Job Description:\n{json.dumps(jd_summary, indent=2)}\n\n"
-                    f"Candidate Profile:\n{json.dumps(candidate_summary, indent=2)}\n\n"
-                    f"Cosine similarity (resume vs JD, 0-1 scale): {similarity:.4f}\n\n"
-                    "Return the JSON assessment."
-                ),
-            },
-        ],
-    )
-
-    raw = response.choices[0].message.content or "{}"
-    assessment = json.loads(raw)
-
-    match_score = float(assessment.get("match_score", round(similarity * 100, 1)))
-    # Clamp to [0, 100]
-    match_score = max(0.0, min(100.0, match_score))
-
-    recommendation = assessment.get("recommendation", "review")
-    if recommendation not in ("shortlisted", "rejected", "review"):
-        recommendation = "review"
-
-    strengths = assessment.get("strengths") or []
-    gaps = assessment.get("gaps") or []
-    reason = assessment.get("reason") or ""
-
-    return match_score, recommendation, strengths, gaps, reason
-
-
-# ---------------------------------------------------------------------------
-# Main service entry point (Task 4.5)
-# ---------------------------------------------------------------------------
-
-async def shortlist_candidates(
-    job_id: uuid.UUID, db: AsyncSession
-) -> list[ShortlistResult]:
-    """
-    Run AI shortlisting for all ready candidates in a job.
-
-    Steps:
-    1. Load job + all candidates with parse_status = 'ready'
-    2. Build JD text → generate JD embedding
-    3. For each candidate: cosine similarity + GPT-4o assessment
-    4. Upsert ShortlistResult records
-    5. Return list of upserted records
-
-    Raises:
-        ValueError: if job not found
-        openai.*: if OpenAI API fails (let caller handle retries)
-    """
-    from openai import AsyncOpenAI  # local import — avoids circular at task discovery time
-
-    # --- Load job ---
-    job_result = await db.execute(select(Job).where(Job.id == job_id))
-    job = job_result.scalar_one_or_none()
-    if not job:
-        raise ValueError(f"Job {job_id} not found")
-
-    # --- Load all ready candidates ---
-    candidates_result = await db.execute(
-        select(Candidate).where(
-            Candidate.job_id == job_id,
-            Candidate.parse_status == "ready",
-        )
-    )
-    candidates = candidates_result.scalars().all()
-
-    if not candidates:
-        logger.info("shortlist_candidates: no ready candidates for job %s — checking all statuses for debug", job_id)
-        # Debug: log all candidate statuses for this job
-        all_result = await db.execute(select(Candidate).where(Candidate.job_id == job_id))
-        all_candidates = all_result.scalars().all()
-        for c in all_candidates:
-            logger.info("  candidate %s has parse_status=%r", c.id, c.parse_status)
-        return []
-
-    logger.info(
-        "shortlist_candidates: scoring %d ready candidates for job %s",
-        len(candidates),
-        job_id,
-    )
-
-    # --- Build JD embedding (best-effort — used for cosine similarity hint) ---
-    jd_embedding: list[float] = []
-    try:
-        jd_text = _build_jd_text(job)
-        jd_embedding = await generate_embedding(jd_text)
-    except Exception as exc:
-        logger.warning("shortlist_candidates: failed to build JD embedding — will skip cosine similarity: %s", exc)
-
-    jd_summary = _build_jd_summary(job)
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-
-    upserted_records: list[ShortlistResult] = []
-
-    for candidate in candidates:
-        # --- Cosine similarity (optional — skip if embedding unavailable) ---
-        similarity = 0.0
-        if jd_embedding and candidate.resume_embedding is not None:
-            try:
-                similarity = _cosine_similarity(jd_embedding, list(candidate.resume_embedding))
-            except Exception as exc:
-                logger.warning("Cosine similarity failed for candidate %s: %s", candidate.id, exc)
-        else:
-            logger.info(
-                "shortlist_candidates: no embedding for candidate %s (resume_embedding=%r) — skipping cosine, using GPT-4o only",
-                candidate.id,
-                type(candidate.resume_embedding).__name__,
-            )
-
-        # --- GPT-4o structured assessment ---
-        candidate_summary = _build_candidate_summary(candidate)
         try:
-            match_score, recommendation, strengths, gaps, reason = await _gpt4o_assess(
-                client, jd_summary, candidate_summary, similarity
+            in_progress, candidate_ids, failed = await run_sync(
+                self._batch_store.read_status, job_id
             )
         except Exception as exc:
-            # Log and use cosine-only fallback — don't drop the candidate
-            logger.error(
-                "GPT-4o assessment failed for candidate %s (job %s): %s",
-                candidate.id,
-                job_id,
-                exc,
+            logger.warning(
+                "get_shortlist_status: Redis unavailable for job %s: %s", job_id, exc
             )
-            match_score = round(similarity * 100, 1)
-            recommendation = (
-                "shortlisted" if match_score >= 80
-                else "review" if match_score >= 50
-                else "rejected"
-            )
-            strengths = []
-            gaps = []
-            reason = "AI assessment unavailable — cosine similarity score used as fallback."
+            in_progress = False
+            candidate_ids = []
+            failed = 0
 
-        # --- Upsert ShortlistResult ---
-        existing_result = await db.execute(
-            select(ShortlistResult).where(
-                ShortlistResult.job_id == job_id,
-                ShortlistResult.candidate_id == candidate.id,
-            )
+        completed = 0
+        if candidate_ids:
+            cand_uuids = [uuid.UUID(cid) for cid in candidate_ids]
+            completed = await self._shortlist.count_for_candidates(job_id, cand_uuids)
+
+        logger.debug(
+            "shortlist.progress job_id=%s in_progress=%s completed=%s/%s failed=%s",
+            job_id,
+            in_progress,
+            completed,
+            len(candidate_ids),
+            failed,
         )
-        existing = existing_result.scalar_one_or_none()
 
-        if existing:
-            # Re-scoring: update AI fields but preserve HR decision/feedback
-            existing.match_score = match_score
-            existing.recommendation = recommendation
-            existing.strengths = strengths
-            existing.gaps = gaps
-            existing.reason = reason
-            record = existing
-            logger.debug("Updated existing ShortlistResult for candidate %s", candidate.id)
-        else:
-            record = ShortlistResult(
-                job_id=job_id,
-                candidate_id=candidate.id,
-                match_score=match_score,
-                recommendation=recommendation,
-                strengths=strengths,
-                gaps=gaps,
-                reason=reason,
-                hr_decision="pending",
+        return ShortlistStatusResponse(
+            in_progress=in_progress,
+            candidate_ids=candidate_ids,
+            completed=completed,
+            total=len(candidate_ids),
+            failed=failed,
+        )
+
+    async def list_results(
+        self, actor: User, job_id: uuid.UUID
+    ) -> list[ShortlistResultWithCandidateResponse]:
+        await get_tenant_job(self._session, job_id, actor.tenant_id)
+        shortlist_records = await self._shortlist.list_for_job(job_id)
+
+        if not shortlist_records:
+            return []
+
+        candidate_ids = [r.candidate_id for r in shortlist_records]
+        candidates_result = await self._session.execute(
+            select(Candidate).where(Candidate.id.in_(candidate_ids))
+        )
+        candidates_by_id = {c.id: c for c in candidates_result.scalars().all()}
+
+        enriched: list[ShortlistResultWithCandidateResponse] = []
+        for record in shortlist_records:
+            candidate = candidates_by_id.get(record.candidate_id)
+            parsed = (candidate.parsed_data or {}) if candidate else {}
+            candidate_name = parsed.get("name") or (candidate.name if candidate else None)
+            raw_email = parsed.get("email") or (candidate.email if candidate else None)
+            candidate_email = (
+                raw_email
+                if raw_email and not str(raw_email).endswith("@upload.pending")
+                else None
             )
-            db.add(record)
-            logger.debug("Created new ShortlistResult for candidate %s", candidate.id)
+            enriched.append(
+                ShortlistResultWithCandidateResponse(
+                    id=record.id,
+                    candidate_id=record.candidate_id,
+                    job_id=record.job_id,
+                    match_score=record.match_score,
+                    recommendation=record.recommendation,
+                    strengths=record.strengths,
+                    gaps=record.gaps,
+                    reason=record.reason,
+                    hr_decision=record.hr_decision,
+                    hr_feedback_type=record.hr_feedback_type,
+                    hr_comments=record.hr_comments,
+                    created_at=record.created_at,
+                    candidate_name=candidate_name,
+                    candidate_email=candidate_email,
+                )
+            )
 
-        upserted_records.append(record)
+        logger.debug(
+            "shortlist.listed job_id=%s results=%s",
+            job_id,
+            len(enriched),
+        )
+        return enriched
 
-    # Flush all upserts in one commit
-    await db.commit()
-    for record in upserted_records:
-        await db.refresh(record)
+    async def update_decision(
+        self,
+        actor: User,
+        shortlist_id: uuid.UUID,
+        payload: ShortlistDecisionUpdate,
+    ) -> ShortlistDecisionResponse:
+        if payload.hr_decision not in _VALID_DECISIONS:
+            raise ValidationError(
+                public_message=(
+                    f"hr_decision must be one of: {', '.join(sorted(_VALID_DECISIONS))}"
+                ),
+            )
 
-    logger.info(
-        "shortlist_candidates: completed %d shortlist records for job %s",
-        len(upserted_records),
-        job_id,
-    )
-    return upserted_records
+        record = await self._shortlist.get_for_tenant(shortlist_id, actor.tenant_id)
+        previous_decision = record.hr_decision
+        record.hr_decision = payload.hr_decision
+        candidate = await self._session.get(Candidate, record.candidate_id)
+        subject = resolve_candidate_name(candidate) if candidate else str(record.candidate_id)
+
+        await self._audit.log_change(
+            actor=actor,
+            action="shortlist.decision_set",
+            entity_type="shortlist",
+            entity_id=record.id,
+            subject_label=subject,
+            feature="hr_decision",
+            before={"hr_decision": previous_decision},
+            after={"hr_decision": payload.hr_decision},
+            job_id=record.job_id,
+            candidate_id=record.candidate_id,
+        )
+        await self._session.commit()
+        await self._shortlist.refresh(record)
+
+        log_event(
+            logger,
+            "%s changed the shortlist decision for %s on job review from %s to %s (AI had recommended %s)",
+            get_actor_label(),
+            subject,
+            previous_decision.replace("_", " "),
+            payload.hr_decision.replace("_", " "),
+            record.recommendation.replace("_", " "),
+        )
+
+        if payload.hr_decision == "rejected" and previous_decision != "rejected":
+            await self._send_rejection_email(actor, record, shortlist_id, candidate)
+        elif payload.hr_decision == "rejected" and previous_decision == "rejected":
+            logger.debug(
+                "Skipping rejection email for shortlist=%s (already rejected)",
+                shortlist_id,
+            )
+
+        if payload.hr_decision == "approved":
+            approval_response = await self._handle_approval_side_effects(
+                actor, record
+            )
+            if approval_response is not None:
+                return approval_response
+
+        return ShortlistDecisionResponse.model_validate(record)
+
+    async def submit_feedback(
+        self,
+        actor: User,
+        shortlist_id: uuid.UUID,
+        payload: ShortlistFeedbackCreate,
+    ) -> ShortlistResultResponse:
+        record = await self._shortlist.get_for_tenant(shortlist_id, actor.tenant_id)
+        changes = {
+            "hr_feedback_type": (record.hr_feedback_type, payload.hr_feedback_type),
+            "hr_comments": (record.hr_comments, payload.hr_comments),
+        }
+        record.hr_feedback_type = payload.hr_feedback_type
+        record.hr_comments = payload.hr_comments
+        candidate = await self._session.get(Candidate, record.candidate_id)
+        subject = resolve_candidate_name(candidate) if candidate else str(record.candidate_id)
+
+        await self._audit.log_field_changes(
+            actor=actor,
+            action="shortlist.feedback_set",
+            entity_type="shortlist",
+            entity_id=record.id,
+            subject_label=subject,
+            changes=changes,
+            job_id=record.job_id,
+            candidate_id=record.candidate_id,
+        )
+        await self._session.commit()
+        await self._shortlist.refresh(record)
+        return ShortlistResultResponse.model_validate(record)
+
+    async def _send_rejection_email(
+        self,
+        actor: User,
+        record,
+        shortlist_id: uuid.UUID,
+        candidate: Candidate | None,
+    ) -> None:
+        candidate_email = resolve_candidate_email(candidate)
+        if not candidate_email:
+            logger.warning(
+                "Rejection decision saved but no valid email for shortlist=%s candidate=%s",
+                shortlist_id,
+                record.candidate_id,
+            )
+            return
+
+        job = await self._session.get(Job, record.job_id)
+        job_title = job.title if job else "the position"
+        from app.services.email_service import send_rejection_email
+        from app.services.email_template_service import get_company_name, get_merged_templates
+
+        templates = await get_merged_templates(self._session, actor.tenant_id)
+        company_name = await get_company_name(self._session, actor.tenant_id)
+        logger.info(
+            "Sending rejection email to %s for shortlist=%s",
+            candidate_email,
+            shortlist_id,
+        )
+        if not await send_rejection_email(
+            resolve_candidate_name(candidate),
+            candidate_email,
+            job_title,
+            templates=templates,
+            company_name=company_name,
+        ):
+            logger.warning(
+                "Rejection decision saved but email failed for shortlist=%s candidate=%s",
+                shortlist_id,
+                record.candidate_id,
+            )
+
+    async def _handle_approval_side_effects(
+        self,
+        actor: User,
+        record,
+    ) -> ShortlistDecisionResponse | None:
+        from app.services.screening_gate_service import (
+            bypass_summary_for,
+            is_voice_screening_effective,
+        )
+        from app.services.settings_service import load_system_settings
+
+        system_settings = await load_system_settings(
+            self._session, tenant_id=actor.tenant_id
+        )
+        job = await self._session.get(Job, record.job_id)
+        if not job or not is_voice_screening_effective(system_settings, job):
+            from app.services.interview_skip_screening_service import (
+                advance_approved_candidate_to_interview,
+            )
+
+            bypass_summary = (
+                bypass_summary_for(system_settings, job)
+                if job
+                else "Screening bypassed — voice screening disabled"
+            )
+            advance = await advance_approved_candidate_to_interview(
+                self._session,
+                candidate_id=record.candidate_id,
+                job_id=record.job_id,
+                bypass_summary=bypass_summary,
+            )
+            return ShortlistDecisionResponse(
+                **ShortlistResultResponse.model_validate(record).model_dump(),
+                screening_skipped=True,
+                interview_session_id=advance.session_id,
+                interview_email_sent=advance.email_sent,
+            )
+
+        from app.services.call_window_service import is_within_call_window
+        from app.services.celery_health import celery_workers_available_async
+        from app.services.screening_trigger_service import (
+            auto_dispatch_unqueued_approved_for_job,
+            candidate_has_any_screening_call,
+        )
+
+        if await celery_workers_available_async():
+            job = await self._session.get(Job, record.job_id)
+            if job and is_within_call_window(job):
+                if not await candidate_has_any_screening_call(
+                    self._session, record.job_id, record.candidate_id
+                ):
+                    await auto_dispatch_unqueued_approved_for_job(self._session, job)
+
+        return None

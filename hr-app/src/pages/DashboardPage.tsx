@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { EmptyState, LINK_ACTION, PageHeader, SectionCard } from '@/components/ui/Surface'
 import { useQuery, useQueries } from '@tanstack/react-query'
 import {
   Briefcase,
@@ -9,34 +10,55 @@ import {
   ChevronRight,
   TrendingUp,
   AlertCircle,
+  ArrowUpRight,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { fetchJobCandidates } from '@/lib/workflow'
 import type { Job, Candidate, ScreeningCall } from '@/types/api'
 
 // ---------------------------------------------------------------------------
 // Summary card
 // ---------------------------------------------------------------------------
 
+/** Per-tile accent. Only the chip is saturated; the card stays paper. */
+const TILE_TONES = {
+  indigo: 'from-indigo-500 to-violet-600 shadow-indigo-500/30',
+  violet: 'from-violet-500 to-fuchsia-600 shadow-violet-500/30',
+  emerald: 'from-emerald-500 to-teal-600 shadow-emerald-500/30',
+  amber: 'from-amber-400 to-orange-500 shadow-amber-500/30',
+} as const
+
 interface SummaryCardProps {
   title: string
   value: number | string
   icon: React.ReactNode
-  iconBg: string
+  tone: keyof typeof TILE_TONES
   subtitle?: string
+  to: string
 }
 
-function SummaryCard({ title, value, icon, iconBg, subtitle }: SummaryCardProps) {
+function SummaryCard({ title, value, icon, tone, subtitle, to }: SummaryCardProps) {
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-medium text-slate-500">{title}</p>
-        <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center shrink-0`}>
+    <Link
+      to={to}
+      className="group relative block overflow-hidden rounded-card border border-line bg-surface p-5 shadow-e2 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-e3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+    >
+      <div className="mb-3.5 flex items-start justify-between gap-2">
+        <span
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-lg ${TILE_TONES[tone]}`}
+        >
           {icon}
-        </div>
+        </span>
+        <ArrowUpRight
+          size={16}
+          className="mt-1 shrink-0 text-ink-subtle opacity-0 transition-opacity group-hover:opacity-100"
+        />
       </div>
-      <p className="text-3xl font-bold text-slate-900">{value}</p>
-      {subtitle && <p className="text-xs text-slate-400 mt-1">{subtitle}</p>}
-    </div>
+      {/* A figure: tabular so it does not jitter between loads. */}
+      <p className="font-mono text-[28px] font-bold leading-none tabular-nums text-ink">{value}</p>
+      <p className="mt-2 text-[13px] font-semibold text-ink">{title}</p>
+      {subtitle && <p className="mt-0.5 text-[11px] text-ink-subtle">{subtitle}</p>}
+    </Link>
   )
 }
 
@@ -142,8 +164,7 @@ export default function DashboardPage() {
   const candidateQueries = useQueries({
     queries: jobList.map((job) => ({
       queryKey: ['candidates', job.id],
-      queryFn: () =>
-        api.get(`/api/jobs/${job.id}/candidates`) as unknown as Promise<Candidate[]>,
+      queryFn: () => fetchJobCandidates(job.id),
     })),
   })
 
@@ -170,13 +191,22 @@ export default function DashboardPage() {
     return jobList.map((job, i) => {
       const candidates = (candidateQueries[i]?.data ?? []) as Candidate[]
       const screeningCalls = (screeningQueries[i]?.data ?? []) as ScreeningCall[]
-      const screened = screeningCalls.filter((sc) => sc.call_status === 'completed').length
-      const passedScreening = screeningCalls.filter((sc) => sc.result === 'pass').length
+      // Count unique candidates (retries create multiple completed calls for one person)
+      const screenedCandidateIds = new Set(
+        screeningCalls
+          .filter((sc) => sc.call_status === 'completed')
+          .map((sc) => sc.candidate_id),
+      )
+      const passedCandidateIds = new Set(
+        screeningCalls
+          .filter((sc) => sc.result === 'pass')
+          .map((sc) => sc.candidate_id),
+      )
       return {
         job,
         candidateCount: candidates.length,
-        screened,
-        passedScreening,
+        screened: screenedCandidateIds.size,
+        passedScreening: passedCandidateIds.size,
         candidatesLoading: candidateQueries[i]?.isLoading ?? false,
         screeningLoading: screeningQueries[i]?.isLoading ?? false,
       }
@@ -246,50 +276,48 @@ export default function DashboardPage() {
     <div className="p-6 max-w-7xl mx-auto">
       {/* Error banner */}
       {jobsError && (
-        <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 rounded-lg px-4 py-3 text-sm text-rose-700 mb-6">
+        <div className="mb-6 flex items-center gap-2 rounded-md border border-neg/20 bg-neg-soft px-4 py-3 text-sm text-neg">
           <AlertCircle size={16} className="shrink-0" />
           Failed to load dashboard data.
           <button onClick={() => void refetchJobs()} className="underline ml-1">Retry</button>
         </div>
       )}
 
-      {/* Page header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-        <p className="text-slate-500 text-sm mt-0.5">
-          Pipeline overview across all active jobs
-        </p>
-      </div>
+      <PageHeader title="Dashboard" subtitle="Pipeline overview across all active jobs" />
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <SummaryCard
           title="Active Jobs"
           value={totals.activeJobs}
-          icon={<Briefcase size={17} className="text-indigo-600" />}
-          iconBg="bg-indigo-50"
+          icon={<Briefcase size={18} />}
+          tone="indigo"
           subtitle={`of ${jobList.length} total`}
+          to="/jobs"
         />
         <SummaryCard
           title="Total Candidates"
           value={anyDataLoading ? '…' : totals.totalCandidates}
-          icon={<Users size={17} className="text-violet-600" />}
-          iconBg="bg-violet-50"
+          icon={<Users size={18} />}
+          tone="violet"
           subtitle="across all jobs"
+          to="/candidates"
         />
         <SummaryCard
           title="Screened"
           value={anyDataLoading ? '…' : totals.totalScreened}
-          icon={<Phone size={17} className="text-emerald-600" />}
-          iconBg="bg-emerald-50"
-          subtitle="AI voice calls completed"
+          icon={<Phone size={18} />}
+          tone="emerald"
+          subtitle="candidates with a completed call"
+          to="/candidates?stage=screening"
         />
         <SummaryCard
           title="Interview Ready"
           value={anyDataLoading ? '…' : totals.totalInterviewed}
-          icon={<Video size={17} className="text-amber-600" />}
-          iconBg="bg-amber-50"
+          icon={<Video size={18} />}
+          tone="amber"
           subtitle="passed screening"
+          to="/candidates?stage=interview"
         />
       </div>
 
@@ -297,51 +325,40 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Jobs table — takes 2/3 */}
         <div className="lg:col-span-2">
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-              <h2 className="font-semibold text-slate-800">Jobs Overview</h2>
-              <Link
-                to="/jobs"
-                className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5 transition-colors"
-              >
-                All jobs <ChevronRight size={13} />
+          <SectionCard
+            title="Jobs Overview"
+            icon={<Briefcase size={14} />}
+            bodyClassName=""
+            action={
+              <Link to="/jobs" className={LINK_ACTION}>
+                View all <ChevronRight size={13} />
               </Link>
-            </div>
-
+            }
+          >
             {jobList.length === 0 ? (
-              <div className="py-16 flex flex-col items-center justify-center text-center px-6">
-                <div className="w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center mb-3">
-                  <Briefcase size={22} className="text-indigo-400" />
-                </div>
-                <p className="text-slate-600 font-medium mb-1">No jobs yet</p>
-                <p className="text-slate-400 text-sm mb-4">
-                  Create your first job to get started.
-                </p>
-                <Link
-                  to="/jobs"
-                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
-                >
-                  Go to Jobs
-                </Link>
-              </div>
+              <EmptyState
+                icon={<Briefcase size={22} />}
+                title="No jobs yet"
+                body="Click + next to Jobs in the sidebar to create your first job."
+              />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[500px]">
                   <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50">
-                      <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                    <tr className="border-b border-line bg-surface-2">
+                      <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
                         Job
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                      <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
                         Status
                       </th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                      <th className="px-4 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
                         Candidates
                       </th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                      <th className="px-4 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
                         Screened
                       </th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                      <th className="px-4 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
                         Interviewed
                       </th>
                       <th className="px-4 py-3" />
@@ -355,7 +372,7 @@ export default function DashboardPage() {
                           className="border-b border-slate-50 hover:bg-slate-50 transition-colors group"
                         >
                           <td className="px-5 py-3.5">
-                            <p className="text-sm font-medium text-slate-800 truncate max-w-[180px]">
+                            <p className="truncate text-sm font-medium text-ink max-w-[180px]">
                               {job.title}
                             </p>
                             {(job.required_skills?.length ?? 0) > 0 && (
@@ -422,42 +439,33 @@ export default function DashboardPage() {
                 </table>
               </div>
             )}
-          </div>
+          </SectionCard>
         </div>
 
         {/* Recent Activity — takes 1/3 */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
-            <TrendingUp size={15} className="text-slate-400" />
-            <h2 className="font-semibold text-slate-800">Recent Screening</h2>
-          </div>
-
+        <SectionCard title="Recent Screening" icon={<TrendingUp size={14} />} bodyClassName="">
           {recentActivity.length === 0 ? (
-            <div className="py-12 flex flex-col items-center justify-center text-center px-4">
-              <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mb-3">
-                <Phone size={18} className="text-slate-300" />
-              </div>
-              <p className="text-slate-500 text-sm font-medium">No activity yet</p>
-              <p className="text-slate-400 text-xs mt-1">
-                Completed screening calls will appear here.
-              </p>
-            </div>
+            <EmptyState
+              icon={<Phone size={20} />}
+              title="No activity yet"
+              body="Completed screening calls will appear here."
+            />
           ) : (
-            <div className="divide-y divide-slate-50">
+            <div className="divide-y divide-line">
               {recentActivity.map((item) => (
                 <div key={item.id} className="px-5 py-3.5 flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-slate-800 truncate">
+                    <p className="truncate text-sm font-medium text-ink">
                       {item.candidateName}
                     </p>
-                    <p className="text-xs text-slate-400 truncate mt-0.5">{item.jobTitle}</p>
+                    <p className="mt-0.5 truncate text-xs text-ink-subtle">{item.jobTitle}</p>
                   </div>
                   <ResultBadge result={item.result} />
                 </div>
               ))}
             </div>
           )}
-        </div>
+        </SectionCard>
       </div>
     </div>
   )

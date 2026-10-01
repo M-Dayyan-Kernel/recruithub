@@ -1,0 +1,53 @@
+# Server 2: Celery Beat + workers. Same .env.production as app server.
+#
+# Resume: 3 workers × autoscale 10,1 (peak 30).
+# Screening: 1 worker × autoscale 10,1.
+# Interviews: 2 workers × autoscale 12,1 and 13,1 (peak 25).
+
+x-worker-common: &worker-common
+  build:
+    context: ./backend
+    dockerfile: Dockerfile.worker
+  env_file:
+    - .env.production
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  volumes:
+    # Nested JSON logs (events/errors) → host ./backend/logs
+    - ./backend/logs:/app/logs
+  restart: unless-stopped
+
+services:
+  celery-beat:
+    <<: *worker-common
+    command: celery -A app.core.celery_app.celery_app beat --loglevel=info
+
+  celery-resume-1:
+    <<: *worker-common
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --autoscale=10,1
+
+  celery-resume-2:
+    <<: *worker-common
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --autoscale=10,1
+
+  celery-resume-3:
+    <<: *worker-common
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --autoscale=10,1
+
+  celery-screening:
+    <<: *worker-common
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q screening --autoscale=10,1
+    profiles:
+      - full
+
+  celery-interviews-a:
+    <<: *worker-common
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q interviews --autoscale=12,1
+    profiles:
+      - full
+
+  celery-interviews-b:
+    <<: *worker-common
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q interviews --autoscale=13,1
+    profiles:
+      - full

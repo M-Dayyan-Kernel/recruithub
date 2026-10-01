@@ -1,206 +1,256 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, Briefcase, ChevronRight } from 'lucide-react'
+import { ArrowRight, Briefcase, Calendar, ListChecks, Mic, Plus, Search, Trophy, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
-import { CreateJobModal } from '@/components/CreateJobModal'
-import { BackendError } from '@/components/BackendError'
+import { JobStatusBadge } from '@/components/JobStatusBadge'
+import { filterActiveJobs } from '@/lib/jobStatus'
+import { paletteFor } from '@/components/ui/OrgArt'
+import { PageHeader } from '@/components/ui/Surface'
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+function experienceLabel(job: Job): string | null {
+  const { experience_min: min, experience_max: max } = job
+  if (min != null && max != null) return `${min}–${max} years experience`
+  if (min != null) return `${min}+ years experience`
+  if (max != null) return `Up to ${max} years experience`
+  return null
+}
 
-function StatusBadge({ status }: { status: Job['status'] }) {
-  const cfg: Record<Job['status'], { label: string; className: string }> = {
-    open: { label: 'Open', className: 'bg-indigo-100 text-indigo-700' },
-    active: { label: 'Active', className: 'bg-indigo-100 text-indigo-700' },
-    closed: { label: 'Closed', className: 'bg-slate-100 text-slate-600' },
-    paused: { label: 'Paused', className: 'bg-amber-100 text-amber-700' },
-    draft: { label: 'Draft', className: 'bg-slate-100 text-slate-500' },
-  }
-  const { label, className } = cfg[status] ?? cfg.open
+function matchesQuery(job: Job, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const skills = (job.required_skills ?? []).join(' ').toLowerCase()
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${className}`}>
-      {label}
-    </span>
+    job.title.toLowerCase().includes(q) ||
+    (job.description ?? '').toLowerCase().includes(q) ||
+    skills.includes(q)
   )
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  })
+function shortDate(iso?: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-// ---------------------------------------------------------------------------
-// Skeleton row
-// ---------------------------------------------------------------------------
+function JobCard({ job }: { job: Job }) {
+  const expLabel = experienceLabel(job)
+  const tint = paletteFor(job.id)
+  const skills = job.required_skills ?? []
+  const screeningCount = job.screening_questions?.length ?? 0
+  const interviewCount = job.interview_questions?.length ?? 0
 
-function SkeletonRow() {
   return (
-    <tr className="border-b border-slate-50">
-      {[1, 2, 3, 4, 5].map(i => (
-        <td key={i} className="px-5 py-4">
-          <div className="h-4 bg-slate-200 rounded animate-pulse" style={{ width: i === 1 ? '60%' : i === 5 ? '40%' : '50%' }} />
-        </td>
-      ))}
-    </tr>
-  )
-}
+    <article className="group relative flex h-full min-w-0 flex-col overflow-hidden rounded-card border border-line bg-surface shadow-e2 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-e3">
+      <Link
+        to={`/jobs/${job.id}`}
+        className="absolute inset-0 z-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+        aria-label={`View ${job.title}`}
+      />
 
-// ---------------------------------------------------------------------------
-// Empty state
-// ---------------------------------------------------------------------------
-
-function EmptyState({ onCreateClick }: { onCreateClick: () => void }) {
-  return (
-    <div className="py-20 flex flex-col items-center justify-center text-center">
-      <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
-        <Briefcase size={28} className="text-indigo-400" />
-      </div>
-      <p className="text-slate-700 font-medium mb-1">No jobs yet</p>
-      <p className="text-slate-400 text-sm mb-5">Create your first job to get started.</p>
-      <button
-        onClick={onCreateClick}
-        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
+      {/* Tinted head: posted date, status, title, skills - the reference's shape. */}
+      <div
+        className="pointer-events-none relative z-10 p-5"
+        style={{ backgroundColor: tint.bg }}
       >
-        <Plus size={16} />
-        Create Job
-      </button>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/75 px-2.5 py-1 text-[11px] font-semibold text-ink backdrop-blur">
+            <Calendar className="h-3 w-3" />
+            {shortDate(job.created_at)}
+          </span>
+          <JobStatusBadge status={job.status} />
+        </div>
+
+        <h2 className="break-words text-[19px] font-bold leading-snug tracking-tight text-ink">
+          {job.title}
+        </h2>
+        {expLabel && <p className="mt-1 text-[12px] font-medium text-ink-muted">{expLabel}</p>}
+
+        {skills.length > 0 && (
+          <div className="mt-3.5 flex flex-wrap gap-1.5">
+            {skills.slice(0, 5).map((skill) => (
+              <span
+                key={skill}
+                className="max-w-full truncate rounded-full bg-white/70 px-2.5 py-1 text-[11px] font-medium text-ink-muted"
+              >
+                {skill}
+              </span>
+            ))}
+            {skills.length > 5 && (
+              <span className="rounded-full px-1.5 py-1 text-[11px] font-semibold text-ink-muted">
+                +{skills.length - 5}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Footer: what is configured on this job, then the way in. */}
+      <div className="relative z-10 mt-auto flex items-center justify-between gap-3 px-5 py-4">
+        <div className="pointer-events-none min-w-0">
+          <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-ink-muted">
+            <span className="inline-flex items-center gap-1">
+              <ListChecks className="h-3.5 w-3.5" />
+              <span className="font-mono font-semibold tabular-nums text-ink">
+                {interviewCount}
+              </span>
+              interview
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="font-mono font-semibold tabular-nums text-ink">
+                {screeningCount}
+              </span>
+              screening
+            </span>
+            {job.voice_screening_enabled && (
+              <span className="inline-flex items-center gap-1 text-accent">
+                <Mic className="h-3.5 w-3.5" />
+                Voice
+              </span>
+            )}
+          </p>
+          {job.interview_total_score != null && interviewCount > 0 && (
+            <p className="mt-0.5 text-[11px] text-ink-subtle">
+              Rubric total{' '}
+              <span className="font-mono font-semibold tabular-nums text-ink-muted">
+                {job.interview_total_score}
+              </span>
+            </p>
+          )}
+        </div>
+
+        <Link
+          to={`/jobs/${job.id}/finalists`}
+          className="relative z-10 inline-flex shrink-0 items-center gap-1.5 rounded-full bg-ink px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+        >
+          <Trophy className="h-3.5 w-3.5 shrink-0" />
+          Finalists
+          <ArrowRight className="h-3.5 w-3.5 shrink-0 transition-transform group-hover:translate-x-0.5" />
+        </Link>
+      </div>
+    </article>
+  )
+}
+
+function CardSkeleton() {
+  return (
+    <div className="animate-pulse rounded-card border border-line bg-surface p-5">
+      <div className="mb-2 h-5 w-1/3 rounded bg-surface-3" />
+      <div className="mb-2 h-3 w-1/4 rounded bg-surface-2" />
+      <div className="mb-2 h-4 w-full rounded bg-surface-2" />
+      <div className="mb-4 h-4 w-4/5 rounded bg-surface-2" />
+      <div className="h-10 w-24 rounded-lg bg-surface-2" />
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Main page
-// ---------------------------------------------------------------------------
-
 export default function JobsPage() {
-  const [showCreate, setShowCreate] = useState(false)
+  const [search, setSearch] = useState('')
 
   const { data: jobs, isLoading, isError, refetch } = useQuery<Job[]>({
     queryKey: ['jobs'],
     queryFn: () => api.get('/api/jobs') as unknown as Promise<Job[]>,
-    refetchInterval: 30_000,
   })
 
+  const activeJobs = useMemo(() => filterActiveJobs(jobs ?? []), [jobs])
+  const filteredJobs = useMemo(
+    () => activeJobs.filter((job) => matchesQuery(job, search)),
+    [activeJobs, search],
+  )
+
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      {showCreate && <CreateJobModal onClose={() => setShowCreate(false)} />}
+    <div className="mx-auto max-w-6xl">
+      <PageHeader
+        title="Jobs"
+        subtitle="Open positions. Jump into any hiring stage from the card actions."
+        actions={
+          <Link
+            to="/jobs/new"
+            className="inline-flex h-10 items-center gap-2 rounded-md bg-accent px-4 text-[13px] font-semibold text-accent-ink shadow-accent transition-colors hover:bg-accent-hover"
+          >
+            <Plus className="h-4 w-4" />
+            Create Job
+          </Link>
+        }
+      />
 
-      {/* Page header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Jobs</h1>
-          <p className="text-slate-500 text-sm mt-0.5">Manage your open positions and recruitment pipelines</p>
-        </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
-        >
-          <Plus size={16} />
-          Create New Job
-        </button>
-      </div>
-
-      {/* Error state */}
-      {isError && <BackendError onRetry={refetch} />}
-
-      {/* Table card */}
-      <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-slate-100 bg-slate-50">
-              <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                Title
-              </th>
-              <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                Status
-              </th>
-              <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                Candidates
-              </th>
-              <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                Created
-              </th>
-              <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {/* Loading skeleton */}
-            {isLoading && (
-              <>
-                <SkeletonRow />
-                <SkeletonRow />
-                <SkeletonRow />
-              </>
-            )}
-
-            {/* Loaded jobs */}
-            {!isLoading && !isError && jobs && jobs.length > 0 &&
-              jobs.map((job) => (
-                <tr key={job.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors group">
-                  {/* Title */}
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
-                        <Briefcase size={14} className="text-indigo-600" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-slate-900">{job.title}</p>
-                        {(job.required_skills?.length ?? 0) > 0 && (
-                          <p className="text-xs text-slate-400 mt-0.5">
-                            {job.required_skills.slice(0, 3).join(' · ')}
-                            {job.required_skills.length > 3 && ` +${job.required_skills.length - 3}`}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-
-                  {/* Status */}
-                  <td className="px-5 py-4">
-                    <StatusBadge status={job.status} />
-                  </td>
-
-                  {/* Candidates — backend doesn't return count yet; show dash gracefully */}
-                  <td className="px-5 py-4 text-sm text-slate-600">
-                    {'candidate_count' in job
-                      ? (job as Job & { candidate_count: number }).candidate_count
-                      : '—'}
-                  </td>
-
-                  {/* Created */}
-                  <td className="px-5 py-4 text-sm text-slate-500">
-                    {formatDate(job.created_at)}
-                  </td>
-
-                  {/* Actions */}
-                  <td className="px-5 py-4">
-                    <Link
-                      to={`/jobs/${job.id}`}
-                      className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-800 font-medium"
-                    >
-                      View
-                      <ChevronRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
-                    </Link>
-                  </td>
-                </tr>
-              ))
-            }
-          </tbody>
-        </table>
-
-        {/* Empty state — inside card, below thead */}
-        {!isLoading && !isError && jobs && jobs.length === 0 && (
-          <EmptyState onCreateClick={() => setShowCreate(true)} />
+      <div className="relative mb-5">
+        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-subtle" />
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search jobs by title, description, or skills…"
+          className="h-11 w-full rounded-full border border-line bg-surface pl-10 pr-10 text-sm text-ink shadow-e1 transition-colors placeholder:text-ink-subtle focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-soft"
+          aria-label="Search jobs"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch('')}
+            className="absolute right-3.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-ink-subtle hover:text-ink"
+            aria-label="Clear search"
+          >
+            <X className="h-4 w-4" />
+          </button>
         )}
       </div>
+
+      {isError && (
+        <div className="mb-4 rounded-md border border-neg/20 bg-neg-soft px-4 py-3 text-sm text-neg">
+          Failed to load jobs.{' '}
+          <button type="button" onClick={() => void refetch()} className="underline">
+            Retry
+          </button>
+        </div>
+      )}
+
+      {isLoading && (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <CardSkeleton key={i} />
+          ))}
+        </div>
+      )}
+
+      {!isLoading && activeJobs.length === 0 && (
+        <div className="rounded-card border border-dashed border-line-strong bg-surface px-6 py-16 text-center">
+          <Briefcase className="mx-auto mb-3 h-10 w-10 text-ink-subtle" />
+          <p className="text-sm font-semibold text-ink">No active jobs</p>
+          <p className="mt-1 text-sm text-ink-muted">Create a job to start hiring.</p>
+          <Link
+            to="/jobs/new"
+            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
+          >
+            <Plus className="h-4 w-4" />
+            Create Job
+          </Link>
+        </div>
+      )}
+
+      {!isLoading && activeJobs.length > 0 && filteredJobs.length === 0 && (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
+          <Search className="mx-auto mb-3 h-8 w-8 text-slate-300" />
+          <p className="text-sm font-medium text-slate-700">No jobs match “{search.trim()}”</p>
+          <button
+            type="button"
+            onClick={() => setSearch('')}
+            className="mt-3 text-sm font-medium text-indigo-600 hover:text-indigo-700"
+          >
+            Clear search
+          </button>
+        </div>
+      )}
+
+      {!isLoading && filteredJobs.length > 0 && (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {filteredJobs.map((job) => (
+            <JobCard key={job.id} job={job} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

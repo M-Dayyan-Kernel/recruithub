@@ -1,3 +1,5 @@
+@import './styles/tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,7 +7,7 @@
 @layer base {
   * {
     box-sizing: border-box;
-    border-color: theme('colors.zinc.200');
+    border-color: rgb(var(--line));
   }
 
   html {
@@ -15,8 +17,8 @@
 
   body {
     font-family: 'Inter', system-ui, sans-serif;
-    background-color: theme('colors.zinc.50');
-    color: theme('colors.zinc.900');
+    background-color: rgb(var(--bg));
+    color: rgb(var(--ink));
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
@@ -38,5 +40,32 @@
   .scrollbar-thin::-webkit-scrollbar-thumb {
     background-color: #334155;
     border-radius: 3px;
+  }
+
+  /*
+   * Light-surface variant. The browser default paints an opaque track, which
+   * reads as a stray bar against a white card; this keeps the track invisible
+   * and leaves only a slim thumb.
+   */
+  .scrollbar-thin-light {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.slate.300') transparent;
+  }
+
+  .scrollbar-thin-light::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin-light::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin-light::-webkit-scrollbar-thumb {
+    background-color: theme('colors.slate.300');
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin-light:hover::-webkit-scrollbar-thumb {
+    background-color: theme('colors.slate.400');
   }
 }

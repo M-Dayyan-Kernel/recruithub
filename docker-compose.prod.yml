@@ -1,0 +1,95 @@
+# Local all-in-one (Postgres + Redis + all services). For 2-server production see DEPLOY.md.
+#
+# Workers: 3× resume (10,1), 1× screening (10,1), 2× interviews (12,1 + 13,1).
+
+version: "3.9"
+
+x-celery-worker: &celery-worker
+  build:
+    context: ./backend
+    dockerfile: Dockerfile.worker
+  env_file:
+    - ./backend/.env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
+    REDIS_URL: redis://redis:6379/0
+  volumes:
+    - ./backend/logs:/app/logs
+  depends_on:
+    redis:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: ankane/pgvector:latest
+    environment:
+      POSTGRES_DB: ai_recruitment
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_recruitment"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-beat:
+    <<: *celery-worker
+    command: celery -A app.core.celery_app.celery_app beat --loglevel=info
+
+  celery-resume-1:
+    <<: *celery-worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --autoscale=10,1
+
+  celery-resume-2:
+    <<: *celery-worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --autoscale=10,1
+
+  celery-resume-3:
+    <<: *celery-worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q resume --autoscale=10,1
+
+  celery-screening:
+    <<: *celery-worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q screening --autoscale=10,1
+
+  celery-interviews-a:
+    <<: *celery-worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q interviews --autoscale=12,1
+
+  celery-interviews-b:
+    <<: *celery-worker
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q interviews --autoscale=13,1
+
+volumes:
+  postgres_data:

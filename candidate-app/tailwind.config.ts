@@ -10,6 +10,31 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        /**
+         * Candidate screen tokens, mirroring the approved preview. Only the
+         * accent differs from it: the preview's green is replaced by the
+         * product's existing indigo.
+         */
+        page: '#F3F4F6',
+        panel: {
+          DEFAULT: '#FFFFFF',
+          alt: '#F8F9FB',
+        },
+        ink: {
+          DEFAULT: '#1B2130',
+          muted: '#5B6273',
+        },
+        line: '#E3E5EA',
+        accent: {
+          DEFAULT: '#4f46e5', // indigo-600
+          ink: '#FFFFFF',
+          soft: '#EEF2FF',
+        },
+        warn: {
+          DEFAULT: '#C2542E',
+          soft: '#FBEAE3',
+        },
+
         // Primary — Indigo
         primary: {
           DEFAULT: '#4f46e5', // indigo-600
@@ -57,8 +82,27 @@ const config: Config = {
         xl: '0.75rem',
         '2xl': '1rem',
       },
+      backgroundImage: {
+        /**
+         * The page ground.
+         *
+         * The diagonal linear fade does the visible work and is listed last so
+         * it sits underneath: it scales to any viewport, where radial blooms
+         * anchored to the edges wash out entirely on a wide monitor. The three
+         * blooms on top are accent only. Light enough throughout that dark
+         * `ink` text stays far clear of any contrast limit. Pair with
+         * `bg-page`, which supplies the fallback colour.
+         */
+        app: [
+          'radial-gradient(ellipse 100% 60% at 50% 0%, rgba(99,102,241,0.16), transparent 70%)',
+          'radial-gradient(ellipse 80% 60% at 100% 100%, rgba(124,58,237,0.20), transparent 65%)',
+          'radial-gradient(ellipse 70% 55% at 0% 95%, rgba(79,70,229,0.14), transparent 65%)',
+          'linear-gradient(155deg, #FBFBFE 0%, #EFF1FB 40%, #E0E3F5 100%)',
+        ].join(','),
+      },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+        display: ['"Space Grotesk"', 'system-ui', 'sans-serif'],
       },
     },
   },

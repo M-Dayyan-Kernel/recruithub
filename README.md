@@ -22,7 +22,7 @@ docker compose up -d
 ```
 
 This starts:
-- **PostgreSQL 15** with pgvector extension on port 5432
+- **PostgreSQL 15** on port 5432
 - **Redis 7** on port 6379
 
 Health checks are configured. Wait ~15 seconds for both services to be ready.
@@ -53,6 +53,7 @@ pip install -r requirements.txt
 # Copy and edit environment file
 cp .env.example .env
 # Edit .env — at minimum set OPENAI_API_KEY
+# For free local dev without API costs, set MOCK_EXTERNAL_APIS=true (see MOCK_MODE.md)
 ```
 
 ### 3. Run Database Migrations
@@ -62,7 +63,7 @@ cp .env.example .env
 alembic upgrade head
 ```
 
-This creates all 6 tables including the pgvector column on `candidates`.
+This creates all application tables.
 
 ### 4. Start the API Server
 
@@ -74,12 +75,23 @@ API docs available at: http://localhost:8000/docs
 
 Health check: http://localhost:8000/health
 
-### 5. Start Celery Worker (separate terminal)
+### 5. Start Celery (separate terminals)
+
+Recommended: use `.\start-dev.ps1` from the project root (starts worker + beat automatically).
+
+Manual start from `backend/` with `.venv` activated:
 
 ```bash
-# From backend/ directory, with .venv activated
-celery -A app.core.celery_app.celery_app worker --loglevel=info
+# Worker — all queues (dev)
+celery -A app.core.celery_app.celery_app worker --loglevel=info --pool=solo --queues=resume,shortlist,screening,interviews
+
+# Beat — exactly one instance per environment
+celery -A app.core.celery_app.celery_app beat --loglevel=info
 ```
+
+Production queue topology and scaling: see [`backend/DEPLOY-CELERY.md`](backend/DEPLOY-CELERY.md).
+
+Celery health: http://localhost:8000/api/health/celery
 
 ---
 
@@ -89,6 +101,7 @@ See `.env.example` for all required variables.
 
 | Variable | Required By | Notes |
 |----------|------------|-------|
+| `MOCK_EXTERNAL_APIS` | Optional | `true` = mock OpenAI, Vapi, LiveKit, Gmail (see `MOCK_MODE.md`) |
 | `DATABASE_URL` | Always | postgresql+asyncpg://... |
 | `REDIS_URL` | Always | redis://localhost:6379/0 |
 | `OPENAI_API_KEY` | Sprint 3+ | Resume parsing, shortlisting, assessment |
@@ -97,6 +110,12 @@ See `.env.example` for all required variables.
 | `LIVEKIT_API_KEY` | Sprint 6+ | LiveKit Cloud |
 | `LIVEKIT_API_SECRET` | Sprint 6+ | LiveKit Cloud |
 | `LIVEKIT_URL` | Sprint 6+ | wss://your-project.livekit.cloud |
+| `S3_ACCESS_KEY` | Sprint 6+ | Linode Object Storage (egress recordings) |
+| `S3_SECRET_KEY` | Sprint 6+ | Linode Object Storage |
+| `S3_ENDPOINT` | Sprint 6+ | e.g. `https://in-maa-1.linodeobjects.com` |
+| `S3_REGION` | Sprint 6+ | e.g. `in-maa-1` |
+| `S3_BUCKET` | Sprint 6+ | Bucket for interview recordings |
+| `S3_FORCE_PATH_STYLE` | Sprint 6+ | `true` for Linode |
 | `RESEND_API_KEY` | Sprint 6+ | Interview link emails |
 
 ---
@@ -128,7 +147,7 @@ backend/
 │   ├── env.py               # Async Alembic env configuration
 │   ├── script.py.mako       # Migration file template
 │   └── versions/
-│       └── 0001_initial_schema.py  # All 6 tables + pgvector
+│       └── 0001_initial_schema.py  # Initial tables
 ├── alembic.ini
 ├── requirements.txt
 └── .env.example
@@ -138,7 +157,6 @@ backend/
 
 ## Development Notes
 
-- **No authentication** — POC intentionally open. All endpoints accessible without auth.
-- **Candidate App** uses UUID tokens for interview access (not full auth).
+- **Authentication** — JWT email/password for the HR App. Roles: `admin` (Settings + Users) and `hr` (hiring pipeline + archive). Candidate App still uses UUID interview tokens.
+- Set `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` in `.env` to create the first admin on startup.
 - Route handlers in `api/routes/` are stubbed with `501 Not Implemented`. They get filled sprint by sprint.
-- The pgvector column `resume_embedding` uses `text-embedding-3-small` (1536 dimensions).

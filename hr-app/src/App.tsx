@@ -1,12 +1,29 @@
-import { Routes, Route } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
-import Layout from '@/components/Layout'
 import DashboardPage from '@/pages/DashboardPage'
 import JobsPage from '@/pages/JobsPage'
-import JobDetailPage from '@/pages/JobDetailPage'
+import CreateJobPage from '@/pages/CreateJobPage'
+import JobLayout from '@/components/JobLayout'
+import JobDetailsPage from '@/pages/JobDetailsPage'
+import JobShortlistPage from '@/pages/JobShortlistPage'
+import JobScreeningPage from '@/pages/JobScreeningPage'
+import JobInterviewsPage from '@/pages/JobInterviewsPage'
+import JobFinalistsPage from '@/pages/JobFinalistsPage'
+import CandidatesPage from '@/pages/CandidatesPage'
+import CandidateProfilePage from '@/pages/CandidateProfilePage'
+import ArchivedJobsPage from '@/pages/ArchivedJobsPage'
+import SettingsPage from '@/pages/SettingsPage'
+import UsersPage from '@/pages/UsersPage'
+import ActivityPage from '@/pages/ActivityPage'
 import ReportPage from '@/pages/ReportPage'
+import ShortlistReportPage from '@/pages/ShortlistReportPage'
 import NotFoundPage from '@/pages/NotFoundPage'
+import LoginPage from '@/pages/LoginPage'
+import SignupPage from '@/pages/SignupPage'
+import AcceptInvitePage from '@/pages/AcceptInvitePage'
+import OrganizationsPage from '@/pages/OrganizationsPage'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { AdminRoute, AppShellRoute, ProtectedRoute } from '@/components/ProtectedRoute'
 
 export default function App() {
   return (
@@ -19,12 +36,45 @@ export default function App() {
         }}
       />
       <Routes>
-        <Route element={<Layout />}>
-          <Route index element={<DashboardPage />} />
-          <Route path="jobs" element={<JobsPage />} />
-          <Route path="jobs/:id" element={<JobDetailPage />} />
-          <Route path="jobs/:jobId/candidates/:candidateId/report" element={<ReportPage />} />
-          <Route path="*" element={<NotFoundPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/accept-invite" element={<AcceptInvitePage />} />
+
+        <Route element={<ProtectedRoute />}>
+          <Route element={<AppShellRoute />}>
+            <Route index element={<DashboardPage />} />
+            <Route path="admin" element={<OrganizationsPage />} />
+            <Route path="organizations" element={<Navigate to="/admin" replace />} />
+
+            <Route path="jobs" element={<JobsPage />} />
+            <Route path="jobs/new" element={<CreateJobPage />} />
+            <Route path="jobs/archived" element={<ArchivedJobsPage />} />
+            <Route path="jobs/:jobId" element={<JobLayout />}>
+              <Route index element={<JobDetailsPage />} />
+              <Route path="shortlist" element={<JobShortlistPage />} />
+              <Route path="screening" element={<JobScreeningPage />} />
+              <Route path="interviews" element={<JobInterviewsPage />} />
+              <Route path="finalists" element={<JobFinalistsPage />} />
+            </Route>
+            <Route
+              path="jobs/:jobId/candidates/:candidateId/report"
+              element={<ReportPage />}
+            />
+            <Route
+              path="jobs/:jobId/shortlist/:shortlistId"
+              element={<ShortlistReportPage />}
+            />
+
+            <Route path="candidates" element={<CandidatesPage />} />
+            <Route path="candidates/:candidateId" element={<CandidateProfilePage />} />
+
+            <Route element={<AdminRoute />}>
+              <Route path="activity" element={<ActivityPage />} />
+              <Route path="users" element={<UsersPage />} />
+              <Route path="settings" element={<SettingsPage />} />
+            </Route>
+            <Route path="*" element={<NotFoundPage />} />
+          </Route>
         </Route>
       </Routes>
     </ErrorBoundary>

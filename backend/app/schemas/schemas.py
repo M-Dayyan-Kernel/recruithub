@@ -1,13 +1,183 @@
+import re
 import uuid
-from datetime import datetime
-from typing import Optional, List
+from datetime import date, datetime, time
+from typing import Literal, Optional, List
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator, model_validator
+
+
+_PASSWORD_MIN_LEN = 12
+_PASSWORD_PATTERN = re.compile(
+    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?\":{}|<>_\-\[\]\\/+=~`]).+$"
+)
+
+# Name fields are stored in String(255) columns, but these are names — not prose.
+# Capped well below the column width so a pasted paragraph is rejected.
+# Keep in sync with `hr-app/src/lib/validation.ts`.
+_ORG_NAME_MAX_LEN = 100
+_PERSON_NAME_MAX_LEN = 80
+
+
+def validate_password_strength(password: str) -> str:
+    if len(password) < _PASSWORD_MIN_LEN:
+        raise ValueError(f"Password must be at least {_PASSWORD_MIN_LEN} characters")
+    if not _PASSWORD_PATTERN.match(password):
+        raise ValueError(
+            "Password must include uppercase, lowercase, a digit, and a special character"
+        )
+    return password
+
+
+def strip_required_text(value: str) -> str:
+    """Trim a required name field.
+
+    `Field(min_length=1)` runs before this, so whitespace-only input would
+    otherwise reach the service layer, which strips it down to an empty name.
+    """
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError("Value cannot be blank")
+    return stripped
+
+
+def strip_optional_text(value: Optional[str]) -> Optional[str]:
+    """Trim an optional name field, rejecting whitespace-only input."""
+    if value is None:
+        return None
+    return strip_required_text(value)
 
 
 # ---------------------------------------------------------------------------
 # Job schemas
 # ---------------------------------------------------------------------------
+
+#: Points a single rubric question can carry. Keep in sync with the web client.
+INTERVIEW_SCORE_MIN = 1
+INTERVIEW_SCORE_MAX = 100
+
+
+class InterviewQuestionPublic(BaseModel):
+    id: str
+    question: str
+    # Deliberately only lower-bounded here: this model also serialises stored
+    # rows, and a legacy score above the cap must still be readable. The
+    # 1..INTERVIEW_SCORE_MAX range is enforced on input by
+    # _normalize_interview_questions.
+    score: int = Field(gt=0)
+
+
+class InterviewQuestion(InterviewQuestionPublic):
+    expected_points: Optional[List[str]] = None
+
+
+class ScreeningQuestion(BaseModel):
+    id: str
+    question: str
+
+
+#: Sanity cap for years-of-experience fields; mirrored in the web client.
+EXPERIENCE_MAX_YEARS = 60
+
+
+def validate_experience_range(
+    minimum: Optional[int], maximum: Optional[int]
+) -> None:
+    """Reject negative years and an upper bound below the lower one."""
+    for value, label in ((minimum, "experience_min"), (maximum, "experience_max")):
+        if value is None:
+            continue
+        if value < 0:
+            raise ValueError(f"{label} cannot be negative")
+        if value > EXPERIENCE_MAX_YEARS:
+            raise ValueError(f"{label} cannot exceed {EXPERIENCE_MAX_YEARS} years")
+    if minimum is not None and maximum is not None and maximum < minimum:
+        raise ValueError("experience_max cannot be less than experience_min")
+
+
+def _normalize_screening_questions(questions: Optional[List]) -> List[dict]:
+    """Assign UUIDs to questions missing ids; validate non-empty text."""
+    if not questions:
+        return []
+    normalized: List[dict] = []
+    for item in questions:
+        if isinstance(item, ScreeningQuestion):
+            q = item
+        elif isinstance(item, dict):
+            q = ScreeningQuestion(
+                id=item.get("id") or str(uuid.uuid4()),
+                question=(item.get("question") or "").strip(),
+            )
+        else:
+            continue
+        if not q.question:
+            raise ValueError("Each screening question must have non-empty question text")
+        normalized.append(q.model_dump())
+    return normalized
+
+
+def _normalize_interview_questions(questions: Optional[List]) -> List[dict]:
+    """Assign UUIDs to questions missing ids; validate non-empty text and score >= 1."""
+    if not questions:
+        return []
+    normalized: List[dict] = []
+    for item in questions:
+        expected_points: Optional[List[str]] = None
+        if isinstance(item, InterviewQuestion):
+            q = item
+            expected_points = q.expected_points
+        elif isinstance(item, dict):
+            raw_points = item.get("expected_points")
+            if isinstance(raw_points, list):
+                expected_points = [str(p).strip() for p in raw_points if str(p).strip()]
+            q = InterviewQuestion(
+                id=item.get("id") or str(uuid.uuid4()),
+                question=(item.get("question") or "").strip(),
+                score=int(item.get("score") or 0),
+                expected_points=expected_points or None,
+            )
+        else:
+            continue
+        if not q.question:
+            raise ValueError("Each interview question must have non-empty question text")
+        if q.score < INTERVIEW_SCORE_MIN or q.score > INTERVIEW_SCORE_MAX:
+            raise ValueError(
+                f"Each interview question must have a score between "
+                f"{INTERVIEW_SCORE_MIN} and {INTERVIEW_SCORE_MAX}"
+            )
+        from app.services.interview_question_constraints import (
+            validate_oral_interview_question,
+            validate_technical_interview_question,
+        )
+
+        validate_oral_interview_question(q.question)
+        validate_technical_interview_question(q.question)
+        dumped = q.model_dump()
+        normalized.append(dumped)
+    return normalized
+
+
+def _strip_expected_points_from_questions(questions: Optional[List]) -> List[dict]:
+    """Return interview questions without expected_points for public API responses."""
+    if not questions:
+        return []
+    result: List[dict] = []
+    for item in questions:
+        if isinstance(item, InterviewQuestionPublic):
+            result.append(item.model_dump())
+        elif isinstance(item, InterviewQuestion):
+            result.append(InterviewQuestionPublic(**item.model_dump()).model_dump())
+        elif isinstance(item, dict):
+            result.append(
+                InterviewQuestionPublic(
+                    id=str(item.get("id") or ""),
+                    question=(item.get("question") or "").strip(),
+                    score=int(item.get("score") or 0),
+                ).model_dump()
+            )
+        else:
+            continue
+    return result
+
 
 class JobCreate(BaseModel):
     title: str
@@ -15,9 +185,29 @@ class JobCreate(BaseModel):
     required_skills: Optional[List[str]] = None
     experience_min: int = 0
     experience_max: int = 0
-    screening_criteria: Optional[str] = None
-    interview_evaluation_criteria: Optional[str] = None
+    # None means "not supplied" — the service fills in defaults. An explicit []
+    # means the caller deliberately cleared them and must be honoured, not
+    # silently repopulated.
+    screening_questions: Optional[List[ScreeningQuestion]] = None
+    interview_questions: List[InterviewQuestion] = []
+    voice_screening_enabled: bool = True
     status: str = "active"
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_questions(cls, data):
+        if isinstance(data, dict):
+            data = dict(data)
+            if "interview_questions" in data:
+                data["interview_questions"] = _normalize_interview_questions(data.get("interview_questions"))
+            if data.get("screening_questions") is not None:
+                data["screening_questions"] = _normalize_screening_questions(data.get("screening_questions"))
+        return data
+
+    @model_validator(mode="after")
+    def check_experience_range(self):
+        validate_experience_range(self.experience_min, self.experience_max)
+        return self
 
 
 class JobUpdate(BaseModel):
@@ -26,9 +216,31 @@ class JobUpdate(BaseModel):
     required_skills: Optional[List[str]] = None
     experience_min: Optional[int] = None
     experience_max: Optional[int] = None
-    screening_criteria: Optional[str] = None
-    interview_evaluation_criteria: Optional[str] = None
+    screening_questions: Optional[List[ScreeningQuestion]] = None
+    interview_questions: Optional[List[InterviewQuestion]] = None
+    screening_call_from: Optional[time] = None
+    screening_call_to: Optional[time] = None
+    screening_timezone: Optional[str] = None
+    voice_screening_enabled: Optional[bool] = None
     status: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_questions(cls, data):
+        if isinstance(data, dict):
+            data = dict(data)
+            if data.get("interview_questions") is not None:
+                data["interview_questions"] = _normalize_interview_questions(data.get("interview_questions"))
+            if data.get("screening_questions") is not None:
+                data["screening_questions"] = _normalize_screening_questions(data.get("screening_questions"))
+        return data
+
+    @model_validator(mode="after")
+    def check_experience_range(self):
+        # Only catches what this payload carries; a PATCH that moves one bound
+        # against the job's stored other bound is checked in JobService.update.
+        validate_experience_range(self.experience_min, self.experience_max)
+        return self
 
 
 class JobResponse(BaseModel):
@@ -40,11 +252,119 @@ class JobResponse(BaseModel):
     required_skills: Optional[List[str]] = None
     experience_min: int
     experience_max: int
-    screening_criteria: Optional[str] = None
-    interview_evaluation_criteria: Optional[str] = None
+    screening_questions: List[ScreeningQuestion] = []
+    interview_questions: List[InterviewQuestionPublic] = []
+    screening_call_from: Optional[time] = None
+    screening_call_to: Optional[time] = None
+    screening_timezone: str = "Asia/Kolkata"
+    voice_screening_enabled: bool = True
     status: str
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("screening_questions", mode="before")
+    @classmethod
+    def coerce_screening_questions(cls, value):
+        if value is None:
+            return []
+        return value
+
+    @field_validator("interview_questions", mode="before")
+    @classmethod
+    def coerce_interview_questions(cls, value):
+        if value is None:
+            return []
+        return _strip_expected_points_from_questions(value)
+
+    @computed_field
+    @property
+    def interview_total_score(self) -> int:
+        return sum(q.score for q in self.interview_questions)
+
+
+class JobParseResponse(BaseModel):
+    title: str
+    description: str
+    required_skills: List[str] = []
+    experience_min: Optional[int] = None
+    experience_max: Optional[int] = None
+    screening_questions: List[ScreeningQuestion] = []
+    interview_questions: List[InterviewQuestionPublic] = []
+
+
+# ---------------------------------------------------------------------------
+# System settings schemas
+# ---------------------------------------------------------------------------
+
+class SystemSettingsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    allowed_phone_regions: List[str]
+    enforce_phone_geography: bool
+    screening_enabled: bool
+    screening_max_retries: int
+    screening_retry_delay_seconds: int
+    company_name: str = "Webknot Technologies"
+    updated_at: datetime
+
+
+class EmailTemplateEntry(BaseModel):
+    subject: str
+    body_html: str
+    version: int = 1
+    updated_at: Optional[str] = None
+
+
+class EmailTemplatesResponse(BaseModel):
+    templates: dict[str, EmailTemplateEntry]
+    required_placeholders: dict[str, List[str]]
+    common_placeholders: List[str] = ["{{company_name}}"]
+    company_name: str = "Webknot Technologies"
+
+
+class EmailTemplateUpdate(BaseModel):
+    subject: str
+    body_html: str
+
+
+class EmailTemplatePreviewRequest(BaseModel):
+    subject: str
+    body_html: str
+
+
+class EmailTemplatePreviewResponse(BaseModel):
+    subject: str
+    body_html: str
+
+
+class EmailTemplateTestRequest(BaseModel):
+    to_email: str
+    subject: str
+    body_html: str
+
+
+class SystemSettingsUpdate(BaseModel):
+    allowed_phone_regions: Optional[List[str]] = None
+    enforce_phone_geography: Optional[bool] = None
+    screening_enabled: Optional[bool] = None
+    screening_max_retries: Optional[int] = None
+    screening_retry_delay_seconds: Optional[int] = None
+    company_name: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Screening trigger schemas
+# ---------------------------------------------------------------------------
+
+class ScreeningTriggerRequest(BaseModel):
+    candidate_ids: List[str]
+    force: bool = False
+
+
+class ScreeningTriggerResponse(BaseModel):
+    initiated: int
+    queued: int = 0
+    skipped: List[dict] = []
 
 
 # ---------------------------------------------------------------------------
@@ -59,13 +379,20 @@ class CandidateCreate(BaseModel):
 
 
 class CandidateUpdate(BaseModel):
-    """Partial update for a candidate's mutable contact fields."""
+    """Partial update for a candidate's mutable fields."""
     phone: Optional[str] = None
     name: Optional[str] = None
     email: Optional[str] = None
+    status: Optional[str] = None
+    years_experience: Optional[float] = None
+    current_ctc: Optional[str] = None
+    expected_ctc: Optional[str] = None
+    notice_period: Optional[str] = None
+    last_working_day: Optional[date] = None
 
 
 class CandidateResponse(BaseModel):
+    """Summary candidate fields for list views (no resume body or storage paths)."""
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -73,12 +400,53 @@ class CandidateResponse(BaseModel):
     name: str
     email: str
     phone: Optional[str] = None
-    resume_file_path: Optional[str] = None
-    original_filename: Optional[str] = None  # Original upload filename
-    resume_raw_text: Optional[str] = None
-    parsed_data: Optional[dict] = None
-    parse_status: str
+    original_filename: Optional[str] = None
+    pipeline_status: str
+    status: str = "active"
+    years_experience: Optional[float] = None
+    current_ctc: Optional[str] = None
+    expected_ctc: Optional[str] = None
+    notice_period: Optional[str] = None
+    last_working_day: Optional[date] = None
     created_at: datetime
+
+
+class CandidateDetailResponse(CandidateResponse):
+    """Full candidate detail including parsed resume data (HR/admin only)."""
+    resume_file_path: Optional[str] = None
+    parsed_data: Optional[dict] = None
+    pipeline_error: Optional[str] = None
+
+
+class CandidateListItem(BaseModel):
+    """Tenant-wide candidate directory list row."""
+    id: uuid.UUID
+    job_id: uuid.UUID
+    job_title: str
+    name: str
+    email: str
+    phone: Optional[str] = None
+    years_experience: Optional[float] = None
+    current_ctc: Optional[str] = None
+    expected_ctc: Optional[str] = None
+    notice_period: Optional[str] = None
+    last_working_day: Optional[date] = None
+    hiring_stage: str
+    match_score: Optional[float] = None
+    status: str
+    date_applied: datetime
+    pipeline_status: str
+
+
+class CandidateProfileResponse(CandidateListItem):
+    """Full candidate profile for the directory module."""
+    parsed_data: Optional[dict] = None
+    resume_file_path: Optional[str] = None
+    pipeline_error: Optional[str] = None
+    shortlist: Optional["ShortlistResultResponse"] = None
+    screening: Optional["ScreeningCallResponse"] = None
+    interview_sessions: List["InterviewSessionResponse"] = []
+    timeline: List["AuditLogResponse"] = []
 
 
 class ResumeUploadResponse(BaseModel):
@@ -87,6 +455,9 @@ class ResumeUploadResponse(BaseModel):
     skipped: int
     skipped_files: List[str]
     candidate_ids: List[str]
+    extracted_from_zip: int = 0
+    skipped_oversized: List[str] = []
+    worker_warning: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +478,8 @@ class ShortlistResultResponse(BaseModel):
     hr_decision: str
     hr_feedback_type: Optional[str] = None
     hr_comments: Optional[str] = None
+    model_name: Optional[str] = None
+    prompt_version: Optional[str] = None
     created_at: datetime
 
 
@@ -124,9 +497,29 @@ class ShortlistDecisionUpdate(BaseModel):
     hr_decision: str  # approved / rejected / overridden
 
 
+class ShortlistDecisionResponse(ShortlistResultResponse):
+    screening_skipped: bool = False
+    interview_session_id: Optional[uuid.UUID] = None
+    interview_email_sent: Optional[bool] = None
+
+
 class ShortlistFeedbackCreate(BaseModel):
     hr_feedback_type: str  # correctly_shortlisted / incorrectly_shortlisted / correctly_rejected / incorrectly_rejected
     hr_comments: Optional[str] = None
+
+
+class ShortlistTriggerRequest(BaseModel):
+    """Optional body for POST /api/jobs/{job_id}/shortlist."""
+    candidate_ids: Optional[List[uuid.UUID]] = None
+    force: bool = False
+
+
+class ShortlistStatusResponse(BaseModel):
+    in_progress: bool
+    candidate_ids: List[str]
+    completed: int
+    total: int
+    failed: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +549,14 @@ class ScreeningCallResponse(BaseModel):
     ended_reason: Optional[str] = None
     call_outcome: Optional[str] = None
     retry_count: int = 0
+    interview_queued_at: Optional[datetime] = None
+    has_interview_session: bool = False
     created_at: datetime
+
+
+class ScreeningResultUpdate(BaseModel):
+    """HR override of AI screening result."""
+    result: str  # pass | fail | needs_review
 
 
 # ---------------------------------------------------------------------------
@@ -172,16 +572,34 @@ class InterviewSessionResponse(BaseModel):
     unique_token: str
     livekit_room_name: Optional[str] = None
     status: str
+    hr_decision: str = "pending"  # pending | approved | rejected
     email_sent_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    scheduled_interview_at: Optional[datetime] = None
     created_at: datetime
     egress_id: Optional[str] = None  # LiveKit egress recording ID
+    recording_key: Optional[str] = None  # S3 object key for egress recording
     expires_at: Optional[datetime] = None  # Link expiry timestamp
     # Enriched fields (not stored on the model — set in route handlers)
     interview_url: Optional[str] = None
     candidate_name: Optional[str] = None
     job_title: Optional[str] = None
+    mock_mode: bool = False
+    capacity_available: Optional[bool] = None
+    retry_after_minutes: Optional[int] = None
+
+
+class InterviewHrDecisionUpdate(BaseModel):
+    """HR approve/reject after a completed interview."""
+    hr_decision: Literal["approved", "rejected"]
+
+
+class InterviewScheduleRequest(BaseModel):
+    """Schedule an AI interview for a specific date and time (job timezone)."""
+    scheduled_date: str = Field(description="YYYY-MM-DD")
+    scheduled_time: str = Field(description="HH:MM (24h)")
+    timezone: str = Field(default="Asia/Kolkata", description="IANA timezone")
 
 
 class InterviewStartResponse(BaseModel):
@@ -191,9 +609,117 @@ class InterviewStartResponse(BaseModel):
     livekit_url: str
 
 
+class InterviewPipelineCounts(BaseModel):
+    pending: int
+    scheduled: int
+    ongoing: int
+    completed: int
+    flagged: int = 0
+    finalists: int = 0
+
+
+class InterviewPipelineCandidate(BaseModel):
+    candidate_id: uuid.UUID
+    candidate_name: Optional[str] = None
+    tab: Literal["pending", "scheduled", "ongoing", "completed", "flagged", "finalists"]
+    has_report: bool
+    session: Optional[InterviewSessionResponse] = None
+    report_overall_score: Optional[float] = None
+    report_recommendation: Optional[str] = None
+    assessment_status: Literal["none", "generating", "ready", "failed"] = "none"
+    flag_reason: Optional[str] = None
+    can_reschedule: bool = False
+    actions_disabled: bool = False
+    has_active_session: bool = False
+    hr_decision: Optional[str] = None
+
+
+class InterviewPipelineResponse(BaseModel):
+    counts: InterviewPipelineCounts
+    candidates: List[InterviewPipelineCandidate]
+
+
+class FinalistCandidate(BaseModel):
+    candidate_id: uuid.UUID
+    session_id: uuid.UUID
+    candidate_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    current_ctc: Optional[str] = None
+    expected_ctc: Optional[str] = None
+    total_experience_years: Optional[float] = None
+    report_overall_score: Optional[float] = None
+    report_recommendation: Optional[str] = None
+    hr_decision: str = "approved"
+    completed_at: Optional[datetime] = None
+
+
+class FinalistsResponse(BaseModel):
+    candidates: List[FinalistCandidate]
+
+
 # ---------------------------------------------------------------------------
 # InterviewReport schemas
 # ---------------------------------------------------------------------------
+
+class PointCoverage(BaseModel):
+    point: str
+    covered: bool
+
+
+class InterviewQuestionScore(BaseModel):
+    id: str
+    question: str
+    score: int
+    earned_score: Optional[int] = None
+    notes: Optional[str] = None
+    candidate_answer: Optional[str] = None
+    expected_points: Optional[List[str]] = None
+    candidate_points: Optional[List[str]] = None
+    point_coverage: Optional[List[PointCoverage]] = None
+
+
+class TranscriptSegment(BaseModel):
+    speaker: Literal["ai", "candidate"]
+    text: str
+    start_sec: float
+    end_sec: float
+
+
+class VideoProctoringFlag(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    timestamp: str = ""
+    event: str = ""
+    severity: str = ""
+    confidence: float = 0.0
+
+
+class VideoProctoringBreakdown(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    face: int = 0
+    gaze: int = 0
+    objects: int = 0
+
+
+class VideoProctoringResult(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    duration: Optional[str] = None
+    frame_count: Optional[int] = None
+    flags: Optional[List[VideoProctoringFlag]] = None
+    verdict: Optional[str] = None
+    score: Optional[int] = None
+    flag_count: Optional[int] = None
+    breakdown: Optional[VideoProctoringBreakdown] = None
+
+
+class VideoProctoringSummary(BaseModel):
+    status: str
+    error: Optional[str] = None
+    result: Optional[VideoProctoringResult] = None
+
 
 class InterviewReportResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -219,3 +745,269 @@ class InterviewReportResponse(BaseModel):
     # Enriched fields — not stored on the model, populated by route handler via joins
     candidate_name: Optional[str] = None
     job_title: Optional[str] = None
+    question_scores: Optional[List[InterviewQuestionScore]] = None
+    rubric_total: Optional[int] = None
+    transcript: Optional[str] = None
+    transcript_segments: Optional[List[TranscriptSegment]] = None
+    # Presigned Linode/S3 URL for LiveKit egress recording (short-lived; not stored)
+    recording_url: Optional[str] = None
+    recording_key: Optional[str] = None
+    video_proctoring: Optional[VideoProctoringSummary] = None
+
+
+# ---------------------------------------------------------------------------
+# Auth / User schemas (RBAC)
+# ---------------------------------------------------------------------------
+
+RoleLiteral = Literal["superadmin", "admin", "hr"]
+TenantMemberRoleLiteral = Literal["admin", "hr"]
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=1)
+
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    email: EmailStr
+    full_name: str
+    role: RoleLiteral
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    tenant_name: Optional[str] = None
+    home_tenant_id: Optional[uuid.UUID] = None
+    active_tenant_id: Optional[uuid.UUID] = None
+    active_tenant_name: Optional[str] = None
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    refresh_token: Optional[str] = None
+    user: UserResponse
+
+
+class SignupRequest(BaseModel):
+    organization_name: str = Field(..., min_length=1, max_length=_ORG_NAME_MAX_LEN)
+    email: EmailStr
+    password: str = Field(..., min_length=12, max_length=128)
+    full_name: str = Field(..., min_length=1, max_length=_PERSON_NAME_MAX_LEN)
+
+    @field_validator("organization_name", "full_name")
+    @classmethod
+    def _strip_text(cls, v: str) -> str:
+        return strip_required_text(v)
+
+    @field_validator("password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        return validate_password_strength(v)
+
+
+class SignupPendingResponse(BaseModel):
+    """Returned after self-signup — account exists but access waits for approval."""
+
+    message: str
+    organization_name: str
+    email: EmailStr
+    verification_status: Literal["pending"] = "pending"
+
+
+class AcceptInviteRequest(BaseModel):
+    token: str = Field(..., min_length=10, max_length=128)
+    password: str = Field(..., min_length=12, max_length=128)
+    full_name: str = Field(..., min_length=1, max_length=_PERSON_NAME_MAX_LEN)
+
+    @field_validator("full_name")
+    @classmethod
+    def _strip_text(cls, v: str) -> str:
+        return strip_required_text(v)
+
+    @field_validator("password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        return validate_password_strength(v)
+
+
+class InviteCreateRequest(BaseModel):
+    email: EmailStr
+    role: TenantMemberRoleLiteral = "hr"
+
+
+class InviteResponse(BaseModel):
+    id: uuid.UUID
+    email: EmailStr
+    role: TenantMemberRoleLiteral
+    token: str
+    invite_url: str
+    expires_at: datetime
+    created_at: datetime
+    email_sent: bool = False
+
+
+class InviteListItem(BaseModel):
+    id: uuid.UUID
+    email: EmailStr
+    role: TenantMemberRoleLiteral
+    invite_url: str
+    expires_at: datetime
+    created_at: datetime
+    status: Literal["pending", "expired"]
+
+
+class InvitePublicResponse(BaseModel):
+    email: EmailStr
+    role: TenantMemberRoleLiteral
+    organization_name: str
+    expires_at: datetime
+
+
+class SwitchTenantRequest(BaseModel):
+    tenant_id: uuid.UUID
+
+
+class TenantResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    slug: str
+    is_active: bool = True
+    verification_status: Literal["pending", "approved", "rejected"] = "approved"
+    company_registration_number: Optional[str] = None
+    gst_document_filename: Optional[str] = None
+    created_at: datetime
+
+
+class TenantListItem(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    is_active: bool
+    verification_status: Literal["pending", "approved", "rejected"] = "approved"
+    company_registration_number: Optional[str] = None
+    gst_document_filename: Optional[str] = None
+    has_gst_document: bool = False
+    admin_email: Optional[str] = None
+    admin_full_name: Optional[str] = None
+    created_at: datetime
+    user_count: int = 0
+    job_count: int = 0
+
+
+class TenantCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=_ORG_NAME_MAX_LEN)
+    admin_email: EmailStr
+    admin_full_name: str = Field(..., min_length=1, max_length=_PERSON_NAME_MAX_LEN)
+    admin_password: str = Field(..., min_length=12, max_length=128)
+
+    @field_validator("name", "admin_full_name")
+    @classmethod
+    def _strip_text(cls, v: str) -> str:
+        return strip_required_text(v)
+
+    @field_validator("admin_password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        return validate_password_strength(v)
+
+
+class TenantUpdateRequest(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=_ORG_NAME_MAX_LEN)
+    is_active: Optional[bool] = None
+
+    @field_validator("name")
+    @classmethod
+    def _strip_text(cls, v: Optional[str]) -> Optional[str]:
+        return strip_optional_text(v)
+
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    full_name: str = Field(..., min_length=1, max_length=_PERSON_NAME_MAX_LEN)
+    password: str = Field(..., min_length=12, max_length=128)
+    role: TenantMemberRoleLiteral = "hr"
+
+    @field_validator("full_name")
+    @classmethod
+    def _strip_text(cls, v: str) -> str:
+        return strip_required_text(v)
+
+    @field_validator("password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        return validate_password_strength(v)
+
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = Field(None, min_length=1, max_length=_PERSON_NAME_MAX_LEN)
+    role: Optional[TenantMemberRoleLiteral] = None
+    password: Optional[str] = Field(None, min_length=12, max_length=128)
+    is_active: Optional[bool] = None
+
+    @field_validator("full_name")
+    @classmethod
+    def _strip_text(cls, v: Optional[str]) -> Optional[str]:
+        return strip_optional_text(v)
+
+    @field_validator("password")
+    @classmethod
+    def _password_strength(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return validate_password_strength(v)
+
+
+class PaginatedResponse(BaseModel):
+    items: list
+    total: int
+    limit: int
+    offset: int
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=10)
+
+
+class MfaSetupResponse(BaseModel):
+    secret: str
+    provisioning_uri: str
+
+
+class MfaVerifyRequest(BaseModel):
+    code: str = Field(..., min_length=6, max_length=8)
+
+
+# ---------------------------------------------------------------------------
+# Audit log schemas
+# ---------------------------------------------------------------------------
+
+class AuditLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    created_at: datetime
+    tenant_id: Optional[uuid.UUID] = None
+    actor_user_id: Optional[uuid.UUID] = None
+    actor_name: str
+    actor_role: str
+    action: str
+    entity_type: str
+    entity_id: Optional[uuid.UUID] = None
+    subject_label: str
+    feature: str
+    before_state: Optional[dict] = None
+    after_state: Optional[dict] = None
+    job_id: Optional[uuid.UUID] = None
+
+
+class AuditLogListResponse(BaseModel):
+    items: List[AuditLogResponse]
+    total: int
+    limit: int
+    offset: int

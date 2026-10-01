@@ -13,11 +13,16 @@ Pattern:
 
 Usage:
     python interview_agent.py dev
+
+Note: This worker process still reads LiveKit/OpenAI credentials from process
+environment (.env). Per-tenant LiveKit projects require a dedicated agent per
+tenant; backend room/token creation uses tenant credentials from SystemSettings.
 """
 
 import asyncio
 import logging
 import os
+import time
 import uuid
 
 from dotenv import load_dotenv
@@ -31,10 +36,19 @@ from livekit.agents import (
     JobContext,
     TurnHandlingOptions,
     cli,
-    inference,
     room_io,
 )
 from livekit.plugins import openai as lk_openai
+
+from app.prompts.interview import (
+    build_candidate_greeting,
+    build_default_interview_prompt,
+    build_interview_structure,
+    build_interview_system_prompt,
+    build_start_interview_instruction,
+    format_rubric_block,
+)
+from app.core.config_loader import config
 
 logger = logging.getLogger("interview-agent")
 logging.basicConfig(level=logging.INFO)
@@ -50,7 +64,41 @@ except ImportError:
     _AIC_AVAILABLE = False
     logger.warning("livekit-plugins-ai-coustics not installed — noise cancellation disabled")
 
-AGENT_NAME = "interview-agent"
+AGENT_NAME = config.livekit.agent_name
+
+
+def _validate_agent_env() -> None:
+    """Fail fast with a clear message when required env vars are missing."""
+    missing = [
+        name
+        for name in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "OPENAI_API_KEY")
+        if not (os.environ.get(name) or "").strip()
+    ]
+    if missing:
+        raise RuntimeError(
+            "Interview agent cannot start — set in backend/.env: "
+            + ", ".join(missing)
+            + ". Then run: python interview_agent.py dev"
+        )
+
+
+def _validate_agent_env_on_startup() -> None:
+    try:
+        _validate_agent_env()
+    except RuntimeError as exc:
+        logger.error(str(exc))
+        raise SystemExit(1) from exc
+
+
+def _format_rubric_block(questions: list) -> str:
+    return format_rubric_block(questions)
+
+
+def _build_interview_structure(job) -> str:
+    return build_interview_structure(
+        job,
+        max_follow_ups_per_topic=config.interview.max_follow_ups_per_topic,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -94,35 +142,23 @@ async def _load_session_data(session_id: str) -> tuple[str, str, str]:
         exp_years = parsed.get("total_experience_years", "unknown")
         current_role = parsed.get("current_role", "unknown")
         current_company = parsed.get("current_company", "unknown")
-        eval_criteria = job.interview_evaluation_criteria or "Problem solving and communication skills."
+        required_skills = ", ".join(job.required_skills or []) or "not specified"
+        interview_structure = _build_interview_structure(job)
 
-        prompt = f"""You are a professional AI interviewer conducting a structured technical interview on behalf of Webknot Technologies. Speak naturally — this is a voice conversation.
+        prompt = build_interview_system_prompt(
+            candidate_name=candidate.name,
+            current_role=current_role,
+            current_company=current_company,
+            experience_years=exp_years,
+            skills=skills,
+            job_title=job.title,
+            required_skills=required_skills,
+            job_description=job.description or "",
+            interview_structure=interview_structure,
+            max_follow_ups_per_topic=config.interview.max_follow_ups_per_topic,
+        )
 
-CANDIDATE: {candidate.name}
-CURRENT ROLE: {current_role} at {current_company}  
-EXPERIENCE: {exp_years} years
-SKILLS: {skills}
-ROLE: {job.title}
-JOB: {(job.description or '')[:400]}
-EVALUATION: {eval_criteria}
-
-INTERVIEW STRUCTURE (follow this order):
-1. You have already greeted the candidate — move straight to asking for a brief self-introduction
-2. Ask 2-3 technical questions relevant to {job.title} and their skills — ask follow-ups based on answers
-3. One behavioural question (challenging project, conflict resolution, or leadership)
-4. Ask about their interest in this role at Webknot
-5. Let them ask one or two questions
-6. Close warmly — thank them, say the hiring team will follow up
-
-VOICE RULES:
-- Speak in short, natural sentences — this is voice, not text
-- No bullet points, no markdown, no lists
-- Listen and ask follow-ups based on what they say
-- Be warm, encouraging, and professional
-- Keep total interview to 10-15 minutes
-- Do NOT reveal scores or make hiring decisions on the call"""
-
-        greeting = f"Hello {candidate.name}! I'm your AI interviewer from Webknot Technologies today. Thank you for joining us. I'd love to start by having you tell me a little about yourself and your background."
+        greeting = build_candidate_greeting(candidate.name)
 
         return prompt, candidate.name, greeting
 
@@ -132,16 +168,59 @@ VOICE RULES:
 
 
 def _default_prompt() -> str:
-    return """You are a professional AI interviewer at Webknot Technologies conducting a voice interview.
-Cover: background, technical skills, a behavioural question, and role interest. Be warm and encouraging.
-Speak in short natural sentences — no markdown or bullet points."""
+    return build_default_interview_prompt(config.interview.max_follow_ups_per_topic)
 
 
 # ---------------------------------------------------------------------------
 # Save transcript to DB
 # ---------------------------------------------------------------------------
 
-async def _save_transcript(session_id: str, transcript: str) -> None:
+async def _load_session_anchor(session_id: str) -> float | None:
+    """Return started_at as unix timestamp for transcript/video alignment."""
+    import sys
+    sys.path.insert(0, os.path.dirname(__file__))
+
+    from sqlalchemy import select
+    from app.core.database import get_celery_db
+    from app.models.models import InterviewSession
+
+    try:
+        async with get_celery_db() as db:
+            session = (await db.execute(
+                select(InterviewSession).where(InterviewSession.id == uuid.UUID(session_id))
+            )).scalars().first()
+            if session and session.started_at:
+                return session.started_at.timestamp()
+    except Exception as exc:
+        logger.warning("Could not load session anchor (%s)", exc)
+    return None
+
+
+def _elapsed_sec(anchor: float, ts: float) -> float:
+    return max(0.0, round(ts - anchor, 2))
+
+
+def _append_segment(
+    segments: list[dict],
+    speaker: str,
+    text: str,
+    start_sec: float,
+    end_sec: float,
+) -> None:
+    end_sec = max(start_sec, round(end_sec, 2))
+    segments.append({
+        "speaker": speaker,
+        "text": text.strip(),
+        "start_sec": round(start_sec, 2),
+        "end_sec": end_sec,
+    })
+
+
+async def _save_transcript(
+    session_id: str,
+    transcript: str,
+    segments: list[dict] | None = None,
+) -> None:
     import sys
     sys.path.insert(0, os.path.dirname(__file__))
     from sqlalchemy import select
@@ -155,10 +234,42 @@ async def _save_transcript(session_id: str, transcript: str) -> None:
             )).scalars().first()
             if session:
                 session.transcript = transcript
+                if segments:
+                    session.transcript_segments = segments
                 await db.commit()
-                logger.info("Transcript saved: session=%s chars=%d", session_id, len(transcript))
+                logger.info(
+                    "Transcript saved: session=%s chars=%d segments=%d",
+                    session_id,
+                    len(transcript),
+                    len(segments or []),
+                )
     except Exception as exc:
         logger.error("Failed to save transcript: %s", exc)
+
+
+async def _finalize_session(
+    session_id: str,
+    transcript_lines: list[str],
+    transcript_segments: list[dict],
+) -> None:
+    """Save transcript and schedule assessment (idempotent via Celery)."""
+    if not session_id:
+        return
+    if transcript_lines:
+        await _save_transcript(
+            session_id,
+            "\n".join(transcript_lines),
+            transcript_segments or None,
+        )
+    try:
+        import sys
+        sys.path.insert(0, os.path.dirname(__file__))
+        from app.tasks.interview_tasks import enqueue_interview_assessment
+
+        enqueue_interview_assessment(session_id)
+        logger.info("Assessment scheduled for session=%s", session_id)
+    except Exception as exc:
+        logger.error("Failed to schedule assessment for session=%s: %s", session_id, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -177,96 +288,21 @@ async def interview_session(ctx: JobContext):
 
     logger.info("Interview agent dispatched: room=%s session_id=%s", room_name, session_id)
 
-    # Load candidate/job data from DB
-    system_prompt, candidate_name, greeting = (
-        await _load_session_data(session_id) if session_id
-        else (_default_prompt(), "Candidate", "Hello! I am your AI interviewer. Let us begin.")
-    )
-
-    logger.info("Starting interview for candidate=%s", candidate_name)
-
-    openai_key = os.environ.get("OPENAI_API_KEY", "")
-
-    # Create agent with instructions
-    class InterviewAgent(Agent):
-        def __init__(self):
-            super().__init__(
-                instructions=system_prompt,
-                llm=lk_openai.LLM(model="gpt-4o", api_key=openai_key),
-            )
-
-    # ---------------------------------------------------------------------------
-    # Noise cancellation — build AudioInputOptions with ai_coustics enhancer.
-    # The enhancer runs locally using the ROOK_S model (smallest, lowest latency).
-    # Auth is optional; without AIC_API_KEY it operates in offline/trial mode.
-    # If the plugin is unavailable, auto_gain_control still provides basic cleanup.
-    # ---------------------------------------------------------------------------
-    noise_cancel = None
-    if _AIC_AVAILABLE:
-        try:
-            aic_api_key = os.environ.get("AIC_API_KEY")
-            aic_auth = (
-                ai_coustics.Auth(api_key=aic_api_key)
-                if aic_api_key
-                else None
-            )
-            noise_cancel = ai_coustics.AICousticsAudioEnhancer(
-                model=ai_coustics.EnhancerModel.ROOK_S,  # smallest/fastest
-                vad_settings=ai_coustics.VadSettings(
-                    speech_hold_duration=None,
-                    sensitivity=None,
-                    minimum_speech_duration=None,
-                ),
-                auth=aic_auth,
-            )
-            logger.info("ai_coustics noise cancellation enabled (model=ROOK_S, auth=%s)",
-                        "api_key" if aic_api_key else "offline/trial")
-        except Exception as exc:
-            logger.warning("Could not initialise ai_coustics enhancer: %s — proceeding without noise cancellation", exc)
-            noise_cancel = None
-
-    audio_input_opts = room_io.AudioInputOptions(
-        noise_cancellation=noise_cancel,  # None = AGC only if ai_coustics unavailable
-        auto_gain_control=True,
-    )
-
-    # ---------------------------------------------------------------------------
-    # Build session with STT + TTS pipeline + turn detection tuned for
-    # Indian English (TurnDetector uses a local ML model — no extra latency).
-    # preemptive_generation=True starts drafting the reply while the candidate
-    # is still finishing their sentence, reducing perceived response time.
-    # ---------------------------------------------------------------------------
-    session = AgentSession(
-        stt=lk_openai.STT(model="whisper-1", api_key=openai_key),
-        tts=lk_openai.TTS(model="tts-1", voice="nova", api_key=openai_key),
-        turn_handling=TurnHandlingOptions(
-            turn_detection=inference.TurnDetector(),
-        ),
-        preemptive_generation=True,
-    )
-
-    # Start the session (BEFORE ctx.connect() — per official pattern)
-    await session.start(
-        agent=InterviewAgent(),
-        room=ctx.room,
-        room_options=room_io.RoomOptions(
-            audio_input=audio_input_opts,
-        ),
-    )
-
-    # Connect to the room — framework manages lifecycle after this
-    await ctx.connect()
-
-    # Capture transcript in real-time via conversation_item_added event
     transcript_lines: list[str] = []
+    transcript_segments: list[dict] = []
+    candidate_speech_start: float | None = None
+
+    time_anchor = (
+        await _load_session_anchor(session_id) if session_id else None
+    )
 
     def _on_conversation_item(event) -> None:
+        nonlocal time_anchor
         try:
             msg = event.item
             role = getattr(msg, 'role', 'unknown')
             text = getattr(msg, 'text_content', None) or ''
             if not text:
-                # fallback: check content list
                 content = getattr(msg, 'content', None)
                 if isinstance(content, list):
                     text = ' '.join(
@@ -274,51 +310,208 @@ async def interview_session(ctx: JobContext):
                         for p in content
                     )
             if text.strip():
+                if text.strip().startswith('[Turn guidance]'):
+                    return
                 label = 'AI' if str(role) == 'assistant' else 'Candidate'
                 transcript_lines.append(f'{label}: {text.strip()}')
                 logger.debug('Transcript captured: [%s] %s', label, text.strip()[:80])
+
+                if time_anchor is None:
+                    time_anchor = time.time()
+                if str(role) == 'assistant' and time_anchor is not None:
+                    end_sec = _elapsed_sec(time_anchor, event.created_at)
+                    start_sec = transcript_segments[-1]["end_sec"] if transcript_segments else 0.0
+                    _append_segment(
+                        transcript_segments,
+                        "ai",
+                        text.strip(),
+                        start_sec,
+                        end_sec,
+                    )
         except Exception as exc:
             logger.warning('Could not capture transcript item: %s', exc)
 
-    session.on('conversation_item_added', _on_conversation_item)
-
-    # Greet the candidate using generate_reply() — flows through normal conversation
-    # pipeline so interruptions resume properly, unlike session.say() which is raw injection.
-    await session.generate_reply(
-        instructions=f"Start the interview now. Begin with this exact greeting: '{greeting}'"
-    )
-
-    logger.info("Greeting initiated for candidate=%s", candidate_name)
-
-    # Keep agent alive until the room closes naturally
-    room_closed = asyncio.Event()
-
-    def _on_disconnected(*args):
-        room_closed.set()
-
-    ctx.room.on('disconnected', _on_disconnected)
-
     try:
-        await room_closed.wait()
-    except asyncio.CancelledError:
-        pass
-    finally:
-        ctx.room.off('disconnected', _on_disconnected)
-        session.off('conversation_item_added', _on_conversation_item)
+        # Load candidate/job data from DB
+        system_prompt, candidate_name, greeting = (
+            await _load_session_data(session_id) if session_id
+            else (_default_prompt(), "Candidate", "Hello! I am your AI interviewer. Let us begin.")
+        )
 
-    logger.info('Room closed — transcript has %d lines for session=%s', len(transcript_lines), session_id)
+        logger.info("Starting interview for candidate=%s", candidate_name)
 
-    if session_id and transcript_lines:
-        await _save_transcript(session_id, '\n'.join(transcript_lines))
-        # Trigger assessment AFTER transcript is saved (fixes race condition)
+        openai_key = os.environ.get("OPENAI_API_KEY", "")
+        if not openai_key.strip():
+            raise RuntimeError("OPENAI_API_KEY is not set — interview agent cannot run STT/TTS/LLM")
+
+        # Create agent — follow-up coaching is in system_prompt (on_user_turn_completed
+        # injected assistant messages were blocking the reply pipeline after greeting).
+        class InterviewAgent(Agent):
+            def __init__(self):
+                super().__init__(
+                    instructions=system_prompt,
+                    llm=lk_openai.LLM(
+                        model=config.livekit.llm.name,
+                        api_key=openai_key,
+                    ),
+                )
+
+        # ---------------------------------------------------------------------------
+        # Noise cancellation — build AudioInputOptions with ai_coustics enhancer.
+        # ---------------------------------------------------------------------------
+        noise_cancel = None
+        audio_cfg = config.livekit.audio
+        nc_cfg = audio_cfg.noise_cancellation
+        if _AIC_AVAILABLE and nc_cfg.enabled:
+            try:
+                aic_api_key = os.environ.get("AIC_API_KEY")
+                aic_auth = (
+                    ai_coustics.Auth(api_key=aic_api_key)
+                    if aic_api_key
+                    else None
+                )
+                enhancer_model = getattr(
+                    ai_coustics.EnhancerModel,
+                    nc_cfg.model,
+                    ai_coustics.EnhancerModel.ROOK_S,
+                )
+                noise_cancel = ai_coustics.AICousticsAudioEnhancer(
+                    model=enhancer_model,
+                    vad_settings=ai_coustics.VadSettings(
+                        speech_hold_duration=None,
+                        sensitivity=None,
+                        minimum_speech_duration=None,
+                    ),
+                    auth=aic_auth,
+                )
+                logger.info(
+                    "ai_coustics noise cancellation enabled (model=%s, auth=%s)",
+                    nc_cfg.model,
+                    "api_key" if aic_api_key else "offline/trial",
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Could not initialise ai_coustics enhancer: %s — proceeding without noise cancellation",
+                    exc,
+                )
+                noise_cancel = None
+
+        audio_input_opts = room_io.AudioInputOptions(
+            noise_cancellation=noise_cancel,
+            auto_gain_control=audio_cfg.auto_gain_control,
+            pre_connect_audio=audio_cfg.pre_connect_audio,
+            pre_connect_audio_timeout=audio_cfg.pre_connect_timeout_seconds,
+        )
+
+        # Realtime STT with server VAD — whisper-1 batch mode often stalls after greeting.
+        turn = config.livekit.turn_handling
+        session = AgentSession(
+            stt=lk_openai.STT(
+                model=config.livekit.stt.name,
+                use_realtime=config.livekit.stt.realtime,
+                api_key=openai_key,
+            ),
+            tts=lk_openai.TTS(
+                model=config.livekit.tts.name,
+                voice=config.livekit.tts.voice,
+                api_key=openai_key,
+            ),
+            turn_handling=TurnHandlingOptions(
+                endpointing={"min_delay": turn.endpointing_min_delay},
+                preemptive_generation={"preemptive_tts": turn.preemptive_tts},
+                interruption={"enabled": turn.interruption_enabled},
+            ),
+        )
+
+        await session.start(
+            agent=InterviewAgent(),
+            room=ctx.room,
+            room_options=room_io.RoomOptions(
+                audio_input=audio_input_opts,
+                text_output=room_io.TextOutputOptions(
+                    sync_transcription=True,
+                    json_format=True,
+                ),
+            ),
+        )
+
+        await ctx.connect()
+
+        if time_anchor is None:
+            time_anchor = time.time()
+
+        session.on('conversation_item_added', _on_conversation_item)
+
+        def _on_user_state_changed(ev) -> None:
+            nonlocal candidate_speech_start
+            if getattr(ev, "new_state", None) == "speaking":
+                candidate_speech_start = ev.created_at
+
+        def _on_user_transcribed(ev) -> None:
+            nonlocal candidate_speech_start, time_anchor
+            text = getattr(ev, "transcript", "") or ""
+            is_final = getattr(ev, "is_final", False)
+            if text.strip():
+                logger.info(
+                    "Candidate speech transcribed (final=%s): %s",
+                    is_final,
+                    text.strip()[:120],
+                )
+            if is_final and text.strip() and time_anchor is not None:
+                end_sec = _elapsed_sec(time_anchor, ev.created_at)
+                if candidate_speech_start is not None:
+                    start_sec = _elapsed_sec(time_anchor, candidate_speech_start)
+                elif transcript_segments:
+                    start_sec = transcript_segments[-1]["end_sec"]
+                else:
+                    start_sec = 0.0
+                _append_segment(
+                    transcript_segments,
+                    "candidate",
+                    text.strip(),
+                    start_sec,
+                    end_sec,
+                )
+                candidate_speech_start = None
+
+        session.on('user_state_changed', _on_user_state_changed)
+        session.on('user_input_transcribed', _on_user_transcribed)
+
+        await session.generate_reply(
+            instructions=build_start_interview_instruction(greeting)
+        )
+        await session.wait_for_idle()
+
+        logger.info("Greeting completed — listening for candidate=%s", candidate_name)
+
+        room_closed = asyncio.Event()
+
+        def _on_disconnected(*args):
+            room_closed.set()
+
+        ctx.room.on('disconnected', _on_disconnected)
+
         try:
-            import sys
-            sys.path.insert(0, os.path.dirname(__file__))
-            from app.tasks.interview_tasks import generate_interview_report
-            generate_interview_report.delay(session_id)
-            logger.info('Assessment task enqueued for session=%s', session_id)
-        except Exception as exc:
-            logger.error('Failed to enqueue assessment task: %s', exc)
+            await room_closed.wait()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            ctx.room.off('disconnected', _on_disconnected)
+            session.off('conversation_item_added', _on_conversation_item)
+            session.off('user_state_changed', _on_user_state_changed)
+            session.off('user_input_transcribed', _on_user_transcribed)
+
+    except Exception as exc:
+        logger.exception("Interview agent session error room=%s: %s", room_name, exc)
+        raise
+    finally:
+        logger.info(
+            'Room closed — transcript has %d lines, %d segments for session=%s',
+            len(transcript_lines),
+            len(transcript_segments),
+            session_id,
+        )
+        await _finalize_session(session_id, transcript_lines, transcript_segments)
 
 
 # ---------------------------------------------------------------------------
@@ -326,4 +519,5 @@ async def interview_session(ctx: JobContext):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    _validate_agent_env_on_startup()
     cli.run_app(server)

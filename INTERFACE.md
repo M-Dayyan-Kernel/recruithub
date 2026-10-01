@@ -10,8 +10,16 @@
 - **Candidate App:** `http://localhost:5174`
 
 ## Auth
-- **Type:** None (POC — no authentication layer)
-- All endpoints are open
+- **Type:** JWT Bearer (email/password)
+- **Roles:** `admin` | `hr`
+- **Login:** `POST /api/auth/login` → `{ access_token, token_type, user }`
+- **Current user:** `GET /api/auth/me` (authenticated)
+- **Users (admin only):** `GET/POST /api/users`, `PATCH/DELETE /api/users/{id}`
+- HR App sends `Authorization: Bearer <token>` on all protected calls
+- Candidate interview token routes and webhooks remain unauthenticated
+- `GET /api/settings` readable by admin and HR; mutations and email templates are **admin-only**
+- Users management and Settings UI are **admin-only**
+- **Audit (admin only):** `GET /api/audit-logs` — activity log of mutations (actor, subject, feature, before/after)
 
 ---
 
@@ -32,8 +40,12 @@ Create a new job posting.
   "required_skills": ["string"],
   "experience_min": 0,
   "experience_max": 5,
-  "screening_criteria": "string | null",
-  "interview_evaluation_criteria": "string | null",
+  "screening_questions": [
+    { "id": "uuid", "question": "string" }
+  ],
+  "interview_questions": [
+    { "id": "uuid", "question": "string", "score": 25 }
+  ],
   "status": "active | closed | draft | paused (default: active)"
 }
 ```
@@ -73,12 +85,58 @@ Partial update a job (any subset of fields).
 
 ---
 
+#### `POST /api/jobs/parse-jd`
+Upload a job description document (PDF or DOCX) and extract structured fields via AI.
+
+**Request:** `multipart/form-data` with field `file` (PDF or DOCX, max 20 MB)
+
+**Response `200`:**
+```json
+{
+  "title": "string",
+  "description": "string",
+  "required_skills": ["string"],
+  "experience_min": 0,
+  "experience_max": 5,
+  "screening_questions": [
+    { "id": "uuid", "question": "string" }
+  ],
+  "interview_questions": [
+    { "id": "uuid", "question": "string", "score": 25 }
+  ]
+}
+```
+
+**Errors:**
+- `413` — file exceeds 20 MB
+- `422` — unsupported file type, unreadable document, or no extractable content
+- `500` — AI parsing failure
+
+---
+
+#### `DELETE /api/jobs/{job_id}`
+Delete a job and all related records (candidates, shortlist results, screening calls, interview sessions).
+
+**Response `204`:** No content
+
+**Errors:** `404 Job not found`
+
+---
+
 ### Candidates
 
 #### `POST /api/jobs/{job_id}/resumes`
-Upload one or more resume files (PDF or DOCX). Triggers async parse pipeline.
+Upload one or more resume files (PDF or DOCX), or ZIP archives containing them. Triggers async parse pipeline.
 
-**Request:** `multipart/form-data` with field `files` (multiple allowed)
+**Request:** `multipart/form-data` with field `files` (multiple allowed). ZIP files may be mixed with individual PDF/DOCX uploads in the same request.
+
+**ZIP behavior:** The server extracts PDF/DOCX members from each ZIP, including files in nested folders and nested ZIP archives. Paths are flattened for storage (e.g. `team/alice/cv.pdf` → `team_alice_cv.pdf`) so resumes in different folders are not lost to name collisions. Non-resume files inside a ZIP are ignored.
+
+**Size limits:**
+- Individual PDF/DOCX files: **20 MB** each (`413` aborts the request)
+- ZIP archives: **100 MB** each (`413` aborts the request)
+- Extracted members over 20 MB are skipped individually (`skipped_oversized` in response)
+- Max **200** resumes per ZIP; max **500 MB** total uncompressed size per ZIP
 
 **Response `202`:** `ResumeUploadResponse` *(updated Sprint B)*
 ```json
@@ -86,43 +144,30 @@ Upload one or more resume files (PDF or DOCX). Triggers async parse pipeline.
   "created": 2,
   "skipped": 1,
   "skipped_files": ["john_doe.pdf"],
-  "candidate_ids": ["uuid1", "uuid2"]
+  "candidate_ids": ["uuid1", "uuid2"],
+  "extracted_from_zip": 4,
+  "skipped_oversized": ["large_resume.pdf"]
 }
 ```
 
 **Errors:**
 - `404` — job not found
-- `413` — a file exceeds the 20 MB size limit *(Sprint B-5)*
-- `422` — unsupported file type (only PDF / DOCX accepted)
+- `413` — a file exceeds the size limit (20 MB for PDF/DOCX, 100 MB for ZIP)
+- `422` — unsupported file type (only PDF / DOCX / ZIP accepted), or invalid/empty ZIP with no resumes
 - `500` — upload directory creation failed
 
-> **Nova gotcha:** Response shape changed in Sprint B — no longer returns `CandidateResponse[]`. Use `candidate_ids` to build any follow-up calls. `skipped_files` lists filenames that already existed for this job (dedup by filename). A 413 aborts the entire request — fix the oversized file and retry the whole batch.
+> **Nova gotcha:** Response shape changed in Sprint B — no longer returns `CandidateResponse[]`. Use `candidate_ids` to build any follow-up calls. `skipped_files` lists filenames that already existed for this job (dedup by filename). A 413 on a direct PDF/DOCX upload aborts the entire request — fix the oversized file and retry the whole batch. For ZIP uploads, oversized inner members are skipped without aborting other files.
 
----
-
-#### `POST /api/jobs/{job_id}/resumes/drive`
-Import resumes from a Google Drive folder or file URL.
-
-**Request Body:**
-```json
-{ "drive_url": "https://drive.google.com/drive/folders/..." }
-```
-
-**Response `200`:** `CandidateResponse[]`
-
-**Errors:**
-- `400` — missing `drive_url` or invalid URL format
-- `404` — job not found
-- `422` — no PDF/DOCX files found at the Drive URL
-- `502` — Google Drive API error
-- `503` — Google Drive not configured (`GOOGLE_DRIVE_CREDENTIALS_JSON` env var missing)
-
-> **Nova gotcha:** If `503` is returned, show a fallback message ("Use direct file upload instead.") — this is expected in dev environments without Drive credentials.
+> **Parse queue:** Only up to `MAX_CONCURRENT_PARSES` (default 10, env-configurable) resumes parse at once per job. Dispatched resumes show as `parse_queued` in the Upload tab until a Celery worker starts (`parsing`). Excess uploads stay `pending_parse` until a slot frees. When parsing finishes (`ready` or `parse_failed`), the next queued resume starts automatically.
 
 ---
 
 #### `GET /api/jobs/{job_id}/candidates`
-List all candidates for a job.
+List candidates for a job.
+
+**Query params (optional):**
+- `parse_status` — comma-separated filter, e.g. `pending_parse` or `parsing,parsed`
+- `has_shortlist_result` — `true` or `false` to filter candidates with/without a `ShortlistResult` row
 
 **Response `200`:** `CandidateResponse[]` — ordered by `created_at` desc
 
@@ -189,21 +234,55 @@ Re-queue resume parsing for a candidate whose parse failed or needs re-processin
 ### Shortlisting
 
 #### `POST /api/jobs/{job_id}/shortlist`
-Trigger AI shortlisting for all `parse_status = "ready"` candidates.
+Trigger AI shortlisting for eligible candidates (`parse_status = "ready"`, no existing `ShortlistResult`).
+
+**Request Body (optional):**
+```json
+{
+  "candidate_ids": ["uuid", "..."]
+}
+```
+If `candidate_ids` is omitted, all eligible ready candidates are scored.
 
 **Response `202`:**
 ```json
-{ "status": "shortlisting_started", "job_id": "uuid" }
+{
+  "status": "shortlisting_started",
+  "job_id": "uuid",
+  "candidate_ids": ["uuid", "..."],
+  "skipped": [{ "id": "uuid", "reason": "..." }]
+}
 ```
+`skipped` is present only when some requested IDs were ineligible.
 
 **Errors:**
 - `404` — job not found
 - `409` — shortlisting already in progress for this job (Redis lock held) *(Sprint B-7)*
-- `422` — no ready candidates found
+- `422` — no eligible candidates found (may include `skipped` array in detail)
 
-> **Nova gotcha:** This is async. After triggering, poll `GET /api/jobs/{job_id}/shortlist` every 3s until results appear. Empty array = still running.
+> **Nova gotcha:** This is async. Poll `GET /api/jobs/{job_id}/shortlist/status` every 3s while `in_progress` is true, or poll `GET /api/jobs/{job_id}/shortlist` until results appear.
+
+> **Concurrency:** Up to `MAX_CONCURRENT_SHORTLISTS` (default 10, env-configurable) GPT assessments run in parallel per batch. Results are saved incrementally so status polling shows progress as each candidate completes.
 
 > **Nova gotcha (B-7):** `409 Conflict` means the Celery task is still running. Show the user a "Shortlisting already in progress" banner and suppress the trigger button until the lock clears (task takes 1–120s depending on candidate count). Lock auto-expires after 5 min in case of task crash.
+
+---
+
+#### `GET /api/jobs/{job_id}/shortlist/status`
+Shortlist run progress for the AI Shortlisting tab.
+
+**Response `200`:**
+```json
+{
+  "in_progress": true,
+  "candidate_ids": ["uuid", "..."],
+  "completed": 2,
+  "total": 5,
+  "failed": 0
+}
+```
+
+**Errors:** `404` — job not found
 
 ---
 
@@ -234,6 +313,10 @@ Set HR decision on a shortlist entry.
 - `404` — shortlist result not found
 - `422` — invalid `hr_decision` value
 
+> **Email:** On the first transition to `hr_decision = "rejected"`, a rejection email is sent via Gmail to the candidate (if a valid email is on file). Re-clicking Reject does not resend. Email failure does not roll back the decision.
+
+> **Nova UI:** The **AI Shortlisted** tab uses this endpoint for per-card **Approve** / **Reject** buttons on each scored candidate card.
+
 ---
 
 #### `POST /api/shortlist/{shortlist_id}/feedback`
@@ -260,13 +343,19 @@ Trigger AI voice screening calls for a set of HR-approved candidates.
 
 **Request Body:**
 ```json
-{ "candidate_ids": ["uuid", "uuid", ...] }
+{
+  "candidate_ids": ["uuid", "uuid", ...],
+  "force": false
+}
 ```
+`force: true` — dial immediately even outside the job's call window (Start Calling Now / Call Now).  
+`force: false` (default) — if outside window, calls are queued with Celery `countdown` until the window opens.
 
 **Response `202`:**
 ```json
 {
   "initiated": 3,
+  "queued": 1,
   "skipped": [{ "name": "John Doe", "reason": "No phone number on file" }]
 }
 ```
@@ -276,6 +365,10 @@ Trigger AI voice screening calls for a set of HR-approved candidates.
 - `422` — `candidate_ids` missing or empty
 
 > **Nova gotcha:** Only candidates with `hr_decision = "approved"` AND a valid phone number will be called. Others are silently skipped with a reason. Show `skipped` list to HR.
+
+> **Nova gotcha:** Skips candidates who already have an active call (`pending`, `initiated`, `in_progress`). When `enforce_phone_geography` is on in system settings, only +91 numbers pass validation.
+
+> **Call window:** Job fields `screening_call_from`, `screening_call_to`, `screening_timezone` (default `Asia/Kolkata`, 09:00–18:00). Auto-retries respect the window; manual `force: true` overrides.
 
 > **Nova gotcha:** The webhook URL for Vapi is `POST /api/screening/webhook` — configure this in the Vapi dashboard.
 
@@ -294,6 +387,24 @@ List all screening calls for a job.
 **Response `200`:** `ScreeningCallResponse[]` — ordered by `created_at` desc
 
 **Errors:** `404` — job not found
+
+---
+
+#### `PATCH /api/screening/{screening_id}/result`
+Set HR decision on a completed screening call.
+
+**Request Body:**
+```json
+{ "result": "pass | fail | needs_review" }
+```
+
+**Response `200`:** `ScreeningCallResponse`
+
+**Errors:**
+- `404` — screening call not found
+- `422` — invalid result or call not yet completed
+
+> **Nova UI:** Screening tab **Approve Pass** / **Reject Fail** buttons call this endpoint with `pass` or `fail`.
 
 ---
 
@@ -322,7 +433,7 @@ Create an interview session and send the interview link to the candidate via ema
 - `404` — candidate not found
 - `409` — active interview session already exists for this candidate
 
-> **Nova gotcha:** `email_sent_at` is set if email succeeded; `null` if Resend delivery failed. Session is still created either way — show the `interview_url` as fallback.
+> **Nova gotcha:** `email_sent_at` is set if email succeeded; `null` if Gmail delivery failed. Session is still created either way — show the `interview_url` as fallback.
 
 ---
 
@@ -401,6 +512,35 @@ Liveness check.
 
 ---
 
+### System Settings
+
+#### `GET /api/settings`
+Return system-wide settings (geography restrictions for outbound screening).
+
+**Response `200`:**
+```json
+{
+  "allowed_phone_regions": ["IN"],
+  "enforce_phone_geography": true,
+  "updated_at": "ISO 8601"
+}
+```
+
+#### `PATCH /api/settings`
+Update system settings.
+
+**Request Body (partial):**
+```json
+{
+  "enforce_phone_geography": true,
+  "allowed_phone_regions": ["IN"]
+}
+```
+
+**Response `200`:** `SystemSettingsResponse`
+
+---
+
 ## Key Data Shapes
 
 ```typescript
@@ -412,8 +552,12 @@ interface Job {
   required_skills: string[] | null;
   experience_min: number;
   experience_max: number;
-  screening_criteria: string | null;
-  interview_evaluation_criteria: string | null;
+  screening_questions: Array<{ id: string; question: string }>;
+  interview_questions: Array<{ id: string; question: string; score: number }>;
+  interview_total_score: number;        // computed: sum of question scores
+  screening_call_from: string | null;   // "HH:MM:SS" local job timezone
+  screening_call_to: string | null;
+  screening_timezone: string;         // IANA tz, default Asia/Kolkata
   status: "active" | "closed" | "draft" | "paused";
   created_at: string;                  // ISO 8601
   updated_at: string;
@@ -434,10 +578,10 @@ interface Candidate {
 }
 
 type ParseStatus =
-  | "pending_parse"      // just uploaded
+  | "pending_parse"      // waiting for a parse slot
+  | "parse_queued"       // slot claimed, waiting for Celery worker
   | "parsing"            // text extraction running
-  | "parsed"             // GPT-4o parse complete
-  | "embedding_done"     // embedding generated (intermediate)
+  | "parsed"             // GPT-4o parse complete, embedding pending
   | "ready"              // fully processed — safe to shortlist
   | "parse_failed";      // pipeline error — manual review needed
 
@@ -539,6 +683,15 @@ interface InterviewReport {
   // Enriched (joined by backend)
   candidate_name: string | null;
   job_title: string | null;
+  // Rubric-based assessment (when job had interview_questions)
+  question_scores: Array<{
+    id: string;
+    question: string;
+    score: number;
+    earned_score: number | null;
+    notes: string | null;
+  }> | null;
+  rubric_total: number | null;           // sum of rubric question weights
 }
 ```
 
@@ -563,8 +716,8 @@ Common status codes:
 | `409` | Conflict (duplicate active session, already started, etc.) |
 | `422` | Unprocessable entity (validation failure, pre-condition not met) |
 | `500` | Unexpected server error |
-| `502` | Upstream service error (LiveKit, Drive API) |
-| `503` | Service not configured (Google Drive, etc.) |
+| `502` | Upstream service error (LiveKit, etc.) |
+| `503` | Service not configured |
 
 ---
 
@@ -577,27 +730,27 @@ VITE_API_URL=http://localhost:8080
 
 ## Gotchas for Nova
 
-1. **parse_status polling** — After upload, poll `GET /api/jobs/{job_id}/candidates` every 5s while any candidate has `parse_status` in `["pending_parse", "parsing", "parsed", "embedding_done"]`. Stop polling when all are `"ready"` or `"parse_failed"`.
+1. **parse_status polling** — After upload, poll `GET /api/jobs/{job_id}/candidates` every 5s while any candidate has `parse_status` in `["pending_parse", "parse_queued", "parsing", "parsed"]`. Stop polling when all are `"ready"` or `"parse_failed"`.
 
 2. **Shortlist is async** — Empty `[]` from `GET /api/jobs/{job_id}/shortlist` means Celery task is still running. Do NOT show "No results" state immediately after triggering. Poll every 3s until results appear.
 
-3. **candidate_email placeholder** — `email.endsWith("@upload.pending")` means parse hasn't completed yet or email wasn't found in resume. Show `null` / dash in UI.
+3. **AI Shortlisted tab** — Shows **all** scored candidates (shortlisted, rejected, needs review) with recommendation badges. Do not filter to `recommendation === 'shortlisted'` only.
 
-4. **Report 404 ≠ error** — `GET /api/candidates/{id}/report` returns `404 "Report not ready yet"` when assessment is still running. Show a polling skeleton/spinner, not an error page. Assessment typically takes 10–30 seconds.
+4. **candidate_email placeholder** — `email.endsWith("@upload.pending")` means parse hasn't completed yet or email wasn't found in resume. Show `null` / dash in UI. `GET /shortlist` enriches `candidate_name` / `candidate_email` from `parsed_data` when available.
 
-5. **Interview session idempotency** — Calling `POST /api/interview/{token}/start` twice returns `409`. Handle this in the candidate app by detecting `409` and re-fetching session status.
+5. **Report 404 ≠ error** — `GET /api/candidates/{id}/report` returns `404 "Report not ready yet"` when assessment is still running. Show a polling skeleton/spinner, not an error page. Assessment typically takes 10–30 seconds.
 
-6. **Email non-fatal** — `POST /api/candidates/{id}/interview/send` always creates the session even if email delivery fails. Check `email_sent_at` — if `null`, show the `interview_url` directly to HR so they can share it manually.
+6. **Interview session idempotency** — Calling `POST /api/interview/{token}/start` twice returns `409`. Handle this in the candidate app by detecting `409` and re-fetching session status.
 
-7. **Vapi webhook URL** — Must be configured in Vapi dashboard as `POST /api/screening/webhook` (with the server's public URL — use ngrok in dev). If not configured, screening results never arrive.
+7. **Email non-fatal** — `POST /api/candidates/{id}/interview/send` always creates the session even if email delivery fails. Check `email_sent_at` — if `null`, show the `interview_url` directly to HR so they can share it manually.
 
-8. **Screening call_outcome** — New field (Sprint 8) on `ScreeningCallResponse`. Use `call_outcome` to drive UI state: `no_answer`/`voicemail`/`dropped` = show "Retrying" badge; `completed` = show result; `failed` = show error. `retry_count` (0–3) shows how many auto-retries have been scheduled. `ended_reason` is the raw Vapi string for debug purposes.
+8. **Vapi webhook URL** — Must be configured in Vapi dashboard as `POST /api/screening/webhook` (with the server's public URL — use ngrok in dev). If not configured, screening results never arrive.
 
-9. **Backend port** — Always `8080`. Port 8000 has Windows ghost TCP connections and must not be used.
+9. **Screening call_outcome** — New field (Sprint 8) on `ScreeningCallResponse`. Use `call_outcome` to drive UI state: `no_answer`/`voicemail`/`dropped` = show "Retrying" badge; `completed` = show result; `failed` = show error. `retry_count` (0–3) shows how many auto-retries have been scheduled. `ended_reason` is the raw Vapi string for debug purposes.
 
-9. **CORS** — Allowed origins: `5173`, `5174`, `5175`, `5176`, `5177`, `5178`, `127.0.0.1:5173`. If running on a different port, add it to `main.py` CORS allow_origins.
+10. **Backend port** — Always `8080`. Port 8000 has Windows ghost TCP connections and must not be used.
 
-10. **Google Drive 503** — This is expected in dev without Drive credentials. Show a friendly "Use direct upload instead" message — do not show a raw error.
+11. **CORS** — Allowed origins: `5173`, `5174`, `5175`, `5176`, `5177`, `5178`, `127.0.0.1:5173`. If running on a different port, add it to `main.py` CORS allow_origins.
 
 ---
 
@@ -609,19 +762,21 @@ VITE_API_URL=http://localhost:8080
 | GET | `/api/jobs` | List jobs (`?status=`) |
 | GET | `/api/jobs/{id}` | Get job |
 | PATCH | `/api/jobs/{id}` | Update job |
+| DELETE | `/api/jobs/{id}` | Delete job and related records |
 | POST | `/api/jobs/{id}/resumes` | Upload resumes (multipart) |
-| POST | `/api/jobs/{id}/resumes/drive` | Import from Google Drive |
 | GET | `/api/jobs/{id}/candidates` | List candidates |
 | GET | `/api/candidates/{id}` | Get candidate |
 | PATCH | `/api/candidates/{id}` | Update candidate contact fields |
 | POST | `/api/jobs/{id}/candidates/{id}/retry-parse` | Re-queue failed parse |
 | POST | `/api/jobs/{id}/shortlist` | Trigger AI shortlisting |
+| GET | `/api/jobs/{id}/shortlist/status` | Shortlist run progress |
 | GET | `/api/jobs/{id}/shortlist` | Get shortlist results |
 | PATCH | `/api/shortlist/{id}/decision` | HR approve/reject/override |
 | POST | `/api/shortlist/{id}/feedback` | HR feedback |
 | POST | `/api/jobs/{id}/screening/trigger` | Trigger voice screening |
 | POST | `/api/screening/webhook` | Vapi webhook (internal) |
 | GET | `/api/jobs/{id}/screening` | Get screening results |
+| PATCH | `/api/screening/{id}/result` | HR pass/fail decision on screening |
 | GET | `/api/jobs/{id}/interviews` | List interview sessions for job |
 | POST | `/api/candidates/{id}/interview/send` | Send interview link |
 | GET | `/api/interview/{token}` | Get session by token |
@@ -629,6 +784,8 @@ VITE_API_URL=http://localhost:8080
 | POST | `/api/interview/{token}/complete` | Mark interview complete |
 | POST | `/api/livekit/webhook` | LiveKit webhook (internal) |
 | GET | `/api/candidates/{id}/report` | Get interview report |
+| GET | `/api/settings` | System settings (geography) |
+| PATCH | `/api/settings` | Update system settings |
 | GET | `/health` | Health check |
 
 ---

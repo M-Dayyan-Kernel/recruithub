@@ -1,0 +1,203 @@
+# Non-secret runtime tunables. Secrets and deployment URLs stay in .env.
+# Edits require restarting API, Celery, and interview-agent processes.
+
+models:
+  jd_parse:
+    provider: openai
+    name: gpt-5.4-mini
+    temperature: 0
+    max_tokens: 3000
+    response_format: json_object
+  combined_shortlist:
+    provider: openai
+    name: gpt-5.4-mini
+    temperature: 0
+    max_tokens: 3000
+    response_format: json_object
+  expected_answer:
+    provider: openai
+    name: gpt-5.4-mini
+    temperature: 0
+    max_tokens: 600
+    response_format: json_object
+  screening_extraction:
+    provider: openai
+    name: gpt-5.4-mini
+    temperature: 0
+    max_tokens: 1000
+    response_format: json_object
+  interview_assessment:
+    provider: openai
+    name: gpt-5.4-mini
+    temperature: 0
+    max_tokens: 2500
+    response_format: json_object
+
+livekit:
+  agent_name: interview-agent
+  llm:
+    provider: openai
+    name: gpt-5.4-mini
+  stt:
+    provider: openai
+    name: gpt-4o-transcribe
+    realtime: true
+  tts:
+    provider: openai
+    name: gpt-4o-mini-tts
+    voice: nova
+  turn_handling:
+    endpointing_min_delay: 0.5
+    preemptive_tts: true
+    interruption_enabled: true
+  audio:
+    auto_gain_control: true
+    pre_connect_audio: true
+    pre_connect_timeout_seconds: 30.0
+    noise_cancellation:
+      enabled: true
+      provider: ai_coustics
+      model: ROOK_S
+  room:
+    empty_timeout_seconds: 600
+    max_participants: 10
+    token_ttl_hours: 2
+  recording:
+    layout: speaker
+    key_prefix: recruitment-interview-recordings
+
+vapi:
+  api_base: https://api.vapi.ai
+  request_timeout_seconds: 30.0
+  status_timeout_seconds: 5.0
+  llm:
+    provider: openai
+    name: gpt-5.4-mini
+  voice:
+    provider: deepgram
+    voice_id: asteria
+  transcriber:
+    provider: deepgram
+    model: nova-2
+    language: en
+  first_message_mode: assistant-speaks-first
+  background_sound: office
+  silence_timeout_seconds: 20
+  webhook_messages:
+    - status-update
+    - end-of-call-report
+
+parsing:
+  resume_max_chars: 24000
+  jd_max_chars: 12000
+  shortlist_jd_chars: 1200
+  expected_answer_jd_chars: 2500
+  expected_answer_max_points: 6
+  screening_call_jd_chars: 500
+  screening_transcript_chars: 12000
+  assessment_transcript_chars: 14000
+  assessment_jd_chars: 3000
+  min_resume_chars: 50
+  min_jd_chars: 50
+  min_transcript_chars: 100
+  default_question_score: 10
+
+concurrency:
+  max_shortlists: 30
+  max_resume_processing: 30
+  max_live_screening_calls: 5
+  stuck_parse_timeout_minutes: 5
+  shortlist_batch_ttl_seconds: 600
+
+uploads:
+  resume_max_bytes: 20971520
+  jd_max_bytes: 20971520
+  org_doc_max_bytes: 10485760
+  zip_max_bytes: 1073741824
+  zip_max_uncompressed_bytes: 2147483648
+  max_resumes_per_zip: 600
+  max_zip_nesting_depth: 5
+
+screening:
+  poll:
+    initial_delay_sec: 0
+    interval_sec: 2
+    max_polls: 60
+    status_timeout_sec: 4.0
+  transcript_enrich:
+    max_attempts: 8
+    delay_sec: 5
+    failed_email_extra_delay_sec: 15
+  grace:
+    live_call_sec: 12
+    retry_call_sec: 20
+    rapid_redial_guard_sec: 8
+  min_substantive_transcript_chars: 50
+  defaults:
+    max_retries: 3
+    retry_delay_seconds: 1800
+  validation:
+    min_retries: 1
+    max_retries: 10
+    min_retry_delay_seconds: 60
+    max_retry_delay_seconds: 604800
+  cache_ttl_seconds: 30
+  redispatch_delay_sec: 15
+  stale_active_call_minutes: 5
+  max_call_duration_minutes: 15
+  live_slot_defer_sec: 45
+
+interview:
+  max_follow_ups_per_topic: 2
+  session_link_ttl_days: 7
+  # Platform-wide cap on simultaneous in_progress AI interviews (shared agent pool).
+  max_concurrent_interviews: 25
+  # Suggested wait time shown when capacity is full.
+  busy_retry_minutes: 45
+  # Allow joining this many seconds before scheduled_interview_at (clock skew).
+  schedule_early_grace_sec: 120
+  # Public /start and /complete: max requests per token per rolling minute.
+  public_rate_limit_per_minute: 20
+  assessment_retry:
+    delay_sec: 15
+    max_attempts: 12
+
+storage:
+  presign_expires_seconds: 3600
+  prefixes:
+    resumes: recruitment-resume-storage/
+    gst: recruitment-gst-files/
+    recordings: recruitment-interview-recordings/
+
+scheduler:
+  dispatch_pending_screening_seconds: 60
+  recover_stuck_parses_seconds: 120
+
+celery:
+  default_max_retries: 3
+  rate_limit_countdown_sec: 300
+  transient_countdown_sec: 120
+  extraction_countdown_sec: 60
+  worker_prefetch_multiplier: 1
+  task_acks_late: true
+  task_track_started: true
+  task_reject_on_worker_lost: true
+  queues:
+    resume:
+      concurrency: 4
+    shortlist:
+      concurrency: 2
+    screening:
+      concurrency: 8
+    interviews:
+      concurrency: 2
+
+logging:
+  # DEBUG | INFO | WARNING | ERROR
+  level: INFO
+  # text = human stdout; json = nested JSON on stdout.
+  # Files under dir are always nested JSON NDJSON (events/errors/http).
+  format: text
+  dir: logs
+  max_bytes: 10485760
+  backup_count: 5

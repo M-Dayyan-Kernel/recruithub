@@ -10,6 +10,58 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        /**
+         * Semantic tokens from `src/styles/tokens.css`. Prefer these over raw
+         * palette scales: `bg-surface`, `text-ink-muted`, `border-line`,
+         * `bg-accent`. They are what keeps every page on one scheme.
+         */
+        bg: 'rgb(var(--bg) / <alpha-value>)',
+        surface: {
+          DEFAULT: 'rgb(var(--surface) / <alpha-value>)',
+          2: 'rgb(var(--surface-2) / <alpha-value>)',
+          3: 'rgb(var(--surface-3) / <alpha-value>)',
+        },
+        ink: {
+          DEFAULT: 'rgb(var(--ink) / <alpha-value>)',
+          muted: 'rgb(var(--ink-muted) / <alpha-value>)',
+          subtle: 'rgb(var(--ink-subtle) / <alpha-value>)',
+        },
+        line: {
+          DEFAULT: 'rgb(var(--line) / <alpha-value>)',
+          strong: 'rgb(var(--line-strong) / <alpha-value>)',
+        },
+        accent: {
+          DEFAULT: 'rgb(var(--accent) / <alpha-value>)',
+          hover: 'rgb(var(--accent-hover) / <alpha-value>)',
+          ink: 'rgb(var(--accent-ink) / <alpha-value>)',
+          soft: 'rgb(var(--accent-soft) / <alpha-value>)',
+          border: 'rgb(var(--accent-border) / <alpha-value>)',
+        },
+        rail: {
+          DEFAULT: 'rgb(var(--rail) / <alpha-value>)',
+          2: 'rgb(var(--rail-2) / <alpha-value>)',
+          ink: 'rgb(var(--rail-ink) / <alpha-value>)',
+          muted: 'rgb(var(--rail-ink-muted) / <alpha-value>)',
+          line: 'rgb(var(--rail-line) / <alpha-value>)',
+        },
+        pos: { DEFAULT: 'rgb(var(--pos) / <alpha-value>)', soft: 'rgb(var(--pos-soft) / <alpha-value>)' },
+        warn: { DEFAULT: 'rgb(var(--warn) / <alpha-value>)', soft: 'rgb(var(--warn-soft) / <alpha-value>)' },
+        neg: { DEFAULT: 'rgb(var(--neg) / <alpha-value>)', soft: 'rgb(var(--neg-soft) / <alpha-value>)' },
+
+        /** Webknot corporate blues, sampled from the logo. */
+        brand: {
+          50: '#EEF3FF',
+          100: '#D9E3FC',
+          200: '#B7C9F6',
+          300: '#93B4FF',
+          400: '#6E8FE0',
+          500: '#4160B8',
+          600: '#35509C',
+          700: '#2B3A7A',
+          800: '#1E2A5E',
+          900: '#141C40',
+        },
+
         // Primary — Indigo (trustworthy, professional)
         primary: {
           DEFAULT: '#4f46e5', // indigo-600
@@ -58,7 +110,14 @@ const config: Config = {
           foreground: '#71717a', // zinc-500
         },
       },
+      boxShadow: {
+        e1: 'var(--elev-1)',
+        e2: 'var(--elev-2)',
+        e3: 'var(--elev-3)',
+        accent: 'var(--elev-accent)',
+      },
       borderRadius: {
+        card: 'var(--r-xl)',
         lg: '0.5rem',
         md: 'calc(0.5rem - 2px)',
         sm: 'calc(0.5rem - 4px)',
