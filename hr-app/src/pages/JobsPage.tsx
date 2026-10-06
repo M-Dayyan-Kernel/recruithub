@@ -153,10 +153,11 @@ export default function JobsPage() {
                       </div>
                       <div>
                         <p className="text-sm font-medium text-slate-900">{job.title}</p>
-                        {(job.required_skills?.length ?? 0) > 0 && (
+                        {(job.required_skills ?? []).length > 0 && (
                           <p className="text-xs text-slate-400 mt-0.5">
-                            {job.required_skills.slice(0, 3).join(' · ')}
-                            {job.required_skills.length > 3 && ` +${job.required_skills.length - 3}`}
+                            {(job.required_skills ?? []).slice(0, 3).join(' · ')}
+                            {(job.required_skills ?? []).length > 3 &&
+                              ` +${(job.required_skills ?? []).length - 3}`}
                           </p>
                         )}
                       </div>

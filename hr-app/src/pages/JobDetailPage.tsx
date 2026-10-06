@@ -272,9 +272,9 @@ export default function JobDetailPage() {
                   {job.description}
                 </p>
 
-                {(job.required_skills?.length ?? 0) > 0 && (
+                {(job.required_skills ?? []).length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
-                    {job.required_skills.map(skill => (
+                    {(job.required_skills ?? []).map(skill => (
                       <span
                         key={skill}
                         className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full text-xs font-medium"

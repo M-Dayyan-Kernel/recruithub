@@ -25,48 +25,48 @@ import { BackendError } from '@/components/BackendError'
 // Call status badge
 // ---------------------------------------------------------------------------
 
-const STATUS_CONFIG: Record<
-  CallStatus,
-  { label: string; className: string; spinner: boolean }
-> = {
-  pending: {
-    label: 'Pending',
-    className: 'bg-slate-100 text-slate-600',
-    spinner: false,
-  },
-  initiated: {
-    label: 'Initiated',
-    className: 'bg-blue-100 text-blue-700',
-    spinner: true,
-  },
-  in_progress: {
-    label: 'In Progress',
-    className: 'bg-blue-100 text-blue-700',
-    spinner: true,
-  },
-  completed: {
-    label: 'Completed',
-    className: 'bg-emerald-100 text-emerald-700',
-    spinner: false,
-  },
-  failed: {
-    label: 'Failed',
-    className: 'bg-rose-100 text-rose-700',
-    spinner: false,
-  },
-}
+// const STATUS_CONFIG: Record<
+//   CallStatus,
+//   { label: string; className: string; spinner: boolean }
+// > = {
+//   pending: {
+//     label: 'Pending',
+//     className: 'bg-slate-100 text-slate-600',
+//     spinner: false,
+//   },
+//   initiated: {
+//     label: 'Initiated',
+//     className: 'bg-blue-100 text-blue-700',
+//     spinner: true,
+//   },
+//   in_progress: {
+//     label: 'In Progress',
+//     className: 'bg-blue-100 text-blue-700',
+//     spinner: true,
+//   },
+//   completed: {
+//     label: 'Completed',
+//     className: 'bg-emerald-100 text-emerald-700',
+//     spinner: false,
+//   },
+//   failed: {
+//     label: 'Failed',
+//     className: 'bg-rose-100 text-rose-700',
+//     spinner: false,
+//   },
+// }
 
-function CallStatusBadge({ status }: { status: ScreeningCall['call_status'] }) {
-  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending
-  return (
-    <span
-      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${cfg.className}`}
-    >
-      {cfg.spinner && <Loader2 size={10} className="animate-spin" />}
-      {cfg.label}
-    </span>
-  )
-}
+// function CallStatusBadge({ status }: { status: ScreeningCall['call_status'] }) {
+//   const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending
+//   return (
+//     <span
+//       className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${cfg.className}`}
+//     >
+//       {cfg.spinner && <Loader2 size={10} className="animate-spin" />}
+//       {cfg.label}
+//     </span>
+//   )
+// }
 
 // ---------------------------------------------------------------------------
 // Call outcome badge — uses call_outcome when available, falls back to call_status
