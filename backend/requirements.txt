@@ -16,4 +16,5 @@ python-docx==1.1.2
 google-api-python-client>=2.100.0
 google-auth>=2.23.0
 livekit-api>=0.7.0
+livekit-agents[openai]>=1.6.2
 resend>=0.8.0
