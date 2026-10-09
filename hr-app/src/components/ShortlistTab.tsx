@@ -443,7 +443,7 @@ function ShortlistCard({
                 <button
                   key={decision}
                   onClick={() => decisionMutation.mutate(decision)}
-                  disabled={decisionMutation.isPending}
+                  disabled={decisionMutation.isPending || isActive}
                   title={decision === 'approved' ? getApproveTooltip(screeningEffective) : undefined}
                   className={`px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     isActive ? cfg.active : cfg.inactive

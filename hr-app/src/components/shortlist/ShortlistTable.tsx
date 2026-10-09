@@ -96,7 +96,7 @@ function ShortlistTableRow({
                 key={decision}
                 type="button"
                 onClick={() => decisionMutation.mutate(decision)}
-                disabled={decisionMutation.isPending}
+                disabled={decisionMutation.isPending || isActive}
                 title={decision === 'approved' ? getApproveTooltip(screeningEffective) : undefined}
                 className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                   isActive ? cfg.active : cfg.inactive
