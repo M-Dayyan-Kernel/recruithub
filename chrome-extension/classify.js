@@ -28,8 +28,18 @@ import { scoreExtension, verdictFor } from './rules.js'
  * @property {string[]} signals
  * @property {string} category
  * @property {string} reason        Plain-language explanation shown to the candidate.
+ * @property {string} description   The extension's own description, trimmed (see DESCRIPTION_MAX).
  * @property {string|null} listing_url
  */
+
+/** Longest description reported. Store descriptions are public text; this just bounds the size. */
+export const DESCRIPTION_MAX = 300
+
+/** Whitespace-collapsed, length-capped description; empty when the extension has none. */
+export function trimDescription(value) {
+  if (typeof value !== 'string') return ''
+  return value.replace(/\s+/g, ' ').trim().slice(0, DESCRIPTION_MAX)
+}
 
 const MAX_REASON_SIGNALS = 3
 
@@ -74,6 +84,7 @@ export function classifyInstalled(installed, policy, { selfId } = {}) {
         signals: disableable ? ['known_id'] : ['known_id', 'cannot_be_disabled'],
         category: known.category,
         reason: known.reason,
+        description: trimDescription(ext.description),
         listing_url: known.listing_url ?? null,
       })
       continue
@@ -97,6 +108,7 @@ export function classifyInstalled(installed, policy, { selfId } = {}) {
       reason: strong
         ? `Looks like an AI assistant that can read the page or capture audio${describeSignals(score.signals)}.`
         : `May be an AI-related extension${describeSignals(score.signals)}.`,
+      description: trimDescription(ext.description),
       listing_url: null,
     })
   }

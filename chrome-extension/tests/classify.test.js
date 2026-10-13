@@ -100,3 +100,31 @@ test('the candidate-facing reason explains why', () => {
 test('malformed inventory entries are skipped, not fatal', () => {
   assert.doesNotThrow(() => classifyInstalled([null, undefined, {}, { id: 5 }, ext(WEAK)], policy()))
 })
+
+// ── description reporting (feeds the Super Admin's "seen extensions" list) ──
+
+import { DESCRIPTION_MAX, trimDescription } from '../classify.js'
+
+test('the description is reported with a flagged item', () => {
+  const [hit] = classifyInstalled(
+    [ext({ ...WEAK, description: 'Notes   with\n  an AI helper' })],
+    policy(),
+  )
+  assert.equal(hit.description, 'Notes with an AI helper')
+})
+
+test('a known extension carries its description too', () => {
+  const [hit] = classifyInstalled(
+    [ext({ id: MONICA, name: 'Monica', description: 'All-in-one AI assistant' })],
+    policy(),
+  )
+  assert.equal(hit.description, 'All-in-one AI assistant')
+})
+
+test('long descriptions are capped and missing ones are empty', () => {
+  assert.equal(trimDescription('x'.repeat(DESCRIPTION_MAX + 50)).length, DESCRIPTION_MAX)
+  assert.equal(trimDescription(undefined), '')
+  assert.equal(trimDescription(null), '')
+  assert.equal(trimDescription(42), '')
+  assert.equal(trimDescription('   '), '')
+})

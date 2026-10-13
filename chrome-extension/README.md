@@ -118,7 +118,8 @@ Heuristics score two axes (see `rules.js`): **intent** (AI wording in the name o
 description, access to AI vendor hosts) and **capability** (tab/desktop capture, side
 panel, access to every site). Capability alone never flags; a strong match needs both.
 An extension that cannot be turned off (installed by device policy) is recorded but never
-blocks. Only flagged and blocked extensions leave the browser; the rest of the inventory
+blocks. Each flagged item also carries the extension's own description (trimmed to 300
+characters), which feeds the Super Admin's "Seen extensions" list. Only flagged and blocked extensions leave the browser; the rest of the inventory
 never does.
 
 `npm test` includes an **evaluation corpus** (`tests/fixtures/corpus.json`) that measures

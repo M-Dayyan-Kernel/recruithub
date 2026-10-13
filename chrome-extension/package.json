@@ -1,7 +1,7 @@
 {
   "name": "recruithub-interview-check-extension",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "Test harness only. The extension itself has no build step and no dependencies.",
   "scripts": {

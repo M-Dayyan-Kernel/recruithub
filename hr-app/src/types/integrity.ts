@@ -85,3 +85,30 @@ export interface IntegritySummary {
   timeline: IntegrityTimelineEntry[]
   note: string | null
 }
+
+// ── observed extensions (Super Admin catalog) ───────────────────────────────
+
+export type ObservedStatus = 'new' | 'dismissed'
+export type ObservedReopenReason = 'content_changed' | 'stronger_match'
+
+/** Facts about one extension only: no candidate, interview, job or organization. */
+export interface ObservedExtension {
+  id: string
+  extension_id: string
+  name: string
+  description: string | null
+  strongest_reason: 'heuristic_weak' | 'heuristic_strong' | string
+  times_seen: number
+  first_seen_at: string
+  last_seen_at: string
+  status: ObservedStatus
+  reopened_reason: ObservedReopenReason | null
+  listing_url: string | null
+}
+
+export interface ObservedExtensionPage {
+  items: ObservedExtension[]
+  total: number
+  limit: number
+  offset: number
+}

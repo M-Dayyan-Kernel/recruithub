@@ -163,3 +163,20 @@ test('v2 response never contains the inventory, only flagged extensions', async 
   })
   assert.ok(!JSON.stringify(res).includes('My Private Extension'))
 })
+
+test('v2 flagged items include the description, and nothing else about the extension leaks', async () => {
+  const res = await handleExternalRequest(v2(v2Policy()), ok, {
+    ...withInstalled([
+      { id: 'w'.repeat(32), name: 'AI Notes', description: 'AI notes helper', enabled: true,
+        type: 'extension', mayDisable: true, permissions: ['storage'], hostPermissions: [],
+        homepageUrl: 'https://private.example', version: '9.9.9' },
+    ]),
+  })
+  const item = res.result.flagged_extensions[0]
+  assert.equal(item.description, 'AI notes helper')
+  assert.deepEqual(Object.keys(item).sort(), [
+    'blocked', 'capability_score', 'description', 'id', 'intent_score', 'name',
+    'reason', 'reason_code', 'signals', 'would_block',
+  ])
+  assert.ok(!JSON.stringify(res).includes('private.example'))
+})

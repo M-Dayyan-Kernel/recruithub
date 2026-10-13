@@ -28,6 +28,7 @@ from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.authentication_context_service import AuthenticationContextService
 from app.services.integrity_service import IntegrityService
+from app.services.observed_extension_service import ObservedExtensionService
 from app.services.platform_tenant_service import PlatformTenantService
 from app.services.system_settings_service import SystemSettingsService
 from app.services.candidate_service import CandidateService
@@ -93,6 +94,12 @@ def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
 
 def get_integrity_service(db: AsyncSession = Depends(get_db)) -> IntegrityService:
     return IntegrityService(db)
+
+
+def get_observed_extension_service(
+    db: AsyncSession = Depends(get_db),
+) -> ObservedExtensionService:
+    return ObservedExtensionService(db)
 
 
 def get_platform_tenant_service(db: AsyncSession = Depends(get_db)) -> PlatformTenantService:

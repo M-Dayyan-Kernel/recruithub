@@ -805,6 +805,9 @@ VITE_API_URL=http://localhost:8080
 | POST | `/api/platform/extension-blocklist` | Add an entry (`extension_id` must be the 32-letter Chrome ID) |
 | PATCH | `/api/platform/extension-blocklist/{id}` | Edit an entry or turn it on/off |
 | DELETE | `/api/platform/extension-blocklist/{id}` | Remove an entry |
+| GET | `/api/platform/observed-extensions?status=new\|dismissed&limit&offset` | Extensions flagged on candidates' browsers that are not on the blocklist: id, name, description, times seen, first/last seen. No candidate, interview or organization data. |
+| POST | `/api/platform/observed-extensions/{id}/dismiss` | Hide it (audit-logged). It reopens on its own if its name/description is a variant never seen before, or the match became stronger. |
+| POST | `/api/platform/observed-extensions/{id}/restore` | Bring a dismissed extension back |
 
 `GET /api/candidates/{id}/report` gains an optional `integrity` object (scan count,
 latest outcome, flagged extensions with reasons, check timeline). It is evidence only

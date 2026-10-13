@@ -55,6 +55,8 @@ export interface FlaggedExtension {
   intent_score: number
   capability_score: number
   signals: string[]
+  /** The extension's own (public store) description, already trimmed by the extension. */
+  description: string
 }
 
 /** What a policy-driven scan saw: kept for the HR report, separate from the gate decision. */
@@ -209,6 +211,8 @@ export function evaluateReply(
 
 const FLAGGED_REASONS: ReadonlySet<string> = new Set(['known_id', 'heuristic_strong', 'heuristic_weak'])
 const MAX_FLAGGED = 100
+/** Mirrors the extension's DESCRIPTION_MAX and the API's limit. */
+const MAX_DESCRIPTION = 300
 
 /** Parses `flagged_extensions` of a policy scan. undefined: v1 reply, nothing to record. */
 function parseReport(result: Record<string, unknown>): ScanReport | 'invalid' | undefined {
@@ -238,6 +242,8 @@ function parseReport(result: Record<string, unknown>): ScanReport | 'invalid' | 
       signals: Array.isArray(item.signals)
         ? item.signals.filter((s): s is string => typeof s === 'string').slice(0, 12)
         : [],
+      description:
+        typeof item.description === 'string' ? item.description.slice(0, MAX_DESCRIPTION) : '',
     })
   }
   return {
@@ -392,6 +398,7 @@ export function toScanPayload(phase: ScanPhase, result: GateResult): IntegritySc
           intent_score: 0,
           capability_score: 0,
           signals: [],
+          description: '',
         }))
       : [])
 

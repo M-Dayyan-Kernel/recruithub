@@ -214,6 +214,16 @@ class FlaggedExtensionIn(BaseModel):
     intent_score: int = 0
     capability_score: int = 0
     signals: list[str] = Field(default_factory=list, max_length=12)
+    #: The extension's own public description. Truncated, never rejected.
+    description: Optional[str] = None
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _tidy_description(cls, v):
+        if not isinstance(v, str):
+            return None
+        text = re.sub(r"\s+", " ", v).strip()[:300]
+        return text or None
 
     @field_validator("intent_score", "capability_score", mode="before")
     @classmethod
@@ -281,3 +291,35 @@ class IntegritySummary(BaseModel):
     timeline: list[IntegrityTimelineEntry]
     #: One neutral, factual sentence for the report (never fed to scoring).
     note: Optional[str] = None
+
+
+# ── observed extensions (Super Admin catalog) ────────────────────────────────
+
+ObservedStatus = Literal["new", "dismissed"]
+ObservedReopenReason = Literal["content_changed", "stronger_match"]
+
+
+class ObservedExtensionResponse(BaseModel):
+    """What the Super Admin sees. Facts about the extension only: no candidate,
+    interview, job or organization information exists on this row."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    extension_id: str
+    name: str
+    description: Optional[str] = None
+    strongest_reason: str
+    times_seen: int
+    first_seen_at: datetime
+    last_seen_at: datetime
+    status: ObservedStatus
+    reopened_reason: Optional[ObservedReopenReason] = None
+    listing_url: Optional[str] = None
+
+
+class ObservedExtensionPage(BaseModel):
+    items: list[ObservedExtensionResponse]
+    total: int
+    limit: int
+    offset: int

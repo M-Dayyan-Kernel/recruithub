@@ -188,7 +188,7 @@ export async function scanWithPolicy({
         listing_url: listing_url ?? '',
       })),
     flagged_extensions: flagged.map(
-      ({ id, name, reason_code, blocked, would_block, intent_score, capability_score, signals, reason }) => ({
+      ({
         id,
         name,
         reason_code,
@@ -198,6 +198,18 @@ export async function scanWithPolicy({
         capability_score,
         signals,
         reason,
+        description,
+      }) => ({
+        id,
+        name,
+        reason_code,
+        blocked,
+        would_block,
+        intent_score,
+        capability_score,
+        signals,
+        reason,
+        description,
       }),
     ),
   }

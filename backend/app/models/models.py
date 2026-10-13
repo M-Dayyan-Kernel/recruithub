@@ -400,6 +400,51 @@ class ExtensionPolicy(Base):
     )
 
 
+class ObservedExtension(Base):
+    """An extension that was flagged on some candidate's browser, one row per extension.
+
+    A catalog for the Super Admin to decide from. It deliberately holds no
+    candidate, interview, job or organization reference: only facts about the
+    extension itself and how often it has been seen.
+
+    A dismissal remembers what the extension looked like at the time
+    (`dismissed_hash`, `dismissed_reason`) so it can reopen if it changes.
+    """
+
+    __tablename__ = "observed_extensions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    extension_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    strongest_reason: Mapped[str] = mapped_column(String(20), nullable=False)
+    times_seen: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(10), nullable=False, default="new", server_default="new")
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Every distinct name+description variant seen (capped). Chrome localizes both,
+    # so one fingerprint would reopen a dismissal for a candidate who simply uses
+    # another browser language; only a variant never seen before counts as a change.
+    known_hashes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    dismissed_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    dismissed_reason: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    dismissed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    dismissed_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reopened_reason: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        # Lists page by status and recency.
+        Index("ix_observed_extensions_status_last_seen", "status", "last_seen_at"),
+    )
+
+
 class InterviewIntegrityScan(Base):
     """One extension scan taken during an interview (append-only evidence for HR)."""
 

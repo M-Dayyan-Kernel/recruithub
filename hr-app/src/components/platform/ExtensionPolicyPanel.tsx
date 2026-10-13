@@ -9,6 +9,9 @@ import type {
   ExtensionBlocklistEntry,
   ExtensionPolicy,
   ExtensionPolicyMode,
+  ObservedExtension,
+  ObservedExtensionPage,
+  ObservedStatus,
 } from '@/types/integrity'
 import { validateExtensionId } from '@/lib/validation'
 import { BTN_DANGER, BTN_GHOST, BTN_PRIMARY, Badge, Card, SectionCard } from '@/components/ui/Surface'
@@ -18,6 +21,8 @@ import { BackendError } from '@/components/BackendError'
 
 const POLICY_KEY = ['platform-extension-policy']
 const BLOCKLIST_KEY = ['platform-extension-blocklist']
+const OBSERVED_KEY = ['platform-observed-extensions']
+const OBSERVED_PAGE_SIZE = 10
 
 const CATEGORY_LABEL: Record<BlocklistCategory, string> = {
   ai_assistant: 'AI assistant',
@@ -126,13 +131,30 @@ function PolicyCard({ policy }: { policy: ExtensionPolicy }) {
 
 // ── Blocklist ────────────────────────────────────────────────────────────────
 
-function AddEntryForm() {
+interface AddEntryInitial {
+  extension_id?: string
+  name?: string
+  listing_url?: string | null
+}
+
+function AddEntryForm({
+  initial,
+  title = 'Add an extension',
+  onDone,
+  onCancel,
+}: {
+  initial?: AddEntryInitial
+  title?: string
+  /** Called after the entry was added. */
+  onDone?: () => void
+  onCancel?: () => void
+}) {
   const queryClient = useQueryClient()
-  const [extensionId, setExtensionId] = useState('')
-  const [name, setName] = useState('')
+  const [extensionId, setExtensionId] = useState(initial?.extension_id ?? '')
+  const [name, setName] = useState(initial?.name ?? '')
   const [category, setCategory] = useState<BlocklistCategory>('ai_assistant')
   const [reason, setReason] = useState('')
-  const [listingUrl, setListingUrl] = useState('')
+  const [listingUrl, setListingUrl] = useState(initial?.listing_url ?? '')
   const [errors, setErrors] = useState<{ id?: string; name?: string; reason?: string }>({})
 
   const add = useMutation({
@@ -141,12 +163,15 @@ function AddEntryForm() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: BLOCKLIST_KEY })
       void queryClient.invalidateQueries({ queryKey: POLICY_KEY })
+      // It is on the list now, so it leaves the "seen" list.
+      void queryClient.invalidateQueries({ queryKey: OBSERVED_KEY })
       toast.success('Added to the blocklist')
       setExtensionId('')
       setName('')
       setReason('')
       setListingUrl('')
       setErrors({})
+      onDone?.()
     },
     onError: (err) => toast.error(errorMessage(err, 'Could not add the extension')),
   })
@@ -171,7 +196,7 @@ function AddEntryForm() {
 
   return (
     <form onSubmit={onSubmit} noValidate className="rounded-card border border-line bg-surface-2 p-4">
-      <p className="mb-3 text-[13px] font-semibold text-ink">Add an extension</p>
+      <p className="mb-3 text-[13px] font-semibold text-ink">{title}</p>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <label htmlFor="ext-id" className="mb-1 block text-xs font-medium text-ink-muted">
@@ -247,7 +272,12 @@ function AddEntryForm() {
           />
         </div>
       </div>
-      <div className="mt-3 flex justify-end">
+      <div className="mt-3 flex justify-end gap-2">
+        {onCancel && (
+          <button type="button" className={BTN_GHOST} onClick={onCancel} disabled={add.isPending}>
+            Cancel
+          </button>
+        )}
         <button type="submit" className={BTN_PRIMARY} disabled={add.isPending}>
           {add.isPending ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
           Add to blocklist
@@ -361,6 +391,239 @@ function BlocklistCard({ entries }: { entries: ExtensionBlocklistEntry[] }) {
   )
 }
 
+// ── Seen extensions: flagged on candidates' browsers, awaiting a decision ────
+
+const REOPEN_LABEL: Record<string, string> = {
+  content_changed: 'Changed since you dismissed it',
+  stronger_match: 'Now a stronger match',
+}
+
+const REASON_LABEL: Record<string, string> = {
+  heuristic_strong: 'Strong match',
+  heuristic_weak: 'Weak match',
+}
+
+function formatSeen(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+function ObservedRow({
+  ext,
+  onAdd,
+  adding,
+  onCancelAdd,
+}: {
+  ext: ObservedExtension
+  onAdd: () => void
+  adding: boolean
+  onCancelAdd: () => void
+}) {
+  const queryClient = useQueryClient()
+  const change = useMutation({
+    mutationFn: (action: 'dismiss' | 'restore') =>
+      api.post(`/api/platform/observed-extensions/${ext.id}/${action}`, {}),
+    onSuccess: (_data, action) => {
+      void queryClient.invalidateQueries({ queryKey: OBSERVED_KEY })
+      toast.success(action === 'dismiss' ? 'Dismissed' : 'Restored')
+    },
+    onError: (err) => toast.error(errorMessage(err, 'Could not update the extension')),
+  })
+
+  return (
+    <li className="rounded-card border border-line bg-surface p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[14px] font-semibold text-ink">{ext.name}</p>
+            <Badge tone={ext.strongest_reason === 'heuristic_strong' ? 'warn' : 'neutral'}>
+              {REASON_LABEL[ext.strongest_reason] ?? ext.strongest_reason}
+            </Badge>
+            {ext.reopened_reason && (
+              <Badge tone="accent">{REOPEN_LABEL[ext.reopened_reason] ?? 'Reopened'}</Badge>
+            )}
+          </div>
+          <p className="mt-0.5 break-all font-mono text-[11px] text-ink-subtle">{ext.extension_id}</p>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-muted">
+            {ext.description || 'No description reported.'}
+          </p>
+          <p className="mt-1.5 text-[12px] text-ink-subtle">
+            Seen {ext.times_seen} {ext.times_seen === 1 ? 'time' : 'times'} · last seen{' '}
+            {formatSeen(ext.last_seen_at)}
+            {ext.listing_url && (
+              <>
+                {' · '}
+                <a
+                  href={ext.listing_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-accent hover:underline"
+                >
+                  Web Store listing <ExternalLink size={11} />
+                </a>
+              </>
+            )}
+          </p>
+        </div>
+
+        <div className="flex shrink-0 gap-2">
+          {ext.status === 'new' ? (
+            <>
+              <button type="button" className={BTN_PRIMARY} onClick={onAdd} disabled={adding}>
+                <Plus size={14} />
+                Add to blocklist
+              </button>
+              <button
+                type="button"
+                className={BTN_GHOST}
+                onClick={() => change.mutate('dismiss')}
+                disabled={change.isPending}
+              >
+                Dismiss
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className={BTN_GHOST}
+              onClick={() => change.mutate('restore')}
+              disabled={change.isPending}
+            >
+              Restore
+            </button>
+          )}
+        </div>
+      </div>
+
+      {adding && (
+        <div className="mt-4">
+          <AddEntryForm
+            title="Add to the blocklist"
+            initial={{
+              extension_id: ext.extension_id,
+              name: ext.name,
+              listing_url: ext.listing_url,
+            }}
+            onDone={onCancelAdd}
+            onCancel={onCancelAdd}
+          />
+        </div>
+      )}
+    </li>
+  )
+}
+
+function ObservedExtensionsCard() {
+  const [status, setStatus] = useState<ObservedStatus>('new')
+  const [page, setPage] = useState(0)
+  const [addingId, setAddingId] = useState<string | null>(null)
+  const offset = page * OBSERVED_PAGE_SIZE
+
+  const query = useQuery<ObservedExtensionPage>({
+    queryKey: [...OBSERVED_KEY, status, page],
+    queryFn: () =>
+      api.get(
+        `/api/platform/observed-extensions?status=${status}&limit=${OBSERVED_PAGE_SIZE}&offset=${offset}`,
+      ) as unknown as Promise<ObservedExtensionPage>,
+    placeholderData: (previous) => previous,
+  })
+
+  const data = query.data
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / OBSERVED_PAGE_SIZE)) : 1
+
+  // Acting on the last row of a page can leave the page empty; step back.
+  useEffect(() => {
+    if (data && data.items.length === 0 && page > 0) setPage(page - 1)
+  }, [data, page])
+
+  const choose = (next: ObservedStatus) => {
+    setStatus(next)
+    setPage(0)
+    setAddingId(null)
+  }
+
+  return (
+    <SectionCard title="Seen extensions">
+      <p className="mb-4 text-[13px] leading-relaxed text-ink-muted">
+        Extensions flagged on candidates&rsquo; browsers that are not on your blocklist yet. Check the
+        Web Store listing, then add the ones that are AI assistants. Nothing here is blocked
+        automatically, and no candidate information is shown.
+      </p>
+
+      <div className="mb-4 inline-flex rounded-md border border-line p-0.5" role="tablist">
+        {(['new', 'dismissed'] as ObservedStatus[]).map((value) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={status === value}
+            onClick={() => choose(value)}
+            className={`rounded px-3 py-1.5 text-[12px] font-semibold transition-colors ${
+              status === value ? 'bg-accent text-accent-ink' : 'text-ink-muted hover:text-ink'
+            }`}
+          >
+            {value === 'new' ? 'New' : 'Dismissed'}
+            {status === value && data ? ` (${data.total})` : ''}
+          </button>
+        ))}
+      </div>
+
+      {query.isLoading ? (
+        <div className="h-24 animate-pulse rounded-card bg-surface-2" />
+      ) : query.isError || !data ? (
+        <p className="py-4 text-[13px] text-ink-muted">
+          Could not load this list.{' '}
+          <button type="button" className="text-accent underline" onClick={() => void query.refetch()}>
+            Try again
+          </button>
+        </p>
+      ) : data.items.length === 0 ? (
+        <p className="py-6 text-center text-[13px] text-ink-muted">
+          {status === 'new'
+            ? 'Nothing waiting for review. New extensions appear here as candidates are checked.'
+            : 'No dismissed extensions.'}
+        </p>
+      ) : (
+        <>
+          <ul className="space-y-3">
+            {data.items.map((ext) => (
+              <ObservedRow
+                key={ext.id}
+                ext={ext}
+                adding={addingId === ext.id}
+                onAdd={() => setAddingId(ext.id)}
+                onCancelAdd={() => setAddingId(null)}
+              />
+            ))}
+          </ul>
+          {totalPages > 1 && (
+            <div className="mt-4 flex items-center justify-between text-[12px] text-ink-muted">
+              <button
+                type="button"
+                className={BTN_GHOST}
+                disabled={page === 0}
+                onClick={() => setPage(page - 1)}
+              >
+                Previous
+              </button>
+              <span>
+                Page {page + 1} of {totalPages}
+              </span>
+              <button
+                type="button"
+                className={BTN_GHOST}
+                disabled={page + 1 >= totalPages}
+                onClick={() => setPage(page + 1)}
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </SectionCard>
+  )
+}
+
 // ── Panel ────────────────────────────────────────────────────────────────────
 
 export default function ExtensionPolicyPanel() {
@@ -391,6 +654,7 @@ export default function ExtensionPolicyPanel() {
   return (
     <div className="space-y-6">
       <PolicyCard policy={policy.data} />
+      <ObservedExtensionsCard />
       <BlocklistCard entries={blocklist.data} />
       <Card className="p-4">
         <p className="text-[12px] leading-relaxed text-ink-muted">

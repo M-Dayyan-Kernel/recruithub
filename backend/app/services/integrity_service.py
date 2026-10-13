@@ -42,6 +42,7 @@ from app.schemas.integrity import (
     PublicBlocklistItem,
 )
 from app.services.audit_service import AuditService
+from app.services.observed_extension_service import ObservedExtensionService
 from app.services.integrity_defaults import (
     DEFAULT_MODE,
     DEFAULT_RULES,
@@ -152,11 +153,13 @@ class IntegrityService:
         repo: IntegrityRepository | None = None,
         interviews: InterviewRepository | None = None,
         audit: AuditService | None = None,
+        observed: ObservedExtensionService | None = None,
     ) -> None:
         self._session = session
         self._repo = repo or IntegrityRepository(session)
         self._interviews = interviews or InterviewRepository(session)
         self._audit = audit or AuditService(session)
+        self._observed = observed or ObservedExtensionService(session, audit=self._audit)
 
     # ── defaults ──────────────────────────────────────────────────────────
 
@@ -212,7 +215,9 @@ class IntegrityService:
     async def record_scan(self, token: str, body: IntegrityScanIn) -> IntegrityScanAck:
         interview = await self._require_open_session(token)
         outcome = compute_outcome(body.scan_completed, body.flagged)
-        flagged = [f.model_dump() for f in body.flagged]
+        # The description belongs to the extension, not to this interview: it is
+        # kept once in the catalog, so the per-interview evidence stays small.
+        flagged = [f.model_dump(exclude={"description"}) for f in body.flagged]
         client_time = body.checked_at
         if client_time is not None and client_time.tzinfo is None:
             client_time = client_time.replace(tzinfo=timezone.utc)
@@ -230,8 +235,23 @@ class IntegrityService:
                 client_checked_at=client_time,
             )
         )
+        await self._record_observed(body)
         await self._session.commit()
         return IntegrityScanAck(outcome=outcome)  # type: ignore[arg-type]
+
+    async def _record_observed(self, body: IntegrityScanIn) -> None:
+        """Fold flagged extensions into the Super Admin catalog.
+
+        Isolated in a savepoint: the catalog is a convenience, the scan is
+        evidence. A catalog failure must never cost the interview its record.
+        """
+        if not body.flagged:
+            return
+        try:
+            async with self._session.begin_nested():
+                await self._observed.record(body.flagged)
+        except Exception:  # noqa: BLE001 - deliberately broad, see docstring
+            logger.exception("Could not update the observed-extensions catalog")
 
     async def summary_for_session(self, interview_session_id: uuid.UUID) -> IntegritySummary | None:
         return build_summary(await self._repo.list_scans(interview_session_id))

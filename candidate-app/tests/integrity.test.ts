@@ -26,6 +26,7 @@ const flagged = (over: Record<string, unknown> = {}) => ({
   intent_score: 7,
   capability_score: 4,
   signals: ['keyword:chatgpt', 'permission:sidePanel'],
+  description: 'ChatGPT in a side panel',
   ...over,
 })
 
@@ -199,4 +200,20 @@ test('a report is capped at what the API accepts, keeping what blocked', () => {
   const payload = toScanPayload('final', gate)
   assert.equal(payload.flagged.length, MAX_RECORDED_FLAGGED)
   assert.deepEqual(payload.flagged.slice(0, 3).map((f) => f.blocked), [true, true, true])
+})
+
+test('the description is parsed, capped, and defaults to empty', () => {
+  const ok = evalV2(reply({ flagged_extensions: [flagged({ description: 'x'.repeat(500) })] }))
+  assert.equal(ok.status === 'clear' && ok.report?.flagged[0].description.length, 300)
+
+  const none = evalV2(reply({ flagged_extensions: [flagged({ description: undefined })] }))
+  assert.equal(none.status === 'clear' && none.report?.flagged[0].description, '')
+
+  const wrong = evalV2(reply({ flagged_extensions: [flagged({ description: 42 })] }))
+  assert.equal(wrong.status === 'clear' && wrong.report?.flagged[0].description, '')
+})
+
+test('the description travels in the evidence payload', () => {
+  const gate = evalV2(reply({ flagged_extensions: [flagged()] })) as GateResult
+  assert.equal(toScanPayload('final', gate).flagged[0].description, 'ChatGPT in a side panel')
 })

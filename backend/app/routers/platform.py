@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
-from app.dependencies import RequireSuperAdmin, get_integrity_service, get_platform_tenant_service
+from app.dependencies import (
+    RequireSuperAdmin,
+    get_integrity_service,
+    get_observed_extension_service,
+    get_platform_tenant_service,
+)
 from app.exceptions import DomainError
 from app.schemas.schemas import (
     TenantCreateRequest,
@@ -19,10 +25,13 @@ from app.schemas.integrity import (
     BlocklistEntryCreate,
     BlocklistEntryResponse,
     BlocklistEntryUpdate,
+    ObservedExtensionPage,
+    ObservedExtensionResponse,
     PolicyAdminResponse,
     PolicyUpdateRequest,
 )
 from app.services.integrity_service import IntegrityService
+from app.services.observed_extension_service import ObservedExtensionService
 from app.services.platform_tenant_service import PlatformTenantService
 
 router = APIRouter()
@@ -185,3 +194,39 @@ async def delete_extension_blocklist_entry(
     service: IntegrityService = Depends(get_integrity_service),
 ):
     await service.delete_entry(entry_id, admin)
+
+
+# ── Seen extensions: flagged on candidates' browsers, awaiting a decision ────
+
+
+@router.get("/observed-extensions", response_model=ObservedExtensionPage)
+async def list_observed_extensions(
+    _admin: RequireSuperAdmin,
+    status_filter: Literal["new", "dismissed"] = Query("new", alias="status"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    service: ObservedExtensionService = Depends(get_observed_extension_service),
+):
+    return await service.list_page(status=status_filter, limit=limit, offset=offset)
+
+
+@router.post(
+    "/observed-extensions/{extension_row_id}/dismiss", response_model=ObservedExtensionResponse
+)
+async def dismiss_observed_extension(
+    extension_row_id: uuid.UUID,
+    admin: RequireSuperAdmin,
+    service: ObservedExtensionService = Depends(get_observed_extension_service),
+):
+    return await service.dismiss(extension_row_id, admin)
+
+
+@router.post(
+    "/observed-extensions/{extension_row_id}/restore", response_model=ObservedExtensionResponse
+)
+async def restore_observed_extension(
+    extension_row_id: uuid.UUID,
+    admin: RequireSuperAdmin,
+    service: ObservedExtensionService = Depends(get_observed_extension_service),
+):
+    return await service.restore(extension_row_id, admin)
