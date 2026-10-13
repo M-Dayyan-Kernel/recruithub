@@ -19,9 +19,8 @@ import { VoiceScreeningSwitch } from '@/components/screening/VoiceScreeningSwitc
 import { getDefaultScreeningQuestions } from '@/lib/screeningDefaults'
 import { RequiredMark } from '@/components/FieldError'
 import {
-  EXPERIENCE_MAX_YEARS,
-  sanitizeYearsInput,
   validateExperienceRange,
+  validateYearsText,
 } from '@/lib/validation'
 
 interface CreateJobPayload {
@@ -272,6 +271,23 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
     })
   }
 
+  /**
+   * Keeps exactly what was typed and flags a malformed value straight away
+   * (negative, decimal, over the cap). The min/max relationship is only
+   * checked on submit, so it does not flash while a number is half-typed.
+   */
+  const changeExperience = (field: 'minExp' | 'maxExp', value: string) => {
+    const nextMin = field === 'minExp' ? value : minExp
+    const nextMax = field === 'maxExp' ? value : maxExp
+    if (field === 'minExp') setMinExp(value)
+    else setMaxExp(value)
+    setFieldErrors((p) => ({
+      ...p,
+      minExp: validateYearsText(nextMin, 'Min experience') ?? undefined,
+      maxExp: validateYearsText(nextMax, 'Max experience') ?? undefined,
+    }))
+  }
+
   const isParsing = parseMutation.isPending
   const isBusy = mutation.isPending || isParsing
   // Voice screening needs at least one question to ask.
@@ -467,17 +483,12 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
               <div className="relative">
                 <input
                   id="min-exp"
-                  type="number"
-                  min={0}
-                  max={EXPERIENCE_MAX_YEARS}
-                  step={1}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  maxLength={4}
                   value={minExp}
-                  onChange={(e) => {
-                    const next = sanitizeYearsInput(e.target.value)
-                    if (next === null) return
-                    setMinExp(next)
-                    setFieldErrors((p) => ({ ...p, minExp: undefined, maxExp: undefined }))
-                  }}
+                  onChange={(e) => changeExperience('minExp', e.target.value)}
                   placeholder="3"
                   className={`${inputClass} ${
                     fieldErrors.minExp ? 'border-rose-300 ring-rose-500/15' : ''
@@ -499,17 +510,12 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
               <div className="relative">
                 <input
                   id="max-exp"
-                  type="number"
-                  min={0}
-                  max={EXPERIENCE_MAX_YEARS}
-                  step={1}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  maxLength={4}
                   value={maxExp}
-                  onChange={(e) => {
-                    const next = sanitizeYearsInput(e.target.value)
-                    if (next === null) return
-                    setMaxExp(next)
-                    setFieldErrors((p) => ({ ...p, minExp: undefined, maxExp: undefined }))
-                  }}
+                  onChange={(e) => changeExperience('maxExp', e.target.value)}
                   placeholder="6"
                   className={`${inputClass} ${
                     fieldErrors.maxExp ? 'border-rose-300 ring-rose-500/15' : ''

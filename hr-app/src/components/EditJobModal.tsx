@@ -10,8 +10,7 @@ import { ScreeningQuestionsEditor } from '@/components/ScreeningQuestionsEditor'
 import { VoiceScreeningSwitch } from '@/components/screening/VoiceScreeningSwitch'
 import { getDefaultScreeningQuestions } from '@/lib/screeningDefaults'
 import {
-  EXPERIENCE_MAX_YEARS,
-  sanitizeYearsInput,
+  validateYearsText,
   validateExperienceRange,
 } from '@/lib/validation'
 
@@ -31,6 +30,9 @@ export function EditJobModal({ job, open, onClose }: Props) {
   const [minExp, setMinExp] = useState(job.experience_min != null ? String(job.experience_min) : '')
   // The API stores "no upper bound" as 0; show that as an empty field.
   const [maxExp, setMaxExp] = useState(job.experience_max ? String(job.experience_max) : '')
+  // Flagged as typed, so a bad value is never hidden until (or past) submit.
+  const minExpError = validateYearsText(minExp, 'Min experience')
+  const maxExpError = validateYearsText(maxExp, 'Max experience')
   const [screeningQuestions, setScreeningQuestions] = useState<ScreeningQuestion[]>(
     job.screening_questions?.length
       ? job.screening_questions
@@ -283,36 +285,34 @@ export function EditJobModal({ job, open, onClose }: Props) {
                 Min Experience (years)
               </label>
               <input
-                type="number"
-                min={0}
-                max={EXPERIENCE_MAX_YEARS}
-                step={1}
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={4}
                 value={minExp}
-                onChange={(e) => {
-                  const next = sanitizeYearsInput(e.target.value)
-                  if (next !== null) setMinExp(next)
-                }}
+                onChange={(e) => setMinExp(e.target.value)}
                 placeholder="e.g. 3"
+                aria-invalid={Boolean(minExpError)}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               />
+              {minExpError && <p className="mt-1.5 text-xs text-rose-600">{minExpError}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
                 Max Experience (years)
               </label>
               <input
-                type="number"
-                min={0}
-                max={EXPERIENCE_MAX_YEARS}
-                step={1}
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={4}
                 value={maxExp}
-                onChange={(e) => {
-                  const next = sanitizeYearsInput(e.target.value)
-                  if (next !== null) setMaxExp(next)
-                }}
+                onChange={(e) => setMaxExp(e.target.value)}
                 placeholder="e.g. 6"
+                aria-invalid={Boolean(maxExpError)}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               />
+              {maxExpError && <p className="mt-1.5 text-xs text-rose-600">{maxExpError}</p>}
             </div>
           </div>
 

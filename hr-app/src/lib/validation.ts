@@ -92,16 +92,24 @@ export function isValid(errors: object): boolean {
 export const EXPERIENCE_MAX_YEARS = 60
 
 /**
- * Keeps a years-of-experience input to whole non-negative numbers.
+ * Checks what the user typed into a years-of-experience field.
  *
- * `min={0}` on a number input only gates native form validation, and these
- * forms submit via click handlers — so a typed "-5" would otherwise reach
- * state. Returns null when the keystroke should be rejected outright.
+ * Returns a message for anything that is not a whole number from 0 to
+ * EXPERIENCE_MAX_YEARS, or null when the text is valid or blank (blank means
+ * "not specified"). The text is validated as typed and never silently
+ * discarded: a swallowed keystroke on a number input leaves the browser
+ * showing "-5" while form state stays blank, so the job is saved with no
+ * experience and no message.
  */
-export function sanitizeYearsInput(raw: string): string | null {
-  if (raw === '') return ''
-  if (!/^\d+$/.test(raw)) return null
-  return String(Number(raw))
+export function validateYearsText(raw: string, label: string): string | null {
+  const text = raw.trim()
+  if (text === '') return null
+  if (text.startsWith('-')) return `${label} cannot be negative`
+  if (!/^\d+$/.test(text)) return `${label} must be a whole number`
+  if (Number(text) > EXPERIENCE_MAX_YEARS) {
+    return `${label} cannot exceed ${EXPERIENCE_MAX_YEARS} years`
+  }
+  return null
 }
 
 /** Validates an experience range, returning the first problem found. */
@@ -109,21 +117,13 @@ export function validateExperienceRange(
   min: string,
   max: string,
 ): { field: 'min' | 'max'; message: string } | null {
-  const minNum = min === '' ? null : Number(min)
-  const maxNum = max === '' ? null : Number(max)
+  const minError = validateYearsText(min, 'Min experience')
+  if (minError) return { field: 'min', message: minError }
+  const maxError = validateYearsText(max, 'Max experience')
+  if (maxError) return { field: 'max', message: maxError }
 
-  for (const [value, field, label] of [
-    [minNum, 'min', 'Min experience'],
-    [maxNum, 'max', 'Max experience'],
-  ] as const) {
-    if (value === null) continue
-    if (!Number.isFinite(value) || value < 0) {
-      return { field, message: `${label} cannot be negative` }
-    }
-    if (value > EXPERIENCE_MAX_YEARS) {
-      return { field, message: `${label} cannot exceed ${EXPERIENCE_MAX_YEARS} years` }
-    }
-  }
+  const minNum = min.trim() === '' ? null : Number(min)
+  const maxNum = max.trim() === '' ? null : Number(max)
 
   // A maximum of 0 means "no upper bound" (the API stores a blank max as 0),
   // so it is never compared with the minimum.
