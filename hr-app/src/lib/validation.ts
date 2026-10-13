@@ -78,6 +78,57 @@ export function validateName(
   return null
 }
 
+/** Longest candidate name the database stores. */
+export const CANDIDATE_NAME_MAX_LENGTH = 255
+
+/**
+ * Suffix of the stand-in address created when a resume had no email. It means
+ * "email missing", so it is shown as empty and is never a valid value to save.
+ * Mirrors PLACEHOLDER_EMAIL_SUFFIX in the backend schemas.
+ */
+export const PLACEHOLDER_EMAIL_SUFFIX = '@upload.pending'
+
+export function isPlaceholderEmail(value: string | null | undefined): boolean {
+  return (value ?? '').trim().toLowerCase().endsWith(PLACEHOLDER_EMAIL_SUFFIX)
+}
+
+const PHONE_ALLOWED = /^\+?[\d\s().-]+$/
+export const PHONE_MIN_DIGITS = 7
+export const PHONE_MAX_DIGITS = 15 // E.164
+
+/** Optional phone number: blank is fine, anything entered must be a real number. */
+export function validatePhone(value: string, label = 'Phone'): string | null {
+  const phone = value.trim()
+  if (!phone) return null
+  const digits = phone.replace(/\D/g, '')
+  if (
+    phone.length > 50 ||
+    !PHONE_ALLOWED.test(phone) ||
+    digits.length < PHONE_MIN_DIGITS ||
+    digits.length > PHONE_MAX_DIGITS
+  ) {
+    return `Enter a valid ${label.toLowerCase()} number (${PHONE_MIN_DIGITS}-${PHONE_MAX_DIGITS} digits)`
+  }
+  return null
+}
+
+/** Optional years of experience; a decimal such as 4.5 is allowed. */
+export function validateYearsOfExperience(raw: string, label = 'Years of experience'): string | null {
+  const text = raw.trim()
+  if (!text) return null
+  if (text.startsWith('-')) return `${label} cannot be negative`
+  if (!/^\d+(\.\d+)?$/.test(text)) return `${label} must be a number`
+  if (Number(text) > EXPERIENCE_MAX_YEARS) {
+    return `${label} cannot exceed ${EXPERIENCE_MAX_YEARS}`
+  }
+  return null
+}
+
+/** Optional short free-text field (CTC, notice period) capped at its column size. */
+export function validateShortText(value: string, label: string, max = 100): string | null {
+  return value.trim().length > max ? `${label} must be at most ${max} characters` : null
+}
+
 /** Convenience wrapper for organization/company name fields. */
 export function validateOrgName(value: string, label = 'Organization name'): string | null {
   return validateName(value, label, ORG_NAME_MAX_LENGTH)

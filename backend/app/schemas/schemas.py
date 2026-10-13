@@ -390,17 +390,109 @@ class CandidateCreate(BaseModel):
     phone: Optional[str] = None
 
 
+#: Statuses HR can set by hand. (Pipeline stages are derived, not stored here.)
+CANDIDATE_STATUSES = ("active", "on_hold", "rejected", "hired")
+#: Suffix of the stand-in address created when a resume has no email. It means
+#: "email missing", so it is never a valid value for HR to save.
+PLACEHOLDER_EMAIL_SUFFIX = "@upload.pending"
+
+# Column limits in models.Candidate; checked here so an over-long value is a
+# 422 with a message instead of a database error.
+_CANDIDATE_NAME_MAX = 255
+_CANDIDATE_EMAIL_MAX = 254
+_CANDIDATE_PHONE_MAX = 50
+_CANDIDATE_FREE_TEXT_MAX = 100
+_PHONE_ALLOWED = re.compile(r"^\+?[\d\s().\-]+$")
+_PHONE_MIN_DIGITS, _PHONE_MAX_DIGITS = 7, 15  # E.164 allows at most 15
+
+
 class CandidateUpdate(BaseModel):
-    """Partial update for a candidate's mutable fields."""
+    """Partial update for a candidate's mutable fields.
+
+    A field left out (or null) is "unchanged". A field that is sent must be
+    valid: name and email are the candidate's identity and contact point (both
+    NOT NULL), so they can never be blanked or set to something malformed.
+    """
     phone: Optional[str] = None
     name: Optional[str] = None
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     status: Optional[str] = None
     years_experience: Optional[float] = None
     current_ctc: Optional[str] = None
     expected_ctc: Optional[str] = None
     notice_period: Optional[str] = None
     last_working_day: Optional[date] = None
+
+    @field_validator("name")
+    @classmethod
+    def _name_required_when_sent(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        name = re.sub(r"\s+", " ", v).strip()
+        if not name:
+            raise ValueError("Name cannot be blank")
+        if len(name) > _CANDIDATE_NAME_MAX:
+            raise ValueError(f"Name must be at most {_CANDIDATE_NAME_MAX} characters")
+        return name
+
+    @field_validator("email")
+    @classmethod
+    def _email_must_be_real(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        email = str(v).strip().lower()
+        if len(email) > _CANDIDATE_EMAIL_MAX:
+            raise ValueError("Email is too long")
+        if email.endswith(PLACEHOLDER_EMAIL_SUFFIX):
+            raise ValueError("Enter the candidate's real email address")
+        return email
+
+    @field_validator("phone")
+    @classmethod
+    def _phone_format(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        phone = v.strip()
+        if not phone:
+            return None  # blank means "not provided", never an empty stored value
+        digits = re.sub(r"\D", "", phone)
+        if (
+            len(phone) > _CANDIDATE_PHONE_MAX
+            or not _PHONE_ALLOWED.match(phone)
+            or not _PHONE_MIN_DIGITS <= len(digits) <= _PHONE_MAX_DIGITS
+        ):
+            raise ValueError(
+                f"Enter a valid phone number ({_PHONE_MIN_DIGITS}-{_PHONE_MAX_DIGITS} digits)"
+            )
+        return phone
+
+    @field_validator("status")
+    @classmethod
+    def _status_known(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if v not in CANDIDATE_STATUSES:
+            raise ValueError(f"Status must be one of: {', '.join(CANDIDATE_STATUSES)}")
+        return v
+
+    @field_validator("years_experience")
+    @classmethod
+    def _years_in_range(cls, v: Optional[float]) -> Optional[float]:
+        if v is None:
+            return v
+        if not 0 <= v <= EXPERIENCE_MAX_YEARS:
+            raise ValueError(f"Years of experience must be between 0 and {EXPERIENCE_MAX_YEARS}")
+        return v
+
+    @field_validator("current_ctc", "expected_ctc", "notice_period")
+    @classmethod
+    def _free_text_length(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        text = v.strip()
+        if len(text) > _CANDIDATE_FREE_TEXT_MAX:
+            raise ValueError(f"Must be at most {_CANDIDATE_FREE_TEXT_MAX} characters")
+        return text or None
 
 
 class CandidateResponse(BaseModel):

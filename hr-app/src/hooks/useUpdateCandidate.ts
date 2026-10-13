@@ -13,6 +13,7 @@ export function useUpdateCandidate(candidateId: string) {
       void queryClient.invalidateQueries({ queryKey: ['candidate', candidateId] })
       toast.success('Candidate updated')
     },
-    onError: () => toast.error('Failed to update candidate'),
+    // The API explains what it rejected (e.g. "Name cannot be blank"); show that.
+    onError: (err: Error) => toast.error(err.message || 'Failed to update candidate'),
   })
 }
