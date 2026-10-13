@@ -34,6 +34,8 @@ export const SUPPORTED_VERSIONS = [1, 2]
 export const ALLOWED_ORIGINS = [
   { protocol: 'http:', hostname: 'localhost' },
   { protocol: 'http:', hostname: '127.0.0.1' },
+  // Deployed candidate apps. Exact hostnames only; the manifest needs the same entry.
+  { protocol: 'https:', hostname: 'dev-apply.recruithub.webknot-dev.in' },
 ]
 
 /** True when `origin` (e.g. "http://localhost:5174") is on the allowlist. */

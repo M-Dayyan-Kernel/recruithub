@@ -32,6 +32,8 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+        VITE_RH_EXTENSION_ID: ${VITE_RH_EXTENSION_ID:-}
+        VITE_RH_EXTENSION_INSTALL_URL: ${VITE_RH_EXTENSION_INSTALL_URL:-}
     ports:
       - "5174:80"
     restart: unless-stopped
