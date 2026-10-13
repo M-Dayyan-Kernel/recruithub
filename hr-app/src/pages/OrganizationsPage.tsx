@@ -21,32 +21,47 @@ import toast from 'react-hot-toast'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { api, getStoredToken } from '@/lib/api'
-import type { TenantCreateRequest, TenantListItem, TenantUpdateRequest } from '@/types/api'
+import type {
+  TenantActionResult,
+  TenantCreateRequest,
+  TenantListItem,
+  TenantUpdateRequest,
+} from '@/types/api'
 import { BackendError } from '@/components/BackendError'
 import { CharCount, FieldError, RequiredMark } from '@/components/FieldError'
-import { PasswordInput } from '@/components/PasswordInput'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { useAuth } from '@/context/AuthContext'
 import { BTN_PRIMARY, PageHeader } from '@/components/ui/Surface'
 import OrgArt, { paletteFor } from '@/components/ui/OrgArt'
 import {
   ORG_NAME_MAX_LENGTH,
-  PASSWORD_HINT,
-  PASSWORD_MAX_LENGTH,
-  PASSWORD_MIN_LENGTH,
   PERSON_NAME_MAX_LENGTH,
   isValid,
   validateEmail,
   validateName,
   validateOrgName,
-  validatePassword,
 } from '@/lib/validation'
 
 interface CreateFormErrors {
   name?: string | null
   adminName?: string | null
   adminEmail?: string | null
-  adminPassword?: string | null
+}
+
+/**
+ * Success toast that also says whether the notification email went out. A
+ * `false` means the action itself succeeded but the mail did not, which the
+ * Super Admin needs to know (there is no resend yet).
+ */
+function notifyEmailOutcome(result: unknown, done: string, sentNote: string) {
+  const sent = (result as TenantActionResult | undefined)?.email_sent
+  if (sent === false) {
+    toast.success(`${done}, but the notification email could not be sent.`, { duration: 7000 })
+  } else if (sent === true) {
+    toast.success(`${done}. ${sentNote}`)
+  } else {
+    toast.success(done)
+  }
 }
 
 /** Slug of the built-in organization the backend refuses to deactivate. */
@@ -242,7 +257,6 @@ export default function OrganizationsPage() {
   const [name, setName] = useState('')
   const [adminEmail, setAdminEmail] = useState('')
   const [adminName, setAdminName] = useState('')
-  const [adminPassword, setAdminPassword] = useState('')
   const [createErrors, setCreateErrors] = useState<CreateFormErrors>({})
   const [gstViewer, setGstViewer] = useState<GstViewerState | null>(null)
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
@@ -295,13 +309,12 @@ export default function OrganizationsPage() {
   const createMutation = useMutation({
     mutationFn: (payload: TenantCreateRequest) =>
       api.post('/api/platform/tenants', payload),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['platform-tenants'] })
-      toast.success('Organization created')
+      notifyEmailOutcome(result, 'Organization created', 'The admin was emailed a link to set their password.')
       setName('')
       setAdminEmail('')
       setAdminName('')
-      setAdminPassword('')
       setCreateErrors({})
       setShowCreate(false)
     },
@@ -320,18 +333,18 @@ export default function OrganizationsPage() {
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => api.post(`/api/platform/tenants/${id}/approve`, {}),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['platform-tenants'] })
-      toast.success('Organization approved')
+      notifyEmailOutcome(result, 'Organization approved', 'The admin was notified by email.')
     },
     onError: (err: Error) => toast.error(err.message || 'Failed to approve'),
   })
 
   const rejectMutation = useMutation({
     mutationFn: (id: string) => api.post(`/api/platform/tenants/${id}/reject`, {}),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['platform-tenants'] })
-      toast.success('Organization rejected')
+      notifyEmailOutcome(result, 'Organization rejected', 'The admin was notified by email.')
     },
     onError: (err: Error) => toast.error(err.message || 'Failed to reject'),
   })
@@ -491,7 +504,6 @@ export default function OrganizationsPage() {
       name: validateOrgName(name),
       adminName: validateName(adminName, 'Admin name'),
       adminEmail: validateEmail(adminEmail, 'Admin email'),
-      adminPassword: validatePassword(adminPassword, 'Admin password'),
     }
     setCreateErrors(errors)
     if (!isValid(errors)) return
@@ -500,7 +512,6 @@ export default function OrganizationsPage() {
       name: name.trim(),
       admin_email: adminEmail.trim(),
       admin_full_name: adminName.trim(),
-      admin_password: adminPassword,
     })
   }
 
@@ -538,7 +549,9 @@ export default function OrganizationsPage() {
         >
           <h2 className="mb-4 text-sm font-semibold text-ink">Create organization</h2>
           <p className="mb-4 text-xs text-ink-muted">
-            Orgs you create here are approved and active immediately (no GST review).
+            Orgs you create here are approved and active immediately (no GST review). The admin
+            receives an email with a one-time link to set their own password, so no password is
+            entered or shared here.
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
@@ -610,30 +623,6 @@ export default function OrganizationsPage() {
                 placeholder="admin@acme.com"
               />
               <FieldError message={createErrors.adminEmail} />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="mb-1.5 block text-xs font-medium text-ink-muted">
-                Admin password
-                <RequiredMark />
-              </label>
-              <PasswordInput
-                required
-                minLength={PASSWORD_MIN_LENGTH}
-                maxLength={PASSWORD_MAX_LENGTH}
-                aria-invalid={Boolean(createErrors.adminPassword)}
-                value={adminPassword}
-                onChange={(e) => {
-                  setAdminPassword(e.target.value)
-                  clearCreateError('adminPassword')
-                }}
-                className={fieldClass(createErrors.adminPassword)}
-                toggleClassName="hover:text-ink"
-              />
-              {createErrors.adminPassword ? (
-                <FieldError message={createErrors.adminPassword} />
-              ) : (
-                <p className="mt-1.5 text-xs text-ink-muted">{PASSWORD_HINT}</p>
-              )}
             </div>
           </div>
           <div className="mt-4 flex justify-end">

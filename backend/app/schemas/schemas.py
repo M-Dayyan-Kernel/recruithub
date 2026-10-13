@@ -780,6 +780,39 @@ class LoginRequest(BaseModel):
     password: str = Field(..., min_length=1)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(..., min_length=10, max_length=128)
+    password: str = Field(..., min_length=12, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        return validate_password_strength(v)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=12, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        return validate_password_strength(v)
+
+
+class PasswordTokenInfoResponse(BaseModel):
+    email: EmailStr
+    purpose: Literal["onboarding", "reset"]
+
+
+class MessageResponse(BaseModel):
+    message: str
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -894,6 +927,9 @@ class TenantResponse(BaseModel):
     company_registration_number: Optional[str] = None
     gst_document_filename: Optional[str] = None
     created_at: datetime
+    # Set by actions that notify the organization admin (create, approve,
+    # reject): False means the action succeeded but the email did not go out.
+    email_sent: Optional[bool] = None
 
 
 class TenantListItem(BaseModel):
@@ -916,7 +952,10 @@ class TenantCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=_ORG_NAME_MAX_LEN)
     admin_email: EmailStr
     admin_full_name: str = Field(..., min_length=1, max_length=_PERSON_NAME_MAX_LEN)
-    admin_password: str = Field(..., min_length=12, max_length=128)
+    # Optional: when omitted the server provisions an unusable password and the
+    # admin sets their own through the emailed link, so no password is ever typed
+    # by a Super Admin or sent in an email.
+    admin_password: Optional[str] = Field(None, min_length=12, max_length=128)
 
     @field_validator("name", "admin_full_name")
     @classmethod
@@ -925,7 +964,9 @@ class TenantCreateRequest(BaseModel):
 
     @field_validator("admin_password")
     @classmethod
-    def _password_strength(cls, v: str) -> str:
+    def _password_strength(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
         return validate_password_strength(v)
 
 

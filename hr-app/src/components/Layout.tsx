@@ -107,6 +107,7 @@ export default function Layout() {
     if (location.pathname.match(/^\/jobs\/[^/]+$/)) return 'Job details'
     if (location.pathname.startsWith('/report/')) return 'Interview Report'
     if (location.pathname === '/settings') return 'Settings'
+    if (location.pathname === '/account') return 'Account'
     if (location.pathname === '/users') return 'Users'
     if (location.pathname === '/activity') return 'Activity'
     return 'Recruitment Hub'
@@ -289,9 +290,15 @@ export default function Layout() {
               collapsed ? 'justify-center px-0' : 'gap-2.5 px-1.5',
             )}
           >
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rail-2 text-[11px] font-semibold text-rail-ink ring-1 ring-rail-line">
+            <NavLink
+              to="/account"
+              title="Account and password"
+              aria-label="Account and password"
+              onClick={closeSidebar}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rail-2 text-[11px] font-semibold text-rail-ink ring-1 ring-rail-line transition-colors hover:ring-rail-muted"
+            >
               {userInitials(user?.full_name, user?.email)}
-            </div>
+            </NavLink>
             
             {!collapsed && (
             <div className="min-w-0 flex-1">

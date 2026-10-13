@@ -537,7 +537,19 @@ export interface TenantCreateRequest {
   name: string
   admin_email: string
   admin_full_name: string
-  admin_password: string
+  /** Omit to let the admin set their own through the emailed link. */
+  admin_password?: string
+}
+
+/** What a create / approve / reject action reports about the email it triggered. */
+export interface TenantActionResult {
+  /** False: the action succeeded but the notification email did not go out. */
+  email_sent?: boolean | null
+}
+
+export interface PasswordTokenInfo {
+  email: string
+  purpose: 'onboarding' | 'reset'
 }
 
 export interface TenantUpdateRequest {

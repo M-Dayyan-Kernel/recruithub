@@ -21,6 +21,9 @@ import NotFoundPage from '@/pages/NotFoundPage'
 import LoginPage from '@/pages/LoginPage'
 import SignupPage from '@/pages/SignupPage'
 import AcceptInvitePage from '@/pages/AcceptInvitePage'
+import AccountPage from '@/pages/AccountPage'
+import ForgotPasswordPage from '@/pages/ForgotPasswordPage'
+import ResetPasswordPage from '@/pages/ResetPasswordPage'
 import OrganizationsPage from '@/pages/OrganizationsPage'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AdminRoute, AppShellRoute, ProtectedRoute } from '@/components/ProtectedRoute'
@@ -39,6 +42,8 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/accept-invite" element={<AcceptInvitePage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         <Route element={<ProtectedRoute />}>
           <Route element={<AppShellRoute />}>
@@ -65,6 +70,7 @@ export default function App() {
               element={<ShortlistReportPage />}
             />
 
+            <Route path="account" element={<AccountPage />} />
             <Route path="candidates" element={<CandidatesPage />} />
             <Route path="candidates/:candidateId" element={<CandidateProfilePage />} />
 

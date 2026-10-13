@@ -67,5 +67,17 @@ class RefreshTokenRepository:
         )
         return result.rowcount or 0
 
+    async def revoke_all_for_user(
+        self, user_id: uuid.UUID, *, at: datetime | None = None
+    ) -> int:
+        """Revoke every live refresh token a user holds (e.g. after a password change)."""
+        result = await self._session.execute(
+            update(RefreshToken)
+            .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+            .values(revoked_at=at or datetime.now(timezone.utc))
+            .execution_options(synchronize_session=False)
+        )
+        return result.rowcount or 0
+
     async def flush(self) -> None:
         await self._session.flush()

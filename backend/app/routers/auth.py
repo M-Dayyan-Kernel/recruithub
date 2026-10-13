@@ -1,20 +1,26 @@
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile, status
 
 from app.dependencies import RequireSuperAdmin, get_auth_service, get_current_user
 from app.exceptions import DomainError
 from app.models.models import User
 from app.schemas.schemas import (
     AcceptInviteRequest,
+    ChangePasswordRequest,
+    ForgotPasswordRequest,
     InvitePublicResponse,
     LoginRequest,
+    MessageResponse,
     MfaSetupResponse,
     MfaVerifyRequest,
+    PasswordTokenInfoResponse,
     RefreshTokenRequest,
+    ResetPasswordRequest,
     SignupPendingResponse,
     SwitchTenantRequest,
     TokenResponse,
     UserResponse,
 )
+from app.services.account_email_service import send_password_reset_email
 from app.services.auth_service import AuthService
 
 router = APIRouter()
@@ -118,6 +124,75 @@ async def accept_invite(
 ):
     try:
         return await service.accept_invite(body, request)
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
+# Same words for every address, so the response cannot be used to find out
+# which emails have accounts.
+_FORGOT_PASSWORD_MESSAGE = (
+    "If an account exists for that email, a password reset link is on its way."
+)
+
+
+@router.post("/forgot-password", response_model=MessageResponse)
+async def forgot_password(
+    body: ForgotPasswordRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    service: AuthService = Depends(get_auth_service),
+):
+    try:
+        pending = await service.forgot_password(body, request)
+    except DomainError as exc:
+        _raise_domain(exc)
+    if pending is not None:
+        # Sent after the response so a slow mail provider cannot make a known
+        # address measurably slower than an unknown one.
+        background_tasks.add_task(
+            send_password_reset_email,
+            pending.to_email,
+            full_name=pending.full_name,
+            reset_url=pending.reset_url,
+            expires_minutes=pending.expires_minutes,
+        )
+    return MessageResponse(message=_FORGOT_PASSWORD_MESSAGE)
+
+
+@router.get("/password-token/{token}", response_model=PasswordTokenInfoResponse)
+async def get_password_token(
+    token: str,
+    request: Request,
+    service: AuthService = Depends(get_auth_service),
+):
+    try:
+        return await service.get_password_token(token, request)
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
+@router.post("/reset-password", response_model=MessageResponse)
+async def reset_password(
+    body: ResetPasswordRequest,
+    request: Request,
+    service: AuthService = Depends(get_auth_service),
+):
+    try:
+        await service.reset_password(body, request)
+    except DomainError as exc:
+        _raise_domain(exc)
+    return MessageResponse(message="Your password has been updated. You can now sign in.")
+
+
+@router.post("/change-password", response_model=TokenResponse)
+async def change_password(
+    body: ChangePasswordRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    service: AuthService = Depends(get_auth_service),
+):
+    try:
+        return await service.change_password(current_user, body, request)
     except DomainError as exc:
         _raise_domain(exc)
 

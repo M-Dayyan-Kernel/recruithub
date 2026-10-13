@@ -32,10 +32,14 @@ from app.repositories.tenant_repository import TenantRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.schemas import (
     AcceptInviteRequest,
+    ChangePasswordRequest,
+    ForgotPasswordRequest,
     InvitePublicResponse,
     LoginRequest,
     MfaVerifyRequest,
+    PasswordTokenInfoResponse,
     RefreshTokenRequest,
+    ResetPasswordRequest,
     SignupPendingResponse,
     SwitchTenantRequest,
     TokenResponse,
@@ -44,6 +48,7 @@ from app.schemas.schemas import (
 )
 from app.services.gst_document_service import GstDocumentService
 from app.services.mfa_service import MfaService
+from app.services.password_service import PasswordService, ResetEmail
 from app.services.refresh_token_service import RefreshTokenService
 from app.services.tenant_access_policy import TenantAccessPolicy
 from app.services.tenant_service import TenantService
@@ -64,6 +69,7 @@ class AuthService:
         mfa_service: MfaService | None = None,
         gst_documents: GstDocumentService | None = None,
         access_policy: TenantAccessPolicy | None = None,
+        password_service: PasswordService | None = None,
     ) -> None:
         self._session = session
         self._users = user_repo or UserRepository(session)
@@ -73,6 +79,7 @@ class AuthService:
         self._mfa = mfa_service or MfaService(session)
         self._gst = gst_documents or GstDocumentService()
         self._access_policy = access_policy or TenantAccessPolicy()
+        self._passwords = password_service or PasswordService(session)
 
     async def signup(
         self,
@@ -260,6 +267,57 @@ class AuthService:
     async def logout(self, body: RefreshTokenRequest) -> None:
         await self._refresh_tokens.revoke(body.refresh_token)
         await self._session.commit()
+
+    # ── passwords ─────────────────────────────────────────────────────────
+
+    async def forgot_password(
+        self, body: ForgotPasswordRequest, request: Request
+    ) -> ResetEmail | None:
+        """Start a reset. The caller sends the returned email (if any) and must
+        answer identically either way, so addresses cannot be enumerated."""
+        await enforce_rate_limit(
+            request,
+            scope="auth:forgot_password",
+            limit=int(config.AUTH_RATE_LIMIT_PER_MINUTE),
+        )
+        return await self._passwords.request_reset(str(body.email))
+
+    async def get_password_token(
+        self, token: str, request: Request
+    ) -> PasswordTokenInfoResponse:
+        await enforce_rate_limit(request, scope="auth:password_token_lookup", limit=60)
+        info = await self._passwords.describe_token(token)
+        return PasswordTokenInfoResponse(
+            email=info.email,
+            purpose=info.purpose,  # type: ignore[arg-type]
+        )
+
+    async def reset_password(self, body: ResetPasswordRequest, request: Request) -> None:
+        await enforce_rate_limit(
+            request,
+            scope="auth:reset_password",
+            limit=int(config.AUTH_RATE_LIMIT_PER_MINUTE),
+        )
+        await self._passwords.reset_password(body.token, body.password)
+
+    async def change_password(
+        self, current_user: User, body: ChangePasswordRequest, request: Request
+    ) -> TokenResponse:
+        await enforce_rate_limit(
+            request,
+            scope="auth:change_password",
+            limit=int(config.AUTH_RATE_LIMIT_PER_MINUTE),
+        )
+        await self._passwords.change_password(
+            current_user,
+            current_password=body.current_password,
+            new_password=body.new_password,
+        )
+        # Every other session was just revoked; keep this one alive with a
+        # fresh refresh token so the user is not signed out of the tab they used.
+        refresh_raw = await self._refresh_tokens.issue(current_user)
+        await self._session.commit()
+        return self._issue_token(current_user, refresh_token=refresh_raw)
 
     async def mfa_setup(self, current_user: User):
         return await self._mfa.setup(current_user)

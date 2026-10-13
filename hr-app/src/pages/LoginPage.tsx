@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/context/AuthContext'
@@ -95,13 +95,18 @@ export default function LoginPage() {
         </div>
 
         <div>
-          <label
-            htmlFor="password"
-            className="mb-1.5 block text-[13px] font-semibold text-slate-700"
-          >
-            Password
-            <RequiredMark />
-          </label>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label htmlFor="password" className="block text-[13px] font-semibold text-slate-700">
+              Password
+              <RequiredMark />
+            </label>
+            <Link
+              to="/forgot-password"
+              className="text-[13px] font-medium text-indigo-600 hover:text-indigo-500"
+            >
+              Forgot password?
+            </Link>
+          </div>
           <PasswordInput
             id="password"
             autoComplete="current-password"

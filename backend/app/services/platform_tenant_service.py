@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import uuid
 from pathlib import Path
 
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.constants import DEFAULT_TENANT_SLUG, PLATFORM_TENANT_SLUG
+from app.core.constants import (
+    DEFAULT_TENANT_SLUG,
+    PASSWORD_ONBOARDING_TTL_DAYS,
+    PLATFORM_TENANT_SLUG,
+)
 from app.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.models.models import Tenant, User
 from app.repositories.refresh_token_repository import RefreshTokenRepository
@@ -22,8 +27,11 @@ from app.schemas.schemas import (
     TenantUpdateRequest,
     UserResponse,
 )
+from app.services import account_email_service
+from app.services.app_links import login_url, set_password_url
 from app.services.audit_service import AuditService
 from app.services.gst_document_service import GstDocumentService
+from app.services.password_service import PURPOSE_ONBOARDING, PasswordService
 from app.services.tenant_service import TenantService
 
 logger = logging.getLogger(__name__)
@@ -40,6 +48,8 @@ class PlatformTenantService:
         audit_service: AuditService | None = None,
         gst_documents: GstDocumentService | None = None,
         refresh_token_repo: RefreshTokenRepository | None = None,
+        password_service: PasswordService | None = None,
+        mailer=None,
     ) -> None:
         self._session = session
         self._tenants = tenant_repo or TenantRepository(session)
@@ -48,6 +58,9 @@ class PlatformTenantService:
         self._audit = audit_service or AuditService(session)
         self._gst = gst_documents or GstDocumentService()
         self._refresh_tokens = refresh_token_repo or RefreshTokenRepository(session)
+        self._passwords = password_service or PasswordService(session)
+        # Injectable so tests can observe mail without a provider.
+        self._mailer = mailer or account_email_service
 
     async def _revoke_tenant_sessions(self, tenant: Tenant) -> None:
         """Kill refresh tokens so a disabled org cannot extend live sessions.
@@ -90,14 +103,21 @@ class PlatformTenantService:
         if await self._users.exists_by_email(email):
             raise ConflictError(public_message="A user with this email already exists")
 
+        # No password supplied: provision one nobody knows. The admin sets their
+        # own through the emailed link, so a password is never typed by a Super
+        # Admin, relayed out of band, or placed in an email.
+        password = body.admin_password or secrets.token_urlsafe(48)
+
         tenant, org_admin = await self._tenant_service.create_tenant_with_admin(
             organization_name=body.name,
             email=email,
-            password=body.admin_password,
+            password=password,
             full_name=body.admin_full_name,
             verification_status="approved",
             is_active=True,
         )
+        # Issued in the same transaction as the tenant: either both exist or neither.
+        onboarding_token = await self._passwords.issue_token(org_admin, PURPOSE_ONBOARDING)
         await self._audit.log_change(
             actor=admin,
             action="tenant.created",
@@ -110,7 +130,18 @@ class PlatformTenantService:
         )
         await self._session.commit()
         await self._tenants.refresh(tenant)
-        return TenantResponse.model_validate(tenant)
+
+        # After the commit, and never raising: a mail outage must not undo (or
+        # fail) onboarding. The Super Admin sees `email_sent` and can retry.
+        response = TenantResponse.model_validate(tenant)
+        response.email_sent = await self._mailer.send_org_onboarding_email(
+            org_admin.email,
+            full_name=org_admin.full_name,
+            organization_name=tenant.name,
+            set_password_url=set_password_url(onboarding_token),
+            expires_days=PASSWORD_ONBOARDING_TTL_DAYS,
+        )
+        return response
 
     async def update_tenant(
         self, tenant_id: uuid.UUID, body: TenantUpdateRequest, admin: User
@@ -175,7 +206,22 @@ class PlatformTenantService:
         )
         await self._session.commit()
         await self._tenants.refresh(tenant)
-        return TenantResponse.model_validate(tenant)
+
+        response = TenantResponse.model_validate(tenant)
+        # Only a real transition notifies: re-approving an approved org is a no-op.
+        if before["verification_status"] != "approved":
+            org_admin = await self._users.get_first_admin(tenant.id)
+            response.email_sent = (
+                await self._mailer.send_org_approved_email(
+                    org_admin.email,
+                    full_name=org_admin.full_name,
+                    organization_name=tenant.name,
+                    login_url=login_url(),
+                )
+                if org_admin is not None
+                else False
+            )
+        return response
 
     async def reject_tenant(self, tenant_id: uuid.UUID, admin: User) -> TenantResponse:
         tenant = await self._get_customer_tenant(tenant_id)
@@ -198,7 +244,20 @@ class PlatformTenantService:
         )
         await self._session.commit()
         await self._tenants.refresh(tenant)
-        return TenantResponse.model_validate(tenant)
+
+        response = TenantResponse.model_validate(tenant)
+        if before["verification_status"] != "rejected":
+            org_admin = await self._users.get_first_admin(tenant.id)
+            response.email_sent = (
+                await self._mailer.send_org_rejected_email(
+                    org_admin.email,
+                    full_name=org_admin.full_name,
+                    organization_name=tenant.name,
+                )
+                if org_admin is not None
+                else False
+            )
+        return response
 
     async def download_gst_document(self, tenant_id: uuid.UUID):
         tenant = await self._get_customer_tenant(tenant_id)
