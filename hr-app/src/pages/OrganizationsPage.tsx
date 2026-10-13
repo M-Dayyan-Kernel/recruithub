@@ -20,7 +20,7 @@ import {
 import toast from 'react-hot-toast'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import { api, getStoredToken } from '@/lib/api'
+import { ApiRequestError, api, getStoredToken } from '@/lib/api'
 import type {
   TenantActionResult,
   TenantCreateRequest,
@@ -63,6 +63,9 @@ function notifyEmailOutcome(result: unknown, done: string, sentNote: string) {
     toast.success(done)
   }
 }
+
+/** Backend `error_code` for a create/rename that collides with an existing name. */
+const ORG_NAME_TAKEN_CODE = 'organization_name_taken'
 
 /** Slug of the built-in organization the backend refuses to deactivate. */
 const DEFAULT_TENANT_SLUG = 'default'
@@ -318,7 +321,14 @@ export default function OrganizationsPage() {
       setCreateErrors({})
       setShowCreate(false)
     },
-    onError: (err: Error) => toast.error(err.message || 'Failed to create organization'),
+    onError: (err: Error) => {
+      const message = err.message || 'Failed to create organization'
+      // A taken name belongs on the name field, where it can be fixed.
+      if (err instanceof ApiRequestError && err.errorCode === ORG_NAME_TAKEN_CODE) {
+        setCreateErrors((prev) => ({ ...prev, name: message }))
+      }
+      toast.error(message)
+    },
   })
 
   const updateMutation = useMutation({

@@ -5,6 +5,10 @@ from __future__ import annotations
 PLATFORM_TENANT_SLUG = "platform"
 DEFAULT_TENANT_SLUG = "default"
 INVITE_TTL_DAYS = 7
+ORG_NAME_TAKEN_MESSAGE = "An organization with this name already exists"
+ORG_NAME_UNIQUE_INDEX = "uq_tenants_name_normalized"
+# Stable tag the UI branches on, instead of matching the human-readable message.
+ORG_NAME_TAKEN_CODE = "organization_name_taken"
 REFRESH_TOKEN_DAYS = 14
 # Password links: a self-service reset is short-lived; the onboarding link a
 # Super Admin triggers has to survive until the new admin reads their mail.

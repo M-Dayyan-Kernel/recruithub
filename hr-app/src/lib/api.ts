@@ -98,6 +98,16 @@ function endSession(reason?: string): void {
   }
 }
 
+/**
+ * An API failure. Still a plain `Error` to every existing caller (`message` is
+ * the human text), but carries the HTTP status and the backend's stable
+ * `error_code` so the UI can branch without string-matching the message.
+ */
+export class ApiRequestError extends Error {
+  status?: number
+  errorCode?: string
+}
+
 // Response interceptor — unwrap data, normalise errors, redirect on 401
 api.interceptors.response.use(
   (response) => response.data,
@@ -128,7 +138,10 @@ api.interceptors.response.use(
       }
     }
 
-    return Promise.reject(new Error(message))
+    const failure = new ApiRequestError(message)
+    failure.status = status
+    failure.errorCode = errorCode
+    return Promise.reject(failure)
   },
 )
 

@@ -3,12 +3,26 @@ from datetime import datetime, time, date
 from typing import Optional, List
 
 from sqlalchemy import (
-    String, Text, Integer, Float, Boolean, DateTime, Date, ForeignKey, func, Time
+    String, Text, Integer, Float, Boolean, DateTime, Date, ForeignKey, Index, func, literal_column, text, Time
 )
 from sqlalchemy.orm import relationship, mapped_column, Mapped
 from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSON
 
+from app.core.constants import ORG_NAME_UNIQUE_INDEX
 from app.core.database import Base
+
+
+# Case- and whitespace-insensitive identity of a tenant name. One string is the
+# single source for the unique index below and for TenantRepository.name_exists,
+# so the two can never drift apart. Mirrors ``org_name_key`` in core/tenancy.py.
+# It is a constant (not bound parameters) so the planner can match a query's
+# expression to the index.
+_TENANT_NAME_KEY_SQL = r"lower(regexp_replace(btrim({col}), '\s+', ' ', 'g'))"
+
+
+def tenant_name_key():
+    """SQL expression for a tenant name's identity, for ``WHERE`` clauses."""
+    return literal_column(_TENANT_NAME_KEY_SQL.format(col="tenants.name"))
 
 
 class Tenant(Base):
@@ -26,6 +40,17 @@ class Tenant(Base):
     gst_document_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     gst_document_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        # Two organizations may not share a name, however it is cased or spaced.
+        # Backstop for concurrent creates; the services check first so the user
+        # gets a clean error rather than relying on this.
+        Index(
+            ORG_NAME_UNIQUE_INDEX,
+            text(_TENANT_NAME_KEY_SQL.format(col="name")),
+            unique=True,
+        ),
+    )
 
     # passive_deletes: DB ON DELETE CASCADE clears children; without it SQLAlchemy
     # tries to SET NULL on non-nullable FKs (e.g. system_settings.tenant_id).

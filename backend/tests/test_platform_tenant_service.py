@@ -35,6 +35,7 @@ class DeactivationGuardTests(unittest.IsolatedAsyncioTestCase):
         service._get_customer_tenant = AsyncMock(return_value=tenant)
         service._session.commit = AsyncMock()
         service._tenants.refresh = AsyncMock()
+        service._tenants.name_exists = AsyncMock(return_value=False)
         service._audit.log_change = AsyncMock()
         service._refresh_tokens.revoke_all_for_tenant = AsyncMock(return_value=2)
         return service
@@ -57,6 +58,7 @@ class DeactivationGuardTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(tenant.name, "Renamed")
         self.assertTrue(tenant.is_active)
+        service._tenants.name_exists.assert_awaited_once()
 
     async def test_unapproved_organization_cannot_be_activated(self):
         tenant = _tenant(slug="acme", is_active=False, status="pending")

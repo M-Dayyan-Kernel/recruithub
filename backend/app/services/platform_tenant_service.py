@@ -8,13 +8,18 @@ import uuid
 from pathlib import Path
 
 from fastapi.responses import FileResponse, Response
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import (
     DEFAULT_TENANT_SLUG,
+    ORG_NAME_TAKEN_CODE,
+    ORG_NAME_TAKEN_MESSAGE,
+    ORG_NAME_UNIQUE_INDEX,
     PASSWORD_ONBOARDING_TTL_DAYS,
     PLATFORM_TENANT_SLUG,
 )
+from app.core.tenancy import normalize_org_name, org_name_key
 from app.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.models.models import Tenant, User
 from app.repositories.refresh_token_repository import RefreshTokenRepository
@@ -154,7 +159,16 @@ class PlatformTenantService:
             "verification_status": tenant.verification_status,
         }
         if "name" in data and data["name"] is not None:
-            tenant.name = data["name"].strip()
+            new_name = normalize_org_name(data["name"])
+            # Re-casing or re-spacing its own name is allowed; taking another
+            # organization's is not.
+            if org_name_key(new_name) != org_name_key(tenant.name) and (
+                await self._tenants.name_exists(new_name, exclude_id=tenant.id)
+            ):
+                raise ConflictError(
+                public_message=ORG_NAME_TAKEN_MESSAGE, error_code=ORG_NAME_TAKEN_CODE
+            )
+            tenant.name = new_name
         if "is_active" in data and data["is_active"] is not None:
             if data["is_active"] and tenant.verification_status != "approved":
                 raise BadRequestError(
@@ -182,7 +196,15 @@ class PlatformTenantService:
                 "verification_status": tenant.verification_status,
             },
         )
-        await self._session.commit()
+        try:
+            await self._session.commit()
+        except IntegrityError as exc:
+            if ORG_NAME_UNIQUE_INDEX not in str(exc.orig):
+                raise
+            await self._session.rollback()
+            raise ConflictError(
+                public_message=ORG_NAME_TAKEN_MESSAGE, error_code=ORG_NAME_TAKEN_CODE
+            ) from exc
         await self._tenants.refresh(tenant)
         return TenantResponse.model_validate(tenant)
 

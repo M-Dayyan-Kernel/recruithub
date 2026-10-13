@@ -7,11 +7,20 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_utils import run_sync
-from app.core.constants import INVITE_TTL_DAYS, PLATFORM_TENANT_SLUG
+from app.core.constants import (
+    INVITE_TTL_DAYS,
+    ORG_NAME_TAKEN_CODE,
+    ORG_NAME_TAKEN_MESSAGE,
+    ORG_NAME_UNIQUE_INDEX,
+    PLATFORM_TENANT_SLUG,
+)
 from app.core.security import hash_password
+from app.core.tenancy import normalize_org_name
+from app.exceptions import ConflictError
 from app.models.models import Tenant, TenantInvite, User
 from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.repositories.tenant_invite_repository import TenantInviteRepository
@@ -61,7 +70,13 @@ class TenantService:
         gst_document_path: str | None = None,
         gst_document_filename: str | None = None,
     ) -> tuple[Tenant, User]:
-        name = organization_name.strip()
+        name = normalize_org_name(organization_name)
+        # Slugs are auto-suffixed, so without this two orgs would silently share
+        # a display name and differ only by "-2".
+        if await self._tenants.name_exists(name):
+            raise ConflictError(
+                public_message=ORG_NAME_TAKEN_MESSAGE, error_code=ORG_NAME_TAKEN_CODE
+            )
         slug = await self._tenants.ensure_unique_slug(name)
         active = is_active if is_active is not None else verification_status == "approved"
         tenant = Tenant(
@@ -76,7 +91,16 @@ class TenantService:
             gst_document_filename=gst_document_filename,
         )
         self._tenants.add(tenant)
-        await self._tenants.flush()
+        try:
+            await self._tenants.flush()
+        except IntegrityError as exc:
+            # A concurrent request took the name between the check and the insert.
+            if ORG_NAME_UNIQUE_INDEX not in str(exc.orig):
+                raise
+            await self._session.rollback()
+            raise ConflictError(
+                public_message=ORG_NAME_TAKEN_MESSAGE, error_code=ORG_NAME_TAKEN_CODE
+            ) from exc
         logger.info(
             'Created organization "%s" with verification status %s',
             tenant.name,
