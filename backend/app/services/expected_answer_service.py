@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from app.clients import mocks, openai_client
 from app.core.config_loader import config
+from app.prompts.common import format_experience_requirement
 from app.prompts.expected_answer import (
     EXPECTED_POINTS_SYSTEM_PROMPT,
     build_expected_points_user_prompt,
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def _job_context(job: Any) -> str:
     skills = ", ".join(job.required_skills or []) or "Not specified"
-    exp = f"{job.experience_min}–{job.experience_max} years"
+    exp = format_experience_requirement(job.experience_min, job.experience_max)
     return f"""Title: {job.title}
 Required Skills: {skills}
 Experience: {exp}

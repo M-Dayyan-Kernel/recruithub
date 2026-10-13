@@ -125,7 +125,9 @@ export function validateExperienceRange(
     }
   }
 
-  if (minNum !== null && maxNum !== null && maxNum < minNum) {
+  // A maximum of 0 means "no upper bound" (the API stores a blank max as 0),
+  // so it is never compared with the minimum.
+  if (minNum !== null && maxNum !== null && maxNum > 0 && maxNum < minNum) {
     return {
       field: 'max',
       message: 'Max experience cannot be less than min experience',

@@ -29,7 +29,8 @@ export function EditJobModal({ job, open, onClose }: Props) {
   const [skills, setSkills] = useState<string[]>(job.required_skills ?? [])
   const [skillInput, setSkillInput] = useState('')
   const [minExp, setMinExp] = useState(job.experience_min != null ? String(job.experience_min) : '')
-  const [maxExp, setMaxExp] = useState(job.experience_max != null ? String(job.experience_max) : '')
+  // The API stores "no upper bound" as 0; show that as an empty field.
+  const [maxExp, setMaxExp] = useState(job.experience_max ? String(job.experience_max) : '')
   const [screeningQuestions, setScreeningQuestions] = useState<ScreeningQuestion[]>(
     job.screening_questions?.length
       ? job.screening_questions
@@ -131,7 +132,7 @@ export function EditJobModal({ job, open, onClose }: Props) {
     const newMin = minExp ? Number(minExp) : undefined
     const newMax = maxExp ? Number(maxExp) : undefined
     if (newMin !== job.experience_min) payload.experience_min = newMin ?? null
-    if (newMax !== job.experience_max) payload.experience_max = newMax ?? null
+    if (newMax !== (job.experience_max || undefined)) payload.experience_max = newMax ?? null
 
     const origScreening = JSON.stringify(
       job.screening_questions?.length

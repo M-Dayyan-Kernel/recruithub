@@ -82,7 +82,12 @@ EXPERIENCE_MAX_YEARS = 60
 def validate_experience_range(
     minimum: Optional[int], maximum: Optional[int]
 ) -> None:
-    """Reject negative years and an upper bound below the lower one."""
+    """Reject negative years and an upper bound below the lower one.
+
+    A maximum of ``None`` or ``0`` means "no upper bound" ("5+ years"): the
+    column is NOT NULL and 0 is how that is stored, so it is never compared
+    against the minimum.
+    """
     for value, label in ((minimum, "experience_min"), (maximum, "experience_max")):
         if value is None:
             continue
@@ -90,7 +95,7 @@ def validate_experience_range(
             raise ValueError(f"{label} cannot be negative")
         if value > EXPERIENCE_MAX_YEARS:
             raise ValueError(f"{label} cannot exceed {EXPERIENCE_MAX_YEARS} years")
-    if minimum is not None and maximum is not None and maximum < minimum:
+    if minimum is not None and maximum and maximum < minimum:
         raise ValueError("experience_max cannot be less than experience_min")
 
 
@@ -192,6 +197,13 @@ class JobCreate(BaseModel):
     interview_questions: List[InterviewQuestion] = []
     voice_screening_enabled: bool = True
     status: str = "active"
+
+    @field_validator("experience_min", "experience_max", mode="before")
+    @classmethod
+    def blank_experience_is_zero(cls, value):
+        # An omitted bound already defaults to 0; an explicit null (a parsed JD
+        # that states only "5+ years") must mean the same, not fail as "not an int".
+        return 0 if value is None else value
 
     @model_validator(mode="before")
     @classmethod

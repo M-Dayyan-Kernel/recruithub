@@ -102,6 +102,11 @@ class JobService:
     async def update(self, actor: User, job_id: uuid.UUID, payload: JobUpdate) -> Job:
         job = await self._jobs.get_for_tenant(job_id, actor.tenant_id)
         updates = payload.model_dump(exclude_unset=True)
+        # The columns are NOT NULL and 0 means "no bound": an explicit null from
+        # a client clearing the field is stored as 0, never written as NULL.
+        for field in ("experience_min", "experience_max"):
+            if field in updates and updates[field] is None:
+                updates[field] = 0
         if "experience_min" in updates or "experience_max" in updates:
             # Compare against the stored bound the request leaves untouched, so
             # lowering only the max below the existing min is still caught.
