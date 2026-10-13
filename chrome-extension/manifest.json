@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Recruit Hub Interview Check",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Checks locally whether a prohibited AI-assistance extension is enabled before a Recruit Hub interview.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnZ37MveXMS5DSkoxqTkk09x5+QzQV9WldFcG8tSm8/A3kRgLPRpcsIMYGTLxqbB9l/5Z3vCWh8pNnQYQaLQdBRaU+osuXMMQIre/TP2q0B4SYlEpAEI9DSOKSrhVeGvO9repMK1ueAjFzB23O00zRyDUEd9Mm8G7E26/jAuseQvd172i1Y4l5zVEBJ6qR1NN/pFTEEOZK0aIOFRyGtlRbgoXr1qMdZHCn/6ZyN1s61w+lhsT5qm3POvDcVwziVqv/JnZ0PveWXCNyA60OMJWKT05Qeo9yFuNAx0WWWqIbz6exE8CXdW9u9wIOv6o4GkuFGpa+FVoMBvmdg43n7IIgwIDAQAB",
   "permissions": [

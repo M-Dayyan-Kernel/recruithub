@@ -41,40 +41,30 @@ for a completed scan with no matches and no error.
 
 ## The blocklist
 
-| Rule | Behaviour |
-|---|---|
-| Enabled + ID in `BLOCKLIST` | Blocks |
-| Disabled + ID in `BLOCKLIST` | Allowed |
-| ID not listed (including accessibility and productivity tools) | Allowed |
-| ID in `INACTIVE` | Allowed. Verified listings that are deliberately not blocking (general AI sidebars, plus VoiceMeetAI and AI Interview Copilot) |
+There are two lists, and it matters which one is in play:
 
-### Active entries (verified against each Chrome Web Store listing on 2026-10-12)
+| | Where it lives | Used when |
+|---|---|---|
+| **Live list** | The Recruit Hub backend, edited by a Super Admin (platform console, "AI extension policy") | The interview page supplies it with the scan (see "Detection policy" below). This is the normal case. |
+| **Built-in list** | `blocklist.js` in this extension | Fallback only: policy fetch failed, an older page, and the popup's local "Scan" button |
 
-| Name on listing | ID |
-|---|---|
-| [Monica: All-In-One AI Assist & Smartest AI Agent](https://chromewebstore.google.com/detail/ofpnmcalabcbjgholdjcjblkibolbppb) | `ofpnmcalabcbjgholdjcjblkibolbppb` |
-| [Final Round AI](https://chromewebstore.google.com/detail/lfbbdphejjjanjiohlmkdbapdmfoaeem) | `lfbbdphejjjanjiohlmkdbapdmfoaeem` |
-| [Interview Copilot](https://chromewebstore.google.com/detail/ibdllmhlcnecbccejcjbpdldgjnohpoc) | `ibdllmhlcnecbccejcjbpdldgjnohpoc` |
-| [AI Interview Helper](https://chromewebstore.google.com/detail/jkmbojgnflgmonjnpemjoidfmhjofbaa) | `jkmbojgnflgmonjnpemjoidfmhjofbaa` |
-| [Interview Buddy - Your AI Interview Copilot](https://chromewebstore.google.com/detail/bankjceeoiajhanakmghlbnahahkmaic) | `bankjceeoiajhanakmghlbnahahkmaic` |
+The built-in list is a snapshot; admin edits do not reach it. Both match by
+**extension ID** and only when the extension is **enabled**: a disabled match or an
+unknown ID is allowed.
+
+### Adding an extension
+
+Use the Super Admin screen (no release needed). Take the ID from the extension's
+own **Chrome Web Store listing URL** and confirm its name and publisher; do not take
+IDs from third-party directories (one attributed an unrelated extension to a real
+product's name).
+
+Edit `blocklist.js` only to refresh the built-in fallback, then bump
+`BLOCKLIST_VERSION` and run `npm test` (it checks ID format and duplicates).
 
 Interview Coder, LockedIn AI, Sensei AI and Parakeet AI are listed under
-`PENDING_VERIFICATION`: no Chrome Web Store extension listing was found, so
-there is no ID to match.
-
-### Adding a verified prohibited extension
-
-1. Open the extension's **Chrome Web Store listing** and copy the 32-character ID
-   from its URL. Do not take IDs from third-party directories: one such
-   directory attributed an unrelated extension to a real product's name.
-2. Confirm the listing's name and publisher.
-3. Add an entry to `BLOCKLIST` in `blocklist.js` (`id`, `name`, `category`,
-   `reason`, `listing_url`, `verified_on`).
-4. Bump `BLOCKLIST_VERSION`.
-5. Run `npm test`. The suite checks ID format, duplicates, and `INACTIVE` overlap.
-
-If an ID cannot be verified, put the name under `PENDING_VERIFICATION`, not in
-`BLOCKLIST`.
+`PENDING_VERIFICATION`: no Chrome Web Store extension listing was found, so there
+is no ID to match (they are mostly desktop apps, which this cannot see).
 
 ## Load it locally
 
@@ -108,6 +98,32 @@ a real Chrome browser, the real `management` permission, or the popup.
    errors. To see the error state, run in the service-worker console:
    `chrome.management.getAll = () => Promise.reject(new Error('x'))`, then rescan.
    (Do this on a throwaway profile.)
+
+## Detection policy (protocol v2)
+
+Beyond the built-in list, the interview page can hand the extension a **policy** from
+the Recruit Hub backend: the live blocklist plus heuristic rules, versioned, edited by
+a Super Admin with no extension release. The extension needs no network permission for
+this; the page fetches the policy and sends it in the scan request (`v: 2`).
+
+For each *enabled* extension the extension decides, locally:
+
+| Result | When | Effect |
+|---|---|---|
+| **blocked** | ID is on the list, or (enforce mode) a strong heuristic match | interview start is stopped, candidate sees the name and reason |
+| **flagged** | weak heuristic match, or a strong match in shadow mode | recorded for HR, does not stop anything |
+| clear | otherwise | nothing is reported |
+
+Heuristics score two axes (see `rules.js`): **intent** (AI wording in the name or
+description, access to AI vendor hosts) and **capability** (tab/desktop capture, side
+panel, access to every site). Capability alone never flags; a strong match needs both.
+An extension that cannot be turned off (installed by device policy) is recorded but never
+blocks. Only flagged and blocked extensions leave the browser; the rest of the inventory
+never does.
+
+`npm test` includes an **evaluation corpus** (`tests/fixtures/corpus.json`) that measures
+the default rules. The corpus is approximate and self-authored, so treat its numbers as a
+regression guard, not as real-world accuracy: tune from real shadow-mode data.
 
 ## Recruit Hub integration
 

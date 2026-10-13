@@ -450,7 +450,7 @@ export default function InterviewRoomPage() {
         // prohibited extension may have been enabled, or a share ended, since.
         // The guard evaluates first and only then issues /start, at most once.
         const start = createGuardedStart({
-          evaluate: () => collectReadiness(proctorSession),
+          evaluate: () => collectReadiness(proctorSession, 'start'),
           start: () => api.post(`/api/interview/${token}/start`) as Promise<RoomCredentials>,
         })
         const outcome = await start()

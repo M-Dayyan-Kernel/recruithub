@@ -35,10 +35,10 @@ test('matching is by ID, not by name', () => {
   assert.deepEqual(matchProhibited([ext('e'.repeat(32), true, 'Monica: All-In-One AI Assist')]), [])
 })
 
-test('inactive (verified but not blocking) entries never match', () => {
-  const sider = INACTIVE.find((e) => e.name.startsWith('Sider'))
-  assert.ok(sider, 'fixture: Sider should be in INACTIVE')
-  assert.deepEqual(matchProhibited([ext(sider.id, true)]), [])
+test('general-purpose AI assistants are prohibited too', () => {
+  const sider = BLOCKLIST.find((e) => e.name.startsWith('Sider'))
+  assert.ok(sider, 'Sider should now be blocked')
+  assert.deepEqual(matchProhibited([ext(sider.id, true)]).map((h) => h.id), [sider.id])
 })
 
 test('blocklist is well formed: 32-char IDs, no duplicates, none shared with INACTIVE', () => {

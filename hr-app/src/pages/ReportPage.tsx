@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import type { InterviewReport } from '@/types/api'
 import ProctoringPlayer, { isHard, parseTimestamp, toTimedFlags } from '@/components/interview/ProctoringPlayer'
 import ProctoringSummary from '@/components/interview/ProctoringSummary'
+import ExtensionSignals from '@/components/interview/ExtensionSignals'
 import RadialScore from '@/components/interview/RadialScore'
 import QuestionAccordion from '@/components/interview/QuestionAccordion'
 import StatTile from '@/components/interview/StatTile'
@@ -180,7 +181,7 @@ export default function ReportPage() {
     {
       id: 'integrity',
       label: 'Integrity',
-      count: hardCount + softCount || null,
+      count: hardCount + softCount + (report?.integrity?.flagged_extensions.length ?? 0) || null,
       tone: hardCount > 0 ? 'danger' : 'default',
     },
   ]
@@ -484,18 +485,22 @@ export default function ReportPage() {
               {tab === 'questions' && <QuestionAccordion questions={questions} />}
 
               {/* ---- Integrity ---- */}
-              {tab === 'integrity' &&
-                (proctoring ? (
-                  <ProctoringSummary
-                    proctoring={proctoring}
-                    hardCount={hardCount}
-                    softCount={softCount}
-                  />
-                ) : (
-                  <p className="text-sm text-slate-400">
-                    No video analysis is available for this interview.
-                  </p>
-                ))}
+              {tab === 'integrity' && (
+                <div className="space-y-5">
+                  {proctoring ? (
+                    <ProctoringSummary
+                      proctoring={proctoring}
+                      hardCount={hardCount}
+                      softCount={softCount}
+                    />
+                  ) : (
+                    <p className="text-sm text-slate-400">
+                      No video analysis is available for this interview.
+                    </p>
+                  )}
+                  {report.integrity && <ExtensionSignals summary={report.integrity} />}
+                </div>
+              )}
             </div>
           </GlassCard>
 

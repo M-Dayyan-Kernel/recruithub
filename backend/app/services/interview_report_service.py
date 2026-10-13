@@ -94,6 +94,13 @@ class InterviewReportService:
             await self._session.refresh(session)
         report_dict["video_proctoring"] = session_video_proctoring_payload(session)
 
+        # Evidence only: shown beside the report, never an input to scoring.
+        if session:
+            from app.services.integrity_service import IntegrityService
+
+            summary = await IntegrityService(self._session).summary_for_session(session.id)
+            report_dict["integrity"] = summary.model_dump() if summary else None
+
         return InterviewReportResponse.model_validate(report_dict)
 
     async def refresh_report(

@@ -90,3 +90,76 @@ test('origin allowlist and manifest externally_connectable stay in sync', () => 
   assert.deepEqual([...manifest.externally_connectable.matches].sort(), fromAllowlist)
   assert.ok(isAllowedOrigin('http://127.0.0.1:5175'))
 })
+
+// ── protocol v2: the page supplies the policy ──────────────────────────────
+
+import { readFileSync as _read } from 'node:fs'
+import { scanWithPolicy } from '../inventory.js'
+
+const _rules = JSON.parse(
+  _read(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'default-rules.json'), 'utf8'),
+)
+const v2Policy = (over = {}) => ({
+  version: 9,
+  mode: 'enforce',
+  blocklist: [{ id: MONICA, name: 'Monica', category: 'ai_assistant', reason: 'AI', listing_url: null }],
+  rules: _rules,
+  ...over,
+})
+const v2 = (policy) => ({ v: 2, type: 'RH_SCAN', nonce: 'n-2', policy })
+const withInstalled = (installed) => ({
+  scan: scanWith([]),
+  scanWithPolicy: (policy) =>
+    scanWithPolicy({ policy, management: { getAll: async () => installed }, selfId: 'self' }),
+})
+
+test('v2 uses the page-supplied list and echoes the version', async () => {
+  const res = await handleExternalRequest(v2(v2Policy()), ok, {
+    ...withInstalled([{ id: MONICA, name: 'Monica', enabled: true, type: 'extension', mayDisable: true }]),
+  })
+  assert.equal(res.v, 2)
+  assert.equal(res.nonce, 'n-2')
+  assert.equal(res.result.policy_version, 9)
+  assert.equal(res.result.prohibited_extensions[0].id, MONICA)
+  assert.equal(res.result.flagged_extensions[0].reason_code, 'known_id')
+})
+
+test('v2 with an invalid policy is refused, not treated as "no rules"', async () => {
+  const deps = withInstalled([{ id: MONICA, enabled: true, type: 'extension' }])
+  for (const bad of [undefined, null, 'x', { ...v2Policy(), mode: 'strict' }, { ...v2Policy(), rules: {} }]) {
+    const res = await handleExternalRequest(v2(bad), ok, deps)
+    assert.equal(res.error?.code, 'bad_request')
+    assert.equal(res.result, undefined)
+  }
+})
+
+test('v1 requests keep working unchanged alongside v2', async () => {
+  const res = await handleExternalRequest(req, ok, withInstalled([]))
+  assert.equal(res.v, 1)
+  assert.equal(res.result.scan_completed, true)
+})
+
+test('v2 scan failure is an error result, never clean', async () => {
+  const res = await handleExternalRequest(v2(v2Policy()), ok, {
+    scan: scanWith([]),
+    scanWithPolicy: (policy) =>
+      scanWithPolicy({
+        policy,
+        management: { getAll: async () => { throw new Error('boom') } },
+      }),
+  })
+  assert.equal(res.result.scan_completed, false)
+  assert.notEqual(res.result.error, null)
+  assert.deepEqual(res.result.prohibited_extensions, [])
+})
+
+test('v2 response never contains the inventory, only flagged extensions', async () => {
+  const res = await handleExternalRequest(v2(v2Policy()), ok, {
+    ...withInstalled([
+      { id: MONICA, name: 'Monica', enabled: true, type: 'extension', mayDisable: true },
+      { id: 'q'.repeat(32), name: 'My Private Extension', enabled: true, type: 'extension', mayDisable: true,
+        permissions: ['storage'], hostPermissions: [] },
+    ]),
+  })
+  assert.ok(!JSON.stringify(res).includes('My Private Extension'))
+})

@@ -4,18 +4,22 @@
  * Pure data and pure functions: nothing here touches `chrome.*`, so it is unit
  * testable and reusable by a future website-facing integration unchanged.
  *
- * Matching rule: an extension blocks only when its ID is in `BLOCKLIST` AND it
- * is currently enabled. A disabled match, an unknown ID, and anything in
- * `INACTIVE` are all allowed. IDs are the only matching key; names are display
- * text and are never compared.
+ * This is the BUILT-IN FALLBACK. The live list is kept in the Recruit Hub
+ * backend and edited by a Super Admin; the interview page hands it to the
+ * extension with each scan. This copy is used only when that is unavailable
+ * (policy fetch failed, older page) and by the popup's local diagnostic scan.
+ * It is a snapshot and is not updated by admin edits.
  *
- * Adding an entry: see README.md ("Adding a verified prohibited extension").
+ * Matching rule: an extension blocks only when its ID is in the list AND it is
+ * currently enabled. A disabled match or an unknown ID is allowed. IDs are the
+ * only matching key; names are display text and are never compared.
+ *
  * An ID is only ever added after it has been read off the extension's own
  * Chrome Web Store listing - never from a third-party directory (one such
  * directory listed an unrelated extension under a real product's name).
  */
 
-export const BLOCKLIST_VERSION = '2026-10-12.1'
+export const BLOCKLIST_VERSION = '2026-10-13.1'
 
 /**
  * @typedef {Object} BlocklistEntry
@@ -29,7 +33,11 @@ export const BLOCKLIST_VERSION = '2026-10-12.1'
 
 const listing = (id) => `https://chromewebstore.google.com/detail/${id}`
 
-/** @type {BlocklistEntry[]} Entries that block when enabled. */
+/**
+ * @type {BlocklistEntry[]} Built-in fallback list: used when the page cannot supply
+ * the live policy (older pages, policy fetch failed). The authoritative list is
+ * the backend's, edited by a Super Admin.
+ */
 export const BLOCKLIST = [
   {
     id: 'ofpnmcalabcbjgholdjcjblkibolbppb',
@@ -71,15 +79,6 @@ export const BLOCKLIST = [
     listing_url: listing('bankjceeoiajhanakmghlbnahahkmaic'),
     verified_on: '2026-10-12',
   },
-]
-
-/**
- * Verified listings that are deliberately NOT blocking. Moving one into
- * `BLOCKLIST` is a one-line product decision. Never matched by the scanner.
- *
- * @type {BlocklistEntry[]}
- */
-export const INACTIVE = [
   {
     id: 'amgblhcclnikballgldanljepeplfdkh',
     name: 'VoiceMeetAI - AI Interview Assistant',
@@ -92,7 +91,7 @@ export const INACTIVE = [
     id: 'difoiogjjojoaoomphldepapgpbgkhkb',
     name: 'Sider: Chat with all AI',
     category: 'ai-assistant',
-    reason: 'General-purpose AI sidebar (widely used; not blocked by default).',
+    reason: 'General-purpose AI sidebar that can read the page and answer questions.',
     listing_url: listing('difoiogjjojoaoomphldepapgpbgkhkb'),
     verified_on: '2026-10-12',
   },
@@ -100,7 +99,7 @@ export const INACTIVE = [
     id: 'mhnlakgilnojmhinhkckjpncpbhabphi',
     name: 'MaxAI: Ask AI anything as you browse',
     category: 'ai-assistant',
-    reason: 'General-purpose AI sidebar (not blocked by default).',
+    reason: 'General-purpose AI sidebar and context menu that can read the page.',
     listing_url: listing('mhnlakgilnojmhinhkckjpncpbhabphi'),
     verified_on: '2026-10-12',
   },
@@ -108,7 +107,7 @@ export const INACTIVE = [
     id: 'camppjleccjaphfdbohjdohecfnoikec',
     name: 'Merlin AI',
     category: 'ai-assistant',
-    reason: 'General-purpose AI sidebar (not blocked by default).',
+    reason: 'General-purpose AI assistant that can read the page and answer questions.',
     listing_url: listing('camppjleccjaphfdbohjdohecfnoikec'),
     verified_on: '2026-10-12',
   },
@@ -116,11 +115,20 @@ export const INACTIVE = [
     id: 'pokdnpkcjeekgiiokkdkdghpkcpfjgdh',
     name: 'AI Interview Copilot',
     category: 'interview-assistant',
-    reason: 'Interview preparation and feedback tool; not a live assistant, so not blocked by default.',
+    reason: 'AI interview assistant that generates and analyses answers.',
     listing_url: listing('pokdnpkcjeekgiiokkdkdghpkcpfjgdh'),
     verified_on: '2026-10-12',
   },
 ]
+
+/**
+ * Retained for compatibility: policy now treats every known AI assistant -
+ * interview-specific or general-purpose - as prohibited, so nothing is
+ * deliberately left unblocked. Entries can still be parked here.
+ *
+ * @type {BlocklistEntry[]}
+ */
+export const INACTIVE = []
 
 /**
  * Names reported to us as AI interview tools for which no Chrome Web Store

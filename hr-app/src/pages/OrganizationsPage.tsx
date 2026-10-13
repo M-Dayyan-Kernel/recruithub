@@ -1,3 +1,6 @@
+import { useSearchParams } from 'react-router-dom'
+import ExtensionPolicyPanel from '@/components/platform/ExtensionPolicyPanel'
+import Tabs, { type TabDef } from '@/components/interview/Tabs'
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -244,7 +247,7 @@ function GstDocumentViewer({
   )
 }
 
-export default function OrganizationsPage() {
+function OrganizationsView() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const { switchTenant, isSuperAdmin } = useAuth()
@@ -955,6 +958,36 @@ export default function OrganizationsPage() {
           onCancel={() => setPendingConfirm(null)}
         />
       )}
+    </div>
+  )
+}
+
+const PLATFORM_TABS: TabDef[] = [
+  { id: 'organizations', label: 'Organizations' },
+  { id: 'extensions', label: 'AI extension policy' },
+]
+
+/**
+ * The platform console. Super Admins are confined to /admin, so the extension
+ * policy lives here as a tab rather than on a route of its own.
+ */
+export default function OrganizationsPage() {
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'extensions' ? 'extensions' : 'organizations'
+
+  return (
+    <div className="space-y-6">
+      <Tabs
+        tabs={PLATFORM_TABS}
+        active={tab}
+        onChange={(id) => {
+          const next = new URLSearchParams(params)
+          if (id === 'extensions') next.set('tab', 'extensions')
+          else next.delete('tab')
+          setParams(next, { replace: true })
+        }}
+      />
+      {tab === 'extensions' ? <ExtensionPolicyPanel /> : <OrganizationsView />}
     </div>
   )
 }

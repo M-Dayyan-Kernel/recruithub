@@ -129,6 +129,16 @@ export function validateShortText(value: string, label: string, max = 100): stri
   return value.trim().length > max ? `${label} must be at most ${max} characters` : null
 }
 
+/** Chrome extension IDs are 32 letters a-p (the Chrome Web Store URL's last segment). */
+export function validateExtensionId(value: string): string | null {
+  const id = value.trim().toLowerCase()
+  if (!id) return 'Extension ID is required'
+  if (!/^[a-p]{32}$/.test(id)) {
+    return 'Use the 32-letter ID from the extension\'s Chrome Web Store URL'
+  }
+  return null
+}
+
 /** Convenience wrapper for organization/company name fields. */
 export function validateOrgName(value: string, label = 'Organization name'): string | null {
   return validateName(value, label, ORG_NAME_MAX_LENGTH)

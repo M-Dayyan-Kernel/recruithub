@@ -5,6 +5,8 @@ from typing import Literal, Optional, List
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator, model_validator
 
+from app.schemas.integrity import IntegritySummary
+
 
 _PASSWORD_MIN_LEN = 12
 _PASSWORD_PATTERN = re.compile(
@@ -857,6 +859,8 @@ class InterviewReportResponse(BaseModel):
     recording_url: Optional[str] = None
     recording_key: Optional[str] = None
     video_proctoring: Optional[VideoProctoringSummary] = None
+    # Extension-scan evidence for HR; None when no scan was recorded.
+    integrity: Optional[IntegritySummary] = None
 
 
 # ---------------------------------------------------------------------------

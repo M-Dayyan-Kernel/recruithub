@@ -6,7 +6,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, status
 
-from app.dependencies import RequireSuperAdmin, get_platform_tenant_service
+from app.dependencies import RequireSuperAdmin, get_integrity_service, get_platform_tenant_service
 from app.exceptions import DomainError
 from app.schemas.schemas import (
     TenantCreateRequest,
@@ -15,6 +15,14 @@ from app.schemas.schemas import (
     TenantUpdateRequest,
     UserResponse,
 )
+from app.schemas.integrity import (
+    BlocklistEntryCreate,
+    BlocklistEntryResponse,
+    BlocklistEntryUpdate,
+    PolicyAdminResponse,
+    PolicyUpdateRequest,
+)
+from app.services.integrity_service import IntegrityService
 from app.services.platform_tenant_service import PlatformTenantService
 
 router = APIRouter()
@@ -117,3 +125,63 @@ async def delete_tenant(
         await service.delete_tenant(tenant_id, admin)
     except DomainError as exc:
         _raise_domain(exc)
+
+
+# ── AI-assistant extension detection (policy + blocklist) ────────────────────
+
+
+@router.get("/extension-policy", response_model=PolicyAdminResponse)
+async def get_extension_policy(
+    _admin: RequireSuperAdmin,
+    service: IntegrityService = Depends(get_integrity_service),
+):
+    return await service.admin_policy()
+
+
+@router.put("/extension-policy", response_model=PolicyAdminResponse)
+async def update_extension_policy(
+    body: PolicyUpdateRequest,
+    admin: RequireSuperAdmin,
+    service: IntegrityService = Depends(get_integrity_service),
+):
+    return await service.update_policy(body, admin)
+
+
+@router.get("/extension-blocklist", response_model=list[BlocklistEntryResponse])
+async def list_extension_blocklist(
+    _admin: RequireSuperAdmin,
+    service: IntegrityService = Depends(get_integrity_service),
+):
+    return await service.list_blocklist()
+
+
+@router.post(
+    "/extension-blocklist",
+    response_model=BlocklistEntryResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_extension_blocklist_entry(
+    body: BlocklistEntryCreate,
+    admin: RequireSuperAdmin,
+    service: IntegrityService = Depends(get_integrity_service),
+):
+    return await service.add_entry(body, admin)
+
+
+@router.patch("/extension-blocklist/{entry_id}", response_model=BlocklistEntryResponse)
+async def update_extension_blocklist_entry(
+    entry_id: uuid.UUID,
+    body: BlocklistEntryUpdate,
+    admin: RequireSuperAdmin,
+    service: IntegrityService = Depends(get_integrity_service),
+):
+    return await service.update_entry(entry_id, body, admin)
+
+
+@router.delete("/extension-blocklist/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_extension_blocklist_entry(
+    entry_id: uuid.UUID,
+    admin: RequireSuperAdmin,
+    service: IntegrityService = Depends(get_integrity_service),
+):
+    await service.delete_entry(entry_id, admin)

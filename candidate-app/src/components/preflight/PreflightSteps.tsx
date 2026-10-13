@@ -166,6 +166,10 @@ function BlockedExtensionList({ extensions }: { extensions: ProhibitedExtension[
         <li>Turn off each extension listed above.</li>
         <li>Come back to this page and choose Rescan.</li>
       </ol>
+      <p className="mt-4 text-left text-[0.8rem] leading-relaxed text-ink-muted">
+        Quicker: open this interview in a new Chrome profile or a Guest window that has only the
+        Recruit Hub Interview Check extension.
+      </p>
     </>
   )
 }
@@ -192,7 +196,7 @@ export function ExtensionCheckStep({ session, onDone }: StepProps) {
   const check = useCallback(async () => {
     const id = ++run.current
     setResult(null)
-    const next = await scanForGate()
+    const next = await scanForGate({ token: session.token, phase: 'preflight' })
     if (id !== run.current) return // superseded by a rescan or unmount
     setResult(next)
     if (next.status === 'clear') {
@@ -563,7 +567,7 @@ export function EnvironmentStep({ session, onDone }: StepProps) {
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
 
-  const runner = useMemo(() => createReadinessRunner(() => collectReadiness(session)), [session])
+  const runner = useMemo(() => createReadinessRunner(() => collectReadiness(session, 'final')), [session])
   // StrictMode mounts effects twice; a ref (not cleanup-invalidation) keeps the
   // first in-flight result usable while still ignoring results after unmount.
   const alive = useRef(false)

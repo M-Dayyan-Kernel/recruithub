@@ -11,7 +11,7 @@
  * ScanResult leaves the extension - never the installed inventory.
  */
 
-import { scanInstalledExtensions } from './inventory.js'
+import { scanInstalledExtensions, scanWithPolicy } from './inventory.js'
 import { handleExternalRequest } from './external.js'
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -24,6 +24,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 })
 
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
-  handleExternalRequest(message, sender, { scan: () => scanInstalledExtensions() }).then(sendResponse)
+  handleExternalRequest(message, sender, {
+    scan: () => scanInstalledExtensions(),
+    scanWithPolicy: (policy) => scanWithPolicy({ policy, selfId: chrome.runtime.id }),
+  }).then(sendResponse)
   return true
 })

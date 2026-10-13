@@ -14,7 +14,10 @@
  * client-side deterrent, not proof. The backend cannot verify it.
  */
 
+/** Policy-less request: the extension uses its built-in list. */
 export const PROTOCOL_VERSION = 1
+/** Request that carries a backend policy (list + rules). */
+export const POLICY_PROTOCOL_VERSION = 2
 /** A scan older than this is not accepted as the answer to "scan now". */
 export const MAX_RESULT_AGE_MS = 30_000
 /** Tolerated clock skew for a result stamped slightly in the future. */
@@ -38,10 +41,50 @@ export type UnavailableReason =
   | 'invalid_response' // malformed, wrong nonce, or self-contradictory
   | 'stale_result'
 
+export type FlaggedReason = 'known_id' | 'heuristic_strong' | 'heuristic_weak'
+
+/** One extension the browser reported as worth recording (blocked or only flagged). */
+export interface FlaggedExtension {
+  id: string
+  name: string
+  reason_code: FlaggedReason
+  /** Stopped interview start. */
+  blocked: boolean
+  /** Would have stopped it outside shadow mode. */
+  would_block: boolean
+  intent_score: number
+  capability_score: number
+  signals: string[]
+}
+
+/** What a policy-driven scan saw: kept for the HR report, separate from the gate decision. */
+export interface ScanReport {
+  flagged: FlaggedExtension[]
+  policyVersion: number | null
+  mode: 'shadow' | 'enforce' | null
+}
+
 export type GateResult =
-  | { status: 'clear'; checkedAt: string }
-  | { status: 'blocked'; extensions: ProhibitedExtension[]; checkedAt: string }
+  | { status: 'clear'; checkedAt: string; report?: ScanReport }
+  | { status: 'blocked'; extensions: ProhibitedExtension[]; checkedAt: string; report?: ScanReport }
   | { status: 'unavailable'; reason: UnavailableReason; detail?: string }
+
+/**
+ * The live detection policy, fetched from the backend and handed to the
+ * extension. The page only forwards it; the extension validates it.
+ */
+export interface IntegrityPolicy {
+  version: number
+  mode: 'shadow' | 'enforce'
+  blocklist: Array<{
+    id: string
+    name: string
+    category: string
+    reason: string
+    listing_url?: string | null
+  }>
+  rules: unknown
+}
 
 /** The slice of `chrome.runtime` we use; injectable for tests. */
 export interface RuntimeLike {
@@ -51,6 +94,8 @@ export interface RuntimeLike {
 
 export interface ScanOptions {
   extensionId?: string
+  /** When present the request is protocol v2 and the extension applies this policy. */
+  policy?: IntegrityPolicy | null
   runtime?: RuntimeLike | null
   now?: () => number
   nonce?: () => string
@@ -83,16 +128,27 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
  * Validates a raw extension reply against the request that produced it.
  * Exported so the tests can exercise forged and malformed replies directly.
  */
-export function evaluateReply(raw: unknown, nonce: string, nowMs: number): GateResult {
-  if (!isRecord(raw) || raw.v !== PROTOCOL_VERSION) {
+export function evaluateReply(
+  raw: unknown,
+  nonce: string,
+  nowMs: number,
+  expectedVersion: number = PROTOCOL_VERSION,
+): GateResult {
+  if (!isRecord(raw)) {
     return unavailable('invalid_response', 'unrecognised reply')
   }
   // A reply for another request (replayed or crossed) is never accepted.
   if (raw.nonce !== nonce) return unavailable('invalid_response', 'reply does not match request')
 
+  // Errors are read before the version: an older extension refuses a newer
+  // request in its own (older) envelope, and the reason must not be lost.
   if (isRecord(raw.error)) {
     const code = typeof raw.error.code === 'string' ? raw.error.code : 'unknown'
     return unavailable('extension_unreachable', code)
+  }
+
+  if (raw.v !== expectedVersion) {
+    return unavailable('invalid_response', 'unrecognised reply')
   }
 
   const result = raw.result
@@ -137,15 +193,84 @@ export function evaluateReply(raw: unknown, nonce: string, nowMs: number): GateR
     })
   }
 
+  const parsed = parseReport(result)
+  if (parsed === 'invalid') return unavailable('invalid_response', 'malformed flagged entry')
+  // A reply that says something was blocked but lists nothing to disable
+  // contradicts itself; never read that as clear.
+  if (parsed?.flagged.some((f) => f.blocked) && extensions.length === 0) {
+    return unavailable('invalid_response', 'blocked extension missing from the list')
+  }
+  const report = parsed ? { report: parsed } : {}
+
   return extensions.length > 0
-    ? { status: 'blocked', extensions, checkedAt: checked_at }
-    : { status: 'clear', checkedAt: checked_at }
+    ? { status: 'blocked', extensions, checkedAt: checked_at, ...report }
+    : { status: 'clear', checkedAt: checked_at, ...report }
 }
 
-/** Requests a fresh scan. Never rejects: every failure is an `unavailable` result. */
-export function requestScan(options: ScanOptions = {}): Promise<GateResult> {
+const FLAGGED_REASONS: ReadonlySet<string> = new Set(['known_id', 'heuristic_strong', 'heuristic_weak'])
+const MAX_FLAGGED = 100
+
+/** Parses `flagged_extensions` of a policy scan. undefined: v1 reply, nothing to record. */
+function parseReport(result: Record<string, unknown>): ScanReport | 'invalid' | undefined {
+  const raw = result.flagged_extensions
+  if (raw === undefined) return undefined
+  if (!Array.isArray(raw) || raw.length > MAX_FLAGGED) return 'invalid'
+
+  const flagged: FlaggedExtension[] = []
+  for (const item of raw) {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== 'string' ||
+      typeof item.name !== 'string' ||
+      typeof item.reason_code !== 'string' ||
+      !FLAGGED_REASONS.has(item.reason_code)
+    ) {
+      return 'invalid'
+    }
+    flagged.push({
+      id: item.id,
+      name: item.name,
+      reason_code: item.reason_code as FlaggedReason,
+      blocked: item.blocked === true,
+      would_block: item.would_block === true,
+      intent_score: typeof item.intent_score === 'number' ? item.intent_score : 0,
+      capability_score: typeof item.capability_score === 'number' ? item.capability_score : 0,
+      signals: Array.isArray(item.signals)
+        ? item.signals.filter((s): s is string => typeof s === 'string').slice(0, 12)
+        : [],
+    })
+  }
+  return {
+    flagged,
+    policyVersion: typeof result.policy_version === 'number' ? result.policy_version : null,
+    mode: result.mode === 'shadow' || result.mode === 'enforce' ? result.mode : null,
+  }
+}
+
+/**
+ * Requests a fresh scan. Never rejects: every failure is an `unavailable` result.
+ *
+ * An extension installed before policy support only understands the v1 request
+ * and answers a v2 one with `bad_request`. That is retried once as v1 so those
+ * candidates are still checked (against the built-in list) instead of stranded.
+ */
+export async function requestScan(options: ScanOptions = {}): Promise<GateResult> {
+  const first = await requestScanOnce(options)
+  if (
+    options.policy &&
+    first.status === 'unavailable' &&
+    first.reason === 'extension_unreachable' &&
+    first.detail === 'bad_request'
+  ) {
+    return requestScanOnce({ ...options, policy: null })
+  }
+  return first
+}
+
+function requestScanOnce(options: ScanOptions = {}): Promise<GateResult> {
   const {
     extensionId,
+    policy = null,
     runtime = defaultRuntime(),
     now = () => Date.now(),
     nonce = newNonce,
@@ -170,7 +295,9 @@ export function requestScan(options: ScanOptions = {}): Promise<GateResult> {
     try {
       runtime.sendMessage(
         extensionId,
-        { v: PROTOCOL_VERSION, type: 'RH_SCAN', nonce: requestNonce },
+        policy
+          ? { v: POLICY_PROTOCOL_VERSION, type: 'RH_SCAN', nonce: requestNonce, policy }
+          : { v: PROTOCOL_VERSION, type: 'RH_SCAN', nonce: requestNonce },
         (response) => {
           // Chrome reports "no such extension" / "not allowed" via lastError.
           const lastError = runtime.lastError
@@ -178,7 +305,14 @@ export function requestScan(options: ScanOptions = {}): Promise<GateResult> {
             settle(unavailable('extension_unreachable', lastError.message))
             return
           }
-          settle(evaluateReply(response, requestNonce, now()))
+          settle(
+            evaluateReply(
+              response,
+              requestNonce,
+              now(),
+              policy ? POLICY_PROTOCOL_VERSION : PROTOCOL_VERSION,
+            ),
+          )
         },
       )
     } catch (err) {
@@ -212,4 +346,62 @@ export async function runGate(
 ): Promise<GateResult> {
   if (!config.enabled) return { status: 'clear', checkedAt: 'gate-disabled' }
   return scan(config.extensionId)
+}
+
+// ---------------------------------------------------------------------------
+// Evidence for the HR report
+// ---------------------------------------------------------------------------
+
+export type ScanPhase = 'preflight' | 'final' | 'start'
+
+/** The API rejects larger reports; mirrors IntegrityScanIn.flagged max_length. */
+export const MAX_RECORDED_FLAGGED = 25
+
+/** Body of POST /api/interview/{token}/integrity-scan. */
+export interface IntegrityScanPayload {
+  phase: ScanPhase
+  scan_completed: boolean
+  checked_at?: string
+  policy_version?: number
+  mode?: 'shadow' | 'enforce'
+  error_code?: string
+  flagged: FlaggedExtension[]
+}
+
+/**
+ * What to record for a scan result. Only flagged or blocked extensions are
+ * included - the candidate's full extension list is never sent anywhere. A
+ * scan that could not complete is recorded as such (never as clean).
+ */
+export function toScanPayload(phase: ScanPhase, result: GateResult): IntegrityScanPayload {
+  if (result.status === 'unavailable') {
+    return { phase, scan_completed: false, error_code: result.reason, flagged: [] }
+  }
+
+  const report = result.report
+  // A v1 (built-in list) reply carries no report: reconstruct what blocked.
+  const flagged: FlaggedExtension[] =
+    report?.flagged ??
+    (result.status === 'blocked'
+      ? result.extensions.map((e) => ({
+          id: e.id,
+          name: e.name,
+          reason_code: 'known_id' as const,
+          blocked: true,
+          would_block: true,
+          intent_score: 0,
+          capability_score: 0,
+          signals: [],
+        }))
+      : [])
+
+  return {
+    phase,
+    scan_completed: true,
+    checked_at: result.checkedAt,
+    ...(report?.policyVersion != null ? { policy_version: report.policyVersion } : {}),
+    ...(report?.mode ? { mode: report.mode } : {}),
+    // The extension lists blocking items first, so a cap never drops what blocked.
+    flagged: flagged.slice(0, MAX_RECORDED_FLAGGED),
+  }
 }

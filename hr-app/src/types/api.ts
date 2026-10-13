@@ -1,3 +1,5 @@
+import type { IntegritySummary } from '@/types/integrity'
+
 export interface PaginatedResponse<T> {
   items: T[]
   total: number
@@ -325,6 +327,8 @@ export interface InterviewReport {
   candidate_name?: string | null
   job_title?: string | null
   video_proctoring?: VideoProctoringSummary | null
+  /** Extension-scan evidence; absent when no scan was recorded for this interview. */
+  integrity?: IntegritySummary | null
   created_at: string
 }
 

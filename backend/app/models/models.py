@@ -356,6 +356,73 @@ class PasswordToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class ExtensionBlocklistEntry(Base):
+    """A known AI-assistant browser extension that may not be enabled during an interview.
+
+    Platform-wide (not per tenant) and edited by a Super Admin. The ID comes
+    from the extension's own Chrome Web Store listing.
+    """
+
+    __tablename__ = "extension_blocklist"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    extension_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(30), nullable=False)  # ai_assistant | interview_assistant
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    listing_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(10), nullable=False, default="active", server_default="active")
+    verified_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class ExtensionPolicy(Base):
+    """Single-row policy for extension detection: mode, heuristic rules, version.
+
+    `version` is bumped on every change to this row or to the blocklist, so a
+    stored scan can say exactly which rules produced it.
+    """
+
+    __tablename__ = "extension_policy"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    mode: Mapped[str] = mapped_column(String(10), nullable=False, default="shadow", server_default="shadow")
+    rules: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    updated_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class InterviewIntegrityScan(Base):
+    """One extension scan taken during an interview (append-only evidence for HR)."""
+
+    __tablename__ = "interview_integrity_scans"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    interview_session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    phase: Mapped[str] = mapped_column(String(20), nullable=False)  # preflight | final | start
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False)  # clear | flagged | blocked | unavailable
+    flagged: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    flagged_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    policy_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    mode: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    error_code: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    client_checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class OutboxEvent(Base):
     __tablename__ = "outbox_events"
 
