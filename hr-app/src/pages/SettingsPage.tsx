@@ -10,7 +10,7 @@ import { BTN_PRIMARY, Card, PageHeader } from '@/components/ui/Surface'
 import Tabs, { type TabDef } from '@/components/interview/Tabs'
 import Toggle from '@/components/ui/Toggle'
 import { EmailTemplatesSettings } from '@/components/EmailTemplatesSettings'
-import { clampWholeNumberInput } from '@/lib/validation'
+import { validateScreeningAttemptsText, validateScreeningDelayText } from '@/lib/validation'
 
 const DEFAULT_MAX_RETRIES = 3
 const DEFAULT_RETRY_DELAY_MINUTES = 30
@@ -69,26 +69,40 @@ export default function SettingsPage() {
 
   const [enforceGeography, setEnforceGeography] = useState(true)
   const [screeningEnabled, setScreeningEnabled] = useState(true)
-  const [maxRetries, setMaxRetries] = useState(DEFAULT_MAX_RETRIES)
-  const [retryDelayMinutes, setRetryDelayMinutes] = useState(DEFAULT_RETRY_DELAY_MINUTES)
+  // Held as the text the user typed, not as numbers: a number field cannot be
+  // emptied or half-edited ("3" -> "" -> "7"), and clamping per keystroke turns
+  // "3" then "7" into "10". Validated and parsed only when saving.
+  const [maxRetriesText, setMaxRetriesText] = useState(String(DEFAULT_MAX_RETRIES))
+  const [retryDelayText, setRetryDelayText] = useState(String(DEFAULT_RETRY_DELAY_MINUTES))
 
   useEffect(() => {
     if (!data) return
     setEnforceGeography(data.enforce_phone_geography)
     setScreeningEnabled(data.screening_enabled)
-    setMaxRetries(data.screening_max_retries)
-    setRetryDelayMinutes(Math.round(data.screening_retry_delay_seconds / 60))
+    setMaxRetriesText(String(data.screening_max_retries))
+    setRetryDelayText(String(Math.round(data.screening_retry_delay_seconds / 60)))
   }, [data])
 
+  const maxRetriesError = validateScreeningAttemptsText(maxRetriesText)
+  const retryDelayError = validateScreeningDelayText(retryDelayText)
+  // Numeric values for display and for the request; only meaningful when valid.
+  const maxRetries = maxRetriesError ? null : Number(maxRetriesText.trim())
+  const retryDelayMinutes = retryDelayError ? null : Number(retryDelayText.trim())
+  const hasErrors = Boolean(maxRetriesError || retryDelayError)
+
   const mutation = useMutation({
-    mutationFn: () =>
-      api.patch('/api/settings', {
+    mutationFn: () => {
+      if (maxRetries === null || retryDelayMinutes === null) {
+        return Promise.reject(new Error('Fix the highlighted fields before saving'))
+      }
+      return api.patch('/api/settings', {
         enforce_phone_geography: enforceGeography,
         screening_enabled: screeningEnabled,
         allowed_phone_regions: ['IN'],
         screening_max_retries: maxRetries,
-        screening_retry_delay_seconds: Math.max(1, Math.round(retryDelayMinutes)) * 60,
-      }) as unknown as Promise<SystemSettings>,
+        screening_retry_delay_seconds: retryDelayMinutes * 60,
+      }) as unknown as Promise<SystemSettings>
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       toast.success('Settings saved')
@@ -163,22 +177,30 @@ export default function SettingsPage() {
             </label>
             <input
               id="max-retries"
-              type="number"
-              min={1}
-              max={10}
-              value={maxRetries}
-              onChange={(e) => {
-                const next = clampWholeNumberInput(e.target.value, { min: 1, max: 10 })
-                if (next !== null) setMaxRetries(next)
-              }}
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={4}
+              value={maxRetriesText}
+              onChange={(e) => setMaxRetriesText(e.target.value)}
+              aria-invalid={Boolean(maxRetriesError)}
+              aria-describedby={maxRetriesError ? 'max-retries-error' : undefined}
               disabled={!screeningEnabled}
-              className={`${WORKFLOW_INPUT_CLASS} w-28 disabled:cursor-not-allowed disabled:opacity-50`}
+              className={`${WORKFLOW_INPUT_CLASS} w-28 disabled:cursor-not-allowed disabled:opacity-50 ${
+                maxRetriesError ? '!border-rose-300' : ''
+              }`}
             />
-            <span className="text-[13px] text-ink-muted">
-              {maxRetries === 1
-                ? 'One dial attempt only (no automatic retries)'
-                : `Up to ${maxRetries} dial attempts, then flagged`}
-            </span>
+            {maxRetriesError ? (
+              <span id="max-retries-error" role="alert" className="text-[13px] text-rose-600">
+                {maxRetriesError}
+              </span>
+            ) : (
+              <span className="text-[13px] text-ink-muted">
+                {maxRetries === 1
+                  ? 'One dial attempt only (no automatic retries)'
+                  : `Up to ${maxRetries} dial attempts, then flagged`}
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <label htmlFor="retry-delay" className="w-40 text-[13px] font-semibold text-ink">
@@ -186,20 +208,28 @@ export default function SettingsPage() {
             </label>
             <input
               id="retry-delay"
-              type="number"
-              min={1}
-              max={10080}
-              value={retryDelayMinutes}
-              onChange={(e) => {
-                const next = clampWholeNumberInput(e.target.value, { min: 1, max: 10080 })
-                if (next !== null) setRetryDelayMinutes(next)
-              }}
-              disabled={!screeningEnabled || maxRetries <= 1}
-              className={`${WORKFLOW_INPUT_CLASS} w-28 disabled:cursor-not-allowed disabled:opacity-50`}
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={6}
+              value={retryDelayText}
+              onChange={(e) => setRetryDelayText(e.target.value)}
+              aria-invalid={Boolean(retryDelayError)}
+              aria-describedby={retryDelayError ? 'retry-delay-error' : undefined}
+              disabled={!screeningEnabled || (maxRetries !== null && maxRetries <= 1)}
+              className={`${WORKFLOW_INPUT_CLASS} w-28 disabled:cursor-not-allowed disabled:opacity-50 ${
+                retryDelayError ? '!border-rose-300' : ''
+              }`}
             />
-            <span className="text-[13px] text-ink-muted">
-              minutes ({formatDelayLabel(retryDelayMinutes)})
-            </span>
+            {retryDelayError ? (
+              <span id="retry-delay-error" role="alert" className="text-[13px] text-rose-600">
+                {retryDelayError}
+              </span>
+            ) : (
+              <span className="text-[13px] text-ink-muted">
+                minutes ({formatDelayLabel(retryDelayMinutes ?? 0)})
+              </span>
+            )}
           </div>
         </div>
         <p className="mt-4 rounded-md bg-accent-soft px-3.5 py-2.5 text-[12px] text-accent">
@@ -210,12 +240,16 @@ export default function SettingsPage() {
       {/* Sticky, because the settings above can run past the fold. */}
       <div className="sticky bottom-0 -mx-1 mt-6 flex items-center justify-end gap-3 rounded-card border border-line bg-surface/90 px-4 py-3 shadow-e2 backdrop-blur">
         <p className="mr-auto text-[12px] text-ink-muted">
-          {mutation.isPending ? 'Saving your changes…' : 'Changes apply to every job in this workspace.'}
+          {mutation.isPending
+            ? 'Saving your changes…'
+            : hasErrors
+              ? 'Fix the highlighted fields to save.'
+              : 'Changes apply to every job in this workspace.'}
         </p>
         <button
           type="button"
           onClick={() => mutation.mutate()}
-          disabled={mutation.isPending}
+          disabled={mutation.isPending || hasErrors}
           className={BTN_PRIMARY}
         >
           {mutation.isPending ? 'Saving…' : 'Save settings'}

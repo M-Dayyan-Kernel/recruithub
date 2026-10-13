@@ -3,7 +3,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   EXPERIENCE_MAX_YEARS,
+  SCREENING_ATTEMPTS_MAX,
+  SCREENING_DELAY_MAX_MINUTES,
   validateExperienceRange,
+  validateScreeningAttemptsText,
+  validateScreeningDelayText,
+  validateWholeNumberText,
   validateYearsText,
 } from '../src/lib/validation.ts'
 
@@ -74,4 +79,62 @@ test('max below min is rejected, equal bounds and open-ended ranges are fine', (
   assert.equal(validateExperienceRange('5', ''), null)
   assert.equal(validateExperienceRange('5', '0'), null) // 0 max = no upper bound
   assert.equal(validateExperienceRange('', ''), null)
+})
+
+// ── screening attempts / delay (Settings) ──────────────────────────────────
+
+test('every attempt count in range is accepted, as the ticket lists 2-9', () => {
+  for (let n = 1; n <= SCREENING_ATTEMPTS_MAX; n += 1) {
+    assert.equal(validateScreeningAttemptsText(String(n)), null, `attempts ${n}`)
+  }
+})
+
+test('the field can be emptied and re-entered: blank is reported, not swallowed', () => {
+  // Typing "3" -> backspace -> "7" passes through "" and must not be rejected
+  // by the input handler; the blank state is only a save-time error.
+  assert.equal(validateScreeningAttemptsText('3'), null)
+  assert.equal(validateScreeningAttemptsText(''), 'Maximum attempts is required')
+  assert.equal(validateScreeningAttemptsText('7'), null)
+})
+
+test('appending a digit is never silently rewritten to the maximum', () => {
+  // The old handler clamped "37" to 10 on the keystroke, so 7 could never be set
+  // after 3. The value is now kept as typed and reported honestly.
+  assert.equal(validateScreeningAttemptsText('37'), 'Maximum attempts cannot exceed 10')
+})
+
+test('attempt bounds', () => {
+  assert.equal(validateScreeningAttemptsText('0'), 'Maximum attempts must be at least 1')
+  assert.equal(validateScreeningAttemptsText('11'), 'Maximum attempts cannot exceed 10')
+  assert.equal(validateScreeningAttemptsText('-2'), 'Maximum attempts must be at least 1')
+  assert.equal(validateScreeningAttemptsText('2.5'), 'Maximum attempts must be a whole number')
+  assert.equal(validateScreeningAttemptsText('abc'), 'Maximum attempts must be a whole number')
+})
+
+test('delay accepts 1 minute up to 7 days, and is required', () => {
+  for (const ok of ['1', '2', '30', '60', '1440', String(SCREENING_DELAY_MAX_MINUTES)]) {
+    assert.equal(validateScreeningDelayText(ok), null, ok)
+  }
+  assert.equal(validateScreeningDelayText(''), 'Delay between attempts is required')
+  assert.equal(validateScreeningDelayText('0'), 'Delay between attempts must be at least 1')
+  assert.equal(
+    validateScreeningDelayText(String(SCREENING_DELAY_MAX_MINUTES + 1)),
+    'Delay between attempts cannot exceed 10080 minutes',
+  )
+})
+
+test('limits mirror the backend config (60..604800 seconds, 1..10 attempts)', () => {
+  assert.equal(SCREENING_ATTEMPTS_MAX, 10)
+  assert.equal(SCREENING_DELAY_MAX_MINUTES * 60, 604800)
+})
+
+test('the generic validator keeps the years messages unchanged', () => {
+  assert.equal(
+    validateWholeNumberText('-1', { label: 'Min experience', min: 0, max: 60, unit: 'years' }),
+    'Min experience cannot be negative',
+  )
+  assert.equal(
+    validateWholeNumberText('61', { label: 'Max experience', min: 0, max: 60, unit: 'years' }),
+    'Max experience cannot exceed 60 years',
+  )
 })

@@ -92,24 +92,72 @@ export function isValid(errors: object): boolean {
 export const EXPERIENCE_MAX_YEARS = 60
 
 /**
- * Checks what the user typed into a years-of-experience field.
+ * Checks what the user typed into a whole-number field.
  *
- * Returns a message for anything that is not a whole number from 0 to
- * EXPERIENCE_MAX_YEARS, or null when the text is valid or blank (blank means
- * "not specified"). The text is validated as typed and never silently
- * discarded: a swallowed keystroke on a number input leaves the browser
- * showing "-5" while form state stays blank, so the job is saved with no
- * experience and no message.
+ * Returns a message for anything that is not a whole number within
+ * [min, max], or null when the text is valid. Blank is valid unless
+ * `required`. The text is validated exactly as typed and never silently
+ * discarded or clamped: swallowing a keystroke leaves the field showing one
+ * thing while form state holds another, and clamping on every keystroke
+ * rewrites "3" + "7" into "10" so the field can never be edited.
  */
-export function validateYearsText(raw: string, label: string): string | null {
+export function validateWholeNumberText(
+  raw: string,
+  {
+    label,
+    min,
+    max,
+    required = false,
+    unit,
+  }: { label: string; min: number; max: number; required?: boolean; unit?: string },
+): string | null {
   const text = raw.trim()
-  if (text === '') return null
-  if (text.startsWith('-')) return `${label} cannot be negative`
-  if (!/^\d+$/.test(text)) return `${label} must be a whole number`
-  if (Number(text) > EXPERIENCE_MAX_YEARS) {
-    return `${label} cannot exceed ${EXPERIENCE_MAX_YEARS} years`
+  if (text === '') return required ? `${label} is required` : null
+  if (text.startsWith('-')) {
+    return min === 0 ? `${label} cannot be negative` : `${label} must be at least ${min}`
   }
+  if (!/^\d+$/.test(text)) return `${label} must be a whole number`
+  const value = Number(text)
+  if (value < min) return `${label} must be at least ${min}`
+  if (value > max) return `${label} cannot exceed ${max}${unit ? ` ${unit}` : ''}`
   return null
+}
+
+/** Years-of-experience field: blank (not specified) or a whole 0..60. */
+export function validateYearsText(raw: string, label: string): string | null {
+  return validateWholeNumberText(raw, {
+    label,
+    min: 0,
+    max: EXPERIENCE_MAX_YEARS,
+    unit: 'years',
+  })
+}
+
+// Screening retry limits. Mirror `screening.validation` in backend config.yaml
+// (min/max retries; min/max retry delay seconds, shown here in minutes), which
+// the API enforces on save.
+export const SCREENING_ATTEMPTS_MIN = 1
+export const SCREENING_ATTEMPTS_MAX = 10
+export const SCREENING_DELAY_MIN_MINUTES = 1
+export const SCREENING_DELAY_MAX_MINUTES = 10080
+
+export function validateScreeningAttemptsText(raw: string): string | null {
+  return validateWholeNumberText(raw, {
+    label: 'Maximum attempts',
+    min: SCREENING_ATTEMPTS_MIN,
+    max: SCREENING_ATTEMPTS_MAX,
+    required: true,
+  })
+}
+
+export function validateScreeningDelayText(raw: string): string | null {
+  return validateWholeNumberText(raw, {
+    label: 'Delay between attempts',
+    min: SCREENING_DELAY_MIN_MINUTES,
+    max: SCREENING_DELAY_MAX_MINUTES,
+    required: true,
+    unit: 'minutes',
+  })
 }
 
 /** Validates an experience range, returning the first problem found. */
@@ -134,20 +182,4 @@ export function validateExperienceRange(
     }
   }
   return null
-}
-
-/**
- * Clamps a numeric-input keystroke to a whole number within [min, max].
- *
- * `min`/`max` on a number input only drive native form validation, so a typed
- * "-29" still reaches state on a page that saves via a click handler. Returns
- * null when the keystroke should be ignored (blank or non-numeric), letting the
- * caller keep the previous value.
- */
-export function clampWholeNumberInput(
-  raw: string,
-  { min, max }: { min: number; max: number },
-): number | null {
-  if (!/^\d+$/.test(raw)) return null
-  return Math.min(Math.max(Number(raw), min), max)
 }
