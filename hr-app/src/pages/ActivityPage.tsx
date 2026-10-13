@@ -18,6 +18,7 @@ import {
   resumeDisplayName,
 } from '@/lib/workflow'
 import { cn } from '@/lib/utils'
+import { PHONE_SCREENING_LABEL } from '@/lib/stageLabels'
 
 const PAGE_SIZE = 25
 
@@ -70,7 +71,7 @@ const FEATURE_LABELS: Record<string, string> = {
   email: 'Email',
   pipeline_status: 'Pipeline status',
   result: 'Result',
-  screening: 'Screening',
+  screening: PHONE_SCREENING_LABEL,
   interview_queue: 'Interview queue',
   interview_link: 'Interview link',
   interview_session: 'Interview session',

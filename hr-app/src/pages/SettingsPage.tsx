@@ -10,13 +10,14 @@ import { BTN_PRIMARY, Card, PageHeader } from '@/components/ui/Surface'
 import Tabs, { type TabDef } from '@/components/interview/Tabs'
 import Toggle from '@/components/ui/Toggle'
 import { EmailTemplatesSettings } from '@/components/EmailTemplatesSettings'
+import { PHONE_SCREENING_LABEL } from '@/lib/stageLabels'
 import { validateScreeningAttemptsText, validateScreeningDelayText } from '@/lib/validation'
 
 const DEFAULT_MAX_RETRIES = 3
 const DEFAULT_RETRY_DELAY_MINUTES = 30
 
 const TABS: TabDef[] = [
-  { id: 'screening', label: 'Screening' },
+  { id: 'screening', label: PHONE_SCREENING_LABEL },
   { id: 'email', label: 'Email templates' },
 ]
 

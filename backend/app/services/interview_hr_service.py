@@ -57,7 +57,7 @@ class InterviewHrService:
         if not screening_call:
             raise HTTPException(
                 status_code=400,
-                detail="Candidate has not passed screening. Cannot queue for interview.",
+                detail="Candidate has not passed phone screening. Cannot queue for interview.",
             )
         screening_call.interview_queued_at = datetime.now(timezone.utc)
         await self._interviews.flush()
@@ -126,7 +126,7 @@ class InterviewHrService:
         ):
             raise HTTPException(
                 status_code=400,
-                detail="Candidate has not passed screening. Interview cannot be scheduled.",
+                detail="Candidate has not passed phone screening. Interview cannot be scheduled.",
             )
 
         existing_result = await self._session.execute(

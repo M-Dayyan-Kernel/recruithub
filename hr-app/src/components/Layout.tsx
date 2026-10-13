@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { filterArchivedJobs } from '@/lib/jobStatus'
+import { PHONE_SCREENING_LABEL, RESUME_SCREENING_LABEL } from '@/lib/stageLabels'
 import { useAuth } from '@/context/AuthContext'
 
 /**
@@ -100,10 +101,10 @@ export default function Layout() {
     }
     if (location.pathname === '/jobs/new') return 'Create Job'
     if (location.pathname === '/jobs/archived') return 'Archived jobs'
-    if (location.pathname.match(/^\/jobs\/[^/]+\/screening/)) return 'Screening'
+    if (location.pathname.match(/^\/jobs\/[^/]+\/screening/)) return PHONE_SCREENING_LABEL
     if (location.pathname.match(/^\/jobs\/[^/]+\/finalists/)) return 'Finalists'
     if (location.pathname.match(/^\/jobs\/[^/]+\/interviews/)) return 'Interviews'
-    if (location.pathname.match(/^\/jobs\/[^/]+\/shortlist/)) return 'Resume Screening'
+    if (location.pathname.match(/^\/jobs\/[^/]+\/shortlist/)) return RESUME_SCREENING_LABEL
     if (location.pathname.match(/^\/jobs\/[^/]+$/)) return 'Job details'
     if (location.pathname.startsWith('/report/')) return 'Interview Report'
     if (location.pathname === '/settings') return 'Settings'

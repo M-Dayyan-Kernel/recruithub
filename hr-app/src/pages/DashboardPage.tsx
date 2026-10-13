@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { fetchJobCandidates } from '@/lib/workflow'
+import { PHONE_SCREENING_LABEL } from '@/lib/stageLabels'
 import type { Job, Candidate, ScreeningCall } from '@/types/api'
 
 // ---------------------------------------------------------------------------
@@ -316,7 +317,7 @@ export default function DashboardPage() {
           value={anyDataLoading ? '…' : totals.totalInterviewed}
           icon={<Video size={18} />}
           tone="amber"
-          subtitle="passed screening"
+          subtitle={`passed ${PHONE_SCREENING_LABEL.toLowerCase()}`}
           to="/candidates?stage=interview"
         />
       </div>

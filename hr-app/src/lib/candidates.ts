@@ -1,4 +1,5 @@
 import { api } from '@/lib/api'
+import type { CandidateStageFilter } from '@/lib/stageLabels'
 import type {
   CandidateListItem,
   CandidateProfile,
@@ -14,32 +15,12 @@ export interface CandidatesListParams {
   offset?: number
 }
 
-export type CandidateStageFilter =
-  | 'ai_shortlisted'
-  | 'screening'
-  | 'interview'
-  | 'finalists'
-
-export const CANDIDATE_STAGE_FILTERS: Array<{
-  value: CandidateStageFilter | ''
-  label: string
-}> = [
-  { value: '', label: 'All stages' },
-  { value: 'ai_shortlisted', label: 'Resume Screening' },
-  { value: 'screening', label: 'Screening' },
-  { value: 'interview', label: 'Interview' },
-  { value: 'finalists', label: 'Finalists' },
-]
-
-const HIRING_STAGE_DISPLAY: Record<string, string> = {
-  'AI Shortlisted': 'Resume Screening',
-}
-
-/** User-facing hiring stage label (API may still return "AI Shortlisted"). */
-export function formatHiringStage(stage: string | null | undefined): string {
-  if (!stage) return 'N/A'
-  return HIRING_STAGE_DISPLAY[stage] ?? stage
-}
+// Stage naming lives in stageLabels.ts; re-exported so existing imports hold.
+export {
+  CANDIDATE_STAGE_FILTERS,
+  formatHiringStage,
+  type CandidateStageFilter,
+} from '@/lib/stageLabels'
 
 export function displayOrNa(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === '') return 'N/A'
