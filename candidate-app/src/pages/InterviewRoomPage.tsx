@@ -18,6 +18,8 @@ import InterviewBusyScreen from '@/components/InterviewBusyScreen'
 import AiOrb from '@/components/AiOrb'
 import { EndedNotice, RecoveryPrompts, WarningNotice } from '@/components/ProctorOverlays'
 import { useActiveProctoring } from '@/hooks/useProctoring'
+import { createGuardedStart } from '@/lib/readiness'
+import { collectReadiness } from '@/lib/readinessGate'
 import { exitFullscreen, isFullscreen } from '@/proctoring/browser'
 import { getProctorSession } from '@/proctoring/session'
 
@@ -444,9 +446,30 @@ export default function InterviewRoomPage() {
         return
       }
       try {
-        const data = (await api.post(`/api/interview/${token}/start`)) as RoomCredentials
+        // Re-validated at the start action itself, not just at the final gate: a
+        // prohibited extension may have been enabled, or a share ended, since.
+        // The guard evaluates first and only then issues /start, at most once.
+        const start = createGuardedStart({
+          evaluate: () => collectReadiness(proctorSession),
+          start: () => api.post(`/api/interview/${token}/start`) as Promise<RoomCredentials>,
+        })
+        const outcome = await start()
+
+        if (!outcome.started) {
+          // Back to the final readiness gate - only it, with the failures shown
+          // there. Consent and every other valid gate are left as they are.
+          proctorSession.reset('environment')
+          proctorSession.requestFinalRecheck()
+          navigate(`/interview/${token}`, { replace: true })
+          return
+        }
+
+        // The room is created: release the pre-flight camera now, immediately
+        // before <LiveKitRoom> mounts and claims the device itself. It was kept
+        // until here so the check above had a real stream to validate.
+        proctorSession.releaseCamera()
         getProctorSession(token).setState('PROCTORING_ACTIVE')
-        setCredentials(data)
+        setCredentials(outcome.value)
       } catch (err: unknown) {
         if (isInterviewCapacityError(err)) {
           setCapacityBusy(true)

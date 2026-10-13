@@ -16,6 +16,7 @@
 export type ProctorState =
   | 'SESSION_NOT_STARTED'
   | 'SESSION_VALIDATED'
+  | 'EXTENSION_CHECK'
   | 'CONSENT_PENDING'
   | 'SYSTEM_CHECK'
   | 'PERMISSION_ACQUISITION'
@@ -39,6 +40,7 @@ export type ProctorState =
  * MANDATORY_PRECONDITIONS.
  */
 export const PREFLIGHT_SEQUENCE: ProctorState[] = [
+  'EXTENSION_CHECK',
   'CONSENT_PENDING',
   'PERMISSION_ACQUISITION',
   'SCREEN_SHARE_VALIDATION',
@@ -51,6 +53,7 @@ export const PREFLIGHT_SEQUENCE: ProctorState[] = [
 // ---------------------------------------------------------------------------
 
 export type PreconditionType =
+  | 'extension_check'
   | 'consent'
   | 'system_check'
   | 'permission_camera'
@@ -71,7 +74,24 @@ export type PreconditionType =
  * would ever reach the room.
  */
 export const MANDATORY_PRECONDITIONS: PreconditionType[] = [
+  'extension_check',
   'consent',
+  'permission_camera',
+  'permission_microphone',
+  'permission_screen',
+  'screen_share',
+  'fullscreen',
+  'environment',
+]
+
+/**
+ * Preconditions backed by a live stream, browser mode, or a fresh scan. A reload
+ * destroys the thing they vouch for, so they are re-validated, never restored.
+ * 'environment' is the final readiness gate: its pass carries the proof that
+ * everything above was live at that moment, so it cannot outlive a reload.
+ */
+export const VOLATILE_PRECONDITIONS: PreconditionType[] = [
+  'extension_check',
   'permission_camera',
   'permission_microphone',
   'permission_screen',

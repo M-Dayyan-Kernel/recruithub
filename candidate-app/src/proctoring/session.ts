@@ -16,6 +16,7 @@ import { ProctorEngine } from './engine'
 import { ProctorTransport } from './transport'
 import {
   MANDATORY_PRECONDITIONS,
+  VOLATILE_PRECONDITIONS,
   type PreconditionAttempt,
   type PreconditionRecord,
   type PreconditionType,
@@ -27,18 +28,6 @@ export const CONSENT_VERSION = '1.0'
 const ALL_PRECONDITIONS: PreconditionType[] = [
   ...MANDATORY_PRECONDITIONS,
   'permission_location',
-]
-
-/**
- * Preconditions backed by a live stream or browser mode. A reload destroys
- * these, so they are re-validated rather than restored from storage.
- */
-const VOLATILE_PRECONDITIONS: PreconditionType[] = [
-  'permission_camera',
-  'permission_microphone',
-  'permission_screen',
-  'screen_share',
-  'fullscreen',
 ]
 
 export interface SessionSnapshot {
@@ -82,6 +71,8 @@ export class ProctorSession {
   private consentAt: string | null = null
   private endedReason: string | null = null
   private listeners = new Set<Listener>()
+  /** Set by the room when its start-time check failed; consumed by the final gate. */
+  private finalRecheckRequested = false
 
   constructor(token: string) {
     this.token = token
@@ -200,6 +191,20 @@ export class ProctorSession {
   setBaselineImage(dataUrl: string): void {
     this.baselineImage = dataUrl
     this.notify()
+  }
+
+  /**
+   * The room asks the final gate to re-run its readiness check when the
+   * start-time check failed. In memory only: a reload re-runs every volatile gate.
+   */
+  requestFinalRecheck(): void {
+    this.finalRecheckRequested = true
+  }
+
+  consumeFinalRecheck(): boolean {
+    const requested = this.finalRecheckRequested
+    this.finalRecheckRequested = false
+    return requested
   }
 
   // ── Media ─────────────────────────────────────────────────────────────────

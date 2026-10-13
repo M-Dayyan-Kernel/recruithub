@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Camera,
   Check,
@@ -7,6 +7,7 @@ import {
   Maximize2,
   Mic,
   MonitorUp,
+  Puzzle,
   ShieldCheck,
   TriangleAlert,
 } from 'lucide-react'
@@ -19,6 +20,15 @@ import {
 } from '@/proctoring/browser'
 import { CONSENT_VERSION, type ProctorSession } from '@/proctoring/session'
 import { IconBadge, Note, Panel, PrimaryButton, TextButton } from '@/components/Shell'
+import type { GateResult, ProhibitedExtension, UnavailableReason } from '@/lib/extensionCheck'
+import { extensionInstallUrl, scanForGate } from '@/lib/extensionGate'
+import {
+  createReadinessRunner,
+  preconditionsToInvalidate,
+  type ReadinessFailure,
+  type ReadinessReport,
+} from '@/lib/readiness'
+import { collectReadiness } from '@/lib/readinessGate'
 
 /**
  * Pre-flight gate screens (§8.1): consent, camera and microphone, screen
@@ -41,6 +51,231 @@ function PointRow({ icon, children }: { icon: React.ReactNode; children: React.R
       <IconBadge size="sm">{icon}</IconBadge>
       <p className="pt-1 text-[0.86rem] leading-relaxed text-ink">{children}</p>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Shared media acquisition (first-time steps and final-gate recovery)
+// ---------------------------------------------------------------------------
+
+type AcquireResult = { ok: true } | { ok: false; message: string }
+
+/**
+ * One getUserMedia call for camera and microphone. `setCameraStream` stops any
+ * stream it replaces, so a recovery never leaves a second one running.
+ */
+async function acquireCameraAndMic(session: ProctorSession): Promise<AcquireResult> {
+  try {
+    const stream = await requestCameraAndMic()
+    session.setCameraStream(stream)
+    session.pass('permission_camera')
+    session.pass('permission_microphone')
+    return { ok: true }
+  } catch (err) {
+    const reason = err instanceof Error ? err.name : 'permission_denied'
+    session.fail('permission_camera', reason)
+    session.fail('permission_microphone', reason)
+    return {
+      ok: false,
+      message:
+        'Access was blocked. Allow the camera and microphone from your browser address bar, then try again.',
+    }
+  }
+}
+
+/** Screen share, validated for "entire screen". Replaces (and stops) a dead stream. */
+async function acquireScreenShare(session: ProctorSession): Promise<AcquireResult> {
+  try {
+    const stream = await requestScreenShare()
+    session.pass('permission_screen')
+
+    const surface = screenSurfaceKind(stream)
+    // The browser cannot force a whole screen pick, so validate what came back.
+    if (surface && surface !== 'monitor') {
+      stream.getTracks().forEach((t) => t.stop())
+      session.fail('screen_share', `wrong surface: ${surface}`)
+      return {
+        ok: false,
+        message:
+          'Please share your entire screen, not a single tab or window. Choose "Entire Screen" and try again.',
+      }
+    }
+
+    session.setScreenStream(stream)
+    session.pass('screen_share')
+    return { ok: true }
+  } catch (err) {
+    const reason = err instanceof Error ? err.name : 'screen_share_denied'
+    session.fail('permission_screen', reason)
+    session.fail('screen_share', reason)
+    return { ok: false, message: 'Screen sharing was not started. It is required for this interview.' }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 0. Extension check
+// ---------------------------------------------------------------------------
+
+const UNAVAILABLE_COPY: Record<UnavailableReason, { title: string; body: string }> = {
+  unsupported_browser: {
+    title: 'Please use Google Chrome',
+    body: 'This interview can only be started in Google Chrome on a computer, with the Recruit Hub Interview Check extension installed.',
+  },
+  not_configured: {
+    title: 'The extension check is not set up',
+    body: 'We could not verify your browser. Please contact the hiring team and tell them this check is not configured.',
+  },
+  extension_unreachable: {
+    title: 'Install the Recruit Hub Interview Check extension',
+    body: 'We could not reach the extension. Install it, make sure it is enabled for this browser profile, then check again.',
+  },
+  timeout: {
+    title: 'The extension did not respond',
+    body: 'Make sure the Recruit Hub Interview Check extension is enabled, then check again.',
+  },
+  scan_failed: {
+    title: 'The extension check could not finish',
+    body: 'Your extensions could not be checked, so we cannot start yet. Check again, or restart Chrome if it keeps happening.',
+  },
+  invalid_response: {
+    title: 'The extension check returned an unexpected result',
+    body: 'Update or reinstall the Recruit Hub Interview Check extension, then check again.',
+  },
+  stale_result: {
+    title: 'The extension check was out of date',
+    body: 'Please check again.',
+  },
+}
+
+/** The prohibited extensions found, and the manual steps to turn them off. */
+function BlockedExtensionList({ extensions }: { extensions: ProhibitedExtension[] }) {
+  return (
+    <>
+      <ul className="flex flex-col gap-2">
+        {extensions.map((ext) => (
+          <li key={ext.id} className="rounded-[9px] border border-line bg-panel px-4 py-3">
+            <p className="text-[0.9rem] font-semibold text-ink">{ext.name}</p>
+            {ext.reason && <p className="mt-0.5 text-[0.8rem] text-ink-muted">{ext.reason}</p>}
+          </li>
+        ))}
+      </ul>
+      <ol className="mt-5 list-decimal pl-5 text-left text-[0.86rem] leading-relaxed text-ink">
+        <li>
+          Open a new tab and go to <strong className="font-semibold">chrome://extensions</strong>.
+        </li>
+        <li>Turn off each extension listed above.</li>
+        <li>Come back to this page and choose Rescan.</li>
+      </ol>
+    </>
+  )
+}
+
+function failureReason(result: GateResult): string {
+  if (result.status === 'blocked') {
+    return `prohibited_extension_enabled: ${result.extensions.map((e) => e.id).join(',')}`
+  }
+  if (result.status === 'unavailable') return `extension_check_${result.reason}`
+  return 'extension_check'
+}
+
+/**
+ * Asks the Recruit Hub Interview Check extension for a fresh scan and only
+ * lets the candidate on when it reports a completed scan with nothing
+ * prohibited enabled. Anything else - missing extension, failed scan - holds
+ * the candidate here (fail closed). The same scan runs again at the moment the
+ * interview starts; passing this screen is not the last word.
+ */
+export function ExtensionCheckStep({ session, onDone }: StepProps) {
+  const [result, setResult] = useState<GateResult | null>(null)
+  const run = useRef(0)
+
+  const check = useCallback(async () => {
+    const id = ++run.current
+    setResult(null)
+    const next = await scanForGate()
+    if (id !== run.current) return // superseded by a rescan or unmount
+    setResult(next)
+    if (next.status === 'clear') {
+      session.pass('extension_check')
+      onDone()
+    } else {
+      session.fail('extension_check', failureReason(next))
+    }
+  }, [session, onDone])
+
+  useEffect(() => {
+    void check()
+    return () => {
+      run.current += 1
+    }
+  }, [check])
+
+  if (!result || result.status === 'clear') {
+    return (
+      <Panel
+        badge={
+          <IconBadge>
+            <Loader2 size={24} className="animate-spin" />
+          </IconBadge>
+        }
+        title="Checking your browser"
+        description="Making sure no AI-assistance extension is enabled. This only takes a moment."
+      />
+    )
+  }
+
+  if (result.status === 'blocked') {
+    return (
+      <Panel
+        badge={
+          <IconBadge>
+            <TriangleAlert size={24} />
+          </IconBadge>
+        }
+        title="Turn off these extensions to continue"
+        description="The extensions below are not allowed during this interview. Nothing has been changed on your browser."
+        align="start"
+        action={<PrimaryButton onClick={() => void check()}>Rescan</PrimaryButton>}
+      >
+        <BlockedExtensionList extensions={result.extensions} />
+      </Panel>
+    )
+  }
+
+  const copy = UNAVAILABLE_COPY[result.reason]
+  const showInstall =
+    extensionInstallUrl &&
+    (result.reason === 'extension_unreachable' || result.reason === 'timeout')
+
+  return (
+    <Panel
+      badge={
+        <IconBadge>
+          <Puzzle size={24} />
+        </IconBadge>
+      }
+      title={copy.title}
+      description={copy.body}
+      action={
+        <>
+          <PrimaryButton onClick={() => void check()}>Check again</PrimaryButton>
+          {showInstall && (
+            <a
+              href={extensionInstallUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[0.9rem] font-semibold text-accent underline underline-offset-[3px]"
+            >
+              Get the extension
+            </a>
+          )}
+        </>
+      }
+    >
+      <Note>
+        You cannot start the interview until this check passes. Your link is still valid.
+      </Note>
+    </Panel>
   )
 }
 
@@ -129,22 +364,10 @@ export function PermissionsStep({ session, onDone }: StepProps) {
   const requestMedia = async () => {
     setBusy(true)
     setError(null)
-    try {
-      const stream = await requestCameraAndMic()
-      session.setCameraStream(stream)
-      session.pass('permission_camera')
-      session.pass('permission_microphone')
-      setGranted(true)
-    } catch (err) {
-      const reason = err instanceof Error ? err.name : 'permission_denied'
-      session.fail('permission_camera', reason)
-      session.fail('permission_microphone', reason)
-      setError(
-        'Access was blocked. Allow the camera and microphone from your browser address bar, then try again.',
-      )
-    } finally {
-      setBusy(false)
-    }
+    const result = await acquireCameraAndMic(session)
+    if (result.ok) setGranted(true)
+    else setError(result.message)
+    setBusy(false)
   }
 
   return (
@@ -223,32 +446,10 @@ export function ScreenShareStep({ session, onDone }: StepProps) {
   const share = async () => {
     setBusy(true)
     setError(null)
-    try {
-      const stream = await requestScreenShare()
-      session.pass('permission_screen')
-
-      const surface = screenSurfaceKind(stream)
-      // The browser cannot force a whole screen pick, so validate what came back.
-      if (surface && surface !== 'monitor') {
-        stream.getTracks().forEach((t) => t.stop())
-        session.fail('screen_share', `wrong surface: ${surface}`)
-        setError(
-          'Please share your entire screen, not a single tab or window. Choose "Entire Screen" and try again.',
-        )
-        return
-      }
-
-      session.setScreenStream(stream)
-      session.pass('screen_share')
-      setLive(true)
-    } catch (err) {
-      const reason = err instanceof Error ? err.name : 'screen_share_denied'
-      session.fail('permission_screen', reason)
-      session.fail('screen_share', reason)
-      setError('Screen sharing was not started. It is required for this interview.')
-    } finally {
-      setBusy(false)
-    }
+    const result = await acquireScreenShare(session)
+    if (result.ok) setLive(true)
+    else setError(result.message)
+    setBusy(false)
   }
 
   return (
@@ -346,19 +547,224 @@ const ENVIRONMENT_INSTRUCTIONS = [
   'Close any other tabs, windows, or applications before continuing.',
 ]
 
+/**
+ * The final readiness gate. "I'm ready to continue" runs a fresh check of
+ * everything the room needs - extension scan, camera, microphone, screen share,
+ * fullscreen - against the streams as they are right now, not against what was
+ * recorded earlier. Only a clean result passes `environment` and moves on.
+ *
+ * A failure stays here: only the failed checks are shown, each with its own
+ * recovery action, and consent and the other valid gates are untouched. After
+ * every recovery the whole check re-runs, because fixing one thing (visiting
+ * chrome://extensions) can break another (fullscreen, screen sharing).
+ */
 export function EnvironmentStep({ session, onDone }: StepProps) {
+  const [report, setReport] = useState<ReadinessReport | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const runner = useMemo(() => createReadinessRunner(() => collectReadiness(session)), [session])
+  // StrictMode mounts effects twice; a ref (not cleanup-invalidation) keeps the
+  // first in-flight result usable while still ignoring results after unmount.
+  const alive = useRef(false)
+  const autoRan = useRef(false)
+
+  const evaluate = useCallback(
+    async (supersede: boolean) => {
+      setBusy(true)
+      const { result, current } = await runner.run({ supersede })
+      // A newer run owns the screen (and still owns `busy`); a gone component owns nothing.
+      if (!current || !alive.current) return
+      setBusy(false)
+
+      if (result.ok) {
+        // Re-record only what had been invalidated, then close the gate.
+        for (const type of [
+          'extension_check',
+          'permission_camera',
+          'permission_microphone',
+          'screen_share',
+          'fullscreen',
+        ] as const) {
+          if (!session.isPassed(type)) session.pass(type)
+        }
+        setReport(null)
+        session.pass('environment')
+        onDone()
+        return
+      }
+
+      // Invalidate exactly what failed - never consent, never what still holds.
+      const reasons = new Map<string, string>()
+      for (const failure of result.failures) reasons.set(failureKey(failure), describeFailure(failure))
+      for (const type of preconditionsToInvalidate(result.failures)) {
+        if (session.isPassed(type)) session.fail(type, reasons.get(type) ?? 'readiness_check_failed')
+      }
+      setReport(result)
+    },
+    [runner, session, onDone],
+  )
+
+  useEffect(() => {
+    alive.current = true
+    // The room's start-time check bounced the candidate here: show what changed
+    // immediately. A clean result still waits for a click, so this cannot loop.
+    if (!autoRan.current && session.consumeFinalRecheck()) {
+      autoRan.current = true
+      void evaluate(true)
+    }
+    return () => {
+      alive.current = false
+    }
+  }, [evaluate, session])
+
+  // While failures are showing, the world can change under the candidate
+  // (leaving fullscreen, ending a share). Re-check rather than show stale advice.
+  const hasFailures = Boolean(report && !report.ok)
+  useEffect(() => {
+    if (!hasFailures) return
+    const recheck = () => void evaluate(true)
+    const tracks = [
+      ...(session.screenStream?.getTracks() ?? []),
+      ...(session.cameraStream?.getTracks() ?? []),
+    ]
+    document.addEventListener('fullscreenchange', recheck)
+    tracks.forEach((t) => t.addEventListener('ended', recheck))
+    return () => {
+      document.removeEventListener('fullscreenchange', recheck)
+      tracks.forEach((t) => t.removeEventListener('ended', recheck))
+    }
+  }, [hasFailures, evaluate, session])
+
+  const recover = async (action: () => Promise<AcquireResult | boolean | void>) => {
+    if (busy) return
+    setBusy(true)
+    setActionError(null)
+    const outcome = await action()
+    if (outcome && typeof outcome === 'object' && !outcome.ok) setActionError(outcome.message)
+    // Whatever the action did, re-run the whole check against the new reality.
+    await evaluate(true)
+  }
+
+  const failures = report?.failures ?? []
+  const byCheck = (check: ReadinessFailure['check']) => failures.find((f) => f.check === check)
+  const extension = byCheck('extension')
+  const camera = byCheck('camera')
+  const microphone = byCheck('microphone')
+  const screen = byCheck('screen_share')
+  const fullscreen = byCheck('fullscreen')
+
+  if (report && !report.ok) {
+    return (
+      <Panel
+        badge={
+          <IconBadge>
+            <TriangleAlert size={24} />
+          </IconBadge>
+        }
+        title="A few things need your attention"
+        description="Fix the items below, then we'll check again. Everything else you completed is kept."
+        align="start"
+      >
+        <div className="flex flex-col gap-3">
+          {extension && extension.check === 'extension' && (
+            <FailureCard title="Browser extensions">
+              {extension.gate.status === 'blocked' ? (
+                <BlockedExtensionList extensions={extension.gate.extensions} />
+              ) : (
+                <p className="text-[0.86rem] leading-relaxed text-ink">
+                  <strong className="font-semibold">
+                    {UNAVAILABLE_COPY[extension.gate.reason].title}.
+                  </strong>{' '}
+                  {UNAVAILABLE_COPY[extension.gate.reason].body}
+                  {extensionInstallUrl &&
+                    (extension.gate.reason === 'extension_unreachable' ||
+                      extension.gate.reason === 'timeout') && (
+                      <>
+                        {' '}
+                        <a
+                          href={extensionInstallUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-semibold text-accent underline underline-offset-[3px]"
+                        >
+                          Get the extension
+                        </a>
+                      </>
+                    )}
+                </p>
+              )}
+              <div className="mt-3">
+                <PrimaryButton onClick={() => void recover(async () => undefined)} busy={busy}>
+                  Rescan
+                </PrimaryButton>
+              </div>
+            </FailureCard>
+          )}
+
+          {(camera || microphone) && (
+            <FailureCard title="Camera and microphone">
+              <p className="text-[0.86rem] leading-relaxed text-ink">
+                {camera && microphone
+                  ? 'Your camera and microphone are not available or have stopped.'
+                  : camera
+                    ? 'Your camera is not available or has stopped.'
+                    : 'Your microphone is not available or has stopped.'}
+              </p>
+              <div className="mt-3">
+                <PrimaryButton
+                  onClick={() => void recover(() => acquireCameraAndMic(session))}
+                  busy={busy}
+                >
+                  Allow camera &amp; microphone access
+                </PrimaryButton>
+              </div>
+            </FailureCard>
+          )}
+
+          {screen && (
+            <FailureCard title="Screen sharing">
+              <p className="text-[0.86rem] leading-relaxed text-ink">
+                Your screen is not being shared. Share your entire screen to continue.
+              </p>
+              <div className="mt-3">
+                <PrimaryButton onClick={() => void recover(() => acquireScreenShare(session))} busy={busy}>
+                  Share my screen
+                </PrimaryButton>
+              </div>
+            </FailureCard>
+          )}
+
+          {fullscreen && (
+            <FailureCard title="Fullscreen">
+              <p className="text-[0.86rem] leading-relaxed text-ink">
+                This interview must run in fullscreen. Switch back to fullscreen to continue.
+              </p>
+              <div className="mt-3">
+                <PrimaryButton
+                  onClick={() => void recover(async () => (await requestFullscreen()) as boolean)}
+                  busy={busy}
+                >
+                  Enter fullscreen
+                </PrimaryButton>
+              </div>
+            </FailureCard>
+          )}
+
+          {actionError && <Note>{actionError}</Note>}
+        </div>
+      </Panel>
+    )
+  }
+
   return (
     <Panel
       title="The interview is about to begin"
       description="Please review the following before you continue."
       align="start"
       action={
-        <PrimaryButton
-          onClick={() => {
-            session.pass('environment')
-            onDone()
-          }}
-        >
+        <PrimaryButton onClick={() => void evaluate(false)} busy={busy}>
+          {busy ? <Loader2 size={16} className="animate-spin" /> : null}
           I&rsquo;m ready to continue
         </PrimaryButton>
       }
@@ -373,4 +779,27 @@ export function EnvironmentStep({ session, onDone }: StepProps) {
       </ul>
     </Panel>
   )
+}
+
+function FailureCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-[10px] border border-line bg-panel p-4">
+      <p className="mb-2 text-[0.9rem] font-semibold text-ink">{title}</p>
+      {children}
+    </div>
+  )
+}
+
+/** The precondition a failure invalidates, as the key used to look up its reason. */
+function failureKey(failure: ReadinessFailure): string {
+  return preconditionsToInvalidate([failure])[0]
+}
+
+function describeFailure(failure: ReadinessFailure): string {
+  if (failure.check === 'extension') {
+    return failure.gate.status === 'blocked'
+      ? `prohibited_extension_enabled: ${failure.gate.extensions.map((e) => e.id).join(',')}`
+      : `extension_check_${failure.gate.reason}`
+  }
+  return `${failure.check}_${failure.reason}`
 }

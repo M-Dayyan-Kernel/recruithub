@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { isFullscreen } from '@/proctoring/browser'
 import { Screen } from '@/components/Shell'
-import type { PreconditionType, ProctorState } from '@/proctoring/types'
+import { needsGreeting, nextIncompleteIndex } from '@/lib/readiness'
+import {
+  VOLATILE_PRECONDITIONS,
+  type PreconditionType,
+  type ProctorState,
+} from '@/proctoring/types'
 import { useProctorSession } from '@/hooks/useProctoring'
 import Welcome from './Welcome'
 import {
   ConsentStep,
+  ExtensionCheckStep,
   EnvironmentStep,
   FullscreenStep,
   PermissionsStep,
@@ -15,7 +21,8 @@ import {
 
 /**
  * A greeting (§7.1 SESSION_NOT_STARTED) followed by the pre-flight gates (§8):
- * consent → camera and microphone → screen share → fullscreen → environment.
+ * extension check → consent → camera and microphone → screen share →
+ * fullscreen → environment.
  * The candidate cannot reach the interview room until every gate has a
  * recorded pass (§7.2). The greeting gates nothing, so it records nothing.
  *
@@ -31,6 +38,11 @@ interface StepDefinition {
 }
 
 const STEPS: StepDefinition[] = [
+  {
+    state: 'EXTENSION_CHECK',
+    precondition: 'extension_check',
+    Component: ExtensionCheckStep,
+  },
   {
     state: 'CONSENT_PENDING',
     precondition: 'consent',
@@ -77,15 +89,29 @@ export default function Preflight({
   const derivedIndex = STEPS.findIndex((s) => !session.isPassed(s.precondition))
   const [index, setIndex] = useState(() => (derivedIndex === -1 ? STEPS.length : derivedIndex))
 
+  // The final step is the readiness gate: it re-checks and recovers every
+  // earlier gate itself, in place. Pulling the candidate back from it would
+  // replay steps that the gate is about to repair with one action.
+  const onFinalStep = index === STEPS.length - 1
   useEffect(() => {
-    if (derivedIndex !== -1 && derivedIndex < index) setIndex(derivedIndex)
-  }, [derivedIndex, index])
+    if (!onFinalStep && derivedIndex !== -1 && derivedIndex < index) setIndex(derivedIndex)
+  }, [derivedIndex, index, onFinalStep])
 
-  const advance = useCallback(() => setIndex((i) => i + 1), [])
+  // Next means the first gate that is not passed - never simply index + 1, which
+  // would replay gates that already hold. Records are updated synchronously by
+  // pass()/fail()/reset(), so reading them here right after onDone is safe.
+  const advance = useCallback(
+    () => setIndex(nextIncompleteIndex(STEPS, (type) => session.isPassed(type))),
+    [session],
+  )
 
-  // The greeting is shown once, ahead of the first gate. A candidate resuming
-  // part-way through (a reload after consent) lands straight back on their gate.
-  const [greeted, setGreeted] = useState(() => derivedIndex !== 0)
+  // The greeting is shown once, ahead of the first gate. Anything that survives
+  // a reload (consent) means the candidate has already started, so a resume or
+  // a recovery lands straight back on the gate that needs them.
+  const hasDurableProgress = STEPS.some(
+    (s) => !VOLATILE_PRECONDITIONS.includes(s.precondition) && session.isPassed(s.precondition),
+  )
+  const [greeted, setGreeted] = useState(() => !needsGreeting(derivedIndex, hasDurableProgress))
 
   const currentIndex = Math.min(index, STEPS.length)
   const step = currentIndex >= STEPS.length ? null : STEPS[currentIndex]
@@ -117,8 +143,9 @@ export default function Preflight({
     // Every gate has a recorded pass - §7.2 is satisfied.
     if (session.canEnterActive()) {
       session.setState('BASELINE_ESTABLISHED')
-      // Hand the camera back to the OS so LiveKit can claim the device.
-      session.releaseCamera()
+      // The camera stream is deliberately kept: the room's start-time check
+      // validates it, and it is released right after /start succeeds, just
+      // before LiveKit claims the device (InterviewRoomPage).
       onReady()
     }
   }, [showWelcome, step, session, onReady, snapshot])
