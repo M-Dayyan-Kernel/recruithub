@@ -19,16 +19,17 @@ import { ScreeningStatusTabs } from '@/components/screening/ScreeningStatusTabs'
 import { ShortlistStatusTabs } from '@/components/shortlist/ShortlistStatusTabs'
 import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
 import { downloadFinalistsExcel } from '@/lib/finalistsExport'
+import { PHONE_SCREENING_LABEL, RESUME_SCREENING_LABEL } from '@/lib/stageLabels'
 
 const PHASES = [
   {
-    label: 'Resume Screening',
+    label: RESUME_SCREENING_LABEL,
     segment: 'shortlist',
     icon: ListChecks,
     description: 'Evaluate resumes against the job description',
   },
   {
-    label: 'Screening',
+    label: PHONE_SCREENING_LABEL,
     segment: 'screening',
     icon: Phone,
     description: 'Phone screening calls',

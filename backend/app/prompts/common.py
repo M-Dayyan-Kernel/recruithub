@@ -24,3 +24,19 @@ DIFFICULTY CALIBRATION (match role and JD experience):
 - Mid-level (3–5 years): applied experience, component design, debugging real scenarios, tool/framework choices, moderate depth
 - Senior (5+ years or lead/architect/principal titles): system design, scalability, reliability, ownership, cross-service trade-offs, deep expertise in core stack
 """
+
+
+def format_experience_requirement(
+    experience_min: int | None, experience_max: int | None
+) -> str:
+    """Human/LLM-readable experience requirement.
+
+    A maximum of None or 0 means "no upper bound", so it reads "5+ years"
+    rather than "5–0 years".
+    """
+    low = experience_min or 0
+    if experience_max and experience_max > 0:
+        if experience_max == low:
+            return f"{low} years"
+        return f"{low}–{experience_max} years"
+    return f"{low}+ years"

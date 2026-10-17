@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timezone
 from typing import Annotated, Callable
 
 from fastapi import Depends, HTTPException, status
@@ -29,7 +27,8 @@ from app.models.models import User
 from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.authentication_context_service import AuthenticationContextService
-from app.services.platform_connections_service import PlatformConnectionsService
+from app.services.integrity_service import IntegrityService
+from app.services.observed_extension_service import ObservedExtensionService
 from app.services.platform_tenant_service import PlatformTenantService
 from app.services.system_settings_service import SystemSettingsService
 from app.services.candidate_service import CandidateService
@@ -61,45 +60,12 @@ async def get_current_user(
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    token = credentials.credentials
-
-    # API key auth — tokens starting with rhub_ bypass JWT resolution
-    if token.startswith("rhub_"):
-        from app.modules.api_keys.api_key_service import ApiKeyService
-
-        api_key = await ApiKeyService.validate_api_key(token, db)
-        if api_key is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or revoked API key",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        now = datetime.now(timezone.utc)
-        # Tenant-scoped keys authenticate as org admins (their data is scoped to
-        # the key's tenant via actor.tenant_id); legacy global keys stay superadmin.
-        # id=None keeps nullable FKs (api_keys.created_by_user_id, audit_logs.actor_user_id)
-        # valid — a fabricated UUID would violate them.
-        is_tenant_scoped = api_key.tenant_id is not None
-        return User(
-            id=None,
-            tenant_id=api_key.tenant_id,
-            email=api_key.name,
-            full_name=api_key.name,
-            hashed_password="",
-            role="admin" if is_tenant_scoped else "superadmin",
-            is_active=True,
-            created_at=now,
-            updated_at=now,
-        )
-
-    try:
-        return await AuthenticationContextService(db).resolve_user_from_token(token)
-    except DomainError as exc:
-        # Re-raised as-is so the app-level DomainError handler (main.py:147)
-        # renders the body, keeping `error_code` (which HTTPException has no
-        # room for) on the wire. An organization deactivated mid-session must
-        # surface its code so the UI can sign out.
-        raise exc from None
+    # DomainError propagates to the app-level handler, which renders the same
+    # `{"detail": ...}` body plus the `error_code` clients branch on (an
+    # organization deactivated mid-session, say). HTTPException would drop it.
+    return await AuthenticationContextService(db).resolve_user_from_token(
+        credentials.credentials
+    )
 
 
 def require_roles(*allowed_roles: str) -> Callable:
@@ -126,14 +92,18 @@ def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
     return AuthService(db)
 
 
+def get_integrity_service(db: AsyncSession = Depends(get_db)) -> IntegrityService:
+    return IntegrityService(db)
+
+
+def get_observed_extension_service(
+    db: AsyncSession = Depends(get_db),
+) -> ObservedExtensionService:
+    return ObservedExtensionService(db)
+
+
 def get_platform_tenant_service(db: AsyncSession = Depends(get_db)) -> PlatformTenantService:
     return PlatformTenantService(db)
-
-
-def get_platform_connections_service(
-    db: AsyncSession = Depends(get_db),
-) -> PlatformConnectionsService:
-    return PlatformConnectionsService(db)
 
 
 def get_user_management_service(db: AsyncSession = Depends(get_db)) -> UserManagementService:

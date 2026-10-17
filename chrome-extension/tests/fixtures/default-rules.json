@@ -1,0 +1,178 @@
+{
+  "intent": {
+    "keywords": [
+      {
+        "term": "interview copilot",
+        "weight": 4
+      },
+      {
+        "term": "interview assistant",
+        "weight": 4
+      },
+      {
+        "term": "interview helper",
+        "weight": 4
+      },
+      {
+        "term": "interview buddy",
+        "weight": 4
+      },
+      {
+        "term": "interview coach",
+        "weight": 3
+      },
+      {
+        "term": "interview ai",
+        "weight": 3
+      },
+      {
+        "term": "chatgpt",
+        "weight": 3
+      },
+      {
+        "term": "gpt-4",
+        "weight": 3
+      },
+      {
+        "term": "gpt-5",
+        "weight": 3
+      },
+      {
+        "term": "openai",
+        "weight": 3
+      },
+      {
+        "term": "claude",
+        "weight": 3
+      },
+      {
+        "term": "anthropic",
+        "weight": 3
+      },
+      {
+        "term": "gemini",
+        "weight": 3
+      },
+      {
+        "term": "deepseek",
+        "weight": 3
+      },
+      {
+        "term": "perplexity",
+        "weight": 3
+      },
+      {
+        "term": "grok",
+        "weight": 3
+      },
+      {
+        "term": "llm",
+        "weight": 3
+      },
+      {
+        "term": "copilot",
+        "weight": 2
+      },
+      {
+        "term": "ai assistant",
+        "weight": 2
+      },
+      {
+        "term": "ai assist",
+        "weight": 2
+      },
+      {
+        "term": "ai-powered",
+        "weight": 2
+      },
+      {
+        "term": "ai powered",
+        "weight": 2
+      },
+      {
+        "term": "ai copilot",
+        "weight": 2
+      },
+      {
+        "term": "ai chatbot",
+        "weight": 2
+      },
+      {
+        "term": "ai answer",
+        "weight": 2
+      },
+      {
+        "term": "answer generator",
+        "weight": 2
+      },
+      {
+        "term": "gpt",
+        "weight": 2
+      },
+      {
+        "term": "interviewer",
+        "weight": 2
+      },
+      {
+        "term": "interview answer",
+        "weight": 3
+      },
+      {
+        "term": "coding interview",
+        "weight": 3
+      },
+      {
+        "term": "suggested answer",
+        "weight": 3
+      },
+      {
+        "term": "ai tutor",
+        "weight": 2
+      },
+      {
+        "term": "ai",
+        "weight": 2
+      },
+      {
+        "term": "answer",
+        "weight": 1
+      },
+      {
+        "term": "interview",
+        "weight": 1
+      }
+    ],
+    "vendor_hosts": [
+      "openai.com",
+      "chatgpt.com",
+      "anthropic.com",
+      "claude.ai",
+      "perplexity.ai",
+      "gemini.google.com",
+      "copilot.microsoft.com",
+      "deepseek.com",
+      "mistral.ai",
+      "poe.com",
+      "character.ai",
+      "x.ai"
+    ],
+    "vendor_host_weight": 4,
+    "homepage_weight": 2
+  },
+  "capability": {
+    "permissions": {
+      "tabCapture": 3,
+      "desktopCapture": 3,
+      "sidePanel": 2,
+      "offscreen": 1,
+      "scripting": 1,
+      "activeTab": 1
+    },
+    "broad_host_weight": 3
+  },
+  "thresholds": {
+    "intent_strong": 4,
+    "capability_strong": 3,
+    "intent_weak": 2
+  }
+}

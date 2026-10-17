@@ -5,6 +5,8 @@ from typing import Literal, Optional, List
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator, model_validator
 
+from app.schemas.integrity import IntegritySummary
+
 
 _PASSWORD_MIN_LEN = 12
 _PASSWORD_PATTERN = re.compile(
@@ -82,7 +84,12 @@ EXPERIENCE_MAX_YEARS = 60
 def validate_experience_range(
     minimum: Optional[int], maximum: Optional[int]
 ) -> None:
-    """Reject negative years and an upper bound below the lower one."""
+    """Reject negative years and an upper bound below the lower one.
+
+    A maximum of ``None`` or ``0`` means "no upper bound" ("5+ years"): the
+    column is NOT NULL and 0 is how that is stored, so it is never compared
+    against the minimum.
+    """
     for value, label in ((minimum, "experience_min"), (maximum, "experience_max")):
         if value is None:
             continue
@@ -90,7 +97,7 @@ def validate_experience_range(
             raise ValueError(f"{label} cannot be negative")
         if value > EXPERIENCE_MAX_YEARS:
             raise ValueError(f"{label} cannot exceed {EXPERIENCE_MAX_YEARS} years")
-    if minimum is not None and maximum is not None and maximum < minimum:
+    if minimum is not None and maximum and maximum < minimum:
         raise ValueError("experience_max cannot be less than experience_min")
 
 
@@ -193,6 +200,13 @@ class JobCreate(BaseModel):
     voice_screening_enabled: bool = True
     status: str = "active"
 
+    @field_validator("experience_min", "experience_max", mode="before")
+    @classmethod
+    def blank_experience_is_zero(cls, value):
+        # An omitted bound already defaults to 0; an explicit null (a parsed JD
+        # that states only "5+ years") must mean the same, not fail as "not an int".
+        return 0 if value is None else value
+
     @model_validator(mode="before")
     @classmethod
     def normalize_questions(cls, data):
@@ -257,7 +271,6 @@ class JobResponse(BaseModel):
     screening_call_from: Optional[time] = None
     screening_call_to: Optional[time] = None
     screening_timezone: str = "Asia/Kolkata"
-    external_job_id: Optional[str] = None
     voice_screening_enabled: bool = True
     status: str
     created_at: datetime
@@ -379,17 +392,109 @@ class CandidateCreate(BaseModel):
     phone: Optional[str] = None
 
 
+#: Statuses HR can set by hand. (Pipeline stages are derived, not stored here.)
+CANDIDATE_STATUSES = ("active", "on_hold", "rejected", "hired")
+#: Suffix of the stand-in address created when a resume has no email. It means
+#: "email missing", so it is never a valid value for HR to save.
+PLACEHOLDER_EMAIL_SUFFIX = "@upload.pending"
+
+# Column limits in models.Candidate; checked here so an over-long value is a
+# 422 with a message instead of a database error.
+_CANDIDATE_NAME_MAX = 255
+_CANDIDATE_EMAIL_MAX = 254
+_CANDIDATE_PHONE_MAX = 50
+_CANDIDATE_FREE_TEXT_MAX = 100
+_PHONE_ALLOWED = re.compile(r"^\+?[\d\s().\-]+$")
+_PHONE_MIN_DIGITS, _PHONE_MAX_DIGITS = 7, 15  # E.164 allows at most 15
+
+
 class CandidateUpdate(BaseModel):
-    """Partial update for a candidate's mutable fields."""
+    """Partial update for a candidate's mutable fields.
+
+    A field left out (or null) is "unchanged". A field that is sent must be
+    valid: name and email are the candidate's identity and contact point (both
+    NOT NULL), so they can never be blanked or set to something malformed.
+    """
     phone: Optional[str] = None
     name: Optional[str] = None
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     status: Optional[str] = None
     years_experience: Optional[float] = None
     current_ctc: Optional[str] = None
     expected_ctc: Optional[str] = None
     notice_period: Optional[str] = None
     last_working_day: Optional[date] = None
+
+    @field_validator("name")
+    @classmethod
+    def _name_required_when_sent(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        name = re.sub(r"\s+", " ", v).strip()
+        if not name:
+            raise ValueError("Name cannot be blank")
+        if len(name) > _CANDIDATE_NAME_MAX:
+            raise ValueError(f"Name must be at most {_CANDIDATE_NAME_MAX} characters")
+        return name
+
+    @field_validator("email")
+    @classmethod
+    def _email_must_be_real(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        email = str(v).strip().lower()
+        if len(email) > _CANDIDATE_EMAIL_MAX:
+            raise ValueError("Email is too long")
+        if email.endswith(PLACEHOLDER_EMAIL_SUFFIX):
+            raise ValueError("Enter the candidate's real email address")
+        return email
+
+    @field_validator("phone")
+    @classmethod
+    def _phone_format(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        phone = v.strip()
+        if not phone:
+            return None  # blank means "not provided", never an empty stored value
+        digits = re.sub(r"\D", "", phone)
+        if (
+            len(phone) > _CANDIDATE_PHONE_MAX
+            or not _PHONE_ALLOWED.match(phone)
+            or not _PHONE_MIN_DIGITS <= len(digits) <= _PHONE_MAX_DIGITS
+        ):
+            raise ValueError(
+                f"Enter a valid phone number ({_PHONE_MIN_DIGITS}-{_PHONE_MAX_DIGITS} digits)"
+            )
+        return phone
+
+    @field_validator("status")
+    @classmethod
+    def _status_known(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if v not in CANDIDATE_STATUSES:
+            raise ValueError(f"Status must be one of: {', '.join(CANDIDATE_STATUSES)}")
+        return v
+
+    @field_validator("years_experience")
+    @classmethod
+    def _years_in_range(cls, v: Optional[float]) -> Optional[float]:
+        if v is None:
+            return v
+        if not 0 <= v <= EXPERIENCE_MAX_YEARS:
+            raise ValueError(f"Years of experience must be between 0 and {EXPERIENCE_MAX_YEARS}")
+        return v
+
+    @field_validator("current_ctc", "expected_ctc", "notice_period")
+    @classmethod
+    def _free_text_length(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        text = v.strip()
+        if len(text) > _CANDIDATE_FREE_TEXT_MAX:
+            raise ValueError(f"Must be at most {_CANDIDATE_FREE_TEXT_MAX} characters")
+        return text or None
 
 
 class CandidateResponse(BaseModel):
@@ -402,9 +507,7 @@ class CandidateResponse(BaseModel):
     email: str
     phone: Optional[str] = None
     original_filename: Optional[str] = None
-    external_candidate_id: Optional[str] = None
     pipeline_status: str
-    skip_ai_shortlist: bool = False
     status: str = "active"
     years_experience: Optional[float] = None
     current_ctc: Optional[str] = None
@@ -494,7 +597,6 @@ class ShortlistResultWithCandidateResponse(ShortlistResultResponse):
     """
     candidate_name: Optional[str] = None
     candidate_email: Optional[str] = None
-    skip_ai_shortlist: bool = False
 
 
 class ShortlistDecisionUpdate(BaseModel):
@@ -757,6 +859,8 @@ class InterviewReportResponse(BaseModel):
     recording_url: Optional[str] = None
     recording_key: Optional[str] = None
     video_proctoring: Optional[VideoProctoringSummary] = None
+    # Extension-scan evidence for HR; None when no scan was recorded.
+    integrity: Optional[IntegritySummary] = None
 
 
 # ---------------------------------------------------------------------------
@@ -770,6 +874,39 @@ TenantMemberRoleLiteral = Literal["admin", "hr"]
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=1)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(..., min_length=10, max_length=128)
+    password: str = Field(..., min_length=12, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        return validate_password_strength(v)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=12, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        return validate_password_strength(v)
+
+
+class PasswordTokenInfoResponse(BaseModel):
+    email: EmailStr
+    purpose: Literal["onboarding", "reset"]
+
+
+class MessageResponse(BaseModel):
+    message: str
 
 
 class UserResponse(BaseModel):
@@ -886,6 +1023,9 @@ class TenantResponse(BaseModel):
     company_registration_number: Optional[str] = None
     gst_document_filename: Optional[str] = None
     created_at: datetime
+    # Set by actions that notify the organization admin (create, approve,
+    # reject): False means the action succeeded but the email did not go out.
+    email_sent: Optional[bool] = None
 
 
 class TenantListItem(BaseModel):
@@ -904,25 +1044,14 @@ class TenantListItem(BaseModel):
     job_count: int = 0
 
 
-class PlatformConnectionItem(BaseModel):
-    tenant_id: uuid.UUID
-    name: str
-    slug: str
-    is_active: bool
-    verification_status: Literal["pending", "approved", "rejected"] = "approved"
-    state: str = "none"
-    flow_id: Optional[uuid.UUID] = None
-    ping_a_verified: bool = False
-    ping_b_verified: bool = False
-    connected_at: Optional[datetime] = None
-    last_error: Optional[str] = None
-
-
 class TenantCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=_ORG_NAME_MAX_LEN)
     admin_email: EmailStr
     admin_full_name: str = Field(..., min_length=1, max_length=_PERSON_NAME_MAX_LEN)
-    admin_password: str = Field(..., min_length=12, max_length=128)
+    # Optional: when omitted the server provisions an unusable password and the
+    # admin sets their own through the emailed link, so no password is ever typed
+    # by a Super Admin or sent in an email.
+    admin_password: Optional[str] = Field(None, min_length=12, max_length=128)
 
     @field_validator("name", "admin_full_name")
     @classmethod
@@ -931,7 +1060,9 @@ class TenantCreateRequest(BaseModel):
 
     @field_validator("admin_password")
     @classmethod
-    def _password_strength(cls, v: str) -> str:
+    def _password_strength(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
         return validate_password_strength(v)
 
 

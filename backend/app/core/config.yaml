@@ -5,35 +5,30 @@ models:
   jd_parse:
     provider: openai
     name: gpt-5.4-mini
-    groq_name: llama-3.3-70b-versatile
     temperature: 0
     max_tokens: 3000
     response_format: json_object
   combined_shortlist:
     provider: openai
     name: gpt-5.4-mini
-    groq_name: llama-3.3-70b-versatile
     temperature: 0
     max_tokens: 3000
     response_format: json_object
   expected_answer:
     provider: openai
     name: gpt-5.4-mini
-    groq_name: llama-3.1-8b-instant
     temperature: 0
     max_tokens: 600
     response_format: json_object
   screening_extraction:
     provider: openai
     name: gpt-5.4-mini
-    groq_name: llama-3.3-70b-versatile
     temperature: 0
     max_tokens: 1000
     response_format: json_object
   interview_assessment:
     provider: openai
     name: gpt-5.4-mini
-    groq_name: llama-3.3-70b-versatile
     temperature: 0
     max_tokens: 2500
     response_format: json_object
@@ -118,9 +113,9 @@ uploads:
   resume_max_bytes: 20971520
   jd_max_bytes: 20971520
   org_doc_max_bytes: 10485760
-  zip_max_bytes: 104857600
-  zip_max_uncompressed_bytes: 524288000
-  max_resumes_per_zip: 200
+  zip_max_bytes: 1073741824
+  zip_max_uncompressed_bytes: 2147483648
+  max_resumes_per_zip: 600
   max_zip_nesting_depth: 5
 
 screening:
@@ -177,7 +172,6 @@ storage:
 scheduler:
   dispatch_pending_screening_seconds: 60
   recover_stuck_parses_seconds: 120
-  connect_reconcile_seconds: 20
 
 celery:
   default_max_retries: 3

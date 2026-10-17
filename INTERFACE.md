@@ -781,6 +781,8 @@ VITE_API_URL=http://localhost:8080
 | POST | `/api/candidates/{id}/interview/send` | Send interview link |
 | GET | `/api/interview/{token}` | Get session by token |
 | POST | `/api/interview/{token}/start` | Start interview (get LiveKit token) |
+| GET | `/api/interview/{token}/integrity-policy` | Live AI-extension blocklist + heuristic rules for the interview page (rate-limited per token) |
+| POST | `/api/interview/{token}/integrity-scan` | Record one extension scan as evidence for the HR report (rate-limited per token) |
 | POST | `/api/interview/{token}/complete` | Mark interview complete |
 | POST | `/api/livekit/webhook` | LiveKit webhook (internal) |
 | GET | `/api/candidates/{id}/report` | Get interview report |
@@ -792,3 +794,21 @@ VITE_API_URL=http://localhost:8080
 
 *Written by Forge — Sprint 7 — 2026-06-22*
 *Updated by Forge after Sprint 7 on 2026-06-22*
+
+### Platform (Super Admin): AI-extension detection
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/platform/extension-policy` | Current mode (`shadow`/`enforce`), version, heuristic rules, list counts |
+| PUT | `/api/platform/extension-policy` | Update mode and/or rules (validated; bumps the version) |
+| GET | `/api/platform/extension-blocklist` | All blocklist entries |
+| POST | `/api/platform/extension-blocklist` | Add an entry (`extension_id` must be the 32-letter Chrome ID) |
+| PATCH | `/api/platform/extension-blocklist/{id}` | Edit an entry or turn it on/off |
+| DELETE | `/api/platform/extension-blocklist/{id}` | Remove an entry |
+| GET | `/api/platform/observed-extensions?status=new\|dismissed&limit&offset` | Extensions flagged on candidates' browsers that are not on the blocklist: id, name, description, times seen, first/last seen. No candidate, interview or organization data. |
+| POST | `/api/platform/observed-extensions/{id}/dismiss` | Hide it (audit-logged). It reopens on its own if its name/description is a variant never seen before, or the match became stronger. |
+| POST | `/api/platform/observed-extensions/{id}/restore` | Bring a dismissed extension back |
+
+`GET /api/candidates/{id}/report` gains an optional `integrity` object (scan count,
+latest outcome, flagged extensions with reasons, check timeline). It is evidence only
+and is never an input to the interview score.

@@ -129,7 +129,6 @@ class ShortlistService:
                     created_at=record.created_at,
                     candidate_name=candidate_name,
                     candidate_email=candidate_email,
-                    skip_ai_shortlist=bool(candidate and candidate.skip_ai_shortlist),
                 )
             )
 

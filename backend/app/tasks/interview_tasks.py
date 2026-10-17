@@ -354,66 +354,6 @@ async def _async_generate_report(task_self, interview_session_id: str) -> None:
             report.final_recommendation,
         )
 
-        await _push_interview_to_talentos_be(
-            job=job,
-            candidate=candidate,
-            interview_session=interview_session,
-            report=report,
-        )
-
-
-def _serialize_interview(interview_session, report) -> dict:
-    def _iso(dt):
-        return dt.isoformat() if dt is not None else None
-
-    return {
-        "id": str(interview_session.id),
-        "status": interview_session.status,
-        "hr_decision": getattr(interview_session, "hr_decision", None),
-        "interview_url": getattr(interview_session, "interview_url", None),
-        "created_at": _iso(getattr(interview_session, "created_at", None)),
-        "started_at": _iso(getattr(interview_session, "started_at", None)),
-        "completed_at": _iso(getattr(interview_session, "completed_at", None)),
-        "transcript": getattr(interview_session, "transcript", None),
-        "transcript_segments": getattr(interview_session, "transcript_segments", None),
-        "summary": getattr(report, "summary", None),
-        "transcript_summary": getattr(report, "transcript_summary", None),
-        "overall_score": getattr(report, "overall_score", None),
-        "technical_fit_score": getattr(report, "technical_fit_score", None),
-        "communication_score": getattr(report, "communication_score", None),
-        "problem_solving_score": getattr(report, "problem_solving_score", None),
-        "experience_score": getattr(report, "experience_score", None),
-        "role_alignment_score": getattr(report, "role_alignment_score", None),
-        "strengths": getattr(report, "strengths", None),
-        "weaknesses": getattr(report, "weaknesses", None),
-        "jd_fit": getattr(report, "jd_fit", None),
-        "final_recommendation": getattr(report, "final_recommendation", None),
-    }
-
-
-async def _push_interview_to_talentos_be(*, job, candidate, interview_session, report) -> None:
-    external_job_id = getattr(job, "external_job_id", None)
-    if not external_job_id or not candidate.id:
-        return
-    try:
-        from app.modules.talentos_integration.talentos_be_client import (
-            get_talentos_client_for_tenant,
-        )
-
-        client = await get_talentos_client_for_tenant(getattr(job, "tenant_id", None))
-        await client.push_interview_completion(
-            external_job_id=str(external_job_id),
-            external_candidate_id=str(candidate.id),
-            interview_id=str(interview_session.id),
-            result=_serialize_interview(interview_session, report),
-            status="UNDER_EVALUATION",
-        )
-    except Exception as exc:
-        logger.warning(
-            "Failed to push interview completion to talentOS BE (session=%s): %s",
-            interview_session.id, exc,
-        )
-
 
 # ---------------------------------------------------------------------------
 # Video proctoring (external analyze API)
@@ -497,3 +437,4 @@ async def _async_run_video_proctoring(
     async with get_celery_db() as db:
         service = VideoProctoringService(db)
         return await service.process_tick(interview_session_id, poll_attempt)
+

@@ -37,7 +37,7 @@ async def health_live():
 
 @router.get("/health/ready", tags=["health"])
 async def health_ready():
-    """Readiness: Postgres + Redis (+ optional S3 + secrets source)."""
+    """Readiness: Postgres + Redis (+ optional S3)."""
     checks: dict[str, str] = {}
 
     try:
@@ -76,12 +76,10 @@ async def health_ready():
     status_value = "ok" if all(v in ("ok", "skipped") for v in checks.values()) else "degraded"
     from fastapi.responses import JSONResponse
 
-    from app.core import openbao as secrets_bao
-
     # Always HTTP 200 — body carries ok/degraded so uptime probes do not spam 4xx/5xx logs.
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={"status": status_value, "checks": checks, "secretsSource": secrets_bao.source},
+        content={"status": status_value, "checks": checks},
     )
 
 

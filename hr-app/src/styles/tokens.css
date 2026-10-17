@@ -1,0 +1,99 @@
+/**
+ * tokens.css - the single source of truth for colour, radius and elevation.
+ *
+ * COLOUR TOKENS ARE RAW `R G B` CHANNELS, not hex. Tailwind needs that shape to
+ * apply an opacity modifier: with a plain `var(--x)` colour, `text-foo/70`
+ * silently discards the colour entirely and falls back to inherited ink. That
+ * shipped once as near-black labels on the near-black sidebar. Reference them
+ * as `rgb(var(--token) / <alpha-value>)`, and in hand-written CSS as
+ * `rgb(var(--token))`.
+ *
+ * Components use the SEMANTIC tokens (--surface, --ink, --accent, ...), never
+ * the raw palette below them and never a literal hex. A hex in a component is
+ * a bug: it is the thing that let /admin drift to a dark emerald theme while
+ * every other page stayed light indigo.
+ *
+ * Mapped into Tailwind in `tailwind.config.ts`, so `bg-surface`, `text-ink`,
+ * `border-line` and `bg-accent` are the everyday spelling.
+ */
+
+:root {
+  /* ---- Palette. Referenced only by the semantic layer below. ------------- */
+
+  /* Indigo. The one accent. Primary actions, active state, focus. */
+  --indigo-50: 238 242 255;
+  --indigo-100: 224 231 255;
+  --indigo-200: 199 210 254;
+  --indigo-500: 99 102 241;
+  --indigo-600: 79 70 229;
+  --indigo-700: 67 56 202;
+
+  /* Ink and paper. Never pure black; the page ground is never pure white. */
+  --paper-000: 255 255 255;
+  --paper-050: 250 250 250;
+  --paper-100: 245 246 248;
+  --paper-200: 238 240 244;
+
+  --ink-900: 15 23 42;
+  --ink-700: 51 65 85;
+  --ink-500: 100 116 139;
+  --ink-300: 148 163 184;
+
+  --line-100: 233 236 241;
+  --line-200: 223 227 234;
+
+  /* State. Status only, never decoration. */
+  --pos-600: 5 150 105;
+  --pos-50: 236 253 245;
+  --warn-600: 217 119 6;
+  --warn-50: 255 251 235;
+  --neg-600: 225 29 72;
+  --neg-50: 255 241 242;
+
+  /* ---- Semantic. This is what components are allowed to use. ------------ */
+
+  --bg: var(--paper-100);
+  --surface: var(--paper-000);
+  --surface-2: var(--paper-050);
+  --surface-3: var(--paper-200);
+
+  --ink: var(--ink-900);
+  --ink-muted: var(--ink-500);
+  --ink-subtle: var(--ink-300);
+
+  --line: var(--line-100);
+  --line-strong: var(--line-200);
+
+  --accent: var(--indigo-600);
+  --accent-hover: var(--indigo-700);
+  --accent-ink: 255 255 255;
+  --accent-soft: var(--indigo-50);
+  --accent-border: var(--indigo-100);
+
+  --pos: var(--pos-600);
+  --pos-soft: var(--pos-50);
+  --warn: var(--warn-600);
+  --warn-soft: var(--warn-50);
+  --neg: var(--neg-600);
+  --neg-soft: var(--neg-50);
+
+  /* ---- Rail. The one dark surface in the app chrome. -------------------- */
+  --rail: 20 22 28;
+  --rail-2: 28 31 39;
+  --rail-ink: 244 245 247;
+  --rail-ink-muted: 154 161 177;
+  --rail-line: 39 43 53;
+
+  /* ---- Radius. Tops out at 24px on a large card. ------------------------ */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 24px;
+  --r-full: 9999px;
+
+  /* ---- Elevation. A contact shadow plus a soft lift, never a hard drop. -- */
+  --elev-1: 0 1px 2px rgb(15 23 42 / 0.04);
+  --elev-2: 0 1px 3px rgb(15 23 42 / 0.04), 0 10px 30px -12px rgb(15 23 42 / 0.12);
+  --elev-3: 0 1px 3px rgb(15 23 42 / 0.05), 0 18px 40px -16px rgb(15 23 42 / 0.18);
+  --elev-accent: 0 8px 24px -8px rgb(79 70 229 / 0.35);
+}

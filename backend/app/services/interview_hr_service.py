@@ -49,21 +49,15 @@ class InterviewHrService:
         return str(candidate_id)
 
     async def _mark_interview_queued(
-        self,
-        candidate_id: uuid.UUID,
-        job_id: uuid.UUID,
-        *,
-        skip_check: bool = False,
-    ) -> ScreeningCall | None:
-        if skip_check:
-            return None
+        self, candidate_id: uuid.UUID, job_id: uuid.UUID
+    ) -> ScreeningCall:
         screening_call = await self._interviews.get_latest_pass_screening_call(
             job_id, candidate_id
         )
         if not screening_call:
             raise HTTPException(
                 status_code=400,
-                detail="Candidate has not passed screening. Cannot queue for interview.",
+                detail="Candidate has not passed phone screening. Cannot queue for interview.",
             )
         screening_call.interview_queued_at = datetime.now(timezone.utc)
         await self._interviews.flush()
@@ -76,11 +70,7 @@ class InterviewHrService:
         """
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
 
-        await self._mark_interview_queued(
-            candidate_id,
-            candidate.job_id,
-            skip_check=candidate.waives_screening_pass,
-        )
+        await self._mark_interview_queued(candidate_id, candidate.job_id)
         await self._audit.log_change(
             actor=actor,
             action="interview.queued",
@@ -131,12 +121,12 @@ class InterviewHrService:
 
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
 
-        if not candidate.waives_screening_pass and not await self._interviews.get_latest_pass_screening_call(
+        if not await self._interviews.get_latest_pass_screening_call(
             candidate.job_id, candidate_id
         ):
             raise HTTPException(
                 status_code=400,
-                detail="Candidate has not passed screening. Interview cannot be scheduled.",
+                detail="Candidate has not passed phone screening. Interview cannot be scheduled.",
             )
 
         existing_result = await self._session.execute(
@@ -231,7 +221,7 @@ class InterviewHrService:
             )
         )
         screening_call = screening_result.scalars().first()
-        if not candidate.waives_screening_pass and not screening_call:
+        if not screening_call:
             raise HTTPException(
                 status_code=400,
                 detail="Candidate has not passed screening. Interview cannot be scheduled.",
@@ -249,11 +239,7 @@ class InterviewHrService:
                 raise HTTPException(status_code=409, detail=detail) from exc
             raise HTTPException(status_code=400, detail=detail) from exc
 
-        await self._mark_interview_queued(
-            candidate_id,
-            candidate.job_id,
-            skip_check=candidate.waives_screening_pass,
-        )
+        await self._mark_interview_queued(candidate_id, candidate.job_id)
 
         interview_url = f"{config.CANDIDATE_APP_URL}/interview/{interview_session.unique_token}"
 
@@ -548,12 +534,6 @@ class InterviewHrService:
             candidate_id=candidate_id,
         )
         await self._session.commit()
-
-        from app.modules.talentos_integration.interview_status_sync import (
-            sync_interview_status_to_talentos,
-        )
-
-        await sync_interview_status_to_talentos(self._session, session)
 
         try:
             generate_interview_report.delay(str(session.id))

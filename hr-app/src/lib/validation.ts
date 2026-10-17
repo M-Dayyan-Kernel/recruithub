@@ -78,6 +78,67 @@ export function validateName(
   return null
 }
 
+/** Longest candidate name the database stores. */
+export const CANDIDATE_NAME_MAX_LENGTH = 255
+
+/**
+ * Suffix of the stand-in address created when a resume had no email. It means
+ * "email missing", so it is shown as empty and is never a valid value to save.
+ * Mirrors PLACEHOLDER_EMAIL_SUFFIX in the backend schemas.
+ */
+export const PLACEHOLDER_EMAIL_SUFFIX = '@upload.pending'
+
+export function isPlaceholderEmail(value: string | null | undefined): boolean {
+  return (value ?? '').trim().toLowerCase().endsWith(PLACEHOLDER_EMAIL_SUFFIX)
+}
+
+const PHONE_ALLOWED = /^\+?[\d\s().-]+$/
+export const PHONE_MIN_DIGITS = 7
+export const PHONE_MAX_DIGITS = 15 // E.164
+
+/** Optional phone number: blank is fine, anything entered must be a real number. */
+export function validatePhone(value: string, label = 'Phone'): string | null {
+  const phone = value.trim()
+  if (!phone) return null
+  const digits = phone.replace(/\D/g, '')
+  if (
+    phone.length > 50 ||
+    !PHONE_ALLOWED.test(phone) ||
+    digits.length < PHONE_MIN_DIGITS ||
+    digits.length > PHONE_MAX_DIGITS
+  ) {
+    return `Enter a valid ${label.toLowerCase()} number (${PHONE_MIN_DIGITS}-${PHONE_MAX_DIGITS} digits)`
+  }
+  return null
+}
+
+/** Optional years of experience; a decimal such as 4.5 is allowed. */
+export function validateYearsOfExperience(raw: string, label = 'Years of experience'): string | null {
+  const text = raw.trim()
+  if (!text) return null
+  if (text.startsWith('-')) return `${label} cannot be negative`
+  if (!/^\d+(\.\d+)?$/.test(text)) return `${label} must be a number`
+  if (Number(text) > EXPERIENCE_MAX_YEARS) {
+    return `${label} cannot exceed ${EXPERIENCE_MAX_YEARS}`
+  }
+  return null
+}
+
+/** Optional short free-text field (CTC, notice period) capped at its column size. */
+export function validateShortText(value: string, label: string, max = 100): string | null {
+  return value.trim().length > max ? `${label} must be at most ${max} characters` : null
+}
+
+/** Chrome extension IDs are 32 letters a-p (the Chrome Web Store URL's last segment). */
+export function validateExtensionId(value: string): string | null {
+  const id = value.trim().toLowerCase()
+  if (!id) return 'Extension ID is required'
+  if (!/^[a-p]{32}$/.test(id)) {
+    return 'Use the 32-letter ID from the extension\'s Chrome Web Store URL'
+  }
+  return null
+}
+
 /** Convenience wrapper for organization/company name fields. */
 export function validateOrgName(value: string, label = 'Organization name'): string | null {
   return validateName(value, label, ORG_NAME_MAX_LENGTH)
@@ -92,16 +153,72 @@ export function isValid(errors: object): boolean {
 export const EXPERIENCE_MAX_YEARS = 60
 
 /**
- * Keeps a years-of-experience input to whole non-negative numbers.
+ * Checks what the user typed into a whole-number field.
  *
- * `min={0}` on a number input only gates native form validation, and these
- * forms submit via click handlers — so a typed "-5" would otherwise reach
- * state. Returns null when the keystroke should be rejected outright.
+ * Returns a message for anything that is not a whole number within
+ * [min, max], or null when the text is valid. Blank is valid unless
+ * `required`. The text is validated exactly as typed and never silently
+ * discarded or clamped: swallowing a keystroke leaves the field showing one
+ * thing while form state holds another, and clamping on every keystroke
+ * rewrites "3" + "7" into "10" so the field can never be edited.
  */
-export function sanitizeYearsInput(raw: string): string | null {
-  if (raw === '') return ''
-  if (!/^\d+$/.test(raw)) return null
-  return String(Number(raw))
+export function validateWholeNumberText(
+  raw: string,
+  {
+    label,
+    min,
+    max,
+    required = false,
+    unit,
+  }: { label: string; min: number; max: number; required?: boolean; unit?: string },
+): string | null {
+  const text = raw.trim()
+  if (text === '') return required ? `${label} is required` : null
+  if (text.startsWith('-')) {
+    return min === 0 ? `${label} cannot be negative` : `${label} must be at least ${min}`
+  }
+  if (!/^\d+$/.test(text)) return `${label} must be a whole number`
+  const value = Number(text)
+  if (value < min) return `${label} must be at least ${min}`
+  if (value > max) return `${label} cannot exceed ${max}${unit ? ` ${unit}` : ''}`
+  return null
+}
+
+/** Years-of-experience field: blank (not specified) or a whole 0..60. */
+export function validateYearsText(raw: string, label: string): string | null {
+  return validateWholeNumberText(raw, {
+    label,
+    min: 0,
+    max: EXPERIENCE_MAX_YEARS,
+    unit: 'years',
+  })
+}
+
+// Screening retry limits. Mirror `screening.validation` in backend config.yaml
+// (min/max retries; min/max retry delay seconds, shown here in minutes), which
+// the API enforces on save.
+export const SCREENING_ATTEMPTS_MIN = 1
+export const SCREENING_ATTEMPTS_MAX = 10
+export const SCREENING_DELAY_MIN_MINUTES = 1
+export const SCREENING_DELAY_MAX_MINUTES = 10080
+
+export function validateScreeningAttemptsText(raw: string): string | null {
+  return validateWholeNumberText(raw, {
+    label: 'Maximum attempts',
+    min: SCREENING_ATTEMPTS_MIN,
+    max: SCREENING_ATTEMPTS_MAX,
+    required: true,
+  })
+}
+
+export function validateScreeningDelayText(raw: string): string | null {
+  return validateWholeNumberText(raw, {
+    label: 'Delay between attempts',
+    min: SCREENING_DELAY_MIN_MINUTES,
+    max: SCREENING_DELAY_MAX_MINUTES,
+    required: true,
+    unit: 'minutes',
+  })
 }
 
 /** Validates an experience range, returning the first problem found. */
@@ -109,43 +226,21 @@ export function validateExperienceRange(
   min: string,
   max: string,
 ): { field: 'min' | 'max'; message: string } | null {
-  const minNum = min === '' ? null : Number(min)
-  const maxNum = max === '' ? null : Number(max)
+  const minError = validateYearsText(min, 'Min experience')
+  if (minError) return { field: 'min', message: minError }
+  const maxError = validateYearsText(max, 'Max experience')
+  if (maxError) return { field: 'max', message: maxError }
 
-  for (const [value, field, label] of [
-    [minNum, 'min', 'Min experience'],
-    [maxNum, 'max', 'Max experience'],
-  ] as const) {
-    if (value === null) continue
-    if (!Number.isFinite(value) || value < 0) {
-      return { field, message: `${label} cannot be negative` }
-    }
-    if (value > EXPERIENCE_MAX_YEARS) {
-      return { field, message: `${label} cannot exceed ${EXPERIENCE_MAX_YEARS} years` }
-    }
-  }
+  const minNum = min.trim() === '' ? null : Number(min)
+  const maxNum = max.trim() === '' ? null : Number(max)
 
-  if (minNum !== null && maxNum !== null && maxNum < minNum) {
+  // A maximum of 0 means "no upper bound" (the API stores a blank max as 0),
+  // so it is never compared with the minimum.
+  if (minNum !== null && maxNum !== null && maxNum > 0 && maxNum < minNum) {
     return {
       field: 'max',
       message: 'Max experience cannot be less than min experience',
     }
   }
   return null
-}
-
-/**
- * Clamps a numeric-input keystroke to a whole number within [min, max].
- *
- * `min`/`max` on a number input only drive native form validation, so a typed
- * "-29" still reaches state on a page that saves via a click handler. Returns
- * null when the keystroke should be ignored (blank or non-numeric), letting the
- * caller keep the previous value.
- */
-export function clampWholeNumberInput(
-  raw: string,
-  { min, max }: { min: number; max: number },
-): number | null {
-  if (!/^\d+$/.test(raw)) return null
-  return Math.min(Math.max(Number(raw), min), max)
 }

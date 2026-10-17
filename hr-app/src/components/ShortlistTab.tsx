@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -443,7 +443,7 @@ function ShortlistCard({
                 <button
                   key={decision}
                   onClick={() => decisionMutation.mutate(decision)}
-                  disabled={decisionMutation.isPending}
+                  disabled={decisionMutation.isPending || isActive}
                   title={decision === 'approved' ? getApproveTooltip(screeningEffective) : undefined}
                   className={`px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     isActive ? cfg.active : cfg.inactive
@@ -594,7 +594,7 @@ export function ShortlistTab({
   const [search, setSearch] = useState('')
   const [recommendationFilter, setRecommendationFilter] = useState<RecommendationFilter>('all')
 
-  const { data: rawResults, isLoading, isFetching, isError, refetch } = useQuery<
+  const { data: results, isLoading, isFetching, isError, refetch } = useQuery<
     ShortlistResultWithCandidate[]
   >({
     queryKey: ['shortlist', jobId],
@@ -610,11 +610,6 @@ export function ShortlistTab({
       return false
     },
   })
-
-  const results = useMemo(
-    () => (rawResults ?? []).filter((r) => !r.skip_ai_shortlist),
-    [rawResults],
-  )
 
   const { data: settings } = useQuery<SystemSettings>({
     queryKey: ['settings'],

@@ -60,7 +60,9 @@ export function ResumeUploadZone({
     try {
       const formData = new FormData()
       valid.forEach((file) => formData.append('files', file))
-      const result = (await api.post(`/api/jobs/${jobId}/resumes`, formData)) as {
+      const result = (await api.post(`/api/jobs/${jobId}/resumes`, formData, {
+        timeout: 180_000,
+      })) as {
         created: number
         skipped_oversized?: string[]
         candidate_ids?: string[]

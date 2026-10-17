@@ -4,26 +4,6 @@
 
 version: "3.9"
 
-x-openbao: &openbao-common
-  build: ./openbao
-  restart: unless-stopped
-  ports:
-    - "127.0.0.1:8200:8200"   # host-local admin access only
-  env_file:
-    - ./seed.env
-  environment:
-    TZ: ${TZ:-Asia/Kolkata}
-  volumes:
-    - bao-data:/bao/data       # encrypted secrets at rest
-    - ./.bao-shared:/shared       # scoped app token (rh.token) only
-    - ./.bao-keys:/bao-keys    # unseal key + root token (root-only host dir)
-  healthcheck:
-    test: ["CMD-SHELL", "test -f /shared/.bao-ready"]
-    interval: 5s
-    timeout: 5s
-    retries: 30
-    start_period: 10s
-
 x-celery-worker: &celery-worker
   build:
     context: ./backend
@@ -33,19 +13,12 @@ x-celery-worker: &celery-worker
   environment:
     DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
     REDIS_URL: redis://redis:6379/0
-    # Secrets are read from OpenBao at startup via the scoped token.
-    BAO_ADDR: http://openbao:8200
-    BAO_TOKEN_FILE: /shared/rh.token
-    BAO_REQUIRED: "true"
   volumes:
     - ./backend/logs:/app/logs
-    - ./.bao-shared:/shared:ro
   depends_on:
     redis:
       condition: service_healthy
     postgres:
-      condition: service_healthy
-    openbao:
       condition: service_healthy
 
 services:
@@ -71,9 +44,6 @@ services:
       timeout: 5s
       retries: 5
 
-  openbao:
-    <<: *openbao-common
-
   api:
     build:
       context: ./backend
@@ -83,30 +53,19 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_recruitment
       REDIS_URL: redis://redis:6379/0
-      # Secrets are read from OpenBao at startup via the scoped token.
-      BAO_ADDR: http://openbao:8200
-      BAO_TOKEN_FILE: /shared/rh.token
-      BAO_REQUIRED: "true"
     ports:
       - "8000:8000"
     volumes:
       - ./backend/logs:/app/logs
-      - ./.bao-shared:/shared:ro
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      openbao:
-        condition: service_healthy
 
   celery-beat:
     <<: *celery-worker
     command: celery -A app.core.celery_app.celery_app beat --loglevel=info
-
-  celery-default:
-    <<: *celery-worker
-    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q celery --autoscale=2,1
 
   celery-resume-1:
     <<: *celery-worker
@@ -134,4 +93,3 @@ services:
 
 volumes:
   postgres_data:
-  bao-data:

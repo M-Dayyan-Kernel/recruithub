@@ -8,8 +8,8 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import PLATFORM_TENANT_SLUG
-from app.core.tenancy import slugify
-from app.models.models import Job, SystemSettings, Tenant
+from app.core.tenancy import org_name_key, slugify
+from app.models.models import Job, SystemSettings, Tenant, tenant_name_key
 
 
 class TenantRepository:
@@ -38,6 +38,20 @@ class TenantRepository:
             select(Job.tenant_id, func.count()).group_by(Job.tenant_id)
         )
         return {tid: count for tid, count in result.all()}
+
+    async def name_exists(
+        self, name: str, *, exclude_id: uuid.UUID | None = None
+    ) -> bool:
+        """True when another organization already uses this name.
+
+        Case- and whitespace-insensitive. ``exclude_id`` lets an organization
+        keep (or re-case) its own name when it is renamed.
+        """
+        stmt = select(Tenant.id).where(tenant_name_key() == org_name_key(name))
+        if exclude_id is not None:
+            stmt = stmt.where(Tenant.id != exclude_id)
+        result = await self._session.execute(stmt.limit(1))
+        return result.scalar_one_or_none() is not None
 
     async def ensure_unique_slug(self, name: str) -> str:
         base = slugify(name)

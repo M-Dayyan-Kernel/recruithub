@@ -9,10 +9,18 @@ import { CandidateInterviewTab } from '@/components/candidates/CandidateIntervie
 import { CandidateTimelineTab } from '@/components/candidates/CandidateTimelineTab'
 import { useCandidateProfile } from '@/hooks/useCandidateProfile'
 import { formatHiringStage } from '@/lib/candidates'
+import { PHONE_SCREENING_LABEL } from '@/lib/stageLabels'
 import { cn } from '@/lib/utils'
 
-const TABS = ['Overview', 'AI Analysis', 'Screening', 'Interview', 'Timeline'] as const
-type TabId = (typeof TABS)[number]
+const TABS = [
+  { id: 'Overview', label: 'Overview' },
+  { id: 'AI Analysis', label: 'AI Analysis' },
+  { id: 'Screening', label: PHONE_SCREENING_LABEL },
+  { id: 'Interview', label: 'Interview' },
+  { id: 'Timeline', label: 'Timeline' },
+] as const
+
+type TabId = (typeof TABS)[number]['id']
 
 export default function CandidateProfilePage() {
   const { candidateId = '' } = useParams<{ candidateId: string }>()
@@ -62,17 +70,17 @@ export default function CandidateProfilePage() {
       <div className="flex flex-wrap gap-1.5 border-b border-slate-200 pb-px">
         {TABS.map((tab) => (
           <button
-            key={tab}
+            key={tab.id}
             type="button"
-            onClick={() => setActiveTab(tab)}
+            onClick={() => setActiveTab(tab.id)}
             className={cn(
               'rounded-t-md px-3 py-2 text-sm font-medium transition-colors',
-              activeTab === tab
+              activeTab === tab.id
                 ? 'border-b-2 border-indigo-600 text-indigo-700'
                 : 'text-slate-500 hover:text-slate-800',
             )}
           >
-            {tab}
+            {tab.label}
           </button>
         ))}
       </div>

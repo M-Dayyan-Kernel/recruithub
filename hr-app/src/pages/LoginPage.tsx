@@ -1,10 +1,10 @@
 import { type FormEvent, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { AlertTriangle, Zap } from 'lucide-react'
+import { AlertTriangle, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/context/AuthContext'
 import { takeSignedOutReason } from '@/lib/api'
-import { WORKFLOW_INPUT_CLASS, WORKFLOW_PRIMARY_BUTTON_CLASS } from '@/lib/workflow'
+import AuthLayout, { AUTH_BUTTON_CLASS, AUTH_INPUT_CLASS } from '@/components/auth/AuthLayout'
 import { PasswordInput } from '@/components/PasswordInput'
 import { RequiredMark } from '@/components/FieldError'
 
@@ -23,8 +23,8 @@ export default function LoginPage() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-slate-800" />
+      <div className="flex min-h-screen items-center justify-center bg-white">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-indigo-600" />
       </div>
     )
   }
@@ -53,79 +53,76 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 via-zinc-50 to-slate-200 px-4">
-      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-600">
-            <Zap className="h-5 w-5 text-white" />
-          </div>
+    <AuthLayout
+      title="Sign in"
+      subtitle="Welcome back to Recruitment Hub."
+      switchPrompt="New organization?"
+      switchLabel="Create an account"
+      switchTo="/signup"
+    >
+      {signedOutReason && (
+        <div
+          role="alert"
+          className="mb-6 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
           <div>
-            <h1 className="text-lg font-semibold text-slate-900">Recruitment Hub</h1>
-            <p className="text-sm text-slate-500">Sign in to continue</p>
+            <p className="text-sm font-medium text-amber-900">You have been signed out</p>
+            <p className="mt-0.5 text-sm text-amber-800">{signedOutReason}</p>
           </div>
         </div>
+      )}
 
-        {signedOutReason && (
-          <div
-            role="alert"
-            className="mb-6 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3"
+      <form onSubmit={onSubmit} className="space-y-4">
+        <div>
+          <label
+            htmlFor="email"
+            className="mb-1.5 block text-[13px] font-semibold text-slate-700"
           >
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-            <div>
-              <p className="text-sm font-medium text-amber-900">You have been signed out</p>
-              <p className="mt-0.5 text-sm text-amber-800">{signedOutReason}</p>
-            </div>
-          </div>
-        )}
+            Work email
+            <RequiredMark />
+          </label>
+          <input
+            id="email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className={AUTH_INPUT_CLASS}
+            placeholder="you@company.com"
+          />
+        </div>
 
-        <form onSubmit={onSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-slate-700">
-              Email
-              <RequiredMark />
-            </label>
-            <input
-              id="email"
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className={WORKFLOW_INPUT_CLASS}
-              placeholder="you@company.com"
-            />
-          </div>
-          <div>
-            <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-slate-700">
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label htmlFor="password" className="block text-[13px] font-semibold text-slate-700">
               Password
               <RequiredMark />
             </label>
-            <PasswordInput
-              id="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className={WORKFLOW_INPUT_CLASS}
-              placeholder="••••••••"
-            />
+            <Link
+              to="/forgot-password"
+              className="text-[13px] font-medium text-indigo-600 hover:text-indigo-500"
+            >
+              Forgot password?
+            </Link>
           </div>
-          <button
-            type="submit"
-            disabled={submitting}
-            className={`${WORKFLOW_PRIMARY_BUTTON_CLASS} w-full justify-center disabled:opacity-60`}
-          >
-            {submitting ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
+          <PasswordInput
+            id="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className={AUTH_INPUT_CLASS}
+            placeholder="••••••••"
+          />
+        </div>
 
-        <p className="mt-6 text-center text-sm text-slate-500">
-          New organization?{' '}
-          <Link to="/signup" className="font-medium text-indigo-600 hover:text-indigo-500">
-            Create an account
-          </Link>
-        </p>
-      </div>
-    </div>
+        <button type="submit" disabled={submitting} className={`${AUTH_BUTTON_CLASS} !mt-6`}>
+          {submitting && <Loader2 size={16} className="animate-spin" />}
+          {submitting ? 'Signing in…' : 'Sign in'}
+        </button>
+      </form>
+    </AuthLayout>
   )
 }

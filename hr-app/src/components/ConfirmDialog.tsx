@@ -19,15 +19,15 @@ interface Props {
 
 const TONE_STYLES: Record<ConfirmTone, { icon: string; confirm: string }> = {
   danger: {
-    icon: 'bg-red-950/60 text-red-400',
+    icon: 'bg-neg-soft text-neg',
     confirm: 'bg-red-600 text-white hover:bg-red-500',
   },
   warning: {
-    icon: 'bg-amber-950/60 text-amber-400',
+    icon: 'bg-warn-soft text-warn',
     confirm: 'bg-amber-600 text-white hover:bg-amber-500',
   },
   default: {
-    icon: 'bg-teal-950/60 text-teal-400',
+    icon: 'bg-accent-soft text-accent',
     confirm: 'bg-teal-600 text-white hover:bg-teal-500',
   },
 }
@@ -80,7 +80,7 @@ export function ConfirmDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
-        className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 shadow-2xl"
+        className="w-full max-w-md rounded-xl border border-line bg-surface shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-4 px-6 pt-6">
@@ -90,14 +90,14 @@ export function ConfirmDialog({
             <AlertTriangle className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 id="confirm-dialog-title" className="text-base font-semibold text-slate-100">
+            <h2 id="confirm-dialog-title" className="text-base font-semibold text-ink">
               {title}
             </h2>
             {message
               .split('\n')
               .filter((line) => line.trim())
               .map((line, i) => (
-                <p key={i} className="mt-2 text-sm leading-relaxed text-slate-400">
+                <p key={i} className="mt-2 text-sm leading-relaxed text-ink-muted">
                   {line}
                 </p>
               ))}
@@ -107,17 +107,17 @@ export function ConfirmDialog({
             onClick={onCancel}
             disabled={busy}
             aria-label="Close"
-            className="-mr-1 -mt-1 rounded-md p-1 text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300 disabled:opacity-40"
+            className="-mr-1 -mt-1 rounded-md p-1 text-ink-subtle transition-colors hover:bg-surface-2 hover:text-slate-300 disabled:opacity-40"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="mt-6 flex justify-end gap-2 border-t border-slate-800 px-6 py-4">
+        <div className="mt-6 flex justify-end gap-2 border-t border-line px-6 py-4">
           <button
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="rounded-lg border border-slate-700 px-3.5 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800 disabled:opacity-40"
+            className="rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-surface-2 disabled:opacity-40"
           >
             {cancelLabel}
           </button>

@@ -27,6 +27,7 @@ import { ScheduleInterviewModal } from '@/components/screening/ScheduleInterview
 import { InterviewPipelineTable } from '@/components/InterviewPipelineTable'
 import type { InterviewPipelineTab } from '@/types/api'
 import { downloadFinalistsExcel } from '@/lib/finalistsExport'
+import { PHONE_SCREENING_LABEL } from '@/lib/stageLabels'
 
 // ---------------------------------------------------------------------------
 // Interview status chip
@@ -411,7 +412,7 @@ function CandidateInterviewCard({
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
           <CheckCircle2 size={12} />
-          Screening passed
+          {PHONE_SCREENING_LABEL} passed
         </span>
         <InterviewStatusChip status={interviewStatus} />
       </div>

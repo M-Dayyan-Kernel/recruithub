@@ -1,3 +1,5 @@
+@import './styles/tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,7 +7,7 @@
 @layer base {
   * {
     box-sizing: border-box;
-    border-color: theme('colors.zinc.200');
+    border-color: rgb(var(--line));
   }
 
   html {
@@ -15,8 +17,8 @@
 
   body {
     font-family: 'Inter', system-ui, sans-serif;
-    background-color: theme('colors.zinc.50');
-    color: theme('colors.zinc.900');
+    background-color: rgb(var(--bg));
+    color: rgb(var(--ink));
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 }

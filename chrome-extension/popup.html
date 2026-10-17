@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Recruit Hub Interview Check</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="card" aria-live="polite">
+      <header class="brand">
+        <span class="mark" aria-hidden="true">RH</span>
+        <div>
+          <h1>Recruit Hub</h1>
+          <p class="sub">Interview extension check</p>
+        </div>
+      </header>
+
+      <section id="state-idle" class="state">
+        <p>Check that no prohibited AI-assistance extension is enabled in this browser.</p>
+        <p class="note">The check runs on your device. The list of your extensions is not sent anywhere.</p>
+        <button id="scan" class="btn primary" type="button">Scan extensions</button>
+      </section>
+
+      <section id="state-scanning" class="state" hidden>
+        <div class="spinner" aria-hidden="true"></div>
+        <p>Scanning installed extensions&hellip;</p>
+      </section>
+
+      <section id="state-clean" class="state" hidden>
+        <p class="status pos">No prohibited extensions are enabled.</p>
+        <p class="note" id="clean-meta"></p>
+        <button class="btn rescan" type="button">Rescan</button>
+      </section>
+
+      <section id="state-warning" class="state" hidden>
+        <p class="status neg">Prohibited extensions are enabled.</p>
+        <ul id="found" class="found"></ul>
+        <ol class="steps">
+          <li>Open a new tab and go to <strong>chrome://extensions</strong>.</li>
+          <li>Turn off each extension listed above.</li>
+          <li>Come back here and rescan.</li>
+        </ol>
+        <p class="note">This tool never disables or removes extensions for you.</p>
+        <button class="btn rescan" type="button">Rescan</button>
+      </section>
+
+      <section id="state-error" class="state" hidden>
+        <p class="status warn">The scan could not be completed.</p>
+        <p class="note" id="error-message"></p>
+        <p class="note">This is not a clean result. Try again, or contact the interview organiser.</p>
+        <button class="btn rescan" type="button">Try again</button>
+      </section>
+
+      <footer class="foot">Blocklist <span id="version">&ndash;</span></footer>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

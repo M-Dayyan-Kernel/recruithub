@@ -3,12 +3,26 @@ from datetime import datetime, time, date
 from typing import Optional, List
 
 from sqlalchemy import (
-    String, Text, Integer, Float, Boolean, DateTime, Date, ForeignKey, func, Time
+    String, Text, Integer, Float, Boolean, DateTime, Date, ForeignKey, Index, func, literal_column, text, Time
 )
 from sqlalchemy.orm import relationship, mapped_column, Mapped
 from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSON
 
+from app.core.constants import ORG_NAME_UNIQUE_INDEX
 from app.core.database import Base
+
+
+# Case- and whitespace-insensitive identity of a tenant name. One string is the
+# single source for the unique index below and for TenantRepository.name_exists,
+# so the two can never drift apart. Mirrors ``org_name_key`` in core/tenancy.py.
+# It is a constant (not bound parameters) so the planner can match a query's
+# expression to the index.
+_TENANT_NAME_KEY_SQL = r"lower(regexp_replace(btrim({col}), '\s+', ' ', 'g'))"
+
+
+def tenant_name_key():
+    """SQL expression for a tenant name's identity, for ``WHERE`` clauses."""
+    return literal_column(_TENANT_NAME_KEY_SQL.format(col="tenants.name"))
 
 
 class Tenant(Base):
@@ -26,6 +40,17 @@ class Tenant(Base):
     gst_document_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     gst_document_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        # Two organizations may not share a name, however it is cased or spaced.
+        # Backstop for concurrent creates; the services check first so the user
+        # gets a clean error rather than relying on this.
+        Index(
+            ORG_NAME_UNIQUE_INDEX,
+            text(_TENANT_NAME_KEY_SQL.format(col="name")),
+            unique=True,
+        ),
+    )
 
     # passive_deletes: DB ON DELETE CASCADE clears children; without it SQLAlchemy
     # tries to SET NULL on non-nullable FKs (e.g. system_settings.tenant_id).
@@ -107,7 +132,6 @@ class Job(Base):
     screening_call_from: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     screening_call_to: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     screening_timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Kolkata", server_default="Asia/Kolkata")
-    external_job_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     voice_screening_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
@@ -133,8 +157,6 @@ class Candidate(Base):
     phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     resume_file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     original_filename: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Original upload filename — used for dedup check
-    external_candidate_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # External system reference ID
-    skip_ai_shortlist: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)  # Shortlist decision made externally (talentOS) — skip AI resume review
     parsed_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     pipeline_status: Mapped[str] = mapped_column(String(50), nullable=False, default="queued")
     pipeline_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -152,11 +174,6 @@ class Candidate(Base):
     shortlist_results: Mapped[List["ShortlistResult"]] = relationship("ShortlistResult", back_populates="candidate", cascade="all, delete-orphan")
     screening_calls: Mapped[List["ScreeningCall"]] = relationship("ScreeningCall", back_populates="candidate", cascade="all, delete-orphan")
     interview_sessions: Mapped[List["InterviewSession"]] = relationship("InterviewSession", back_populates="candidate", cascade="all, delete-orphan")
-
-    @property
-    def waives_screening_pass(self) -> bool:
-        """Externally-shortlisted candidates skip the POC's screening gate."""
-        return bool(self.skip_ai_shortlist)
 
 
 class ShortlistResult(Base):
@@ -315,6 +332,139 @@ class RefreshToken(Base):
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PasswordToken(Base):
+    """One-time link for setting or resetting a password.
+
+    Only the SHA-256 of the token is stored. A row is spent by stamping
+    ``used_at`` in the same UPDATE that validates it, so a link cannot be
+    redeemed twice even under concurrent requests.
+    """
+
+    __tablename__ = "password_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    purpose: Mapped[str] = mapped_column(String(20), nullable=False)  # "onboarding" | "reset"
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ExtensionBlocklistEntry(Base):
+    """A known AI-assistant browser extension that may not be enabled during an interview.
+
+    Platform-wide (not per tenant) and edited by a Super Admin. The ID comes
+    from the extension's own Chrome Web Store listing.
+    """
+
+    __tablename__ = "extension_blocklist"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    extension_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(30), nullable=False)  # ai_assistant | interview_assistant
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    listing_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(10), nullable=False, default="active", server_default="active")
+    verified_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class ExtensionPolicy(Base):
+    """Single-row policy for extension detection: mode, heuristic rules, version.
+
+    `version` is bumped on every change to this row or to the blocklist, so a
+    stored scan can say exactly which rules produced it.
+    """
+
+    __tablename__ = "extension_policy"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    mode: Mapped[str] = mapped_column(String(10), nullable=False, default="shadow", server_default="shadow")
+    rules: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    updated_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class ObservedExtension(Base):
+    """An extension that was flagged on some candidate's browser, one row per extension.
+
+    A catalog for the Super Admin to decide from. It deliberately holds no
+    candidate, interview, job or organization reference: only facts about the
+    extension itself and how often it has been seen.
+
+    A dismissal remembers what the extension looked like at the time
+    (`dismissed_hash`, `dismissed_reason`) so it can reopen if it changes.
+    """
+
+    __tablename__ = "observed_extensions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    extension_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    strongest_reason: Mapped[str] = mapped_column(String(20), nullable=False)
+    times_seen: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(10), nullable=False, default="new", server_default="new")
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Every distinct name+description variant seen (capped). Chrome localizes both,
+    # so one fingerprint would reopen a dismissal for a candidate who simply uses
+    # another browser language; only a variant never seen before counts as a change.
+    known_hashes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    dismissed_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    dismissed_reason: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    dismissed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    dismissed_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reopened_reason: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        # Lists page by status and recency.
+        Index("ix_observed_extensions_status_last_seen", "status", "last_seen_at"),
+    )
+
+
+class InterviewIntegrityScan(Base):
+    """One extension scan taken during an interview (append-only evidence for HR)."""
+
+    __tablename__ = "interview_integrity_scans"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    interview_session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    phase: Mapped[str] = mapped_column(String(20), nullable=False)  # preflight | final | start
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False)  # clear | flagged | blocked | unavailable
+    flagged: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    flagged_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    policy_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    mode: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    error_code: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    client_checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

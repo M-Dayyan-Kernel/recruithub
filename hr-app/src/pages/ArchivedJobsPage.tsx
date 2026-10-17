@@ -18,9 +18,11 @@ const FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
 
 function experienceLabel(job: Job): string | null {
   const { experience_min: min, experience_max: max } = job
-  if (min != null && max != null) return `${min}–${max} years experience`
-  if (min != null) return `${min}+ years experience`
-  if (max != null) return `Up to ${max} years experience`
+  // The API stores "no upper bound" as 0, so 0 is not a real maximum.
+  const hasMax = max != null && max > 0
+  if (min != null && hasMax) return `${min}–${max} years experience`
+  if (min != null && min > 0) return `${min}+ years experience`
+  if (hasMax) return `Up to ${max} years experience`
   return null
 }
 

@@ -239,6 +239,97 @@ class ExperienceRangeTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(PydanticValidationError):
             JobUpdate(experience_max=-2)
 
+    # ── "5+ years": a missing or zero maximum means no upper bound ───────────
+
+    def test_create_allows_min_only(self):
+        payload = JobCreate(title="T", description="D", experience_min=5)
+        self.assertEqual(payload.experience_min, 5)
+        self.assertEqual(payload.experience_max, 0)
+
+    def test_create_treats_explicit_null_bounds_as_unset(self):
+        # A parsed JD stating only "5+ years" yields experience_max: null.
+        payload = JobCreate(
+            title="T", description="D", experience_min=5, experience_max=None
+        )
+        self.assertEqual(payload.experience_max, 0)
+        payload = JobCreate(
+            title="T", description="D", experience_min=None, experience_max=None
+        )
+        self.assertEqual((payload.experience_min, payload.experience_max), (0, 0))
+
+    def test_create_treats_zero_max_as_no_upper_bound(self):
+        payload = JobCreate(
+            title="T", description="D", experience_min=5, experience_max=0
+        )
+        self.assertEqual(payload.experience_max, 0)
+
+    def test_create_still_rejects_real_max_below_min(self):
+        with self.assertRaises(PydanticValidationError):
+            JobCreate(title="T", description="D", experience_min=6, experience_max=3)
+
+    def test_create_still_rejects_negative_and_oversized(self):
+        with self.assertRaises(PydanticValidationError):
+            JobCreate(title="T", description="D", experience_min=5, experience_max=-1)
+        with self.assertRaises(PydanticValidationError):
+            JobCreate(title="T", description="D", experience_min=5, experience_max=61)
+
+    def _service_with_job(self, *, experience_min, experience_max):
+        session = AsyncMock()
+        job_repo = MagicMock()
+        job = MagicMock()
+        job.experience_min = experience_min
+        job.experience_max = experience_max
+        job_repo.get_for_tenant = AsyncMock(return_value=job)
+        job_repo.refresh = AsyncMock()
+        service = JobService(
+            session,
+            job_repo=job_repo,
+            audit_service=AsyncMock(),
+            expected_answers=AsyncMock(),
+            integrations_service=AsyncMock(),
+        )
+        return service, job, session
+
+    async def test_update_min_only_against_stored_unbounded_max(self):
+        service, job, session = self._service_with_job(
+            experience_min=0, experience_max=0
+        )
+        await service.update(
+            self._actor(), uuid.uuid4(), JobUpdate(experience_min=5)
+        )
+        self.assertEqual(job.experience_min, 5)
+        session.commit.assert_awaited_once()
+
+    async def test_update_zero_max_removes_the_upper_bound(self):
+        service, job, _ = self._service_with_job(experience_min=6, experience_max=8)
+        await service.update(
+            self._actor(), uuid.uuid4(), JobUpdate(experience_max=0)
+        )
+        self.assertEqual(job.experience_max, 0)
+
+    async def test_update_null_max_is_stored_as_zero_not_null(self):
+        # The column is NOT NULL; the edit form sends null when max is cleared.
+        service, job, _ = self._service_with_job(experience_min=6, experience_max=8)
+        await service.update(
+            self._actor(), uuid.uuid4(), JobUpdate(experience_max=None)
+        )
+        self.assertEqual(job.experience_max, 0)
+
+    async def test_update_null_min_is_stored_as_zero_not_null(self):
+        service, job, _ = self._service_with_job(experience_min=6, experience_max=8)
+        await service.update(
+            self._actor(), uuid.uuid4(), JobUpdate(experience_min=None)
+        )
+        self.assertEqual(job.experience_min, 0)
+
+    async def test_update_min_above_stored_real_max_is_still_rejected(self):
+        service, _, session = self._service_with_job(experience_min=2, experience_max=4)
+        with self.assertRaises(ValidationError):
+            await service.update(
+                self._actor(), uuid.uuid4(), JobUpdate(experience_min=9)
+            )
+        session.commit.assert_not_awaited()
+
     async def test_update_compares_against_stored_bound(self):
         """Lowering only the max below the job's existing min must be rejected."""
         session = AsyncMock()
@@ -292,3 +383,20 @@ class InterviewScoreBoundsTests(unittest.TestCase):
         """Legacy rows above the cap must stay readable — the cap is input-only."""
         legacy = InterviewQuestionPublic(id="q1", question="Old question", score=250)
         self.assertEqual(legacy.score, 250)
+
+
+class ExperienceRequirementFormatTests(unittest.TestCase):
+    """The text sent to the LLM must not read "5-0 years" for an open-ended range."""
+
+    def test_open_ended(self):
+        from app.prompts.common import format_experience_requirement
+
+        self.assertEqual(format_experience_requirement(5, 0), "5+ years")
+        self.assertEqual(format_experience_requirement(5, None), "5+ years")
+        self.assertEqual(format_experience_requirement(None, None), "0+ years")
+
+    def test_bounded(self):
+        from app.prompts.common import format_experience_requirement
+
+        self.assertEqual(format_experience_requirement(3, 6), "3–6 years")
+        self.assertEqual(format_experience_requirement(4, 4), "4 years")

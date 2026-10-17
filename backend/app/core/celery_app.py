@@ -32,7 +32,6 @@ celery_app = Celery(
         "app.tasks.screening_tasks",
         "app.tasks.interview_tasks",
         "app.tasks.retention_tasks",
-        "app.tasks.connect_tasks",
     ],
 )
 
@@ -61,10 +60,6 @@ celery_app.conf.update(
         "apply-data-retention": {
             "task": "tasks.apply_data_retention",
             "schedule": 86400.0,
-        },
-        "reconcile-talentos-connections": {
-            "task": "tasks.reconcile_pending_connections",
-            "schedule": config.scheduler.connect_reconcile_seconds,
         },
     },
 )

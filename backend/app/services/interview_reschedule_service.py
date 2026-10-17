@@ -101,9 +101,7 @@ async def reschedule_interview(
     if not job:
         raise ValueError("Job not found")
 
-    if not candidate.waives_screening_pass and not await _get_latest_pass_screening(
-        db, candidate_id, candidate.job_id
-    ):
+    if not await _get_latest_pass_screening(db, candidate_id, candidate.job_id):
         raise ValueError("Candidate has not passed screening")
 
     active_result = await db.execute(

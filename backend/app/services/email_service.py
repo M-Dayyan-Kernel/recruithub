@@ -338,43 +338,21 @@ def _build_org_invite_email_html(
     invite_url: str,
     invited_by_name: str | None,
 ) -> str:
+    from app.services.email_layout import render_email, strong
+
     role_label = "Admin" if role == "admin" else "HR"
-    inviter = f" by <strong>{invited_by_name}</strong>" if invited_by_name else ""
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Organization invite</title>
-  <style>
-    body {{ font-family: Arial, sans-serif; background-color: #f4f4f7; margin: 0; padding: 0; }}
-    .container {{ max-width: 560px; margin: 40px auto; background: #ffffff; border-radius: 8px;
-                  padding: 40px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }}
-    h1 {{ font-size: 22px; color: #1a1a2e; margin-bottom: 8px; }}
-    p {{ font-size: 15px; color: #444; line-height: 1.6; }}
-    .btn {{ display: inline-block; margin: 24px 0; padding: 14px 32px;
-            background-color: #0d9488; color: #ffffff; text-decoration: none;
-            border-radius: 6px; font-size: 15px; font-weight: bold; }}
-    .footer {{ font-size: 12px; color: #999; margin-top: 32px; text-align: center; }}
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>You're invited to join {organization_name}</h1>
-    <p>
-      You've been invited{inviter} to join
-      <strong>{organization_name}</strong> as <strong>{role_label}</strong>
-      on the AI Recruitment platform.
-    </p>
-    <a href="{invite_url}" class="btn">Accept invitation</a>
-    <p>Or copy and paste this link into your browser:</p>
-    <p style="word-break: break-all; font-size: 13px; color: #666;">{invite_url}</p>
-    <div class="footer">
-      <p>If you weren't expecting this email, you can ignore it.</p>
-    </div>
-  </div>
-</body>
-</html>"""
+    inviter = f" by {strong(invited_by_name)}" if invited_by_name else ""
+    return render_email(
+        heading=f"You're invited to join {organization_name}",
+        preheader=f"Accept your invitation to {organization_name} on Recruitment Hub.",
+        paragraphs=[
+            f"You've been invited{inviter} to join {strong(organization_name)} as "
+            f"{strong(role_label)} on the AI Recruitment platform.",
+        ],
+        cta=("Accept invitation", invite_url),
+        footer_lines=["If you weren't expecting this email, you can ignore it."],
+        accent="#0d9488",
+    )
 
 
 async def send_org_invite_email(

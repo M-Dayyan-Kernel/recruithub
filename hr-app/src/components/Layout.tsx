@@ -1,11 +1,10 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
   Archive,
   Briefcase,
-  KeyRound,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -14,25 +13,35 @@ import {
   X,
   Zap,
   Contact,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { filterArchivedJobs } from '@/lib/jobStatus'
+import { PHONE_SCREENING_LABEL, RESUME_SCREENING_LABEL } from '@/lib/stageLabels'
 import { useAuth } from '@/context/AuthContext'
 
-function navLinkClass({ isActive }: { isActive: boolean }) {
+/**
+ * Nav items on the dark rail. Collapsed, the row becomes a centred icon and the
+ * label is dropped from the flow rather than hidden with opacity, so it cannot
+ * be read by a screen reader or catch a click.
+ */
+function navLinkClass(isActive: boolean, collapsed: boolean) {
   return cn(
-    'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors',
+    'relative flex items-center rounded-lg text-sm font-medium transition-colors',
+    collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5',
     isActive
-      ? 'bg-indigo-600 text-white'
-      : 'text-slate-400 hover:bg-slate-800/80 hover:text-slate-100',
+      ? 'bg-accent text-accent-ink shadow-accent'
+      : 'text-rail-muted hover:bg-rail-2 hover:text-rail-ink',
   )
 }
 
-function SectionLabel({ children }: { children: ReactNode }) {
+function SectionLabel({ children, collapsed }: { children: ReactNode; collapsed?: boolean }) {
+  if (collapsed) return <div className="mx-auto my-2 h-px w-6 bg-rail-line" />
   return (
-    <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+    <p className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-rail-muted/70">
       {children}
     </p>
   )
@@ -52,8 +61,27 @@ function isJobsNavActive(pathname: string): boolean {
   return false
 }
 
+const RAIL_KEY = 'hub:rail-collapsed'
+
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Persisted, because a rail that reopens on every navigation is worse than
+  // one that never collapsed.
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(RAIL_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(RAIL_KEY, collapsed ? '1' : '0')
+    } catch {
+      /* private mode; the rail just will not remember */
+    }
+  }, [collapsed])
   const location = useLocation()
   const { user, isAdmin, isActingInTenant, clearTenantSwitch, logout } = useAuth()
 
@@ -73,21 +101,21 @@ export default function Layout() {
     }
     if (location.pathname === '/jobs/new') return 'Create Job'
     if (location.pathname === '/jobs/archived') return 'Archived jobs'
-    if (location.pathname.match(/^\/jobs\/[^/]+\/screening/)) return 'Screening'
+    if (location.pathname.match(/^\/jobs\/[^/]+\/screening/)) return PHONE_SCREENING_LABEL
     if (location.pathname.match(/^\/jobs\/[^/]+\/finalists/)) return 'Finalists'
     if (location.pathname.match(/^\/jobs\/[^/]+\/interviews/)) return 'Interviews'
-    if (location.pathname.match(/^\/jobs\/[^/]+\/shortlist/)) return 'Resume Screening'
+    if (location.pathname.match(/^\/jobs\/[^/]+\/shortlist/)) return RESUME_SCREENING_LABEL
     if (location.pathname.match(/^\/jobs\/[^/]+$/)) return 'Job details'
     if (location.pathname.startsWith('/report/')) return 'Interview Report'
     if (location.pathname === '/settings') return 'Settings'
-    if (location.pathname === '/connections') return 'API Keys'
+    if (location.pathname === '/account') return 'Account'
     if (location.pathname === '/users') return 'Users'
     if (location.pathname === '/activity') return 'Activity'
     return 'Recruitment Hub'
   })()
 
   return (
-    <div className="flex h-screen overflow-hidden bg-zinc-50">
+    <div className="flex h-screen overflow-hidden bg-bg">
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-20 bg-black/60 lg:hidden"
@@ -95,110 +123,190 @@ export default function Layout() {
         />
       )}
 
+      {/*
+        A floating rail, inset from the viewport rather than flush to it, so the
+        page ground runs behind it on all four sides.
+      */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-30 flex w-60 flex-col bg-slate-900 transition-transform duration-200',
-          'lg:static lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-30 flex flex-col rounded-none bg-rail transition-all duration-200',
+          'lg:static lg:m-3 lg:translate-x-0 lg:rounded-card lg:shadow-e3',
+          collapsed ? 'w-60 lg:w-[76px]' : 'w-60',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        <div className="flex items-center gap-2.5 border-b border-slate-800 px-4 py-4">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600">
-            <Zap className="h-4 w-4 text-white" />
+        <div
+          className={cn(
+            'flex items-center border-b border-rail-line py-4',
+            collapsed ? 'justify-center px-0 lg:px-2' : 'gap-2.5 px-4',
+          )}
+        >
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent">
+            <Zap className="h-[18px] w-[18px] text-accent-ink" />
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-slate-50">Recruitment Hub</p>
-            <p className="text-[11px] text-slate-500">HR Portal</p>
-          </div>
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-rail-ink">Recruitment Hub</p>
+              <p className="text-[11px] text-rail-muted">HR Portal</p>
+            </div>
+          )}
           <button
             type="button"
-            className="shrink-0 text-slate-500 hover:text-slate-200 lg:hidden"
+            className="shrink-0 rounded-md p-1 text-rail-muted hover:bg-rail-2 hover:text-rail-ink lg:hidden"
             onClick={closeSidebar}
             aria-label="Close sidebar"
           >
             <X className="h-5 w-5" />
           </button>
+          {!collapsed && (
+            <button
+              type="button"
+              onClick={() => setCollapsed(true)}
+              className="hidden shrink-0 rounded-md p-1 text-rail-muted transition-colors hover:bg-rail-2 hover:text-rail-ink lg:block"
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+            >
+              <PanelLeftClose className="h-[18px] w-[18px]" />
+            </button>
+          )}
         </div>
 
-        <nav className="scrollbar-thin flex-1 overflow-y-auto px-2.5 py-3">
-          <SectionLabel>Overview</SectionLabel>
-          <div className="space-y-0.5">
-            <NavLink to="/" end onClick={closeSidebar} className={navLinkClass}>
-              <LayoutDashboard className="h-4 w-4 shrink-0 opacity-80" />
-              Dashboard
+        {collapsed && (
+          <button
+            type="button"
+            onClick={() => setCollapsed(false)}
+            className="mx-auto mt-3 hidden rounded-md p-1.5 text-rail-muted transition-colors hover:bg-rail-2 hover:text-rail-ink lg:block"
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+          >
+            <PanelLeftOpen className="h-[18px] w-[18px]" />
+          </button>
+        )}
+
+        <nav className="scrollbar-thin flex-1 overflow-y-auto px-3 py-3">
+          <SectionLabel collapsed={collapsed}>Overview</SectionLabel>
+          <div className="space-y-1">
+            <NavLink
+              to="/"
+              end
+              title={collapsed ? 'Dashboard' : undefined}
+              onClick={closeSidebar}
+              className={({ isActive }) => navLinkClass(isActive, collapsed)}
+            >
+              <LayoutDashboard className="h-[18px] w-[18px] shrink-0" />
+              {collapsed ? null : 'Dashboard'}
             </NavLink>
             <NavLink
               to="/jobs"
               end
+              title={collapsed ? 'Jobs' : undefined}
               onClick={closeSidebar}
-              className={() => navLinkClass({ isActive: isJobsNavActive(location.pathname) })}
+              className={() => navLinkClass(isJobsNavActive(location.pathname), collapsed)}
             >
-              <Briefcase className="h-4 w-4 shrink-0 opacity-80" />
-              Jobs
+              <Briefcase className="h-[18px] w-[18px] shrink-0" />
+              {collapsed ? null : 'Jobs'}
             </NavLink>
-            <NavLink to="/candidates" onClick={closeSidebar} className={navLinkClass}>
-              <Contact className="h-4 w-4 shrink-0 opacity-80" />
-              Candidates
+            <NavLink
+              to="/candidates"
+              title={collapsed ? 'Candidates' : undefined}
+              onClick={closeSidebar}
+              className={({ isActive }) => navLinkClass(isActive, collapsed)}
+            >
+              <Contact className="h-[18px] w-[18px] shrink-0" />
+              {collapsed ? null : 'Candidates'}
             </NavLink>
           </div>
         </nav>
 
-        <div className="space-y-3 border-t border-slate-800 px-2.5 py-3">
+        <div className="space-y-3 border-t border-rail-line px-3 py-3">
           <div>
-            <SectionLabel>Library</SectionLabel>
-            <NavLink to="/jobs/archived" onClick={closeSidebar} className={navLinkClass}>
-              <Archive className="h-4 w-4 shrink-0 opacity-80" />
-              <span className="flex-1">Archived</span>
-              {archivedCount > 0 && (
-                <span
-                  className={cn(
-                    'rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
-                    location.pathname === '/jobs/archived'
-                      ? 'bg-indigo-500/80 text-white'
-                      : 'bg-slate-800 text-slate-400',
+            <SectionLabel collapsed={collapsed}>Library</SectionLabel>
+            <NavLink
+              to="/jobs/archived"
+              title={collapsed ? 'Archived' : undefined}
+              onClick={closeSidebar}
+              className={({ isActive }) => navLinkClass(isActive, collapsed)}
+            >
+              <Archive className="h-[18px] w-[18px] shrink-0" />
+              {collapsed ? null : (
+                <>
+                  <span className="flex-1">Archived</span>
+                  {archivedCount > 0 && (
+                    <span
+                      className={cn(
+                        'rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums',
+                        location.pathname === '/jobs/archived'
+                          ? 'bg-black/20 text-accent-ink'
+                          : 'bg-rail-2 text-rail-muted',
+                      )}
+                    >
+                      {archivedCount}
+                    </span>
                   )}
-                >
-                  {archivedCount}
-                </span>
+                </>
               )}
             </NavLink>
           </div>
 
           {isAdmin && (
             <div>
-              <SectionLabel>Admin</SectionLabel>
-              <div className="space-y-0.5">
-                <NavLink to="/activity" onClick={closeSidebar} className={navLinkClass}>
-                  <Activity className="h-4 w-4 shrink-0 opacity-80" />
-                  Activity
+              <SectionLabel collapsed={collapsed}>Admin</SectionLabel>
+              <div className="space-y-1">
+                <NavLink
+                  to="/activity"
+                  title={collapsed ? 'Activity' : undefined}
+                  onClick={closeSidebar}
+                  className={({ isActive }) => navLinkClass(isActive, collapsed)}
+                >
+                  <Activity className="h-[18px] w-[18px] shrink-0" />
+                  {collapsed ? null : 'Activity'}
                 </NavLink>
-                <NavLink to="/users" onClick={closeSidebar} className={navLinkClass}>
-                  <Users className="h-4 w-4 shrink-0 opacity-80" />
-                  Users
+                <NavLink
+                  to="/users"
+                  title={collapsed ? 'Users' : undefined}
+                  onClick={closeSidebar}
+                  className={({ isActive }) => navLinkClass(isActive, collapsed)}
+                >
+                  <Users className="h-[18px] w-[18px] shrink-0" />
+                  {collapsed ? null : 'Users'}
                 </NavLink>
-                <NavLink to="/settings" onClick={closeSidebar} className={navLinkClass}>
-                  <Settings className="h-4 w-4 shrink-0 opacity-80" />
-                  Settings
-                </NavLink>
-                <NavLink to="/connections" onClick={closeSidebar} className={navLinkClass}>
-                  <KeyRound className="h-4 w-4 shrink-0 opacity-80" />
-                  API Keys
+                <NavLink
+                  to="/settings"
+                  title={collapsed ? 'Settings' : undefined}
+                  onClick={closeSidebar}
+                  className={({ isActive }) => navLinkClass(isActive, collapsed)}
+                >
+                  <Settings className="h-[18px] w-[18px] shrink-0" />
+                  {collapsed ? null : 'Settings'}
                 </NavLink>
               </div>
             </div>
           )}
         </div>
 
-        <div className="border-t border-slate-800 p-3">
-          <div className="flex items-center gap-2.5 rounded-lg px-1.5 py-1">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-700 text-[11px] font-semibold text-slate-100">
+        <div className="border-t border-rail-line p-3">
+          <div
+            className={cn(
+              'flex items-center rounded-lg py-1',
+              collapsed ? 'justify-center px-0' : 'gap-2.5 px-1.5',
+            )}
+          >
+            <NavLink
+              to="/account"
+              title="Account and password"
+              aria-label="Account and password"
+              onClick={closeSidebar}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rail-2 text-[11px] font-semibold text-rail-ink ring-1 ring-rail-line transition-colors hover:ring-rail-muted"
+            >
               {userInitials(user?.full_name, user?.email)}
-            </div>
+            </NavLink>
+            
+            {!collapsed && (
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-slate-100">
+              <p className="truncate text-sm font-medium text-rail-ink">
                 {user?.full_name ?? 'User'}
               </p>
-              <p className="truncate text-[11px] text-slate-500">
+              <p className="truncate text-[11px] text-rail-muted">
                 {isActingInTenant && user?.active_tenant_name
                   ? `${user.active_tenant_name} · `
                   : user?.tenant_name
@@ -207,26 +315,46 @@ export default function Layout() {
                 <span className="capitalize">{user?.role}</span>
               </p>
             </div>
+            )}
+            {!collapsed && (
+              <button
+                type="button"
+                onClick={logout}
+                title="Sign out"
+                aria-label="Sign out"
+                className="shrink-0 rounded-md p-1.5 text-rail-muted transition-colors hover:bg-rail-2 hover:text-rail-ink"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          {collapsed && (
             <button
               type="button"
               onClick={logout}
               title="Sign out"
               aria-label="Sign out"
-              className="shrink-0 rounded-md p-1.5 text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-100"
+              className="mx-auto mt-2 flex h-9 w-9 items-center justify-center rounded-lg text-rail-muted transition-colors hover:bg-rail-2 hover:text-rail-ink"
             >
-              <LogOut className="h-4 w-4" />
+              <LogOut className="h-[18px] w-[18px]" />
             </button>
-          </div>
+          )}
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {isActingInTenant && (
-          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-teal-800/40 bg-teal-950 px-6 py-2 text-xs text-teal-100">
-            <span>
+          <div className="mx-3 mt-3 flex shrink-0 items-center justify-between gap-3 rounded-lg bg-gradient-to-r from-warn to-orange-500 px-4 py-2.5 text-[13px] text-white shadow-lg shadow-warn/25">
+            <span className="inline-flex items-center gap-2">
+              <span className="relative flex h-2 w-2" aria-hidden>
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-70" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
+              </span>
+              <span className="rounded bg-black/15 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide">
+                Impersonating
+              </span>
               Viewing as{' '}
-              <strong className="font-semibold">{user?.active_tenant_name ?? 'organization'}</strong>
-              {' '}(superadmin)
+              <strong className="font-bold">{user?.active_tenant_name ?? 'organization'}</strong>
             </span>
             <button
               type="button"
@@ -235,25 +363,30 @@ export default function Layout() {
                   window.location.assign('/admin')
                 })
               }}
-              className="font-medium text-teal-200 underline-offset-2 hover:underline"
+              className="shrink-0 rounded-md bg-white/20 px-3 py-1 text-[12px] font-bold text-white transition-colors hover:bg-white/30"
             >
               Back to platform console
             </button>
           </div>
         )}
-        <header className="flex shrink-0 items-center gap-4 border-b border-zinc-200 bg-white px-6 py-4">
+        {/*
+          Mobile only. On desktop the sidebar already marks the active section
+          and every page renders its own PageHeader, so a third copy of the
+          title was pure redundancy.
+        */}
+        <header className="flex shrink-0 items-center gap-4 border-b border-line bg-surface px-6 py-4 lg:hidden">
           <button
             type="button"
-            className="text-slate-500 hover:text-slate-700 lg:hidden"
+            className="text-ink-subtle hover:text-ink"
             onClick={() => setSidebarOpen(true)}
             aria-label="Open sidebar"
           >
             <Menu className="h-5 w-5" />
           </button>
-          <h1 className="truncate text-lg font-semibold text-slate-800">{pageTitle}</h1>
+          <h1 className="truncate text-lg font-semibold text-ink">{pageTitle}</h1>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-4">
+        <main className="flex-1 overflow-y-auto p-6">
           <Outlet />
         </main>
       </div>

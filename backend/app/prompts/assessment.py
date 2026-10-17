@@ -107,9 +107,10 @@ def build_assessment_user_prompt(
     transcript: str,
 ) -> str:
     from app.core.config_loader import config
+    from app.prompts.common import format_experience_requirement
 
     skills = ", ".join(required_skills or []) or "Not specified"
-    experience_range = f"{experience_min}–{experience_max} years"
+    experience_range = format_experience_requirement(experience_min, experience_max)
     jd_limit = config.parsing.assessment_jd_chars
     transcript_limit = config.parsing.assessment_transcript_chars
     return f"""== JOB DESCRIPTION ==

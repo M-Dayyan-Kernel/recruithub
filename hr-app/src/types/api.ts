@@ -1,3 +1,5 @@
+import type { IntegritySummary } from '@/types/integrity'
+
 export interface PaginatedResponse<T> {
   items: T[]
   total: number
@@ -106,7 +108,6 @@ export interface ShortlistResult {
 export interface ShortlistResultWithCandidate extends ShortlistResult {
   candidate_name?: string | null
   candidate_email?: string | null
-  skip_ai_shortlist?: boolean
 }
 
 export interface ShortlistDecisionResponse extends ShortlistResult {
@@ -182,73 +183,6 @@ export interface ScreeningTriggerResponse {
   initiated: number
   queued: number
   skipped: Array<{ id?: string; name?: string; reason: string }>
-}
-
-// ---------------------------------------------------------------------------
-// API keys & talentOS connections
-// ---------------------------------------------------------------------------
-
-export interface ApiKey {
-  id: string
-  name: string
-  description?: string | null
-  key_prefix: string
-  is_active: boolean
-  last_used_at?: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface ApiKeyListResponse {
-  data: ApiKey[]
-  total: number
-}
-
-export interface ApiKeyCreatedResponse extends ApiKey {
-  full_key: string
-}
-
-export interface ConnectionFieldResponse {
-  configured: boolean
-  source: 'tenant' | 'platform' | 'missing'
-  hint?: string | null
-}
-
-export interface TalentosConnectionResponse {
-  fields: Record<string, ConnectionFieldResponse>
-}
-
-export interface TalentosConnectionUpdate {
-  talentos_be_url?: string | null
-  talentos_be_api_key?: string | null
-}
-
-export interface TalentosConnectResponse {
-  flow_id?: string | null
-  state: string
-  operation?: string | null
-  external_tenant_id?: string | null
-  attempts?: number
-  ping_a_verified?: boolean
-  ping_b_verified?: boolean
-  rhub_key_id?: string | null
-  tal_key_id?: string | null
-  result?: string | null
-  already_in_progress?: boolean
-}
-
-export interface PlatformConnectionItem {
-  tenant_id: string
-  name: string
-  slug: string
-  is_active: boolean
-  verification_status: 'pending' | 'approved' | 'rejected'
-  state: string
-  flow_id?: string | null
-  ping_a_verified?: boolean
-  ping_b_verified?: boolean
-  connected_at?: string | null
-  last_error?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -390,9 +324,11 @@ export interface InterviewReport {
   transcript_segments?: TranscriptSegment[] | null
   recording_url?: string | null
   recording_key?: string | null
-  video_proctoring?: VideoProctoringSummary | null
   candidate_name?: string | null
   job_title?: string | null
+  video_proctoring?: VideoProctoringSummary | null
+  /** Extension-scan evidence; absent when no scan was recorded for this interview. */
+  integrity?: IntegritySummary | null
   created_at: string
 }
 
@@ -414,7 +350,6 @@ export interface Candidate {
   original_filename?: string | null
   parsed_data?: ParsedData | null
   pipeline_status: 'queued' | 'processing' | 'completed' | 'failed'
-  skip_ai_shortlist?: boolean
   status?: string
   years_experience?: number | null
   current_ctc?: string | null
@@ -471,9 +406,17 @@ export interface AuditLogEntry {
   actor_role: string
   action: string
   entity_type: string
+  entity_id?: string | null
   subject_label: string
   feature: string
   job_id?: string | null
+  /**
+   * The audit rows carry the transition that occurred. The API has always
+   * returned these; they were simply not declared, so the timeline could not
+   * show what a decision actually changed to.
+   */
+  before_state?: Record<string, unknown> | null
+  after_state?: Record<string, unknown> | null
 }
 
 // ---------------------------------------------------------------------------
@@ -598,7 +541,19 @@ export interface TenantCreateRequest {
   name: string
   admin_email: string
   admin_full_name: string
-  admin_password: string
+  /** Omit to let the admin set their own through the emailed link. */
+  admin_password?: string
+}
+
+/** What a create / approve / reject action reports about the email it triggered. */
+export interface TenantActionResult {
+  /** False: the action succeeded but the notification email did not go out. */
+  email_sent?: boolean | null
+}
+
+export interface PasswordTokenInfo {
+  email: string
+  purpose: 'onboarding' | 'reset'
 }
 
 export interface TenantUpdateRequest {

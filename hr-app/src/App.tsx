@@ -15,15 +15,16 @@ import ArchivedJobsPage from '@/pages/ArchivedJobsPage'
 import SettingsPage from '@/pages/SettingsPage'
 import UsersPage from '@/pages/UsersPage'
 import ActivityPage from '@/pages/ActivityPage'
-import ApiKeysPage from '@/pages/ApiKeysPage'
 import ReportPage from '@/pages/ReportPage'
 import ShortlistReportPage from '@/pages/ShortlistReportPage'
 import NotFoundPage from '@/pages/NotFoundPage'
 import LoginPage from '@/pages/LoginPage'
 import SignupPage from '@/pages/SignupPage'
 import AcceptInvitePage from '@/pages/AcceptInvitePage'
+import AccountPage from '@/pages/AccountPage'
+import ForgotPasswordPage from '@/pages/ForgotPasswordPage'
+import ResetPasswordPage from '@/pages/ResetPasswordPage'
 import OrganizationsPage from '@/pages/OrganizationsPage'
-import PlatformConnectionsPage from '@/pages/PlatformConnectionsPage'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AdminRoute, AppShellRoute, ProtectedRoute } from '@/components/ProtectedRoute'
 
@@ -41,12 +42,13 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/accept-invite" element={<AcceptInvitePage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         <Route element={<ProtectedRoute />}>
           <Route element={<AppShellRoute />}>
             <Route index element={<DashboardPage />} />
             <Route path="admin" element={<OrganizationsPage />} />
-            <Route path="admin/connections" element={<PlatformConnectionsPage />} />
             <Route path="organizations" element={<Navigate to="/admin" replace />} />
 
             <Route path="jobs" element={<JobsPage />} />
@@ -68,6 +70,7 @@ export default function App() {
               element={<ShortlistReportPage />}
             />
 
+            <Route path="account" element={<AccountPage />} />
             <Route path="candidates" element={<CandidatesPage />} />
             <Route path="candidates/:candidateId" element={<CandidateProfilePage />} />
 
@@ -75,7 +78,6 @@ export default function App() {
               <Route path="activity" element={<ActivityPage />} />
               <Route path="users" element={<UsersPage />} />
               <Route path="settings" element={<SettingsPage />} />
-              <Route path="connections" element={<ApiKeysPage />} />
             </Route>
             <Route path="*" element={<NotFoundPage />} />
           </Route>

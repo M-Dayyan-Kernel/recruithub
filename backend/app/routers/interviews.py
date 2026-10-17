@@ -14,8 +14,14 @@ from app.dependencies import (
     get_interview_hr_service,
     get_interview_public_service,
     get_interview_report_service,
+    get_integrity_service,
     get_interview_webhook_service,
     hr_roles,
+)
+from app.schemas.integrity import (
+    IntegrityPolicyResponse,
+    IntegrityScanAck,
+    IntegrityScanIn,
 )
 from app.schemas.schemas import (
     FinalistsResponse,
@@ -26,6 +32,8 @@ from app.schemas.schemas import (
     InterviewSessionResponse,
     InterviewStartResponse,
 )
+from app.services.integrity_service import IntegrityService
+from app.services.interview_guards import enforce_public_interview_rate_limit
 from app.services.interview_hr_service import InterviewHrService
 from app.services.interview_public_service import InterviewPublicService
 from app.services.interview_report_service import InterviewReportService
@@ -100,6 +108,27 @@ async def complete_interview(
     service: InterviewPublicService = Depends(get_interview_public_service),
 ):
     return await service.complete(token)
+
+
+@router.get("/interview/{token}/integrity-policy", response_model=IntegrityPolicyResponse)
+async def get_integrity_policy(
+    token: str,
+    service: IntegrityService = Depends(get_integrity_service),
+):
+    """Active AI-extension list and rules, for the interview page to hand to the extension."""
+    await enforce_public_interview_rate_limit(token, "integrity_policy")
+    return await service.policy_for_interview(token)
+
+
+@router.post("/interview/{token}/integrity-scan", response_model=IntegrityScanAck)
+async def record_integrity_scan(
+    token: str,
+    body: IntegrityScanIn,
+    service: IntegrityService = Depends(get_integrity_service),
+):
+    """Store one extension scan as evidence for the HR report."""
+    await enforce_public_interview_rate_limit(token, "integrity_scan")
+    return await service.record_scan(token, body)
 
 
 @router.post("/livekit/webhook", status_code=status.HTTP_200_OK)

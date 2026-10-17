@@ -334,11 +334,6 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
                 screening_call.call_status = "failed"
                 screening_call.call_outcome = "failed"
                 await session.commit()
-                await _push_screening_to_talentos_be(
-                    job=job,
-                    candidate=candidate,
-                    screening_call=screening_call,
-                )
                 logger.error("Config/auth error — not retrying: %s", exc)
                 return
 
@@ -361,11 +356,6 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
                     f"Vapi dial failed after retries: {str(exc)[:400]}"
                 )
                 await session.commit()
-                await _push_screening_to_talentos_be(
-                    job=job,
-                    candidate=candidate,
-                    screening_call=screening_call,
-                )
                 logger.error(
                     "Vapi dial retries exhausted for screening_call %s",
                     screening_call_id,
@@ -1188,12 +1178,6 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
                 screening_call.result,
             )
 
-            await _push_screening_to_talentos_be(
-                job=job,
-                candidate=candidate,
-                screening_call=screening_call,
-            )
-
         except openai.AuthenticationError as exc:
             logger.error("OpenAI auth error during webhook extraction — no retry: %s", exc)
             screening_call.call_status = "completed"
@@ -1359,52 +1343,6 @@ async def _extract_screening_fields(
     )
     extracted = json.loads(raw_content)
     return extracted
-
-
-# ---------------------------------------------------------------------------
-# Push screening completion back to talentOS BE
-# ---------------------------------------------------------------------------
-
-_SCREENING_PUSH_FIELDS = (
-    "call_status", "call_outcome", "ended_reason", "retry_count", "result",
-    "summary", "transcript", "availability", "employment_status",
-    "relevant_experience", "current_ctc", "expected_ctc", "notice_period",
-    "location_preference", "communication_quality", "willingness_to_proceed",
-)
-
-
-def _serialize_screening_call(screening_call) -> dict:
-    payload: dict = {"id": str(screening_call.id)}
-    for field in _SCREENING_PUSH_FIELDS:
-        value = getattr(screening_call, field, None)
-        payload[field] = value
-    created_at = getattr(screening_call, "created_at", None)
-    if created_at is not None:
-        payload["created_at"] = created_at.isoformat()
-    return payload
-
-
-async def _push_screening_to_talentos_be(*, job, candidate, screening_call) -> None:
-    external_job_id = getattr(job, "external_job_id", None)
-    if not external_job_id or not candidate.id:
-        return
-    try:
-        from app.modules.talentos_integration.talentos_be_client import (
-            get_talentos_client_for_tenant,
-        )
-
-        client = await get_talentos_client_for_tenant(getattr(job, "tenant_id", None))
-        await client.push_screening_completion(
-            external_job_id=str(external_job_id),
-            external_candidate_id=str(candidate.id),
-            screening_call_id=str(screening_call.id),
-            result=_serialize_screening_call(screening_call),
-        )
-    except Exception as exc:
-        logger.warning(
-            "Failed to push screening completion to talentOS BE (screening_call=%s): %s",
-            screening_call.id, exc,
-        )
 
 
 # ---------------------------------------------------------------------------

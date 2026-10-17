@@ -80,6 +80,16 @@ class UserRepository:
         )
         return {tid: count for tid, count in result.all()}
 
+    async def get_first_admin(self, tenant_id: uuid.UUID) -> User | None:
+        """The organization's earliest admin - the person who owns onboarding mail."""
+        result = await self._session.execute(
+            select(User)
+            .where(User.tenant_id == tenant_id, User.role == "admin")
+            .order_by(User.created_at.asc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
     async def has_admin(self) -> bool:
         result = await self._session.execute(
             select(User.id).where(User.role == "admin").limit(1)

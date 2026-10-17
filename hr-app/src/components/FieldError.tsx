@@ -16,7 +16,7 @@ export function RequiredMark() {
 export function FieldError({ message }: { message?: string | null }) {
   if (!message) return null
   return (
-    <p role="alert" className="mt-1.5 text-xs text-red-400">
+    <p role="alert" className="mt-1.5 text-xs text-neg">
       {message}
     </p>
   )
@@ -31,7 +31,7 @@ export function CharCount({ value, max }: { value: string; max: number }) {
   const used = value.length
   if (used < max * 0.7) return null
   return (
-    <span className={`text-xs tabular-nums ${used >= max ? 'text-amber-400' : 'text-slate-500'}`}>
+    <span className={`text-xs tabular-nums ${used >= max ? 'text-warn' : 'text-ink-subtle'}`}>
       {used}/{max}
     </span>
   )

@@ -62,7 +62,7 @@ def log_mock_usage(service: str, action: str) -> None:
 
 
 def mock_resume_parse(raw_text: str) -> dict:
-    log_mock_usage("openai", "resume parse (gpt-5.4-mini)")
+    log_mock_usage("openai", "resume parse (gpt-4o)")
     # Derive a stable-but-distinct identity from the resume content so mock mode
     # doesn't make every upload collide on the same fake email in duplicate checks.
     suffix = hashlib.sha1((raw_text or "").encode("utf-8")).hexdigest()[:8]
@@ -95,7 +95,7 @@ def mock_resume_parse(raw_text: str) -> dict:
 
 
 def mock_jd_parse(raw_text: str) -> dict:
-    log_mock_usage("openai", "JD parse (gpt-5.4-mini)")
+    log_mock_usage("openai", "JD parse (gpt-4o)")
     title = "Mock Parsed Role"
     for line in (raw_text or "").splitlines():
         stripped = line.strip()
@@ -134,7 +134,7 @@ def mock_jd_parse(raw_text: str) -> dict:
 def mock_combined_shortlist(raw_text: str = ""):
     from app.schemas.ai_outputs import CombinedShortlistOutput, ParsedResumeData, ShortlistAssessment
 
-    log_mock_usage("openai", "combined resume shortlist (gpt-5.4-mini)")
+    log_mock_usage("openai", "combined resume shortlist (gpt-4o)")
     profile = ParsedResumeData.model_validate(mock_resume_parse(raw_text))
     assessment = ShortlistAssessment(
         match_score=72.0,
@@ -147,7 +147,7 @@ def mock_combined_shortlist(raw_text: str = ""):
 
 
 def mock_shortlist_assessment() -> tuple[float, str, list[str], list[str], str]:
-    log_mock_usage("openai", "shortlist assessment (gpt-5.4-mini)")
+    log_mock_usage("openai", "shortlist assessment (gpt-4o)")
     return (
         72.0,
         "shortlisted",
@@ -158,7 +158,7 @@ def mock_shortlist_assessment() -> tuple[float, str, list[str], list[str], str]:
 
 
 def mock_expected_points(question_text: str) -> list[str]:
-    log_mock_usage("openai", "expected answer points (gpt-5.4-mini)")
+    log_mock_usage("openai", "expected answer points (gpt-4o)")
     topic = (question_text or "this topic")[:60]
     return [
         f"Demonstrates practical experience with {topic}",
@@ -168,7 +168,7 @@ def mock_expected_points(question_text: str) -> list[str]:
 
 
 def mock_screening_extraction() -> dict:
-    log_mock_usage("openai", "screening field extraction (gpt-5.4-mini)")
+    log_mock_usage("openai", "screening field extraction (gpt-4o)")
     return {
         "availability": "30 days",
         "employment_status": "Currently employed",
@@ -185,7 +185,7 @@ def mock_screening_extraction() -> dict:
 
 
 def mock_interview_assessment(transcript: str, job, candidate) -> dict:
-    log_mock_usage("openai", "interview assessment (gpt-5.4-mini)")
+    log_mock_usage("openai", "interview assessment (gpt-4o)")
     rubric = getattr(job, "interview_questions", None) or []
     if rubric:
         question_scores = []

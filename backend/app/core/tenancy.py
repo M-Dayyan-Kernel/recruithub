@@ -13,6 +13,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import Candidate, Job, ScreeningCall, ShortlistResult, User
 
 
+def normalize_org_name(name: str) -> str:
+    """Canonical stored form: trimmed, with internal whitespace runs collapsed."""
+    return re.sub(r"\s+", " ", (name or "").strip())
+
+
+def org_name_key(name: str) -> str:
+    """Case- and whitespace-insensitive identity of an organization name.
+
+    "Acme  Corp", " acme corp" and "ACME CORP" are the same organization. The
+    unique index on ``tenants`` uses the same expression (see ``tenant_name_key``
+    in models.py), so the app check and the database agree.
+    """
+    return normalize_org_name(name).lower()
+
+
 def slugify(name: str) -> str:
     base = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
     return (base or "org")[:80]

@@ -11,11 +11,6 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.routes import health as health_routes
 from app.exceptions import DomainError
-from app.modules.api_keys.api_key_router import router as api_key_router
-from app.modules.api_keys.api_key_tenant_router import router as api_key_tenant_router
-from app.modules.talentos_integration.connections_router import router as connections_router
-from app.modules.talentos_integration.connect_handshake_router import router as connect_handshake_router
-from app.modules.talentos_integration.talentos_integration_router import router as talentos_integration_router
 from app.routers import (
     audit,
     auth,
@@ -204,11 +199,6 @@ app.include_router(shortlist.router, prefix="/api", tags=["shortlist"])
 app.include_router(screening.router, prefix="/api", tags=["screening"])
 app.include_router(interviews.router, prefix="/api", tags=["interviews"])
 app.include_router(settings.router, prefix="/api", tags=["settings"])
-app.include_router(api_key_router, prefix="/api/app-keys", tags=["app-keys"])
-app.include_router(api_key_tenant_router, prefix="/api/tenant/app-keys", tags=["app-keys"])
-app.include_router(connections_router, prefix="/api", tags=["integrations"])
-app.include_router(talentos_integration_router)
-app.include_router(connect_handshake_router)
 
 
 @app.get("/metrics", include_in_schema=False)
@@ -216,4 +206,3 @@ async def metrics():
     from app.core.metrics import metrics_response
 
     return metrics_response()
-

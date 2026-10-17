@@ -1,9 +1,9 @@
 import { type ChangeEvent, type DragEvent, type FormEvent, useRef, useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { FileText, Upload, X, Zap } from 'lucide-react'
+import { Navigate, useNavigate } from 'react-router-dom'
+import { FileText, Loader2, Upload, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/context/AuthContext'
-import { WORKFLOW_INPUT_CLASS, WORKFLOW_PRIMARY_BUTTON_CLASS } from '@/lib/workflow'
+import AuthLayout, { AUTH_BUTTON_CLASS, AUTH_INPUT_CLASS } from '@/components/auth/AuthLayout'
 import { PasswordInput } from '@/components/PasswordInput'
 import { RequiredMark } from '@/components/FieldError'
 import {
@@ -135,23 +135,16 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 via-zinc-50 to-slate-200 px-4 py-10">
-      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-600">
-            <Zap className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold text-slate-900">Create organization</h1>
-            <p className="text-sm text-slate-500">
-              Submit GST documents for verification before access
-            </p>
-          </div>
-        </div>
-
+    <AuthLayout
+      title="Create account"
+      subtitle="Submit your GST documents for verification, then you're in."
+      switchPrompt="Already have an account?"
+      switchLabel="Sign in"
+      switchTo="/login"
+    >
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
-            <label htmlFor="org" className="mb-1.5 block text-sm font-medium text-slate-700">
+            <label htmlFor="org" className="mb-1.5 block text-[13px] font-semibold text-slate-700">
               Organization name
               <RequiredMark />
             </label>
@@ -161,12 +154,12 @@ export default function SignupPage() {
               maxLength={ORG_NAME_MAX_LENGTH}
               value={organizationName}
               onChange={(e) => setOrganizationName(e.target.value)}
-              className={WORKFLOW_INPUT_CLASS}
+              className={AUTH_INPUT_CLASS}
               placeholder="Acme Corp"
             />
           </div>
           <div>
-            <label htmlFor="fullName" className="mb-1.5 block text-sm font-medium text-slate-700">
+            <label htmlFor="fullName" className="mb-1.5 block text-[13px] font-semibold text-slate-700">
               Your name
               <RequiredMark />
             </label>
@@ -176,12 +169,12 @@ export default function SignupPage() {
               maxLength={PERSON_NAME_MAX_LENGTH}
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              className={WORKFLOW_INPUT_CLASS}
+              className={AUTH_INPUT_CLASS}
               placeholder="Jane Doe"
             />
           </div>
           <div>
-            <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-slate-700">
+            <label htmlFor="email" className="mb-1.5 block text-[13px] font-semibold text-slate-700">
               Work email
               <RequiredMark />
             </label>
@@ -192,12 +185,12 @@ export default function SignupPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className={WORKFLOW_INPUT_CLASS}
+              className={AUTH_INPUT_CLASS}
               placeholder="you@company.com"
             />
           </div>
           <div>
-            <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-slate-700">
+            <label htmlFor="password" className="mb-1.5 block text-[13px] font-semibold text-slate-700">
               Password
               <RequiredMark />
             </label>
@@ -209,7 +202,7 @@ export default function SignupPage() {
               maxLength={PASSWORD_MAX_LENGTH}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className={WORKFLOW_INPUT_CLASS}
+              className={AUTH_INPUT_CLASS}
               placeholder="••••••••"
             />
             <p className="mt-1.5 text-xs text-slate-500">{PASSWORD_HINT}</p>
@@ -294,7 +287,7 @@ export default function SignupPage() {
           </div>
 
           <div>
-            <label htmlFor="regNo" className="mb-1.5 block text-sm font-medium text-slate-700">
+            <label htmlFor="regNo" className="mb-1.5 block text-[13px] font-semibold text-slate-700">
               Company registration number{' '}
               <span className="font-normal text-slate-400">(optional)</span>
             </label>
@@ -302,26 +295,16 @@ export default function SignupPage() {
               id="regNo"
               value={companyRegistrationNumber}
               onChange={(e) => setCompanyRegistrationNumber(e.target.value)}
-              className={WORKFLOW_INPUT_CLASS}
+              className={AUTH_INPUT_CLASS}
               placeholder="e.g. CIN / registration no."
             />
           </div>
-          <button
-            type="submit"
-            disabled={submitting}
-            className={`${WORKFLOW_PRIMARY_BUTTON_CLASS} w-full justify-center disabled:opacity-60`}
-          >
+          <button type="submit" disabled={submitting} className={`${AUTH_BUTTON_CLASS} !mt-6`}>
+            {submitting && <Loader2 size={16} className="animate-spin" />}
             {submitting ? 'Submitting…' : 'Submit for verification'}
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-slate-500">
-          Already have an account?{' '}
-          <Link to="/login" className="font-medium text-indigo-600 hover:text-indigo-500">
-            Sign in
-          </Link>
-        </p>
-      </div>
-    </div>
+    </AuthLayout>
   )
 }

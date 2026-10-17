@@ -8,7 +8,6 @@ SCREENING_QUEUE = "screening"
 INTERVIEWS_QUEUE = "interviews"
 
 CELERY_QUEUE_NAMES: tuple[str, ...] = (
-    "celery",  # default queue — unrouted tasks (e.g. connect reconciler) land here
     RESUME_QUEUE,
     SHORTLIST_QUEUE,
     SCREENING_QUEUE,
@@ -31,9 +30,6 @@ TASK_ROUTES: dict[str, dict[str, str]] = {
     "tasks.schedule_interview_assessment": {"queue": INTERVIEWS_QUEUE},
     "tasks.generate_interview_report": {"queue": INTERVIEWS_QUEUE},
     "tasks.run_video_proctoring": {"queue": INTERVIEWS_QUEUE},
-    # Beat / default-queue work — the all-queues worker must include `celery`.
-    "tasks.reconcile_pending_connections": {"queue": "celery"},
-    "tasks.apply_data_retention": {"queue": "celery"},
 }
 
 ROUTED_TASK_NAMES: frozenset[str] = frozenset(TASK_ROUTES)
