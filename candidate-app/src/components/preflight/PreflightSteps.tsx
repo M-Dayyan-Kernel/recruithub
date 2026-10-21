@@ -21,7 +21,9 @@ import {
 import { CONSENT_VERSION, type ProctorSession } from '@/proctoring/session'
 import { IconBadge, Note, Panel, PrimaryButton, TextButton } from '@/components/Shell'
 import type { GateResult, ProhibitedExtension, UnavailableReason } from '@/lib/extensionCheck'
-import { extensionInstallUrl, scanForGate } from '@/lib/extensionGate'
+import { installMode, scanForGate } from '@/lib/extensionGate'
+import { offersInstall } from '@/lib/extensionInstall'
+import { ExtensionInstallGuide } from './ExtensionInstallGuide'
 import {
   createReadinessRunner,
   preconditionsToInvalidate,
@@ -247,9 +249,7 @@ export function ExtensionCheckStep({ session, onDone }: StepProps) {
   }
 
   const copy = UNAVAILABLE_COPY[result.reason]
-  const showInstall =
-    extensionInstallUrl &&
-    (result.reason === 'extension_unreachable' || result.reason === 'timeout')
+  const canInstall = offersInstall(result.reason)
 
   return (
     <Panel
@@ -260,12 +260,13 @@ export function ExtensionCheckStep({ session, onDone }: StepProps) {
       }
       title={copy.title}
       description={copy.body}
+      align={canInstall && installMode.kind === 'sideload' ? 'start' : 'center'}
       action={
         <>
           <PrimaryButton onClick={() => void check()}>Check again</PrimaryButton>
-          {showInstall && (
+          {canInstall && installMode.kind === 'store' && (
             <a
-              href={extensionInstallUrl}
+              href={installMode.url}
               target="_blank"
               rel="noreferrer"
               className="text-[0.9rem] font-semibold text-accent underline underline-offset-[3px]"
@@ -276,6 +277,9 @@ export function ExtensionCheckStep({ session, onDone }: StepProps) {
         </>
       }
     >
+      {canInstall && installMode.kind === 'sideload' && (
+        <ExtensionInstallGuide zipUrl={installMode.zipUrl} />
+      )}
       <Note>
         You cannot start the interview until this check passes. Your link is still valid.
       </Note>
@@ -681,23 +685,28 @@ export function EnvironmentStep({ session, onDone }: StepProps) {
                     {UNAVAILABLE_COPY[extension.gate.reason].title}.
                   </strong>{' '}
                   {UNAVAILABLE_COPY[extension.gate.reason].body}
-                  {extensionInstallUrl &&
-                    (extension.gate.reason === 'extension_unreachable' ||
-                      extension.gate.reason === 'timeout') && (
-                      <>
-                        {' '}
-                        <a
-                          href={extensionInstallUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="font-semibold text-accent underline underline-offset-[3px]"
-                        >
-                          Get the extension
-                        </a>
-                      </>
-                    )}
+                  {installMode.kind === 'store' && offersInstall(extension.gate.reason) && (
+                    <>
+                      {' '}
+                      <a
+                        href={installMode.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold text-accent underline underline-offset-[3px]"
+                      >
+                        Get the extension
+                      </a>
+                    </>
+                  )}
                 </p>
               )}
+              {extension.gate.status !== 'blocked' &&
+                installMode.kind === 'sideload' &&
+                offersInstall(extension.gate.reason) && (
+                  <div className="mt-3">
+                    <ExtensionInstallGuide zipUrl={installMode.zipUrl} />
+                  </div>
+                )}
               <div className="mt-3">
                 <PrimaryButton onClick={() => void recover(async () => undefined)} busy={busy}>
                   Rescan

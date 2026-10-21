@@ -1,0 +1,11 @@
+# Applies to builds whose context is the repo root. Today that is only candidate-app
+# (docker-compose.app.yml), which needs candidate-app/ and chrome-extension/ and nothing
+# else. Allow-list on purpose: a new top-level directory is excluded unless added here,
+# so the build context stays small without anyone remembering to ignore it.
+# Other services build from their own directory and use that directory's .dockerignore.
+*
+!candidate-app
+!chrome-extension
+**/node_modules
+**/dist
+**/.git

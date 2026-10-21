@@ -1,9 +1,9 @@
 # Recruit Hub Interview Check (Chrome extension)
 
 A standalone Manifest V3 extension that checks, on the candidate's own device,
-whether a prohibited AI-assistance extension is **enabled**. It is not yet
-integrated with the Recruit Hub candidate app or backend, and it does not gate
-interviews.
+whether a prohibited AI-assistance extension is **enabled**. The Recruit Hub
+candidate app asks it for a scan and will not start an interview until it reports
+a clean, completed one (see [Recruit Hub integration](#recruit-hub-integration)).
 
 It does not detect every AI tool and does not guarantee that no AI assistance is
 possible. See [Limitations](#limitations).
@@ -126,6 +126,31 @@ never does.
 the default rules. The corpus is approximate and self-authored, so treat its numbers as a
 regression guard, not as real-world accuracy: tune from real shadow-mode data.
 
+## Distributing it to candidates
+
+While the extension is not on the Chrome Web Store, the candidate app serves it
+for sideloading. There is nothing to upload or keep in sync by hand:
+
+- The `candidate-app` Docker image zips this directory at build time with
+  `scripts/package.sh` and serves `/extension/rh-interview-check.zip` plus
+  `/extension/latest.json` (version, size, SHA-256). The build context is the repo
+  root for that reason (`docker-compose.app.yml`).
+- When the extension is missing, the pre-flight screen shows the install steps
+  (download, unzip, `chrome://extensions`, Developer mode, Load unpacked).
+- `npm run package` builds the same files into `dist/` for local inspection.
+  Files sit at the zip root so Windows extraction does not nest `manifest.json`.
+  Everything ships except `tests/`, `scripts/`, `README.md` and `package.json`.
+- **Releasing a change:** bump `version` in `manifest.json` (and `package.json`),
+  deploy the candidate app. Candidates download the new zip; an unpacked install does
+  not auto-update.
+- **Moving to the Web Store:** publish it (an *unlisted* listing is enough), set
+  `VITE_RH_EXTENSION_INSTALL_URL` to the listing and rebuild. The app then links
+  to the Store instead of showing the sideload steps. The Store assigns its own
+  ID, so also set `VITE_RH_EXTENSION_ID`, or copy the Store's public key into the
+  manifest `key` so both installs share one ID.
+- A sideloaded copy is plain files on the candidate's disk, so it can be edited. The
+  result is an attestation, not proof (see below).
+
 ## Recruit Hub integration
 
 The candidate app (`candidate-app/src/lib/extensionCheck.ts`) asks this extension
@@ -136,8 +161,9 @@ for a fresh scan before the interview can start, and again at the start action.
   installed inventory is never returned.
 - Access is limited to the origins in `externally_connectable.matches`
   (manifest) and `ALLOWED_ORIGINS` (`external.js`); a test keeps them in sync.
-  Today only `localhost` / `127.0.0.1`. **Add each production candidate-app
-  origin to both** before deploying.
+  Today `localhost`, `127.0.0.1` and the dev candidate app. **Add each production
+  candidate-app origin to both** before deploying: the check fails for every
+  candidate on a domain that is not listed.
 - `manifest.json` pins a `key`, so an unpacked install always has the ID
   `mheakijhnpcllibkkimhpbcfaifjbipj` (the candidate app's dev default). The Chrome
   Web Store assigns its own ID: set `VITE_RH_EXTENSION_ID` in the candidate app's

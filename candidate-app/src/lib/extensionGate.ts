@@ -9,13 +9,16 @@ import {
   type IntegrityPolicy,
   type ScanPhase,
 } from './extensionCheck'
+import { resolveInstallMode } from './extensionInstall'
 
 /**
  * Build-time wiring for the extension gate. The logic and its tests live in
  * extensionCheck.ts; this file only reads Vite env.
  *
  *   VITE_RH_EXTENSION_ID           ID of the Recruit Hub Interview Check extension
- *   VITE_RH_EXTENSION_INSTALL_URL  where to send a candidate who lacks it (optional)
+ *   VITE_RH_EXTENSION_INSTALL_URL  Chrome Web Store URL for candidates who lack it. When
+ *                                  unset, the app offers its own sideload zip instead
+ *                                  (lib/extensionInstall.ts).
  *   VITE_EXTENSION_CHECK=off       local development only; ignored in production builds
  */
 
@@ -33,6 +36,8 @@ export const gateConfig: GateConfig = {
 
 export const extensionInstallUrl: string | undefined =
   import.meta.env.VITE_RH_EXTENSION_INSTALL_URL || undefined
+
+export const installMode = resolveInstallMode(extensionInstallUrl)
 
 // ── Policy (live blocklist + rules) ─────────────────────────────────────────
 
