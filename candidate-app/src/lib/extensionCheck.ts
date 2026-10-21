@@ -33,7 +33,7 @@ export interface ProhibitedExtension {
 }
 
 export type UnavailableReason =
-  | 'unsupported_browser' // no chrome.runtime messaging on this page
+  | 'unsupported_browser' // not a desktop Chromium browser, so no extension can be installed
   | 'not_configured' // extension ID not set for this build
   | 'extension_unreachable' // not installed, disabled, or refuses this site
   | 'timeout'
@@ -94,11 +94,19 @@ export interface RuntimeLike {
   lastError?: { message?: string } | null
 }
 
+/** The slice of `navigator` used to recognise a browser that can run extensions; injectable for tests. */
+export interface BrowserLike {
+  userAgent?: string
+  userAgentData?: { brands?: Array<{ brand: string }>; mobile?: boolean }
+}
+
 export interface ScanOptions {
   extensionId?: string
   /** When present the request is protocol v2 and the extension applies this policy. */
   policy?: IntegrityPolicy | null
   runtime?: RuntimeLike | null
+  /** Only read when there is no runtime, to tell "no extension" from "no Chromium". */
+  browser?: BrowserLike | null
   now?: () => number
   nonce?: () => string
   timeoutMs?: number
@@ -121,6 +129,51 @@ function defaultRuntime(): RuntimeLike | null {
   const chromeGlobal = (globalThis as { chrome?: { runtime?: RuntimeLike } }).chrome
   const runtime = chromeGlobal?.runtime
   return runtime && typeof runtime.sendMessage === 'function' ? runtime : null
+}
+
+/** `detail` of an unreachable result caused by the page having no `chrome.runtime`. */
+export const NO_RUNTIME = 'no_runtime'
+
+/**
+ * True when the scan failed because this page was loaded without `chrome.runtime`.
+ * Chrome creates that object when a page loads, so a page that was already open when
+ * the candidate installed the extension cannot be assumed to see it: only a reload
+ * is certain to. Checking again in place is not enough.
+ */
+export function needsReloadToConnect(result: GateResult): boolean {
+  return (
+    result.status === 'unavailable' &&
+    result.reason === 'extension_unreachable' &&
+    result.detail === NO_RUNTIME
+  )
+}
+
+function defaultBrowser(): BrowserLike | null {
+  return (globalThis as { navigator?: BrowserLike }).navigator ?? null
+}
+
+/**
+ * Whether this is a desktop browser that can run Chrome extensions (Chrome, Edge,
+ * Brave, Opera: anything Chromium).
+ *
+ * It matters because a web page only gets `chrome.runtime` when an enabled
+ * extension lists the page's site in `externally_connectable`. With our extension
+ * missing or disabled, a perfectly good Chrome has no `chrome.runtime` at all, so
+ * its absence cannot by itself mean "wrong browser". Telling the two apart is the
+ * difference between "install the extension" and "use Chrome" for every candidate
+ * who has not installed it yet.
+ *
+ * Phones and tablets are excluded: Chrome there still says "Chrome/" but has no
+ * extensions, and every iOS browser is WebKit underneath.
+ */
+export function isDesktopChromium(browser: BrowserLike | null | undefined): boolean {
+  if (!browser) return false
+  const ua = browser.userAgent ?? ''
+  const data = browser.userAgentData
+  if (data?.mobile === true || /\b(Mobile|Android|iPhone|iPad|iPod)\b/i.test(ua)) return false
+  // Every Chromium browser lists "Chromium" among its brands, whatever it calls itself.
+  if (data?.brands?.some((b) => /Chromium/i.test(b.brand))) return true
+  return /\bChrome\/\d+/.test(ua) && !/\b(CriOS|FxiOS|EdgiOS)\b/.test(ua)
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -278,13 +331,22 @@ function requestScanOnce(options: ScanOptions = {}): Promise<GateResult> {
     extensionId,
     policy = null,
     runtime = defaultRuntime(),
+    browser = defaultBrowser(),
     now = () => Date.now(),
     nonce = newNonce,
     timeoutMs = DEFAULT_TIMEOUT_MS,
   } = options
 
   if (!extensionId) return Promise.resolve(unavailable('not_configured'))
-  if (!runtime) return Promise.resolve(unavailable('unsupported_browser'))
+  if (!runtime) {
+    // No chrome.runtime. On a browser that can run extensions that means ours is not
+    // installed (or is disabled), so the candidate needs the install steps.
+    return Promise.resolve(
+      isDesktopChromium(browser)
+        ? unavailable('extension_unreachable', NO_RUNTIME)
+        : unavailable('unsupported_browser'),
+    )
+  }
 
   const requestNonce = nonce()
 

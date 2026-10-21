@@ -20,9 +20,14 @@ import {
 } from '@/proctoring/browser'
 import { CONSENT_VERSION, type ProctorSession } from '@/proctoring/session'
 import { IconBadge, Note, Panel, PrimaryButton, TextButton } from '@/components/Shell'
-import type { GateResult, ProhibitedExtension, UnavailableReason } from '@/lib/extensionCheck'
+import {
+  needsReloadToConnect,
+  type GateResult,
+  type ProhibitedExtension,
+  type UnavailableReason,
+} from '@/lib/extensionCheck'
 import { installMode, scanForGate } from '@/lib/extensionGate'
-import { offersInstall } from '@/lib/extensionInstall'
+import { markReloadAfterInstall, offersInstall } from '@/lib/extensionInstall'
 import { ExtensionInstallGuide } from './ExtensionInstallGuide'
 import {
   createReadinessRunner,
@@ -251,6 +256,18 @@ export function ExtensionCheckStep({ session, onDone }: StepProps) {
   const copy = UNAVAILABLE_COPY[result.reason]
   const canInstall = offersInstall(result.reason)
 
+  // This page loaded without chrome.runtime, which Chrome only creates at load time, so
+  // checking again in place could never see an extension installed since. Reload instead,
+  // and skip the welcome screen the candidate already read.
+  const checkAgain = () => {
+    if (needsReloadToConnect(result)) {
+      markReloadAfterInstall(session.token)
+      window.location.reload()
+      return
+    }
+    void check()
+  }
+
   return (
     <Panel
       badge={
@@ -263,7 +280,7 @@ export function ExtensionCheckStep({ session, onDone }: StepProps) {
       align={canInstall && installMode.kind === 'sideload' ? 'start' : 'center'}
       action={
         <>
-          <PrimaryButton onClick={() => void check()}>Check again</PrimaryButton>
+          <PrimaryButton onClick={checkAgain}>Check again</PrimaryButton>
           {canInstall && installMode.kind === 'store' && (
             <a
               href={installMode.url}

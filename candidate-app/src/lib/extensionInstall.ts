@@ -84,3 +84,48 @@ export async function loadDescriptor(
 export function formatBytes(bytes: number): string {
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
+
+// ── Reload after installing ──────────────────────────────────────────────────
+
+type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+
+const RELOAD_FLAG = (token: string) => `rh:reload-after-install:${token}`
+
+function defaultStorage(): StorageLike | null {
+  try {
+    return globalThis.sessionStorage ?? null
+  } catch {
+    // Storage can throw outright (blocked site data, some embedded browsers).
+    return null
+  }
+}
+
+/**
+ * Remember that the page is about to reload so the candidate can connect to the
+ * extension they just installed. The reload would otherwise land them back on the
+ * welcome screen they already read.
+ */
+export function markReloadAfterInstall(token: string, storage: StorageLike | null = defaultStorage()): void {
+  try {
+    storage?.setItem(RELOAD_FLAG(token), '1')
+  } catch {
+    // Worst case they see the welcome screen once more.
+  }
+}
+
+/** Read without clearing, so a double-invoked initialiser (React StrictMode) sees the same answer. */
+export function hasReloadAfterInstall(token: string, storage: StorageLike | null = defaultStorage()): boolean {
+  try {
+    return storage?.getItem(RELOAD_FLAG(token)) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function clearReloadAfterInstall(token: string, storage: StorageLike | null = defaultStorage()): void {
+  try {
+    storage?.removeItem(RELOAD_FLAG(token))
+  } catch {
+    // Nothing to clean up that matters.
+  }
+}

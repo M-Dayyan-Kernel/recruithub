@@ -4,7 +4,9 @@ import assert from 'node:assert/strict'
 import {
   MAX_RESULT_AGE_MS,
   evaluateReply,
+  isDesktopChromium,
   isGateEnabled,
+  needsReloadToConnect,
   requestScan,
   runGate,
   type GateResult,
@@ -93,9 +95,78 @@ test('each request sends a protocol message with its own nonce', async () => {
 
 // ── missing / inaccessible extension (fail closed) ─────────────────────────
 
-test('no chrome.runtime (non-Chrome or extension absent) is unavailable', async () => {
-  const result = await scan(null)
-  assert.deepEqual(result, { status: 'unavailable', reason: 'unsupported_browser', detail: undefined })
+// Real user agents. A page only gets chrome.runtime when an enabled extension lists its
+// site, so a Chrome without our extension has none, and must not be told "use Chrome".
+const UA = {
+  chromeWindows:
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
+  chromeMac:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
+  chromeLinux:
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
+  chromeOS:
+    'Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
+  edge: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0',
+  opera:
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 OPR/120.0.0.0',
+  chromeAndroid:
+    'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36',
+  chromeIos:
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/149.0.0.0 Mobile/15E148 Safari/604.1',
+  safariIphone:
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+  safariMac:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+  firefox: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0',
+  firefoxAndroid: 'Mozilla/5.0 (Android 14; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0',
+}
+
+test('desktop Chromium browsers are recognised, whatever they call themselves', () => {
+  for (const name of ['chromeWindows', 'chromeMac', 'chromeLinux', 'chromeOS', 'edge', 'opera'] as const) {
+    assert.equal(isDesktopChromium({ userAgent: UA[name] }), true, name)
+  }
+})
+
+test('phones, tablets and non-Chromium browsers are not', () => {
+  for (const name of ['chromeAndroid', 'chromeIos', 'safariIphone', 'safariMac', 'firefox', 'firefoxAndroid'] as const) {
+    assert.equal(isDesktopChromium({ userAgent: UA[name] }), false, name)
+  }
+  assert.equal(isDesktopChromium(null), false)
+  assert.equal(isDesktopChromium({}), false)
+})
+
+test('client hints take precedence: a Chromium brand is a yes, mobile is a no', () => {
+  const brands = [{ brand: 'Not A;Brand' }, { brand: 'Chromium' }, { brand: 'Brave' }]
+  // Brave reports the same user agent as Chrome; the brand list is what names it.
+  assert.equal(isDesktopChromium({ userAgent: UA.chromeMac, userAgentData: { brands, mobile: false } }), true)
+  assert.equal(isDesktopChromium({ userAgent: '', userAgentData: { brands, mobile: false } }), true)
+  assert.equal(isDesktopChromium({ userAgent: UA.chromeAndroid, userAgentData: { brands, mobile: true } }), false)
+})
+
+test('no chrome.runtime in desktop Chromium means the extension is missing, so offer to install it', async () => {
+  for (const name of ['chromeWindows', 'chromeMac', 'edge'] as const) {
+    const result = await scan(null, { browser: { userAgent: UA[name] } })
+    assert.deepEqual(result, { status: 'unavailable', reason: 'extension_unreachable', detail: 'no_runtime' }, name)
+  }
+})
+
+test('no chrome.runtime in a browser that cannot run extensions is an unsupported browser', async () => {
+  for (const name of ['firefox', 'safariMac', 'safariIphone', 'chromeAndroid', 'chromeIos'] as const) {
+    const result = await scan(null, { browser: { userAgent: UA[name] } })
+    assert.deepEqual(result, { status: 'unavailable', reason: 'unsupported_browser', detail: undefined }, name)
+  }
+  // And when nothing is known about the browser, do not promise an install will help.
+  assert.deepEqual(await scan(null, { browser: null }), {
+    status: 'unavailable',
+    reason: 'unsupported_browser',
+    detail: undefined,
+  })
+})
+
+test('a present runtime is used regardless of the browser identity', async () => {
+  const runtime = runtimeAnswering(() => reply(scanResult()))
+  const result = await scan(runtime, { browser: { userAgent: UA.firefox } })
+  assert.equal(result.status, 'clear')
 })
 
 test('no extension id configured is unavailable', async () => {
@@ -238,4 +309,21 @@ test('runGate does not call the extension when explicitly disabled (dev only)', 
 
 test('the extension check is a mandatory precondition for entering the room', () => {
   assert.ok(MANDATORY_PRECONDITIONS.includes('extension_check'))
+})
+
+// ── reload needed to connect to an extension installed after the page loaded ──
+
+test('only a page with no chrome.runtime needs a reload to connect', async () => {
+  const noRuntime = await scan(null, { browser: { userAgent: UA.chromeWindows } })
+  assert.equal(needsReloadToConnect(noRuntime), true)
+
+  // An extension that exists but did not answer is not fixed by reloading.
+  const withLastError = runtimeAnswering(() => undefined)
+  withLastError.lastError = { message: 'Could not establish connection.' }
+  const unreachable = await scan(withLastError)
+  assert.equal(unreachable.status === 'unavailable' && unreachable.reason, 'extension_unreachable')
+  assert.equal(needsReloadToConnect(unreachable), false)
+
+  assert.equal(needsReloadToConnect(await scan(null, { browser: { userAgent: UA.firefox } })), false)
+  assert.equal(needsReloadToConnect({ status: 'clear', checkedAt: 'x' }), false)
 })

@@ -3,8 +3,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   EXTENSION_ZIP_URL,
+  clearReloadAfterInstall,
   formatBytes,
+  hasReloadAfterInstall,
   loadDescriptor,
+  markReloadAfterInstall,
   offersInstall,
   parseDescriptor,
   resolveInstallMode,
@@ -83,4 +86,47 @@ test('formatBytes', () => {
   assert.equal(formatBytes(17427), '17 KB')
   assert.equal(formatBytes(10), '1 KB')
   assert.equal(formatBytes(2 * 1024 * 1024), '2.0 MB')
+})
+
+// ── reload after installing ──────────────────────────────────────────────────
+
+const memoryStorage = () => {
+  const data = new Map<string, string>()
+  return {
+    getItem: (k: string) => data.get(k) ?? null,
+    setItem: (k: string, v: string) => void data.set(k, v),
+    removeItem: (k: string) => void data.delete(k),
+    data,
+  }
+}
+
+test('the reload flag is set, readable repeatedly, then cleared', () => {
+  const storage = memoryStorage()
+  assert.equal(hasReloadAfterInstall('tok', storage), false)
+  markReloadAfterInstall('tok', storage)
+  // Reading must not consume it: React StrictMode runs initialisers twice.
+  assert.equal(hasReloadAfterInstall('tok', storage), true)
+  assert.equal(hasReloadAfterInstall('tok', storage), true)
+  clearReloadAfterInstall('tok', storage)
+  assert.equal(hasReloadAfterInstall('tok', storage), false)
+})
+
+test('the reload flag is per interview link', () => {
+  const storage = memoryStorage()
+  markReloadAfterInstall('tok-a', storage)
+  assert.equal(hasReloadAfterInstall('tok-a', storage), true)
+  assert.equal(hasReloadAfterInstall('tok-b', storage), false)
+})
+
+test('blocked or missing storage never throws, and just means no skip', () => {
+  const throwing = {
+    getItem: () => { throw new Error('denied') },
+    setItem: () => { throw new Error('denied') },
+    removeItem: () => { throw new Error('denied') },
+  }
+  assert.doesNotThrow(() => markReloadAfterInstall('tok', throwing))
+  assert.equal(hasReloadAfterInstall('tok', throwing), false)
+  assert.doesNotThrow(() => clearReloadAfterInstall('tok', throwing))
+  assert.doesNotThrow(() => markReloadAfterInstall('tok', null))
+  assert.equal(hasReloadAfterInstall('tok', null), false)
 })

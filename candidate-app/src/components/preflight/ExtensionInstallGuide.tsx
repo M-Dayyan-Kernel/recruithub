@@ -93,7 +93,7 @@ export function ExtensionInstallGuide({ zipUrl }: { zipUrl: string }) {
           <strong className="font-semibold">Load unpacked</strong>, and select the unzipped folder
           that contains <span className="font-mono text-[0.8rem]">manifest.json</span>.
         </li>
-        <li>Come back to this page and choose Check again.</li>
+        <li>Come back to this page and choose Check again. The page reloads once so Chrome can connect to the extension.</li>
       </ol>
       <p className="mt-3 text-[0.78rem] leading-relaxed text-ink-muted">
         If Chrome says the manifest file is missing, you selected the wrong folder level. Chrome
