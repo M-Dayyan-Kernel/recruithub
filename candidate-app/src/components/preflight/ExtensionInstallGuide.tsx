@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Download } from 'lucide-react'
-import { GhostButton, TextButton } from '@/components/Shell'
+import { Check, Copy, Download } from 'lucide-react'
+import { GhostButton } from '@/components/Shell'
 import {
   EXTENSIONS_PAGE,
   formatBytes,
@@ -80,20 +80,41 @@ export function ExtensionInstallGuide({ zipUrl }: { zipUrl: string }) {
         </li>
         <li>Unzip it into a folder you can find, such as Documents.</li>
         <li>
-          Open a new tab and go to{' '}
-          <span className="font-mono text-[0.8rem]">{EXTENSIONS_PAGE}</span>.
-          <div className="mt-1">
-            <TextButton onClick={() => void copyAddress()}>
-              {copied ? 'Copied' : 'Copy address'}
-            </TextButton>
-          </div>
+          Open a new tab and paste{' '}
+          {/*
+            The address is the control: click it to copy. Chrome refuses to let a web page
+            open chrome:// URLs (link, window.open and location all fail with "Not allowed
+            to load local resource"), so a real link cannot work.
+          */}
+          <button
+            type="button"
+            onClick={() => void copyAddress()}
+            title="Click to copy"
+            className="group inline-flex items-center gap-1.5 rounded-md border border-line bg-panel-alt px-2 py-0.5 align-baseline font-mono text-[0.8rem] text-ink transition-colors hover:border-accent hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1"
+          >
+            {EXTENSIONS_PAGE}
+            {copied ? (
+              <Check size={13} aria-hidden className="text-ink" />
+            ) : (
+              <Copy size={13} aria-hidden className="text-ink-muted group-hover:text-accent" />
+            )}
+          </button>
+          <span className="ml-2 text-[0.78rem] text-ink-muted" aria-live="polite">
+            {copied ? 'Copied' : 'Click to copy'}
+          </span>
+          <span className="mt-1 block text-[0.78rem] leading-relaxed text-ink-muted">
+            Chrome does not let a web page open this address, so copy it and paste it into the address bar.
+          </span>
         </li>
         <li>
           Turn on <strong className="font-semibold">Developer mode</strong> (top right), choose{' '}
           <strong className="font-semibold">Load unpacked</strong>, and select the unzipped folder
           that contains <span className="font-mono text-[0.8rem]">manifest.json</span>.
         </li>
-        <li>Come back to this page and choose Check again. The page reloads once so Chrome can connect to the extension.</li>
+        <li>
+          Come back to this page and choose Check again. The page reloads once so Chrome can connect
+          to the extension.
+        </li>
       </ol>
       <p className="mt-3 text-[0.78rem] leading-relaxed text-ink-muted">
         If Chrome says the manifest file is missing, you selected the wrong folder level. Chrome
