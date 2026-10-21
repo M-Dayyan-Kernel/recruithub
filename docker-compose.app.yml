@@ -28,8 +28,9 @@ services:
 
   candidate-app:
     build:
-      context: ./candidate-app
-      dockerfile: Dockerfile
+      # Repo root: the image also packages ../chrome-extension (see candidate-app/Dockerfile).
+      context: .
+      dockerfile: candidate-app/Dockerfile
       args:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
         VITE_RH_EXTENSION_ID: ${VITE_RH_EXTENSION_ID:-}

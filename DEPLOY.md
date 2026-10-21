@@ -44,6 +44,26 @@ VITE_API_URL=https://api.yourdomain.com docker compose -f docker-compose.app.yml
 
 Set `CORS_ORIGINS`, `HR_APP_URL`, `CANDIDATE_APP_URL`, and `BACKEND_PUBLIC_URL` to match your domains.
 
+**Candidate extension (build-time values).** The candidate app refuses to start an interview
+without the Recruit Hub Interview Check extension, so these must be right in the build:
+
+| Variable | Meaning |
+| --- | --- |
+| `VITE_RH_EXTENSION_ID` | The extension's ID. Empty in a deployed build means the gate fails closed for every candidate. An unpacked install of this repo's extension always has ID `mheakijhnpcllibkkimhpbcfaifjbipj` (pinned by `key` in its manifest). |
+| `VITE_RH_EXTENSION_INSTALL_URL` | Chrome Web Store URL. **Leave unset while the extension is not on the Store**: the candidate app then offers its own zip for "Load unpacked". |
+
+The `candidate-app` image is built from the **repo root** (`docker-compose.app.yml`) because it
+also zips `chrome-extension/` into `/extension/rh-interview-check.zip` and
+`/extension/latest.json`. The extension only talks to origins listed in its manifest, so a new
+candidate-app domain must be added there (and `external.js`) before that domain can pass the check.
+
+After deploying, confirm the download is real, not the SPA's `index.html`:
+
+```bash
+curl -sI https://<candidate-domain>/extension/rh-interview-check.zip   # 200, Content-Type: application/zip
+curl -s  https://<candidate-domain>/extension/latest.json              # version + sha256
+```
+
 Open Postgres (`5433`) and Redis (`6379`) on Server 1 **only to Server 2** (private network / security group), not the public internet.
 
 ---

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { isFullscreen } from '@/proctoring/browser'
 import { Screen } from '@/components/Shell'
+import { clearReloadAfterInstall, hasReloadAfterInstall } from '@/lib/extensionInstall'
 import { needsGreeting, nextIncompleteIndex } from '@/lib/readiness'
 import {
   VOLATILE_PRECONDITIONS,
@@ -111,7 +112,11 @@ export default function Preflight({
   const hasDurableProgress = STEPS.some(
     (s) => !VOLATILE_PRECONDITIONS.includes(s.precondition) && session.isPassed(s.precondition),
   )
-  const [greeted, setGreeted] = useState(() => !needsGreeting(derivedIndex, hasDurableProgress))
+  // Also skipped when the page just reloaded to connect to a freshly installed extension.
+  const [greeted, setGreeted] = useState(
+    () => !needsGreeting(derivedIndex, hasDurableProgress) || hasReloadAfterInstall(session.token),
+  )
+  useEffect(() => clearReloadAfterInstall(session.token), [session.token])
 
   const currentIndex = Math.min(index, STEPS.length)
   const step = currentIndex >= STEPS.length ? null : STEPS[currentIndex]

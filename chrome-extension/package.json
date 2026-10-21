@@ -3,8 +3,9 @@
   "private": true,
   "version": "0.4.1",
   "type": "module",
-  "description": "Test harness only. The extension itself has no build step and no dependencies.",
+  "description": "Test harness and packaging helper. The extension itself has no build step and no dependencies.",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "package": "sh scripts/package.sh . dist"
   }
 }
