@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ExternalLink, Inbox, Loader2, Plus, ShieldAlert, Trash2 } from 'lucide-react'
+import { Ban, Check, ChevronDown, ExternalLink, Eye, Inbox, Loader2, Plus, ShieldAlert, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import type {
@@ -243,9 +243,14 @@ function AddEntryDialog({
   )
 }
 
-// ── View switch: Seen / Blocklist ────────────────────────────────────────────
+// ── Views: Seen / Blocklist ──────────────────────────────────────────────────
 
-function ViewSwitch({
+/**
+ * Two tab cards rather than a text switch: each says what its list holds, which is the
+ * whole difference between them (waiting for a decision vs added and blocking), and a
+ * bordered, filled card reads as something to click where a pill of words did not.
+ */
+function ViewTabs({
   view,
   onChange,
   seenCount,
@@ -256,12 +261,30 @@ function ViewSwitch({
   seenCount: number | undefined
   blocklistCount: number
 }) {
-  const items: Array<{ id: View; label: string; count: number | undefined }> = [
-    { id: 'seen', label: 'Seen', count: seenCount },
-    { id: 'blocklist', label: 'Blocklist', count: blocklistCount },
+  const items: Array<{
+    id: View
+    label: string
+    hint: string
+    icon: ReactNode
+    count: number | undefined
+  }> = [
+    {
+      id: 'seen',
+      label: 'Seen',
+      hint: 'Flagged on candidates’ browsers, waiting for your decision',
+      icon: <Eye className="h-4 w-4" />,
+      count: seenCount,
+    },
+    {
+      id: 'blocklist',
+      label: 'Blocklist',
+      hint: 'Added by you and blocked for every candidate',
+      icon: <Ban className="h-4 w-4" />,
+      count: blocklistCount,
+    },
   ]
   return (
-    <div role="tablist" aria-label="Extension lists" className="inline-flex rounded-full bg-surface-3 p-1">
+    <div role="tablist" aria-label="Extension lists" className="grid grid-cols-2 gap-3">
       {items.map((item) => {
         const on = item.id === view
         return (
@@ -273,20 +296,30 @@ function ViewSwitch({
             aria-selected={on}
             aria-controls="ext-view"
             onClick={() => onChange(item.id)}
-            className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[13px] font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
-              on ? 'bg-surface text-ink shadow-e1' : 'text-ink-muted hover:text-ink'
+            className={`flex flex-col gap-1.5 rounded-card border p-4 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
+              on
+                ? 'border-accent bg-accent-soft shadow-e1'
+                : 'border-line bg-surface hover:border-line-strong hover:bg-surface-2'
             }`}
           >
-            {item.label}
-            {item.count !== undefined && (
+            <span className="flex items-center justify-between gap-2">
               <span
-                className={`rounded-full px-1.5 py-0.5 text-[11px] leading-none ${
-                  on ? 'bg-surface-3 text-ink' : 'bg-surface-2 text-ink-subtle'
-                }`}
+                className={`flex items-center gap-2 text-[14px] font-semibold ${on ? 'text-accent' : 'text-ink'}`}
               >
-                <Num>{item.count}</Num>
+                {item.icon}
+                {item.label}
               </span>
-            )}
+              {item.count !== undefined && (
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${
+                    on ? 'bg-surface text-accent' : 'bg-surface-3 text-ink-muted'
+                  }`}
+                >
+                  <Num>{item.count}</Num>
+                </span>
+              )}
+            </span>
+            <span className="hidden text-[12px] leading-relaxed text-ink-muted sm:block">{item.hint}</span>
           </button>
         )
       })}
@@ -568,31 +601,40 @@ function SeenView({ onAdd }: { onAdd: (initial: AddEntryInitial) => void }) {
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
         <p className="max-w-2xl text-[13px] leading-relaxed text-ink-muted">
-          Flagged on candidates&rsquo; browsers and not on your blocklist. Check the listing, then add
-          the ones that are AI assistants; they move to the Blocklist. Nothing here is blocked
-          automatically, and no candidate information is shown.
+          Check the listing, then add the ones that are AI assistants; they move to the Blocklist.
+          Nothing here is blocked automatically, and no candidate information is shown.
         </p>
-        {/* Neutral on purpose: the accent is spent on the primary action and the active view. */}
-        <div role="group" aria-label="Show" className="inline-flex rounded-md border border-line p-0.5">
-          {(['new', 'dismissed'] as ObservedStatus[]).map((value) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={status === value}
-              onClick={() => choose(value)}
-              className={`rounded px-3 py-1 text-[12px] font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
-                status === value ? 'bg-surface-3 text-ink' : 'text-ink-muted hover:text-ink'
-              }`}
-            >
-              {value === 'new' ? 'To review' : 'Dismissed'}
-              {status === value && data ? (
-                <>
-                  {' '}
-                  <Num>{data.total}</Num>
-                </>
-              ) : null}
-            </button>
-          ))}
+        {/*
+          Bordered chips with a check on the chosen one, so it reads as a control and the
+          choice is not carried by colour alone. Neutral: the accent is spent on the active
+          view and the primary action.
+        */}
+        <div role="group" aria-label="Show" className="flex items-center gap-2">
+          <span className="text-[12px] font-medium text-ink-subtle">Show</span>
+          {(['new', 'dismissed'] as ObservedStatus[]).map((value) => {
+            const on = status === value
+            return (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={on}
+                onClick={() => choose(value)}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[12px] font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
+                  on
+                    ? 'border-ink/30 bg-surface-3 text-ink'
+                    : 'border-line bg-surface text-ink-muted hover:border-line-strong hover:bg-surface-2 hover:text-ink'
+                }`}
+              >
+                {on && <Check className="h-3.5 w-3.5" aria-hidden />}
+                {value === 'new' ? 'To review' : 'Dismissed'}
+                {on && data ? (
+                  <span className="rounded-full bg-surface px-1.5 py-0.5 text-[11px] leading-none">
+                    <Num>{data.total}</Num>
+                  </span>
+                ) : null}
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -813,9 +855,6 @@ export default function ExtensionPolicyPanel() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-2xl text-[13px] leading-relaxed text-ink-muted">
           Candidates are checked for AI-assistant browser extensions before an interview starts.
-          Extensions on the <strong className="font-semibold text-ink">Blocklist</strong> stop them;
-          the ones <strong className="font-semibold text-ink">Seen</strong> on candidates&rsquo;
-          browsers are waiting for you to decide.
         </p>
         <button type="button" className={BTN_PRIMARY} onClick={() => setAdding({})}>
           <Plus size={14} />
@@ -823,7 +862,7 @@ export default function ExtensionPolicyPanel() {
         </button>
       </div>
 
-      <ViewSwitch
+      <ViewTabs
         view={view}
         onChange={setView}
         seenCount={seenCount.data}
