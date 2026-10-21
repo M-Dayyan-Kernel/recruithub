@@ -3,6 +3,7 @@
 import unittest
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from sqlalchemy.exc import IntegrityError
@@ -109,6 +110,9 @@ def _platform_service(tenant, *, name_taken=False, commit_error=None):
     tenants.get_by_id = AsyncMock(return_value=tenant)
     tenants.name_exists = AsyncMock(return_value=name_taken)
     tenants.refresh = AsyncMock()
+    # A rename also carries the new name to the email settings; give it a row to update.
+    settings = MagicMock()
+    settings.get_or_create = AsyncMock(return_value=SimpleNamespace(company_name=tenant.name))
     service = PlatformTenantService(
         session,
         tenant_repo=tenants,
@@ -117,6 +121,7 @@ def _platform_service(tenant, *, name_taken=False, commit_error=None):
         audit_service=AsyncMock(),
         gst_documents=MagicMock(),
         refresh_token_repo=MagicMock(),
+        settings_repo=settings,
         password_service=MagicMock(),
         mailer=MagicMock(),
     )
