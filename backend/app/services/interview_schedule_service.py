@@ -113,7 +113,7 @@ async def send_scheduled_interview_notification_email(
     timezone_name: str,
 ) -> bool:
     from app.services.email_service import send_scheduled_interview_notification
-    from app.services.email_template_service import get_merged_templates
+    from app.services.email_template_service import get_company_name, get_merged_templates
 
     if not session.scheduled_interview_at:
         return await send_interview_invitation_email(db, session, candidate, job_title)
@@ -126,6 +126,7 @@ async def send_scheduled_interview_notification_email(
         timezone_name,
     )
     templates = await get_merged_templates(db, tenant_id)
+    company_name = await get_company_name(db, tenant_id)
     gmail_token = await get_tenant_gmail_token(db, tenant_id)
     candidate_email = resolve_candidate_email(candidate)
     if not candidate_email:
@@ -142,6 +143,7 @@ async def send_scheduled_interview_notification_email(
         interview_url=interview_url,
         scheduled_at_label=scheduled_label,
         templates=templates,
+        company_name=company_name,
         gmail_token_json=gmail_token,
     )
     if sent:

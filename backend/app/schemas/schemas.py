@@ -331,7 +331,8 @@ class EmailTemplateEntry(BaseModel):
 
 class EmailTemplatesResponse(BaseModel):
     templates: dict[str, EmailTemplateEntry]
-    required_placeholders: dict[str, List[str]]
+    # Details each email has data for. Offered to the editor; never enforced.
+    placeholders: dict[str, List[str]]
     common_placeholders: List[str] = ["{{company_name}}"]
     company_name: str = "Webknot Technologies"
 
@@ -363,7 +364,8 @@ class SystemSettingsUpdate(BaseModel):
     screening_enabled: Optional[bool] = None
     screening_max_retries: Optional[int] = None
     screening_retry_delay_seconds: Optional[int] = None
-    company_name: Optional[str] = None
+    # No company_name: it is the name emails sign off with, set when the organisation is
+    # created, and an organisation admin must not be able to put another company's name there.
 
 
 # ---------------------------------------------------------------------------

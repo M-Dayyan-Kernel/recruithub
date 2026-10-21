@@ -174,7 +174,8 @@ export interface EmailTemplateEntry {
 
 export interface EmailTemplatesResponse {
   templates: Record<string, EmailTemplateEntry>
-  required_placeholders: Record<string, string[]>
+  /** Details each email has data for, in editor order. Offered, never enforced. */
+  placeholders: Record<string, string[]>
   common_placeholders: string[]
   company_name: string
 }
