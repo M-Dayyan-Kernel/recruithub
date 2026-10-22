@@ -418,6 +418,13 @@ export function describeActivity(row: ActivityRowInput): ActivityView {
         details: [who, ['Stage', stage], ['From', from], ['To', to]],
       }
     }
+    case 'shortlist.returned_to_resume':
+      return {
+        ...base,
+        event: 'Returned to Resume Screening',
+        change: transition(SHORTLIST_DECISIONS.approved ?? 'Approved', SHORTLIST_DECISIONS.pending ?? 'In review', decisionTone),
+        details: [who, ['Why', 'Voice screening was turned off while they waited for a call.']],
+      }
     case 'shortlist.feedback_set': {
       const type = after?.hr_feedback_type !== undefined ? formatValue('hr_feedback_type', after.hr_feedback_type) : null
       const hasComment = after?.hr_comments !== undefined && after.hr_comments !== null && after.hr_comments !== ''
@@ -474,7 +481,12 @@ export function describeActivity(row: ActivityRowInput): ActivityView {
     }
     case 'interview.link_sent': {
       const status = formatValue('status', after?.status) ?? 'Sent'
-      return { ...base, event: 'Interview link sent', change: { kind: 'chip', chip: chip(status, 'muted') }, details: [who, ['Interview', status]] }
+      const details: Array<[string, string]> = [who, ['Interview', status]]
+      if (after?.reason === 'voice_screening_turned_off') {
+        details.push(['Why', 'Voice screening was turned off, so they moved straight to the interview.'])
+        if (after.email_sent === false) details.push(['Email', 'Not delivered'])
+      }
+      return { ...base, event: 'Interview link sent', change: { kind: 'chip', chip: chip(status, 'muted') }, details }
     }
     case 'interview.email_resent':
       return { ...base, event: 'Interview email resent', change: { kind: 'chip', chip: chip('Resent', 'muted') }, details: [who] }

@@ -85,6 +85,21 @@ test('a cancelled screening call reads as a cancellation, with no id', () => {
   assert.ok(!UUID_RE.test(visible(v)), visible(v))
 })
 
+test('a candidate returned to Resume Screening reads as Shortlisted -> In review, with why', () => {
+  const v = describeActivity(row({ action: 'shortlist.returned_to_resume', entity_type: 'shortlist', feature: 'hr_decision', before_state: { hr_decision: 'approved' }, after_state: { hr_decision: 'pending', reason: 'voice_screening_turned_off' } }))
+  assert.equal(v.event, 'Returned to Resume Screening')
+  assert.equal(v.change?.kind, 'transition')
+  if (v.change?.kind === 'transition') assert.deepEqual([v.change.from.text, v.change.to.text], ['Shortlisted', 'In review'])
+  assert.match(v.details.find(([k]) => k === 'Why')?.[1] ?? '', /Voice screening was turned off/)
+  assert.ok(!UUID_RE.test(visible(v)), visible(v))
+})
+
+test('a link sent because screening was turned off says so', () => {
+  const v = describeActivity(row({ action: 'interview.link_sent', entity_type: 'interview', feature: 'interview_link', after_state: { status: 'pending', reason: 'voice_screening_turned_off', email_sent: false } }))
+  assert.ok(v.details.some(([k, val]) => k === 'Why' && /turned off/.test(val)))
+  assert.deepEqual(v.details.find(([k]) => k === 'Email'), ['Email', 'Not delivered'])
+})
+
 test('a shortlist decision reads as In review -> Shortlisted, never pending -> approved', () => {
   const v = describeActivity(row({ action: 'shortlist.decision_set', entity_type: 'shortlist', feature: 'hr_decision', before_state: { hr_decision: 'pending' }, after_state: { hr_decision: 'approved' } }))
   assert.equal(v.event, 'Shortlist decision')
@@ -182,7 +197,7 @@ const BACKEND_ACTIONS = [
   'job.created', 'job.updated', 'job.deleted',
   'tenant.created', 'tenant.updated', 'tenant.approved', 'tenant.rejected', 'tenant.deleted',
   'screening.result_set', 'screening.triggered', 'screening.call_cancelled',
-  'shortlist.decision_set', 'shortlist.feedback_set', 'shortlist.triggered',
+  'shortlist.decision_set', 'shortlist.feedback_set', 'shortlist.triggered', 'shortlist.returned_to_resume',
   'settings.updated', 'settings.email_template_updated', 'settings.email_template_restored',
   'user.created', 'user.invite_revoked', 'user.invited', 'user.updated', 'user.deleted',
 ]

@@ -21,6 +21,7 @@ const SCREENING_STATES: Record<string, { detail: string; tone: StageTone; tab: '
   scheduled: { detail: 'Call scheduled', tone: 'neutral', tab: 'pending' },
   retrying: { detail: 'Retrying the call', tone: 'neutral', tab: 'pending' },
   cancelled: { detail: 'Call cancelled', tone: 'neutral', tab: 'pending' },
+  paused: { detail: 'Screening is off: waiting to be placed', tone: 'warn', tab: 'pending' },
   live: { detail: 'Call in progress', tone: 'accent', tab: 'pending' },
   review: { detail: 'Needs your review', tone: 'warn', tab: 'completed' },
   failed: { detail: 'Did not pass', tone: 'neg', tab: 'completed' },
@@ -45,6 +46,10 @@ const INTERVIEW_STATES: Record<string, { detail: string; tone: StageTone; tab: s
 export function describeStage(stage: ShortlistStage, jobId: string): StageView {
   if (stage.kind === 'screening') {
     const known = SCREENING_STATES[stage.state]
+    if (stage.state === 'paused') {
+      // Nothing will call them; the voice-screening switch on the job page places them.
+      return { title: 'Phone screening', detail: known.detail, tone: known.tone, to: `/jobs/${jobId}`, toLabel: 'Open job' }
+    }
     return {
       title: 'Phone screening',
       detail: (stage.state === 'flagged' && stage.reason) || known?.detail || 'In this stage',
