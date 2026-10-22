@@ -129,6 +129,7 @@ class AuditService:
         limit: int,
         offset: int,
         entity_type: str | None = None,
+        category: str | None = None,
         job_id: uuid.UUID | None = None,
         candidate_id: uuid.UUID | None = None,
         actor_user_id: uuid.UUID | None = None,
@@ -144,6 +145,7 @@ class AuditService:
         filters = AuditLogRepository.build_filters(
             tenant_id=tenant_id,
             entity_type=entity_type,
+            category=category,
             job_id=job_id,
             candidate_id=candidate_id,
             actor_user_id=actor_user_id,

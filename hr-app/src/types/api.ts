@@ -418,6 +418,7 @@ export interface AuditLogEntry {
    */
   before_state?: Record<string, unknown> | null
   after_state?: Record<string, unknown> | null
+  candidate_id?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -581,6 +582,7 @@ export interface AuditLog {
   before_state: Record<string, unknown> | null
   after_state: Record<string, unknown> | null
   job_id: string | null
+  candidate_id?: string | null
 }
 
 export interface AuditLogListResponse {
