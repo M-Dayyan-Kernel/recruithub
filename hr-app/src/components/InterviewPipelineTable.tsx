@@ -22,6 +22,7 @@ function interviewStatusLabel(row: InterviewPipelineCandidate): string {
   if (row.has_report) return 'Completed'
   if (session?.status === 'in_progress') return 'In Progress'
   if (session?.status === 'expired') return 'Expired'
+  if (session?.status === 'cancelled') return 'Cancelled'
   if (session?.status === 'completed') return 'Completed'
   if (session?.status === 'pending') return 'Link Sent'
   return 'Not Sent'

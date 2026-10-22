@@ -377,6 +377,13 @@ export function describeActivity(row: ActivityRowInput): ActivityView {
         details,
       }
     }
+    case 'screening.call_cancelled':
+      return {
+        ...base,
+        event: 'Screening call cancelled',
+        change: { kind: 'chip', chip: chip('Cancelled', 'muted') },
+        details: [who, ['What happened', 'The queued call was cancelled before it was placed. The candidate stays in Phone screening.']],
+      }
     case 'screening.result_set': {
       const from = formatValue('result', before?.result)
       const to = formatValue('result', after?.result)
@@ -445,6 +452,23 @@ export function describeActivity(row: ActivityRowInput): ActivityView {
         event: 'Interview rescheduled',
         change: when ? { kind: 'chip', chip: chip(when, 'plain', 30) } : { kind: 'chip', chip: chip('New link issued', 'muted') },
         details,
+        tech: techLine(row, typeof after?.session_id === 'string' ? `Session ${after.session_id}` : undefined),
+      }
+    }
+    case 'interview.cancelled': {
+      const was = before?.scheduled_interview_at ? formatValue('scheduled_interview_at', before.scheduled_interview_at) : null
+      // Whether an email was asked for. Whether it was delivered is told to HR at the time;
+      // the cancellation is saved before the email is attempted.
+      const requested = after?.email_requested
+      const details: Array<[string, string]> = [who]
+      if (was) details.push(['Was scheduled for', was])
+      details.push(['Email to candidate', requested === true ? 'Requested' : 'Not requested'])
+      return {
+        ...base,
+        event: 'Interview cancelled',
+        change: { kind: 'chip', chip: chip('Cancelled', 'neg') },
+        details,
+        note: 'The link no longer works. The candidate stays in Interviews, and a new link or time can be set.',
         tech: techLine(row, typeof after?.session_id === 'string' ? `Session ${after.session_id}` : undefined),
       }
     }

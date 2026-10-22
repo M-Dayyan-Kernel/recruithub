@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Loader2, Mic, Phone } from 'lucide-react'
+import { Loader2, Mic, Phone, PhoneOff } from 'lucide-react'
 import { api } from '@/lib/api'
 import type {
   Candidate,
@@ -11,6 +11,7 @@ import type {
   SystemSettings,
 } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import type { JobOutletContext } from '@/components/JobLayout'
 import { ScreeningSettingsCard } from '@/components/screening/ScreeningSettingsCard'
 import { CompletedScreeningList } from '@/components/screening/CompletedScreeningList'
@@ -57,9 +58,12 @@ function StatusPill({ label, variant }: { label: string; variant: ScreeningTabId
 function ScreeningTableRow({
   row,
   jobId,
+  screeningOn,
 }: {
   row: ScreeningRow
   jobId: string
+  /** The job's voice-screening switch: with it off there is no call to cancel. */
+  screeningOn: boolean
 }) {
   const queryClient = useQueryClient()
   const [expanded, setExpanded] = useState(false)
@@ -77,6 +81,31 @@ function ScreeningTableRow({
     },
     onError: (err: Error) => toast.error(err.message || 'Failed to start call'),
   })
+
+  const [confirmCancel, setConfirmCancel] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
+  const cancelMutation = useMutation({
+    mutationFn: () => api.post(`/api/jobs/${jobId}/screening/cancel`, { candidate_id: row.candidateId }),
+  })
+  // Whatever the answer, the row has changed (or someone else changed it first), so every
+  // list that shows this candidate is refetched.
+  const refreshAfterCancel = () => {
+    queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
+    queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
+    queryClient.invalidateQueries({ queryKey: ['candidates'] })
+  }
+  const handleCancelCall = async () => {
+    setCancelError(null)
+    try {
+      await cancelMutation.mutateAsync()
+      toast.success(`Call to ${row.candidateName} cancelled`)
+      setConfirmCancel(false)
+    } catch (err) {
+      setCancelError(err instanceof Error && err.message ? err.message : 'Could not cancel the call. Please try again.')
+    } finally {
+      refreshAfterCancel()
+    }
+  }
 
   const variant = row.isActive ? 'active' : row.tab
 
@@ -113,6 +142,20 @@ function ScreeningTableRow({
                 Call Now
               </button>
             )}
+            {row.canCancel && screeningOn && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCancelError(null)
+                  setConfirmCancel(true)
+                }}
+                aria-label={`Cancel call to ${row.candidateName}`}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-[12px] font-medium text-ink-muted transition-colors hover:border-neg/30 hover:bg-neg-soft hover:text-neg focus:outline-none focus:ring-2 focus:ring-neg/30"
+              >
+                <PhoneOff size={12} aria-hidden />
+                Cancel call
+              </button>
+            )}
             {row.isActive && (
               <span className="inline-flex items-center gap-1 text-xs text-blue-600">
                 <Loader2 size={12} className="animate-spin" />
@@ -134,6 +177,23 @@ function ScreeningTableRow({
           </div>
         </td>
       </tr>
+      {confirmCancel && (
+        <ConfirmDialog
+          title={`Cancel the call to ${row.candidateName}?`}
+          body={
+            <p>
+              The call will not be placed. {row.candidateName} stays in Phone screening, and you
+              can call them with Call Now whenever you are ready.
+            </p>
+          }
+          confirmLabel="Cancel call"
+          cancelLabel="Keep call"
+          busy={cancelMutation.isPending}
+          error={cancelError}
+          onConfirm={() => void handleCancelCall()}
+          onClose={() => setConfirmCancel(false)}
+        />
+      )}
       {expanded && row.tab === 'flagged' && (
         <tr>
           <td colSpan={5} className="border-t border-slate-100 bg-amber-50/50 px-4 py-3">
@@ -321,7 +381,15 @@ export function ScreeningTab({ jobId }: Props) {
   const eligibleForBulkCall = useMemo(
     () =>
       rows
-        .filter((r) => (r.tab === 'pending' || r.tab === 'flagged') && r.phone && r.canCallNow)
+        .filter(
+          (r) =>
+            (r.tab === 'pending' || r.tab === 'flagged') &&
+            r.phone &&
+            r.canCallNow &&
+            // HR cancelled this call on purpose: only an individual "Call Now" restarts it,
+            // never a bulk call that happens to sweep the whole tab.
+            r.latestCall?.call_status !== 'cancelled',
+        )
         .map((r) => r.candidateId),
     [rows],
   )
@@ -412,7 +480,12 @@ export function ScreeningTab({ jobId }: Props) {
                 </tr>
               ) : (
                 filteredRows.map((row) => (
-                  <ScreeningTableRow key={row.candidateId} row={row} jobId={jobId} />
+                  <ScreeningTableRow
+                    key={row.candidateId}
+                    row={row}
+                    jobId={jobId}
+                    screeningOn={job?.voice_screening_enabled !== false}
+                  />
                 ))
               )}
             </tbody>

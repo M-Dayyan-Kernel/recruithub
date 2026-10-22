@@ -14,6 +14,14 @@ test('every screening state links to the tab that owns it', () => {
   assert.equal(tab('failed'), '/jobs/job-1/screening?tab=completed')
   assert.equal(tab('flagged'), '/jobs/job-1/screening?tab=flagged')
   assert.equal(tab('retrying'), '/jobs/job-1/screening?tab=pending')
+  assert.equal(tab('cancelled'), '/jobs/job-1/screening?tab=pending')
+})
+
+test('a cancelled call or interview names the stage and says so', () => {
+  const c = describeStage({ kind: 'screening', state: 'cancelled' }, JOB)
+  assert.deepEqual([c.title, c.detail], ['Phone screening', 'Call cancelled'])
+  const i = describeStage({ kind: 'interview', state: 'cancelled' }, JOB)
+  assert.deepEqual([i.title, i.detail], ['Interview', 'Interview cancelled'])
 })
 
 test('a flagged screening says why, in the server’s words', () => {
@@ -32,6 +40,7 @@ test('every interview state links to the tab that owns it', () => {
   assert.equal(tab('pending'), '/jobs/job-1/interviews?tab=scheduled')
   assert.equal(tab('link_sent'), '/jobs/job-1/interviews?tab=scheduled')
   assert.equal(tab('flagged'), '/jobs/job-1/interviews?tab=flagged')
+  assert.equal(tab('cancelled'), '/jobs/job-1/interviews?tab=scheduled')
   assert.equal(tab('live'), '/jobs/job-1/interviews?tab=ongoing')
   assert.equal(tab('completed'), '/jobs/job-1/interviews?tab=completed')
   assert.equal(tab('finalist'), '/jobs/job-1/interviews?tab=finalists')
