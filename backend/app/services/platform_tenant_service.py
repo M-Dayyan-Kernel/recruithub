@@ -23,6 +23,7 @@ from app.core.tenancy import normalize_org_name, org_name_key
 from app.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.models.models import Tenant, User
 from app.repositories.refresh_token_repository import RefreshTokenRepository
+from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.repositories.tenant_repository import TenantRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.schemas import (
@@ -53,6 +54,7 @@ class PlatformTenantService:
         audit_service: AuditService | None = None,
         gst_documents: GstDocumentService | None = None,
         refresh_token_repo: RefreshTokenRepository | None = None,
+        settings_repo: SystemSettingsRepository | None = None,
         password_service: PasswordService | None = None,
         mailer=None,
     ) -> None:
@@ -63,6 +65,7 @@ class PlatformTenantService:
         self._audit = audit_service or AuditService(session)
         self._gst = gst_documents or GstDocumentService()
         self._refresh_tokens = refresh_token_repo or RefreshTokenRepository(session)
+        self._settings = settings_repo or SystemSettingsRepository(session)
         self._passwords = password_service or PasswordService(session)
         # Injectable so tests can observe mail without a provider.
         self._mailer = mailer or account_email_service
@@ -168,7 +171,10 @@ class PlatformTenantService:
                 raise ConflictError(
                 public_message=ORG_NAME_TAKEN_MESSAGE, error_code=ORG_NAME_TAKEN_CODE
             )
+            renamed = new_name != tenant.name
             tenant.name = new_name
+            if renamed:
+                await self._carry_name_to_emails(tenant)
         if "is_active" in data and data["is_active"] is not None:
             if data["is_active"] and tenant.verification_status != "approved":
                 raise BadRequestError(
@@ -207,6 +213,21 @@ class PlatformTenantService:
             ) from exc
         await self._tenants.refresh(tenant)
         return TenantResponse.model_validate(tenant)
+
+    async def _carry_name_to_emails(self, tenant: Tenant) -> None:
+        """Emails sign off with the organisation's name, so a rename has to reach them.
+
+        The name emails use is stored apart from the organisation's own name (it is seeded
+        from it at creation), and an organisation admin cannot edit it. Without this, a
+        renamed organisation would keep sending mail under its old name. Only an actual
+        rename comes here: saving the same name again leaves it alone, so an organisation
+        whose email name was set to something else on purpose is not overwritten by an
+        unrelated edit.
+
+        Runs in the rename's own transaction, so both change or neither does.
+        """
+        row = await self._settings.get_or_create(tenant.id, company_name=tenant.name)
+        row.company_name = tenant.name
 
     async def approve_tenant(self, tenant_id: uuid.UUID, admin: User) -> TenantResponse:
         tenant = await self._get_customer_tenant(tenant_id)

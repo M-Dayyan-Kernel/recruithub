@@ -97,17 +97,6 @@ class SystemSettingsService:
             )
             row.screening_retry_delay_seconds = new_val
 
-        if "company_name" in data and data["company_name"] is not None:
-            new_name = str(data["company_name"]).strip()
-            if not new_name:
-                raise ValidationError(public_message="company_name cannot be empty")
-            if len(new_name) > 255:
-                raise ValidationError(
-                    public_message="company_name must be at most 255 characters",
-                )
-            changes["company_name"] = (row.company_name, new_name)
-            row.company_name = new_name
-
         await self._audit.log_field_changes(
             actor=admin,
             action="settings.updated",
@@ -245,7 +234,7 @@ class SystemSettingsService:
     async def _email_templates_response(self, tenant_id: uuid.UUID) -> EmailTemplatesResponse:
         from app.services.email_template_service import (
             COMMON_PLACEHOLDERS,
-            REQUIRED_PLACEHOLDERS,
+            TEMPLATE_PLACEHOLDERS,
             get_company_name,
             get_merged_templates,
         )
@@ -263,7 +252,7 @@ class SystemSettingsService:
         }
         return EmailTemplatesResponse(
             templates=templates,
-            required_placeholders={k: list(v) for k, v in REQUIRED_PLACEHOLDERS.items()},
+            placeholders={k: list(v) for k, v in TEMPLATE_PLACEHOLDERS.items()},
             common_placeholders=list(COMMON_PLACEHOLDERS),
             company_name=company_name,
         )

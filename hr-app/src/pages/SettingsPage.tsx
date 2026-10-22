@@ -120,7 +120,9 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl">
+    // The email editor is a list beside an editor and a preview; the other tabs are single
+    // columns of settings and read better narrow.
+    <div className={`mx-auto ${tab === 'email' ? 'max-w-6xl' : 'max-w-3xl'}`}>
       <PageHeader
         title="Settings"
         subtitle="Platform-wide rules for outbound screening calls and candidate email."

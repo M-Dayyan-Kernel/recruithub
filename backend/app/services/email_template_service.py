@@ -20,13 +20,23 @@ DEFAULT_COMPANY_NAME = "Webknot Technologies"
 TEMPLATE_IDS = (
     "failed_screening_attempt",
     "interview_invitation",
+    "interview_scheduled",
     "interview_reschedule",
     "rejection",
 )
 
-REQUIRED_PLACEHOLDERS: dict[str, tuple[str, ...]] = {
+# The details each email has data for, in the order the editor offers them. Nothing here is
+# enforced: an administrator may use any of them, all of them, or none. A message that leaves
+# out the interview link simply has no link, because that is what they wrote.
+TEMPLATE_PLACEHOLDERS: dict[str, tuple[str, ...]] = {
     "failed_screening_attempt": ("{{candidate_name}}", "{{job_title}}", "{{phone_number}}"),
     "interview_invitation": ("{{candidate_name}}", "{{job_title}}", "{{interview_url}}"),
+    "interview_scheduled": (
+        "{{candidate_name}}",
+        "{{job_title}}",
+        "{{interview_url}}",
+        "{{scheduled_at}}",
+    ),
     "interview_reschedule": ("{{candidate_name}}", "{{job_title}}", "{{interview_url}}"),
     "rejection": ("{{candidate_name}}", "{{job_title}}"),
 }
@@ -66,6 +76,56 @@ _DEFAULT_TEMPLATES: dict[str, dict[str, Any]] = {
   </p>
   <p><a href="{{interview_url}}">{{interview_url}}</a></p>
   <p>Good luck!</p>
+</body>
+</html>""",
+        "version": 1,
+    },
+    "interview_scheduled": {
+        "subject": "[Interview Scheduled] {{job_title}} — {{scheduled_at}}",
+        "body_html": """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interview Scheduled</title>
+  <style>
+    body { font-family: Arial, sans-serif; background-color: #f4f4f7; margin: 0; padding: 0; }
+    .container { max-width: 560px; margin: 40px auto; background: #ffffff; border-radius: 8px;
+                  padding: 40px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    h1 { font-size: 22px; color: #1a1a2e; margin-bottom: 8px; }
+    p { font-size: 15px; color: #444; line-height: 1.6; }
+    .slot { background: #f5f3ff; border-left: 4px solid #7c3aed; padding: 16px; border-radius: 4px;
+             margin: 20px 0; font-size: 15px; color: #4c1d95; }
+    .btn { display: inline-block; margin: 24px 0; padding: 14px 32px;
+            background-color: #4f46e5; color: #ffffff; text-decoration: none;
+            border-radius: 6px; font-size: 15px; font-weight: bold; }
+    .footer { font-size: 12px; color: #999; margin-top: 32px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Your interview is scheduled</h1>
+    <p>Hi <strong>{{candidate_name}}</strong>,</p>
+    <p>
+      You have been scheduled for an AI-powered video interview for the
+      <strong>{{job_title}}</strong> role.
+    </p>
+    <div class="slot">
+      <strong>Please attend at:</strong><br />
+      {{scheduled_at}}
+    </div>
+    <p>
+      Use the link below to join the interview at the scheduled time. We recommend
+      opening it a few minutes early to check your camera and microphone.
+    </p>
+    <a href="{{interview_url}}" class="btn">Open interview link</a>
+    <p>Or copy and paste this link into your browser:</p>
+    <p style="word-break: break-all; font-size: 13px; color: #666;">{{interview_url}}</p>
+    <div class="footer">
+      <p>If you have any questions, please reply to this email.</p>
+      <p>Good luck!</p>
+    </div>
+  </div>
 </body>
 </html>""",
         "version": 1,
@@ -119,6 +179,12 @@ _PREVIEW_SAMPLES: dict[str, dict[str, str]] = {
         "job_title": "Senior Software Engineer",
         "interview_url": "https://interview.example.com/abc-123",
     },
+    "interview_scheduled": {
+        "candidate_name": "Jane Doe",
+        "job_title": "Senior Software Engineer",
+        "interview_url": "https://interview.example.com/abc-123",
+        "scheduled_at": "Tuesday, 28 October 2026 at 11:00 AM",
+    },
     "interview_reschedule": {
         "candidate_name": "Jane Doe",
         "job_title": "Senior Software Engineer",
@@ -161,9 +227,8 @@ def validate_template(template_id: str, subject: str, body_html: str) -> list[st
         errors.append("Subject is required")
     if not body_html.strip():
         errors.append("Body is required")
-    for placeholder in REQUIRED_PLACEHOLDERS.get(template_id, ()):
-        if placeholder not in subject and placeholder not in body_html:
-            errors.append(f"Missing required placeholder: {placeholder}")
+    # Deliberately no check that particular placeholders are present: what an email says,
+    # and which candidate details it includes, is the organisation's decision.
     return errors
 
 
@@ -172,7 +237,7 @@ def render_template(
     templates: dict[str, dict[str, Any]],
     variables: dict[str, str],
 ) -> tuple[str, str]:
-    """Render subject and HTML body. Falls back to defaults if stored template is invalid."""
+    """Render subject and HTML body. Falls back to the default only if the stored one is empty."""
     merged = merge_templates(templates)
     entry = merged.get(template_id) or _DEFAULT_TEMPLATES[template_id]
     subject = entry["subject"]
