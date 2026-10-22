@@ -297,6 +297,8 @@ Get shortlist results for a job, enriched with candidate name and email.
 
 > **Nova gotcha:** `candidate_email` may be `null` if email was still a placeholder at shortlisting time (ends with `@upload.pending`).
 
+> **`stage`:** Set only on rows with `hr_decision = "approved"`, otherwise `null`: `{ kind: "screening" | "interview", state, scheduled_at, reason }`. It says where the candidate is now (e.g. `screening/live`, `screening/flagged` with a `reason`, `interview/link_sent` with the interview time). The interview states come from the Interviews tab's own classifier (`classify_interview_tab`, `get_flag_reason`); the screening states are a port of the Phone screening tab's classification in `hr-app/src/components/screening/screeningRows.ts`, so change those two together.
+
 ---
 
 #### `PATCH /api/shortlist/{shortlist_id}/decision`
@@ -309,8 +311,11 @@ Set HR decision on a shortlist entry.
 
 **Response `200`:** `ShortlistResultResponse`
 
+**Rules:** Setting the decision a row already has is a no-op (no side effects, no email, no audit row). `approved` is final from this endpoint: changing an approved row to anything else is refused, because the candidate is by then in a call or interview and is managed from the Phone screening / Interviews tab. `rejected` can still be changed to `approved`. Concurrent requests for one row are serialised on a row lock, so approval side effects run once.
+
 **Errors:**
 - `404` — shortlist result not found
+- `409` — the row is already approved and cannot be changed here
 - `422` — invalid `hr_decision` value
 
 > **Email:** On the first transition to `hr_decision = "rejected"`, a rejection email is sent via Gmail to the candidate (if a valid email is on file). Re-clicking Reject does not resend. Email failure does not roll back the decision.

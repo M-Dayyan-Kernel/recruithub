@@ -28,6 +28,27 @@ class ShortlistRepository:
             raise NotFoundError(public_message="Shortlist result not found")
         return record
 
+    async def get_for_tenant_locked(
+        self, shortlist_id: uuid.UUID, tenant_id: uuid.UUID
+    ) -> ShortlistResult:
+        """Like `get_for_tenant`, but holds the row until commit.
+
+        Two decisions arriving together (a double click, two tabs) must not both see
+        "pending" and both fire the approval side effects: the second waits here and
+        then sees the first one's result.
+        """
+        result = await self._session.execute(
+            select(ShortlistResult)
+            .join(Job, ShortlistResult.job_id == Job.id)
+            .where(ShortlistResult.id == shortlist_id, Job.tenant_id == tenant_id)
+            .with_for_update(of=ShortlistResult)
+            .execution_options(populate_existing=True)
+        )
+        record = result.scalar_one_or_none()
+        if record is None:
+            raise NotFoundError(public_message="Shortlist result not found")
+        return record
+
     async def list_for_job(self, job_id: uuid.UUID) -> list[ShortlistResult]:
         result = await self._session.execute(
             select(ShortlistResult)

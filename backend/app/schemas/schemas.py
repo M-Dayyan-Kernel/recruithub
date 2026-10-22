@@ -591,6 +591,17 @@ class ShortlistResultResponse(BaseModel):
     created_at: datetime
 
 
+class ShortlistStage(BaseModel):
+    """Where an approved candidate is now. `kind` + `state` is what the UI words;
+    `scheduled_at` is only set for interviews."""
+
+    kind: Literal["screening", "interview"]
+    state: str
+    scheduled_at: Optional[datetime] = None
+    # Why a screening is flagged, in a sentence HR can read.
+    reason: Optional[str] = None
+
+
 class ShortlistResultWithCandidateResponse(ShortlistResultResponse):
     """ShortlistResultResponse enriched with candidate name and email.
 
@@ -599,6 +610,8 @@ class ShortlistResultWithCandidateResponse(ShortlistResultResponse):
     """
     candidate_name: Optional[str] = None
     candidate_email: Optional[str] = None
+    # Set only for approved candidates: where they are now (see shortlist_stage_service).
+    stage: Optional[ShortlistStage] = None
 
 
 class ShortlistDecisionUpdate(BaseModel):
