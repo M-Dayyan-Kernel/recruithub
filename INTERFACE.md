@@ -433,6 +433,28 @@ Cancel a candidate's **queued or scheduled** call (one that has not been dialled
 
 ---
 
+#### `POST /api/jobs/{job_id}/screening/advance`
+Move a candidate the call could not settle on to an interview **without a call**.
+
+**Request Body:** `{ "candidate_id": "uuid", "reason": "at least 3 characters (trimmed), max 500" }`
+
+**Response `200`:** `{ "candidate_id", "interview_session_id", "email_sent" }`
+
+Allowed only while the candidate is approved and waiting in the phone round with **no call result** (queued, scheduled, retrying, flagged, cancelled, or paused — screening off with no call result or never called). Undialled calls are cancelled; a new bypass `pass` record carrying who and why is written (newer than the round's calls, so both tabs read them as passed); the session is saved, then the interview link is emailed (an email failure never undoes the move). Audit `screening.advanced_without_call` (the reason), committed together with the move. The HR app offers this on flagged rows and rows whose call was cancelled; a queued call is cancelled first, and with screening off the job's "Place them" handles the waiting candidates.
+
+#### `POST /api/jobs/{job_id}/screening/reject`
+Reject such a candidate from the Phone screening tab.
+
+**Request Body:** `{ "candidate_id": "uuid" }` — **Response `200`:** `{ "candidate_id", "interview_session_id": null, "email_sent" }`
+
+Undialled calls are cancelled, `hr_decision` becomes `rejected` (committed before the rejection email is attempted), audit `screening.rejected`. Approving them again from Resume Screening queues a fresh call.
+
+> **Dialler guard:** just before placing any call, the dialler cancels it instead if the candidate is no longer approved or already has a pending/in-progress interview — this catches a Call Now that raced a reject or a move.
+
+**Errors (both):** `409` — a call is in progress; the call has a result (decide from the result); already in Interviews; not approved / not in the phone round. Both lock the shortlist row, then the calls (the order every path uses), so an advance and a reject at the same moment cannot both apply.
+
+---
+
 #### `POST /api/screening/webhook`
 Receive Vapi.ai call-end webhooks. **No auth required.** Do not call from frontend.
 
@@ -851,6 +873,8 @@ VITE_API_URL=http://localhost:8080
 | POST | `/api/shortlist/{id}/feedback` | HR feedback |
 | POST | `/api/jobs/{id}/screening/trigger` | Trigger voice screening |
 | POST | `/api/jobs/{id}/screening/cancel` | Cancel a queued call |
+| POST | `/api/jobs/{id}/screening/advance` | Move to interview without a call (with reason) |
+| POST | `/api/jobs/{id}/screening/reject` | Reject from the phone round |
 | GET | `/api/jobs/{id}/voice-screening` | Preview the voice-screening switch |
 | POST | `/api/jobs/{id}/voice-screening` | Switch voice screening, placing the phone round |
 | POST | `/api/screening/webhook` | Vapi webhook (internal) |

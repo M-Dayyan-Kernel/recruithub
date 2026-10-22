@@ -130,8 +130,9 @@ class StageTests(unittest.TestCase):
         # an older queued row does not override a newer result
         self.assertEqual(_stage(calls=[_call("pending", vapi=None, minutes=0), _call("completed", "fail", minutes=5)]), ("screening", "failed"))
 
-    def test_screening_switched_off_without_a_session_means_interview_next(self):
-        self.assertEqual(_stage(effective=False), ("interview", "pending"))
+    def test_screening_off_never_called_and_no_interview_waits_to_be_placed(self):
+        # Approving with screening off goes straight to an interview; this is when it did not.
+        self.assertEqual(_stage(effective=False), ("screening", "paused"))
 
     def test_screening_off_leaves_the_phone_round_paused_not_mislabelled(self):
         # Nothing will call them now: they wait for HR to place them.
@@ -196,7 +197,7 @@ def _service(record):
     repo.refresh = AsyncMock()
     audit = AsyncMock()
     svc = ShortlistService(session, shortlist_repo=repo, audit_service=audit)
-    svc._send_rejection_email = AsyncMock()
+    svc.send_rejection_email = AsyncMock()
     svc._handle_approval_side_effects = AsyncMock(return_value=None)
     return svc, session, audit
 
@@ -223,14 +224,14 @@ class DecisionRuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(err)
         self.assertEqual(result.hr_decision, "approved")
         svc._handle_approval_side_effects.assert_not_awaited()
-        svc._send_rejection_email.assert_not_awaited()
+        svc.send_rejection_email.assert_not_awaited()
         audit.log_change.assert_not_awaited()
         session.rollback.assert_not_awaited()  # would expire the request's other objects
 
     async def test_a_repeat_reject_does_nothing(self):
         svc, session, audit, record, result, err = await self._decide("rejected", "rejected")
         self.assertIsNone(err)
-        svc._send_rejection_email.assert_not_awaited()
+        svc.send_rejection_email.assert_not_awaited()
         audit.log_change.assert_not_awaited()
 
     async def test_an_approved_row_cannot_be_rejected_or_overridden(self):
@@ -238,7 +239,7 @@ class DecisionRuleTests(unittest.IsolatedAsyncioTestCase):
             svc, session, audit, record, result, err = await self._decide("approved", new)
             self.assertIsInstance(err, ConflictError, new)
             self.assertEqual(record.hr_decision, "approved")
-            svc._send_rejection_email.assert_not_awaited()
+            svc.send_rejection_email.assert_not_awaited()
             audit.log_change.assert_not_awaited()
             svc._handle_approval_side_effects.assert_not_awaited()
             session.rollback.assert_not_awaited()
@@ -251,7 +252,7 @@ class DecisionRuleTests(unittest.IsolatedAsyncioTestCase):
     async def test_rejecting_a_pending_row_sends_one_email(self):
         svc, session, audit, record, result, err = await self._decide("pending", "rejected")
         self.assertIsNone(err)
-        svc._send_rejection_email.assert_awaited_once()
+        svc.send_rejection_email.assert_awaited_once()
         svc._handle_approval_side_effects.assert_not_awaited()
 
 

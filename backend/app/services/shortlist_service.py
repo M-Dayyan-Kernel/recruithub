@@ -229,7 +229,7 @@ class ShortlistService:
         if payload.hr_decision == "rejected":
             # Only reached on a change: a repeat Reject returned early above, so the
             # candidate is emailed once.
-            await self._send_rejection_email(actor, record, shortlist_id, candidate)
+            await self.send_rejection_email(actor, record, shortlist_id, candidate)
 
         if payload.hr_decision == "approved":
             approval_response = await self._handle_approval_side_effects(
@@ -270,13 +270,13 @@ class ShortlistService:
         await self._shortlist.refresh(record)
         return ShortlistResultResponse.model_validate(record)
 
-    async def _send_rejection_email(
+    async def send_rejection_email(
         self,
         actor: User,
         record,
         shortlist_id: uuid.UUID,
         candidate: Candidate | None,
-    ) -> None:
+    ) -> bool:
         candidate_email = resolve_candidate_email(candidate)
         if not candidate_email:
             logger.warning(
@@ -284,7 +284,7 @@ class ShortlistService:
                 shortlist_id,
                 record.candidate_id,
             )
-            return
+            return False
 
         job = await self._session.get(Job, record.job_id)
         job_title = job.title if job else "the position"
@@ -310,6 +310,8 @@ class ShortlistService:
                 shortlist_id,
                 record.candidate_id,
             )
+            return False
+        return True
 
     async def _handle_approval_side_effects(
         self,

@@ -19,7 +19,7 @@ from app.models.models import ScreeningCall, ShortlistResult, User
 from app.schemas.schemas import ScreeningCancelResponse
 from app.services.audit_service import AuditService
 from app.services.candidate_contact_service import resolve_candidate_name
-from app.services.screening_trigger_service import LIVE_CALL_STATUSES
+from app.services.screening_trigger_service import call_is_on_its_way, cancel_undialled_calls
 
 logger = logging.getLogger(__name__)
 
@@ -87,18 +87,14 @@ class ScreeningCancelService:
             .all()
         )
 
-        if any(c.call_status in LIVE_CALL_STATUSES for c in calls) or any(
-            c.call_status == "pending" and c.vapi_call_id for c in calls
-        ):
+        if any(call_is_on_its_way(c) for c in calls):
             raise ConflictError(
                 public_message="A call is in progress for this candidate, so it cannot be cancelled here."
             )
 
         queued = [c for c in calls if c.call_status == "pending" and not c.vapi_call_id]
         if queued:
-            for call in queued:
-                call.call_status = "cancelled"
-                call.summary = CANCELLED_SUMMARY
+            cancel_undialled_calls(queued, CANCELLED_SUMMARY)
             first = queued[0]
             before_status: str | None = "pending"
             cancelled = len(queued)

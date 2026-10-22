@@ -188,6 +188,46 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
             )
             return
 
+        # Last check before ringing anyone: the candidate may have been rejected or moved on
+        # to an interview since this call was queued (a Call Now racing a Reject or a Move,
+        # a stale tab). Those cancel the calls they can see; this catches one created after.
+        from app.models.models import InterviewSession, ShortlistResult
+
+        decision = (
+            await session.execute(
+                select(ShortlistResult.hr_decision).where(
+                    ShortlistResult.job_id == screening_call.job_id,
+                    ShortlistResult.candidate_id == screening_call.candidate_id,
+                )
+            )
+        ).scalars().first()
+        in_interview = (
+            await session.execute(
+                select(InterviewSession.id)
+                .where(
+                    InterviewSession.job_id == screening_call.job_id,
+                    InterviewSession.candidate_id == screening_call.candidate_id,
+                    InterviewSession.status.in_(["pending", "in_progress"]),
+                )
+                .limit(1)
+            )
+        ).scalars().first()
+        if decision != "approved" or in_interview is not None:
+            screening_call.call_status = "cancelled"
+            screening_call.summary = (
+                "Not placed: the candidate is no longer approved."
+                if decision != "approved"
+                else "Not placed: the candidate already has an interview link."
+            )
+            await session.commit()
+            logger.info(
+                "ScreeningCall %s not placed — decision=%s, interview=%s",
+                screening_call_id,
+                decision,
+                in_interview is not None,
+            )
+            return
+
         # Load Job (needed for tenant settings and call window)
         job_result = await session.execute(
             select(Job).where(Job.id == screening_call.job_id)

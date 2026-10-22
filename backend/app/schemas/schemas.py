@@ -770,6 +770,30 @@ class InterviewCancelResponse(BaseModel):
     email_sent: Optional[bool] = None
 
 
+class PhoneRoundAdvanceRequest(BaseModel):
+    candidate_id: uuid.UUID
+    # Why the call is being skipped; kept in the audit trail and on the bypass record.
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _strip(cls, value):
+        # "   " is not a reason; measure what is left after trimming.
+        return value.strip() if isinstance(value, str) else value
+
+
+class PhoneRoundRejectRequest(BaseModel):
+    candidate_id: uuid.UUID
+
+
+class PhoneRoundActionResponse(BaseModel):
+    candidate_id: uuid.UUID
+    # advance: the new interview session; reject: None
+    interview_session_id: Optional[uuid.UUID] = None
+    # Whether the candidate's email (invitation or rejection) went out.
+    email_sent: bool = False
+
+
 class ScreeningCancelRequest(BaseModel):
     candidate_id: uuid.UUID
 
