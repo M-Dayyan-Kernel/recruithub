@@ -44,13 +44,27 @@ function visible(v: ActivityView): string {
 
 // ── the rows from the dev Activity page ──────────────────────────────────────
 
-test('a reschedule shows no id, says the time was not recorded, and keeps the reference in the details', () => {
+test('a reschedule without a time says a new link was issued and shows no id', () => {
   const v = describeActivity(row({ action: 'interview.rescheduled', entity_type: 'interview', feature: 'interview_session', after_state: { session_id: ID } }))
   assert.equal(v.event, 'Interview rescheduled')
-  assert.deepEqual(v.change, { kind: 'text', text: 'New time not recorded' })
+  assert.equal(v.change?.kind, 'chip')
+  if (v.change?.kind === 'chip') assert.equal(v.change.chip.text, 'New link issued')
   assert.ok(!UUID_RE.test(visible(v)), visible(v))
   assert.ok(v.tech.includes(ID), 'the reference is kept, but only in the technical line')
-  assert.match(v.note, /before reschedules recorded the new date and time/)
+  assert.equal(v.note, '')
+})
+
+test('a reschedule with a time shows the new and previous time', () => {
+  const v = describeActivity(row({
+    action: 'interview.rescheduled', entity_type: 'interview', feature: 'interview_session',
+    before_state: { scheduled_interview_at: '2026-10-20T09:30:00+00:00' },
+    after_state: { session_id: ID, scheduled_interview_at: '2026-10-24T09:30:00+00:00', timezone: 'Asia/Kolkata' },
+  }))
+  assert.equal(v.change?.kind, 'chip')
+  if (v.change?.kind === 'chip') assert.notEqual(v.change.chip.text, 'New link issued')
+  assert.ok(v.details.some(([k]) => k === 'Previous time'))
+  assert.ok(v.details.some(([k]) => k === 'New time'))
+  assert.ok(!UUID_RE.test(visible(v)), visible(v))
 })
 
 test('a shortlist decision reads as In review -> Shortlisted, never pending -> approved', () => {

@@ -432,15 +432,22 @@ export function describeActivity(row: ActivityRowInput): ActivityView {
       const when = formatValue('scheduled_interview_at', after?.scheduled_interview_at) ?? '—'
       return { ...base, event: 'Interview scheduled', change: { kind: 'chip', chip: chip(when, 'plain', 30) }, details: [who, ['Date and time', when]] }
     }
-    case 'interview.rescheduled':
+    case 'interview.rescheduled': {
+      // A reschedule can carry a new time or only issue a fresh link; the
+      // audit row says which, so the label must not guess.
+      const when = after?.scheduled_interview_at ? formatValue('scheduled_interview_at', after.scheduled_interview_at) : null
+      const was = before?.scheduled_interview_at ? formatValue('scheduled_interview_at', before.scheduled_interview_at) : null
+      const details: Array<[string, string]> = [who]
+      if (was) details.push(['Previous time', was])
+      details.push(when ? ['New time', when] : ['What happened', 'A new interview link was issued. No date or time was set.'])
       return {
         ...base,
         event: 'Interview rescheduled',
-        change: { kind: 'text', text: 'New time not recorded' },
-        details: [who, ['What happened', 'The interview was rescheduled and a new link was issued.']],
-        note: 'This event was saved before reschedules recorded the new date and time, so those details are not available.',
+        change: when ? { kind: 'chip', chip: chip(when, 'plain', 30) } : { kind: 'chip', chip: chip('New link issued', 'muted') },
+        details,
         tech: techLine(row, typeof after?.session_id === 'string' ? `Session ${after.session_id}` : undefined),
       }
+    }
     case 'interview.link_sent': {
       const status = formatValue('status', after?.status) ?? 'Sent'
       return { ...base, event: 'Interview link sent', change: { kind: 'chip', chip: chip(status, 'muted') }, details: [who, ['Interview', status]] }
