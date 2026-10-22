@@ -27,6 +27,10 @@ from app.services.audit_service import AuditService
 logger = logging.getLogger(__name__)
 
 
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
 class InterviewHrService:
     def __init__(
         self,
@@ -474,15 +478,30 @@ class InterviewHrService:
             result = await reschedule_interview(
                 self._session, candidate_id, schedule=body
             )
+            # The time lives on the new session row; copy it here so the audit
+            # row stays readable on its own. A reschedule without a time only
+            # issues a fresh link, which shows up as a null.
+            new_session = await self._session.get(InterviewSession, result.id)
+            previous = (
+                await self._session.get(InterviewSession, new_session.rescheduled_from_session_id)
+                if new_session and new_session.rescheduled_from_session_id
+                else None
+            )
             await self._audit.log_change(
                 actor=actor,
                 action="interview.rescheduled",
                 entity_type="interview",
-                entity_id=result.id if hasattr(result, "id") else candidate_id,
+                entity_id=result.id,
                 subject_label=await self._candidate_label(candidate, candidate_id),
                 feature="interview_session",
-                before=None,
-                after={"session_id": str(result.id) if hasattr(result, "id") else None},
+                before={
+                    "scheduled_interview_at": _iso(previous.scheduled_interview_at) if previous else None,
+                },
+                after={
+                    "session_id": str(result.id),
+                    "scheduled_interview_at": _iso(result.scheduled_interview_at),
+                    "timezone": body.timezone if body and result.scheduled_interview_at else None,
+                },
                 job_id=candidate.job_id if candidate else None,
                 candidate_id=candidate_id,
             )
