@@ -51,7 +51,7 @@ MAX_CALL_DURATION_MINUTES = _s.max_call_duration_minutes
 LIVE_SLOT_DEFER_SEC = _s.live_slot_defer_sec
 
 LIVE_CALL_STATUSES = ("initiated", "in_progress")
-TERMINAL_CALL_STATUSES = frozenset({"completed", "failed"})
+TERMINAL_CALL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
 
 def can_set_call_status(current: str | None, new: str) -> bool:

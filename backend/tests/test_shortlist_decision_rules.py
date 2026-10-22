@@ -99,6 +99,20 @@ class StageTests(unittest.TestCase):
         calls = [_call("completed", "pass", minutes=0), _call("failed", minutes=5)]
         self.assertEqual(_stage(calls=calls), ("interview", "pending"))
 
+    def test_a_cancelled_call_keeps_the_candidate_in_screening(self):
+        self.assertEqual(_stage(calls=[_call("cancelled", vapi=None)]), ("screening", "cancelled"))
+        # a later real call outranks the cancelled marker only by being newer/live
+        self.assertEqual(
+            _stage(calls=[_call("cancelled", vapi=None, minutes=0), _call("initiated", minutes=5)]),
+            ("screening", "live"),
+        )
+
+    def test_a_cancelled_interview_keeps_the_candidate_in_interviews(self):
+        self.assertEqual(_stage(sessions=[_session("cancelled")]), ("interview", "cancelled"))
+        # a new link after the cancellation takes over
+        sessions = [_session("cancelled", minutes=0), _session("pending", minutes=5)]
+        self.assertEqual(_stage(sessions=sessions), ("interview", "link_sent"))
+
     def test_screening_switched_off_without_a_session_means_interview_next(self):
         self.assertEqual(_stage(effective=False), ("interview", "pending"))
 

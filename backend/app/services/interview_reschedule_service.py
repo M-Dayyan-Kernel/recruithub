@@ -45,7 +45,8 @@ async def _get_latest_pass_screening(
 
 
 async def _expire_session(session: InterviewSession) -> None:
-    if session.status not in ("completed", "expired"):
+    # A cancelled session stays cancelled: that is a deliberate act the history should keep.
+    if session.status not in ("completed", "expired", "cancelled"):
         session.status = "expired"
     session.expires_at = datetime.now(timezone.utc)
 

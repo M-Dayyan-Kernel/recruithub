@@ -25,6 +25,8 @@ from app.schemas.integrity import (
 )
 from app.schemas.schemas import (
     FinalistsResponse,
+    InterviewCancelRequest,
+    InterviewCancelResponse,
     InterviewHrDecisionUpdate,
     InterviewPipelineResponse,
     InterviewReportResponse,
@@ -250,6 +252,20 @@ async def reschedule_interview_endpoint(
     service: InterviewHrService = Depends(get_interview_hr_service),
 ):
     return await service.reschedule(actor, candidate_id, body)
+
+
+@router.post(
+    "/candidates/{candidate_id}/interview/cancel",
+    response_model=InterviewCancelResponse,
+    dependencies=[_hr_auth],
+)
+async def cancel_interview_endpoint(
+    candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    body: InterviewCancelRequest = Body(default_factory=InterviewCancelRequest),
+    service: InterviewHrService = Depends(get_interview_hr_service),
+):
+    return await service.cancel(actor, candidate_id, body)
 
 
 @router.post(

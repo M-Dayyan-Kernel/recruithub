@@ -22,6 +22,7 @@ TEMPLATE_IDS = (
     "interview_invitation",
     "interview_scheduled",
     "interview_reschedule",
+    "interview_cancelled",
     "rejection",
 )
 
@@ -38,6 +39,7 @@ TEMPLATE_PLACEHOLDERS: dict[str, tuple[str, ...]] = {
         "{{scheduled_at}}",
     ),
     "interview_reschedule": ("{{candidate_name}}", "{{job_title}}", "{{interview_url}}"),
+    "interview_cancelled": ("{{candidate_name}}", "{{job_title}}"),
     "rejection": ("{{candidate_name}}", "{{job_title}}"),
 }
 
@@ -147,6 +149,23 @@ _DEFAULT_TEMPLATES: dict[str, dict[str, Any]] = {
 </html>""",
         "version": 1,
     },
+    "interview_cancelled": {
+        "subject": "[Interview Cancelled] {{job_title}} at {{company_name}}",
+        "body_html": """<!DOCTYPE html>
+<html lang="en">
+<body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+  <p>Hi <strong>{{candidate_name}}</strong>,</p>
+  <p>
+    Your interview for the <strong>{{job_title}}</strong> role at {{company_name}} has been
+    cancelled, and the interview link we sent you no longer works.
+  </p>
+  <p>
+    If we arrange a new time we will send you a fresh link. Thank you for your patience.
+  </p>
+</body>
+</html>""",
+        "version": 1,
+    },
     "rejection": {
         "subject": "Update on your application — {{job_title}}",
         "body_html": """<!DOCTYPE html>
@@ -189,6 +208,10 @@ _PREVIEW_SAMPLES: dict[str, dict[str, str]] = {
         "candidate_name": "Jane Doe",
         "job_title": "Senior Software Engineer",
         "interview_url": "https://interview.example.com/xyz-789",
+    },
+    "interview_cancelled": {
+        "candidate_name": "Jane Doe",
+        "job_title": "Senior Software Engineer",
     },
     "rejection": {
         "candidate_name": "Jane Doe",
