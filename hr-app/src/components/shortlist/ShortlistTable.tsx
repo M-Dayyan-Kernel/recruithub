@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, Loader2, Trash2, X } from 'lucide-react'
+import { Loader2, Trash2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { ShortlistResultWithCandidate } from '@/types/api'
+import { RecommendationBadge, ScoreBadge } from '@/components/shortlist/shortlistBadges'
 import {
-  HrDecisionBadge,
-  RecommendationBadge,
-  ScoreBadge,
-} from '@/components/shortlist/shortlistBadges'
-import { DECISION_CONFIG, getApproveLabel, getApproveTooltip } from '@/components/shortlist/shortlistDecisionConfig'
+  ShortlistDecisionControls,
+  ShortlistStatusCell,
+} from '@/components/shortlist/ShortlistDecisionControls'
 import { ShortlistReportModal } from '@/components/shortlist/ShortlistReportModal'
-import { useShortlistDecision } from '@/hooks/useShortlistDecision'
 import { useShortlistApproveNavigation } from '@/hooks/useShortlistApproveNavigation'
 import { useDeleteCandidate } from '@/hooks/useDeleteCandidate'
 import { WORKFLOW_CARD_CLASS, WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
@@ -49,7 +47,6 @@ function ShortlistTableRow({
   screeningEffective: boolean
   onApproved: ReturnType<typeof useShortlistApproveNavigation>
 }) {
-  const decisionMutation = useShortlistDecision(jobId, result.id, { onApproved })
   const displayName = result.candidate_name ?? 'Candidate'
 
   return (
@@ -71,48 +68,24 @@ function ShortlistTableRow({
         <RecommendationBadge rec={result.recommendation} />
       </td>
       <td className={TD_CLASS}>
-        {result.hr_decision === 'pending' ? (
-          <span className="text-xs text-slate-400">Pending</span>
-        ) : (
-          <HrDecisionBadge decision={result.hr_decision} />
-        )}
+        <ShortlistStatusCell result={result} jobId={jobId} />
       </td>
       <td className={TD_CLASS}>
         <div className="flex flex-wrap items-center justify-center gap-2">
           <button
             type="button"
             onClick={() => onOpenReport(result)}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-indigo-300 hover:text-indigo-600"
+            className="inline-flex h-8 items-center rounded-md border border-line bg-surface px-3 text-[12px] font-medium text-ink-muted transition-colors hover:border-accent-border hover:text-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
           >
             Report
           </button>
-          {(['approved', 'rejected'] as const).map((decision) => {
-            const cfg = DECISION_CONFIG[decision]
-            const isActive = result.hr_decision === decision
-            const label =
-              decision === 'approved' ? getApproveLabel(screeningEffective) : cfg.label
-            return (
-              <button
-                key={decision}
-                type="button"
-                onClick={() => decisionMutation.mutate(decision)}
-                disabled={decisionMutation.isPending || isActive}
-                title={decision === 'approved' ? getApproveTooltip(screeningEffective) : undefined}
-                className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                  isActive ? cfg.active : cfg.inactive
-                }`}
-              >
-                {label}
-              </button>
-            )
-          })}
+          <ShortlistDecisionControls
+            result={result}
+            jobId={jobId}
+            screeningEffective={screeningEffective}
+            onApproved={onApproved}
+          />
         </div>
-        {decisionMutation.isError && (
-          <p className="mt-1 flex items-center justify-center gap-1 text-xs text-rose-600">
-            <AlertCircle size={11} />
-            Failed to update
-          </p>
-        )}
       </td>
     </tr>
   )

@@ -16,13 +16,16 @@ import {
   FileText,
 } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { ShortlistResultWithCandidate, HrDecision, SystemSettings } from '@/types/api'
+import type { ShortlistResultWithCandidate, SystemSettings } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
 import { ShortlistTable } from '@/components/shortlist/ShortlistTable'
 import { ShortlistTableSkeleton } from '@/components/shortlist/ShortlistTableSkeleton'
-import { getApproveLabel, getApproveTooltip } from '@/components/shortlist/shortlistDecisionConfig'
+import {
+  BulkDecisionDialog,
+  ShortlistDecisionControls,
+  ShortlistStatusCell,
+} from '@/components/shortlist/ShortlistDecisionControls'
 import { isVoiceScreeningEffective } from '@/lib/voiceScreening'
-import { useShortlistDecision } from '@/hooks/useShortlistDecision'
 import { useShortlistApproveNavigation, navigateAfterScreeningSkipped } from '@/hooks/useShortlistApproveNavigation'
 import {
   buildShortlistCsv,
@@ -82,26 +85,6 @@ function RecommendationBadge({ rec }: { rec: ShortlistResultWithCandidate['recom
   )
 }
 
-const HR_DECISION_LABEL: Record<Exclude<HrDecision, 'pending'>, string> = {
-  approved: 'Approved',
-  rejected: 'Rejected',
-  overridden: 'Overridden',
-}
-
-function HrDecisionBadge({ decision }: { decision: Exclude<HrDecision, 'pending'> }) {
-  const className =
-    decision === 'approved'
-      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-      : decision === 'rejected'
-        ? 'bg-rose-50 text-rose-700 border-rose-200'
-        : 'bg-amber-50 text-amber-700 border-amber-200'
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${className}`}>
-      {HR_DECISION_LABEL[decision]}
-    </span>
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Skeleton card
 // ---------------------------------------------------------------------------
@@ -147,28 +130,6 @@ function ShortlistCardSkeleton() {
 // Shortlist card
 // ---------------------------------------------------------------------------
 
-const DECISION_CONFIG: Record<
-  Exclude<HrDecision, 'pending'>,
-  { label: string; active: string; inactive: string }
-> = {
-  approved: {
-    label: 'Approve',
-    active: 'bg-emerald-600 text-white border-emerald-600',
-    inactive:
-      'border-slate-200 text-slate-400 hover:border-emerald-300 hover:text-emerald-600',
-  },
-  rejected: {
-    label: 'Reject',
-    active: 'bg-rose-600 text-white border-rose-600',
-    inactive: 'border-slate-200 text-slate-400 hover:border-rose-300 hover:text-rose-600',
-  },
-  overridden: {
-    label: 'Override',
-    active: 'bg-amber-500 text-white border-amber-500',
-    inactive:
-      'border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-600',
-  },
-}
 
 const FEEDBACK_TYPES = [
   { value: 'correctly_shortlisted', label: 'Correctly shortlisted' },
@@ -200,12 +161,12 @@ function BulkActionButtons({
   const disabled = approvingAll || rejectingAll
 
   return (
-    <div className="inline-grid w-auto shrink-0 min-w-[15rem] grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-slate-200 shadow-sm">
+    <div className="inline-grid w-auto shrink-0 min-w-[15rem] grid-cols-2 gap-px overflow-hidden rounded-md border border-line bg-line">
       <button
         type="button"
         onClick={onApproveAll}
         disabled={disabled}
-        className="inline-flex h-10 items-center justify-center gap-1.5 bg-white px-3 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex h-10 items-center justify-center gap-1.5 bg-pos-soft px-3 text-sm font-semibold text-pos transition-colors hover:bg-pos hover:text-accent-ink focus:outline-none focus:ring-2 focus:ring-inset focus:ring-pos/30 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {approvingAll ? (
           <>
@@ -223,7 +184,7 @@ function BulkActionButtons({
         type="button"
         onClick={onRejectAll}
         disabled={disabled}
-        className="inline-flex h-10 items-center justify-center gap-1.5 border-l border-slate-200 bg-white px-3 text-sm font-medium text-rose-700 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex h-10 items-center justify-center gap-1.5 bg-surface px-3 text-sm font-semibold text-neg transition-colors hover:bg-neg-soft focus:outline-none focus:ring-2 focus:ring-inset focus:ring-neg/30 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {rejectingAll ? (
           <>
@@ -262,13 +223,7 @@ function ShortlistCard({
 }) {
   const actionsMode: DecisionActionsMode =
     decisionActions ?? (readOnly ? 'none' : 'full')
-  const visibleDecisions: Exclude<HrDecision, 'pending'>[] =
-    actionsMode === 'approveReject'
-      ? ['approved', 'rejected']
-      : actionsMode === 'full'
-        ? ['approved', 'rejected', 'overridden']
-        : []
-  const showDecisionButtons = visibleDecisions.length > 0
+  const showDecisionButtons = actionsMode !== 'none'
   const showFeedback = actionsMode === 'full'
   const queryClient = useQueryClient()
   const [showFeedbackPanel, setShowFeedbackPanel] = useState(false)
@@ -291,9 +246,6 @@ function ShortlistCard({
   const hasMoreStrengths = strengths.length > 3
   const displayGaps = showAllGaps ? gaps : gaps.slice(0, 3)
   const hasMoreGaps = gaps.length > 3
-
-  // Decision mutation (optimistic update)
-  const decisionMutation = useShortlistDecision(jobId, result.id, { onApproved })
 
   const deleteMutation = useMutation({
     mutationFn: () => api.delete(`/api/candidates/${result.candidate_id}`),
@@ -349,7 +301,7 @@ function ShortlistCard({
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
           {result.hr_decision !== 'pending' && (
-            <HrDecisionBadge decision={result.hr_decision} />
+            <ShortlistStatusCell result={result} jobId={jobId} />
           )}
           <ScoreBadge score={result.match_score} />
           <RecommendationBadge rec={result.recommendation} />
@@ -434,25 +386,12 @@ function ShortlistCard({
         <>
           {/* HR Decision buttons + optional feedback trigger */}
           <div className="flex items-center gap-2 flex-wrap">
-            {visibleDecisions.map((decision) => {
-              const cfg = DECISION_CONFIG[decision]
-              const isActive = result.hr_decision === decision
-              const label =
-                decision === 'approved' ? getApproveLabel(screeningEffective) : cfg.label
-              return (
-                <button
-                  key={decision}
-                  onClick={() => decisionMutation.mutate(decision)}
-                  disabled={decisionMutation.isPending || isActive}
-                  title={decision === 'approved' ? getApproveTooltip(screeningEffective) : undefined}
-                  className={`px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                    isActive ? cfg.active : cfg.inactive
-                  }`}
-                >
-                  {label}
-                </button>
-              )
-            })}
+            <ShortlistDecisionControls
+              result={result}
+              jobId={jobId}
+              screeningEffective={screeningEffective}
+              onApproved={onApproved}
+            />
             {showFeedback && (
               <button
                 onClick={() => {
@@ -468,7 +407,7 @@ function ShortlistCard({
               <button
                 type="button"
                 onClick={handleDelete}
-                disabled={deleteMutation.isPending || decisionMutation.isPending}
+                disabled={deleteMutation.isPending}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium text-slate-500 transition-colors hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 disabled:opacity-50 disabled:cursor-not-allowed ${showFeedback ? '' : 'ml-auto'}`}
                 title="Remove resume"
               >
@@ -481,14 +420,6 @@ function ShortlistCard({
               </button>
             )}
           </div>
-
-          {/* Decision error */}
-          {decisionMutation.isError && (
-            <p className="mt-2 text-xs text-rose-600 flex items-center gap-1">
-              <AlertCircle size={11} />
-              Failed to update decision. Please try again.
-            </p>
-          )}
 
           {/* Inline feedback form */}
           {showFeedback && showFeedbackPanel && (
@@ -603,6 +534,9 @@ export function ShortlistTab({
         ShortlistResultWithCandidate[]
       >,
     enabled: !!jobId,
+    // The stage of an approved row changes elsewhere (a call ends, a link is sent), so a
+    // visit to this tab should always show the current one rather than a 30s-old answer.
+    staleTime: 0,
     refetchInterval: (query) => {
       const data = query.state.data
       // Poll every 3 s while the Celery task is running but results haven't arrived yet
@@ -646,6 +580,34 @@ export function ShortlistTab({
   const queryClient = useQueryClient()
   const [approvingAll, setApprovingAll] = useState(false)
   const [rejectingAll, setRejectingAll] = useState(false)
+  // The names are captured when the dialog opens: the list refetches while the batch
+  // runs, and a dialog that re-derives them would empty itself before it closes.
+  const [bulkConfirm, setBulkConfirm] = useState<{ decision: 'approved' | 'rejected'; names: string[]; ids: Set<string> } | null>(null)
+
+  // Only rows still awaiting a decision: approved rows are locked, and a rejected row
+  // is not "failed" work for the batch to redo.
+  const bulkTargets = (decision: 'approved' | 'rejected') =>
+    (results ?? []).filter(
+      (r) =>
+        r.hr_decision === 'pending' &&
+        r.recommendation === (decision === 'approved' ? 'shortlisted' : 'rejected'),
+    )
+
+  const requestBulk = (decision: 'approved' | 'rejected') => {
+    if (bulkTargets(decision).length === 0) {
+      toast(
+        decision === 'approved'
+          ? 'No resume-passed candidates pending approval.'
+          : 'No resume-failed candidates pending rejection.',
+      )
+      return
+    }
+    setBulkConfirm({
+      decision,
+      names: bulkTargets(decision).map((r) => r.candidate_name ?? 'Candidate'),
+      ids: new Set(bulkTargets(decision).map((r) => r.id)),
+    })
+  }
 
   const aiShortlistedHeader = (
     <div className="space-y-1">
@@ -654,78 +616,90 @@ export function ShortlistTab({
     </div>
   )
 
+  // The batch acts on the rows HR was shown, and only those still awaiting a decision:
+  // a row someone else decided in the meantime is left alone.
+  const confirmedTargets = (decision: 'approved' | 'rejected') =>
+    bulkTargets(decision).filter((r) => !bulkConfirm || bulkConfirm.ids.has(r.id))
+
   const handleApproveAll = async () => {
-    if (!results) return
-    const toApprove = results.filter(
-      (r) => r.recommendation === 'shortlisted' && r.hr_decision === 'pending',
-    )
-    if (toApprove.length === 0) {
-      toast('No resume-passed candidates pending approval.')
-      return
-    }
+    const toApprove = confirmedTargets('approved')
+    if (toApprove.length === 0) return
     setApprovingAll(true)
     try {
-      const responses = await Promise.all(
-        toApprove.map((r) =>
-          api.patch(`/api/shortlist/${r.id}/decision`, {
-            hr_decision: 'approved',
-          }) as unknown as Promise<{ screening_skipped?: boolean; interview_email_sent?: boolean | null }>,
+      const settled = await Promise.allSettled(
+        toApprove.map(
+          (r) =>
+            api.patch(`/api/shortlist/${r.id}/decision`, {
+              hr_decision: 'approved',
+            }) as unknown as Promise<{ screening_skipped?: boolean; interview_email_sent?: boolean | null }>,
         ),
       )
-      if (!screeningEffective) {
-        const anyEmailFailed = responses.some(
-          (r) => r.screening_skipped && r.interview_email_sent === false,
+      const responses = settled.flatMap((o) => (o.status === 'fulfilled' ? [o.value] : []))
+      const failed = settled.length - responses.length
+      const plural = (n: number) => `${n} candidate${n !== 1 ? 's' : ''}`
+      const anyEmailFailed =
+        !screeningEffective && responses.some((r) => r.screening_skipped && r.interview_email_sent === false)
+      if (failed > 0) {
+        // Most often a row that changed under us (approved from another tab).
+        toast.error(
+          (responses.length > 0
+            ? `Approved ${plural(responses.length)}, but ${failed} could not be updated.`
+            : 'Could not approve.') +
+            (anyEmailFailed ? ' Some interview emails also failed.' : '') +
+            ' The list has been refreshed.',
         )
-        if (anyEmailFailed) {
-          toast.error(
-            `Approved ${toApprove.length} candidate${toApprove.length !== 1 ? 's' : ''}, but some interview emails failed.`,
-          )
-        } else {
-          toast.success(
-            `Approved ${toApprove.length} candidate${toApprove.length !== 1 ? 's' : ''} — interview links sent`,
-          )
-        }
-        navigateAfterScreeningSkipped(jobId, navigate, queryClient)
+      } else if (anyEmailFailed) {
+        toast.error(`Approved ${plural(responses.length)}, but some interview emails failed.`)
+      } else if (!screeningEffective) {
+        toast.success(`Approved ${plural(responses.length)} — interview links sent`)
       } else {
-        toast.success(
-          `Approved ${toApprove.length} candidate${toApprove.length !== 1 ? 's' : ''}`,
-        )
+        toast.success(`Approved ${plural(responses.length)}`)
       }
-    } catch {
-      toast.error('Failed to approve all. Please try again.')
+      if (!screeningEffective && responses.length > 0) {
+        navigateAfterScreeningSkipped(jobId, navigate, queryClient)
+      }
     } finally {
       queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
       queryClient.invalidateQueries({ queryKey: ['candidates'] })
+      queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
       setApprovingAll(false)
     }
   }
 
   const handleRejectAll = async () => {
-    if (!results) return
-    const toReject = results.filter(
-      (r) => r.recommendation === 'rejected' && r.hr_decision === 'pending',
-    )
-    if (toReject.length === 0) {
-      toast('No resume-failed candidates pending rejection.')
-      return
-    }
+    const toReject = confirmedTargets('rejected')
+    if (toReject.length === 0) return
     setRejectingAll(true)
     try {
-      await Promise.all(
-        toReject.map((r) =>
-          api.patch(`/api/shortlist/${r.id}/decision`, { hr_decision: 'rejected' }),
-        ),
+      const settled = await Promise.allSettled(
+        toReject.map((r) => api.patch(`/api/shortlist/${r.id}/decision`, { hr_decision: 'rejected' })),
       )
-      toast.success(
-        `Rejected ${toReject.length} candidate${toReject.length !== 1 ? 's' : ''}`,
-      )
-    } catch {
-      toast.error('Failed to reject all. Please try again.')
+      const done = settled.filter((o) => o.status === 'fulfilled').length
+      const failed = settled.length - done
+      const plural = (n: number) => `${n} candidate${n !== 1 ? 's' : ''}`
+      if (failed > 0) {
+        toast.error(
+          done > 0
+            ? `Rejected ${plural(done)}, but ${failed} could not be updated. The list has been refreshed.`
+            : 'Could not reject. The list has been refreshed.',
+        )
+      } else {
+        toast.success(`Rejected ${plural(done)}`)
+      }
     } finally {
       queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
       queryClient.invalidateQueries({ queryKey: ['candidates'] })
       setRejectingAll(false)
     }
+  }
+
+  const confirmBulk = async () => {
+    const decision = bulkConfirm?.decision
+    if (!decision) return
+    if (decision === 'approved') await handleApproveAll()
+    else await handleRejectAll()
+    setBulkConfirm(null)
   }
 
   const aiShortlistedCandidates = scoredResults.filter(
@@ -898,8 +872,8 @@ export function ShortlistTab({
               rejectLabel="Reject failed"
               approvingAll={approvingAll}
               rejectingAll={rejectingAll}
-              onApproveAll={() => void handleApproveAll()}
-              onRejectAll={() => void handleRejectAll()}
+              onApproveAll={() => requestBulk('approved')}
+              onRejectAll={() => requestBulk('rejected')}
             />
             <button
               type="button"
@@ -941,6 +915,17 @@ export function ShortlistTab({
             voiceScreeningEnabled={voiceScreeningEnabled}
           />
         )}
+
+        {bulkConfirm && (
+          <BulkDecisionDialog
+            decision={bulkConfirm.decision}
+            names={bulkConfirm.names}
+            screeningEffective={screeningEffective}
+            busy={approvingAll || rejectingAll}
+            onConfirm={() => void confirmBulk()}
+            onClose={() => setBulkConfirm(null)}
+          />
+        )}
       </div>
     )
   }
@@ -957,8 +942,8 @@ export function ShortlistTab({
           rejectLabel="Reject failed"
           approvingAll={approvingAll}
           rejectingAll={rejectingAll}
-          onApproveAll={() => void handleApproveAll()}
-          onRejectAll={() => void handleRejectAll()}
+          onApproveAll={() => requestBulk('approved')}
+          onRejectAll={() => requestBulk('rejected')}
         />
       </div>
       {results.map((result) => (

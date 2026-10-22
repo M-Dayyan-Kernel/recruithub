@@ -105,9 +105,19 @@ export interface ShortlistResult {
   created_at: string
 }
 
+/** Where an approved candidate is now; absent for every other decision. */
+export interface ShortlistStage {
+  kind: 'screening' | 'interview'
+  state: string
+  scheduled_at?: string | null
+  /** Why a screening is flagged, as a sentence. */
+  reason?: string | null
+}
+
 export interface ShortlistResultWithCandidate extends ShortlistResult {
   candidate_name?: string | null
   candidate_email?: string | null
+  stage?: ShortlistStage | null
 }
 
 export interface ShortlistDecisionResponse extends ShortlistResult {
