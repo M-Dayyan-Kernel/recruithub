@@ -26,6 +26,7 @@ export default function ConfirmDialog({
   error = null,
   onConfirm,
   onClose,
+  confirmDisabled = false,
   children,
 }: {
   title: string
@@ -37,6 +38,8 @@ export default function ConfirmDialog({
   error?: string | null
   onConfirm: () => void
   onClose: () => void
+  /** Hold the confirm button until the extra controls are filled in. */
+  confirmDisabled?: boolean
   /** Extra controls between the text and the buttons, e.g. an opt-in checkbox. */
   children?: ReactNode
 }) {
@@ -59,7 +62,7 @@ export default function ConfirmDialog({
             <button
               type="button"
               onClick={onConfirm}
-              disabled={busy}
+              disabled={busy || confirmDisabled}
               className={`${CONFIRM_BASE} ${
                 tone === 'neg'
                   ? 'bg-neg hover:bg-neg/90 focus:ring-neg/40'

@@ -17,6 +17,11 @@ export interface ScreeningRow {
   canCallNow: boolean
   /** A queued or scheduled call that has not been dialled yet and can still be called off. */
   canCancel: boolean
+  /**
+   * The call cannot settle this candidate (flagged, or a call HR cancelled): offer the
+   * ways forward by hand, moving them to an interview or rejecting them.
+   */
+  canPlace: boolean
   isActive: boolean
   isScheduledRetry: boolean
   flagReason?: string
@@ -209,6 +214,9 @@ function canCallNowForRow(
 ): boolean {
   if (!isCallablePhone(phone, settings)) return false
   if (latestCall && isLiveCall(latestCall)) return false
+  // Already sent to an interview: the phone round is behind them, and the dialler would
+  // refuse the call anyway.
+  if (latestCall?.has_interview_session) return false
 
   const scheduledRetry = latestCall ? isScheduledRetry(latestCall) : false
   const maxAttempts = maxDialAttempts(settings)
@@ -239,7 +247,7 @@ function statusLabelForRow(
   tab: ScreeningTabId,
   flagReason?: string,
 ): string {
-  if (!call) return 'Pending'
+  if (!call) return tab === 'flagged' ? 'Flagged' : 'Pending'
 
   if (tab === 'flagged') {
     if (flagReason?.toLowerCase().includes('maximum attempts')) {
@@ -314,6 +322,7 @@ export function buildScreeningRows(
       statusLabel: statusLabelForRow(latestCall, tab, flagReason),
       canCallNow,
       canCancel,
+      canPlace: !isActive && (tab === 'flagged' || latestCall?.call_status === 'cancelled'),
       isActive,
       isScheduledRetry: scheduledRetry,
       flagReason,
