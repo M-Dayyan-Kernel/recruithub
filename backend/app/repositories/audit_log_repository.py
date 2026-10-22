@@ -49,6 +49,7 @@ class AuditLogRepository:
         *,
         tenant_id: uuid.UUID,
         entity_type: str | None = None,
+        category: str | None = None,
         job_id: uuid.UUID | None = None,
         candidate_id: uuid.UUID | None = None,
         actor_user_id: uuid.UUID | None = None,
@@ -59,6 +60,11 @@ class AuditLogRepository:
         filters: list[Any] = [AuditLog.tenant_id == tenant_id]
         if entity_type:
             filters.append(AuditLog.entity_type == entity_type)
+        if category:
+            # Every action is named "<category>.<verb>". The category is not the same as
+            # entity_type: "screening.triggered" is recorded against a job, so filtering by
+            # entity would miss it under "Screening".
+            filters.append(AuditLog.action.startswith(f"{category}.", autoescape=True))
         if job_id:
             filters.append(AuditLog.job_id == job_id)
         if candidate_id:

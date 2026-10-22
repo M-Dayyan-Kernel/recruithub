@@ -1153,6 +1153,9 @@ class AuditLogResponse(BaseModel):
     before_state: Optional[dict] = None
     after_state: Optional[dict] = None
     job_id: Optional[uuid.UUID] = None
+    # Stored on every candidate-related row but not returned until now, so the UI could not
+    # link a shortlist or interview event to the candidate it was about.
+    candidate_id: Optional[uuid.UUID] = None
 
 
 class AuditLogListResponse(BaseModel):
