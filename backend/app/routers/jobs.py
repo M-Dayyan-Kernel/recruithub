@@ -1,16 +1,25 @@
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile, status
 
 from app.dependencies import (
     RequireAdminOrHr,
     get_job_description_parse_service,
     get_job_service,
+    get_voice_screening_service,
     hr_roles,
 )
 from app.exceptions import DomainError
-from app.schemas.schemas import JobCreate, JobParseResponse, JobResponse, JobUpdate
+from app.schemas.schemas import (
+    JobCreate,
+    JobParseResponse,
+    JobResponse,
+    JobUpdate,
+    VoiceScreeningChange,
+    VoiceScreeningChangeResult,
+    VoiceScreeningPreview,
+)
 from app.services.job_description_parse_service import JobDescriptionParseService
 from app.services.job_service import JobService
 
@@ -78,6 +87,33 @@ async def update_job(
 ):
     try:
         return await service.update(actor, job_id, payload)
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
+@router.get("/{job_id}/voice-screening", response_model=VoiceScreeningPreview)
+async def preview_voice_screening(
+    job_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    service=Depends(get_voice_screening_service),
+):
+    """Who the voice-screening switch would affect (shown before it is flipped)."""
+    try:
+        return await service.preview(actor, job_id)
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
+@router.post("/{job_id}/voice-screening", response_model=VoiceScreeningChangeResult)
+async def change_voice_screening(
+    job_id: uuid.UUID,
+    body: VoiceScreeningChange,
+    actor: RequireAdminOrHr,
+    background_tasks: BackgroundTasks,
+    service=Depends(get_voice_screening_service),
+):
+    try:
+        return await service.change(actor, job_id, body, run_later=background_tasks.add_task)
     except DomainError as exc:
         _raise_domain(exc)
 

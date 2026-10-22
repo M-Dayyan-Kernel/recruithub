@@ -54,6 +54,15 @@ def _transcript(call: ScreeningCall) -> str:
     return (call.transcript or "").strip()
 
 
+# Waiting in the phone round with no call result: what the voice-screening switch must
+# place somewhere when it is turned off.
+PHONE_ROUND_STATES = frozenset({"queued", "scheduled", "retrying", "flagged", "cancelled"})
+
+
+def is_successful_call(call: ScreeningCall) -> bool:
+    return _is_successful(call)
+
+
 def _is_successful(call: ScreeningCall) -> bool:
     """A call where the candidate was actually reached and screened."""
     if call.call_status != "completed":
@@ -71,7 +80,12 @@ def _pick_call(calls: list[ScreeningCall]) -> ScreeningCall:
         return _newest(live)
     successful = [c for c in calls if _is_successful(c)]
     if successful:
-        return _newest(successful)
+        best = _newest(successful)
+        # Calls made after it belong to a later round (approved again after this result),
+        # which is what is happening now. A success cancels its own pending retries, so
+        # nothing newer is left over from the same round.
+        later = [c for c in calls if c.created_at > best.created_at]
+        return _newest(later) if later else best
     scheduled = [c for c in calls if _is_scheduled_retry(c)]
     if scheduled:
         return _newest(scheduled)
@@ -102,10 +116,14 @@ def _screening_stage(
     settings: CachedSettings | None,
     now: datetime,
 ) -> ShortlistStage:
-    if not phone:
+    # A call that already reached the candidate has its outcome; today's phone number does
+    # not change it. (Same order as the Phone screening tab.)
+    reached = call is not None and _is_successful(call)
+    if not reached and not phone:
         return _flagged("No phone number on file")
     if (
-        settings is not None
+        not reached
+        and settings is not None
         and settings.enforce_phone_geography
         and "IN" in (settings.allowed_phone_regions or [])
         and not _phone_looks_indian(phone)
@@ -190,7 +208,12 @@ def resolve_shortlist_stage(
     if not screening_effective and not calls:
         return ShortlistStage(kind="interview", state="pending")
     call = _pick_call(calls) if calls else None
-    return _screening_stage(call, phone, settings, now or datetime.now(timezone.utc))
+    stage = _screening_stage(call, phone, settings, now or datetime.now(timezone.utc))
+    if not screening_effective and stage.kind == "screening" and stage.state in PHONE_ROUND_STATES:
+        # Screening is off and nothing will call them: they wait for HR to place them
+        # (the voice-screening switch offers that).
+        return ShortlistStage(kind="screening", state="paused")
+    return stage
 
 
 async def load_stages(

@@ -123,6 +123,12 @@ def get_job_service(db: AsyncSession = Depends(get_db)) -> JobService:
     return JobService(db)
 
 
+def get_voice_screening_service(db: AsyncSession = Depends(get_db)) -> "VoiceScreeningService":
+    from app.services.voice_screening_service import VoiceScreeningService
+
+    return VoiceScreeningService(db)
+
+
 def get_job_description_parse_service(
     db: AsyncSession = Depends(get_db),
 ) -> JobDescriptionParseService:
