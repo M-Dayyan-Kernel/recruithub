@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from pydantic import ValidationError as PydanticValidationError
 
-from app.exceptions import ValidationError
+from app.exceptions import ConflictError, ValidationError
 from app.models.models import User
 from app.schemas.schemas import (
     INTERVIEW_SCORE_MAX,
@@ -191,18 +191,34 @@ class ScreeningQuestionRequiredTests(unittest.IsolatedAsyncioTestCase):
             )
         self.session.commit.assert_not_awaited()
 
-    async def test_update_allows_clearing_questions_when_disabling_voice_screening(self):
+    async def test_update_allows_clearing_questions_once_voice_screening_is_off(self):
+        service = self._service()
+        job = MagicMock()
+        job.voice_screening_enabled = False
+        service._jobs.get_for_tenant = AsyncMock(return_value=job)
+        await service.update(self._actor(), uuid.uuid4(), JobUpdate(screening_questions=[]))
+        self.assertEqual(job.screening_questions, [])
+        self.session.commit.assert_awaited_once()
+
+    async def test_a_plain_edit_cannot_switch_voice_screening_off(self):
+        # That is the switch's job: it asks where the phone round goes, under a job lock.
         service = self._service()
         job = MagicMock()
         job.voice_screening_enabled = True
         service._jobs.get_for_tenant = AsyncMock(return_value=job)
-        await service.update(
-            self._actor(),
-            uuid.uuid4(),
-            JobUpdate(screening_questions=[], voice_screening_enabled=False),
-        )
-        self.assertEqual(job.screening_questions, [])
-        self.session.commit.assert_awaited_once()
+        with self.assertRaises(ConflictError) as ctx:
+            await service.update(self._actor(), uuid.uuid4(), JobUpdate(voice_screening_enabled=False))
+        self.assertIn("switch", ctx.exception.public_message)
+        self.session.commit.assert_not_awaited()
+        self.assertTrue(job.voice_screening_enabled)
+
+    async def test_a_plain_edit_may_still_switch_it_on(self):
+        service = self._service()
+        job = MagicMock()
+        job.voice_screening_enabled = False
+        service._jobs.get_for_tenant = AsyncMock(return_value=job)
+        await service.update(self._actor(), uuid.uuid4(), JobUpdate(voice_screening_enabled=True))
+        self.assertTrue(job.voice_screening_enabled)
 
 
 class ExperienceRangeTests(unittest.IsolatedAsyncioTestCase):

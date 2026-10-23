@@ -45,7 +45,16 @@ function latestCallForCandidate(
   const successfulCalls = [...forCandidate]
     .filter(isSuccessfulScreeningCall)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  if (successfulCalls.length > 0) return successfulCalls[0]
+  if (successfulCalls.length > 0) {
+    const best = successfulCalls[0]
+    // Calls made after it belong to a later round (approved again after this result), which
+    // is what is happening now. A success cancels its own pending retries, so nothing newer
+    // is left over from the same round.
+    const later = forCandidate
+      .filter((c) => new Date(c.created_at).getTime() > new Date(best.created_at).getTime())
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    return later[0] ?? best
+  }
 
   const scheduledRetry = forCandidate.find((c) => isScheduledRetry(c))
   if (scheduledRetry) return scheduledRetry
@@ -111,11 +120,15 @@ function classifyTab(
   phone: string | null,
   settings: SystemSettings | undefined,
 ): { tab: ScreeningTabId; flagReason?: string } {
-  if (!phone) {
+  // A call that already reached the candidate keeps its outcome: a phone number removed or
+  // failing the region check afterwards must not turn a finished screening into "flagged".
+  const reached = call !== null && isSuccessfulScreeningCall(call)
+
+  if (!reached && !phone) {
     return { tab: 'flagged', flagReason: 'No phone number on file' }
   }
 
-  if (settings?.enforce_phone_geography && settings.allowed_phone_regions.includes('IN')) {
+  if (!reached && phone && settings?.enforce_phone_geography && settings.allowed_phone_regions.includes('IN')) {
     if (!phoneLooksIndian(phone)) {
       return { tab: 'flagged', flagReason: 'Phone number not in allowed region (+91 only)' }
     }

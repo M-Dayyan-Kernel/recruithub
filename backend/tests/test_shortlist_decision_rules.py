@@ -72,6 +72,12 @@ class StageTests(unittest.TestCase):
         self.assertEqual(_stage(phone="+91 98765 43210", settings=_settings(enforce=True)), ("screening", "queued"))
         self.assertEqual(_stage(phone="9876543210", settings=_settings(enforce=True)), ("screening", "queued"))
 
+    def test_a_finished_call_keeps_its_outcome_whatever_the_phone_says_now(self):
+        self.assertEqual(_stage(calls=[_call("completed", "fail")], phone=None), ("screening", "failed"))
+        self.assertEqual(_stage(calls=[_call("completed", "pass")], phone="+1 415 555 0100", settings=_settings(enforce=True)), ("interview", "pending"))
+        # with no outcome yet, the phone still decides
+        self.assertEqual(_stage(calls=[_call("pending", vapi=None)], phone=None), ("screening", "flagged"))
+
     def test_declined_and_technical_failures_flag(self):
         self.assertEqual(_stage(calls=[_call("completed", outcome="declined")]), ("screening", "flagged"))
         self.assertEqual(_stage(calls=[_call("completed", outcome="failed")]), ("screening", "flagged"))
@@ -95,9 +101,10 @@ class StageTests(unittest.TestCase):
         calls = [_call("completed", "fail", minutes=0), _call("initiated", minutes=5)]
         self.assertEqual(_stage(calls=calls), ("screening", "live"))
 
-    def test_a_call_that_reached_the_candidate_beats_a_newer_failed_retry(self):
-        calls = [_call("completed", "pass", minutes=0), _call("failed", minutes=5)]
-        self.assertEqual(_stage(calls=calls), ("interview", "pending"))
+    def test_a_call_after_a_result_is_a_new_round(self):
+        # e.g. failed, rejected, approved again: the new round's call is what is happening
+        calls = [_call("completed", "fail", minutes=0), _call("failed", minutes=5)]
+        self.assertEqual(_stage(calls=calls), ("screening", "flagged"))
 
     def test_a_cancelled_call_keeps_the_candidate_in_screening(self):
         self.assertEqual(_stage(calls=[_call("cancelled", vapi=None)]), ("screening", "cancelled"))
@@ -113,8 +120,26 @@ class StageTests(unittest.TestCase):
         sessions = [_session("cancelled", minutes=0), _session("pending", minutes=5)]
         self.assertEqual(_stage(sessions=sessions), ("interview", "link_sent"))
 
+    def test_a_new_round_after_a_result_shows_the_new_round(self):
+        old_fail = _call("completed", "fail", minutes=0)
+        self.assertEqual(_stage(calls=[old_fail, _call("pending", vapi=None, minutes=5)]), ("screening", "scheduled"))
+        self.assertEqual(_stage(calls=[old_fail, _call("cancelled", vapi=None, minutes=5)]), ("screening", "cancelled"))
+        # ...including once the new call is placed, or ends unanswered
+        self.assertEqual(_stage(calls=[old_fail, _call("pending", vapi="v", minutes=5)]), ("screening", "queued"))
+        self.assertEqual(_stage(calls=[old_fail, _call("completed", outcome="no_answer", minutes=5)]), ("screening", "retrying"))
+        # an older queued row does not override a newer result
+        self.assertEqual(_stage(calls=[_call("pending", vapi=None, minutes=0), _call("completed", "fail", minutes=5)]), ("screening", "failed"))
+
     def test_screening_switched_off_without_a_session_means_interview_next(self):
         self.assertEqual(_stage(effective=False), ("interview", "pending"))
+
+    def test_screening_off_leaves_the_phone_round_paused_not_mislabelled(self):
+        # Nothing will call them now: they wait for HR to place them.
+        for call in (_call("pending", vapi=None), _call("cancelled", vapi=None), _call("failed")):
+            self.assertEqual(_stage(calls=[call], effective=False), ("screening", "paused"), call.call_status)
+        # ...but a call with an outcome, or a live one, still says what it is
+        self.assertEqual(_stage(calls=[_call("completed", "fail")], effective=False), ("screening", "failed"))
+        self.assertEqual(_stage(calls=[_call("in_progress")], effective=False), ("screening", "live"))
 
     def test_interview_states(self):
         started = NOW - timedelta(minutes=5)

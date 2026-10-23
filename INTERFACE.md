@@ -114,6 +114,45 @@ Upload a job description document (PDF or DOCX) and extract structured fields vi
 
 ---
 
+#### `GET /api/jobs/{job_id}/voice-screening`
+Who the voice-screening switch would affect, shown before it is flipped.
+
+**Response `200`:**
+```json
+{
+  "enabled": true,
+  "in_phone_round": [{ "candidate_id": "uuid", "name": "Asha", "state": "queued | scheduled | retrying | flagged | cancelled" }],
+  "live_calls": 1,
+  "with_call_result": 2,
+  "in_interviews": 3
+}
+```
+`in_phone_round` = approved candidates waiting for a call with no call result. Live calls, finished calls and candidates with an interview are only counted: the switch never moves them. A finished call keeps its outcome whatever the candidate's phone number says today (a failed candidate is never moved on to an interview).
+
+#### `POST /api/jobs/{job_id}/voice-screening`
+Switch voice screening on or off.
+
+**Request Body:** `{ "enabled": false, "move_to": "interview" | "resume" | null }`
+
+- **Off, with candidates in the phone round** — `move_to` is required (`422` otherwise). Their undialled calls are cancelled, then:
+  - `interview`: each is moved straight to an interview (bypass "pass" screening record, pending session, invitation email), one at a time and committed separately; audit `interview.link_sent` with `reason: voice_screening_turned_off`.
+  - `resume`: each goes back to `hr_decision = "pending"`; audit `shortlist.returned_to_resume`.
+- **Off with nobody waiting, or on** — just the flag. Turning on moves nobody.
+- The job row is locked, so two people switching at once take turns; the second sees nobody waiting.
+- Re-running "off" retries anyone still waiting (e.g. after a partial failure).
+
+**Response `200`:** `{ "enabled", "move_to", "moved", "links_sent", "email_failed": [names], "failed": [names], "live_calls", "in_background" }`
+
+> `PATCH /api/jobs/{job_id}` refuses `voice_screening_enabled: false` with `409`: switching off only happens here, under the job lock. (Switching on through PATCH is still allowed.)
+
+> **Large rounds:** up to 10 candidates are moved inside the request; the rest are moved after the response (`in_background` in the result). Anyone who cannot be moved stays waiting, shows as `stage.state = "paused"` on the shortlist, and the switch offers them again.
+
+> **After the switch is off:** a call that was live when it flipped finishes normally but schedules no retry, so the candidate waits (paused) instead of being flagged by a retry the dialler would refuse.
+
+> **Re-approval:** a candidate approved again after an earlier round (rejected, sent back, a cancelled call) gets a fresh call queued on approval, unless a call is already on its way or an earlier call passed.
+
+---
+
 #### `DELETE /api/jobs/{job_id}`
 Delete a job and all related records (candidates, shortlist results, screening calls, interview sessions).
 
@@ -812,6 +851,8 @@ VITE_API_URL=http://localhost:8080
 | POST | `/api/shortlist/{id}/feedback` | HR feedback |
 | POST | `/api/jobs/{id}/screening/trigger` | Trigger voice screening |
 | POST | `/api/jobs/{id}/screening/cancel` | Cancel a queued call |
+| GET | `/api/jobs/{id}/voice-screening` | Preview the voice-screening switch |
+| POST | `/api/jobs/{id}/voice-screening` | Switch voice screening, placing the phone round |
 | POST | `/api/screening/webhook` | Vapi webhook (internal) |
 | GET | `/api/jobs/{id}/screening` | Get screening results |
 | PATCH | `/api/screening/{id}/result` | HR pass/fail decision on screening |

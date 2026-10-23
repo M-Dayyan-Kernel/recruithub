@@ -1256,6 +1256,18 @@ async def _schedule_retry(session, screening_call) -> None:
         return
 
     settings = await load_system_settings(session, tenant_id=job.tenant_id)
+    from app.services.screening_gate_service import is_voice_screening_effective
+
+    if not is_voice_screening_effective(settings, job):
+        # Screening was switched off while this call was live. A retry would only be marked
+        # failed by the dialler, flagging the candidate; leave them waiting instead, where
+        # the switch can place them.
+        logger.info(
+            "Voice screening is off for job=%s — not scheduling a retry for candidate=%s",
+            job.id,
+            screening_call.candidate_id,
+        )
+        return
     if not can_schedule_retry(screening_call.retry_count, settings.screening_max_retries):
         logger.info(
             "Max retries (%d) reached for candidate=%s — not scheduling another retry",

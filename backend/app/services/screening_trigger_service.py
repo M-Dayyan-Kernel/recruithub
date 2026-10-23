@@ -71,19 +71,30 @@ async def newest_call_is_cancelled(
     return result.scalar_one_or_none() == "cancelled"
 
 
-async def candidate_has_any_screening_call(
+async def call_state_on_approval(
     db: AsyncSession,
     job_id: uuid.UUID,
     candidate_id: uuid.UUID,
-) -> bool:
-    result = await db.execute(
-        select(ScreeningCall.id).where(
-            ScreeningCall.job_id == job_id,
-            ScreeningCall.candidate_id == candidate_id,
+) -> str:
+    """What an approval should do about the call, from one look at the candidate's calls:
+    "never" (never called: the usual dispatch), "busy" (a call is on its way, or an earlier
+    call passed: nothing to do), or "fresh" (approved again after a round that ended
+    without a pass: they need a new call)."""
+    rows = (
+        await db.execute(
+            select(ScreeningCall.call_status, ScreeningCall.result).where(
+                ScreeningCall.job_id == job_id, ScreeningCall.candidate_id == candidate_id
+            )
         )
-        .limit(1)
-    )
-    return result.scalar_one_or_none() is not None
+    ).all()
+    if not rows:
+        return "never"
+    for status, result in rows:
+        if status == "pending" or status in LIVE_CALL_STATUSES:
+            return "busy"
+        if status == "completed" and result == "pass":
+            return "busy"
+    return "fresh"
 
 
 async def find_unqueued_approved_candidate_ids(
@@ -116,6 +127,7 @@ async def dispatch_screening_for_candidates(
     candidate_ids: list[uuid.UUID],
     *,
     force: bool = False,
+    respect_cancel: bool = True,
 ) -> tuple[int, int, list[dict]]:
     """
     Create ScreeningCall rows (when needed) and enqueue Celery dial tasks.
@@ -177,7 +189,7 @@ async def dispatch_screening_for_candidates(
         # HR cancelled this call on purpose. Only an explicit "Call Now" (force) places a new
         # one: an automatic dispatch, or a stale tab auto-dialling a row it still thinks has
         # never been called, must not undo the cancel.
-        if not force and await newest_call_is_cancelled(db, job.id, cand_uuid):
+        if not force and respect_cancel and await newest_call_is_cancelled(db, job.id, cand_uuid):
             skipped.append({
                 "name": candidate.name,
                 "reason": "The call was cancelled; use Call Now to place a new one",

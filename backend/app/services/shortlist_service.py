@@ -353,15 +353,27 @@ class ShortlistService:
         from app.services.celery_health import celery_workers_available_async
         from app.services.screening_trigger_service import (
             auto_dispatch_unqueued_approved_for_job,
-            candidate_has_any_screening_call,
+            call_state_on_approval,
+            dispatch_screening_for_candidates,
         )
 
         if await celery_workers_available_async():
             job = await self._session.get(Job, record.job_id)
-            if job and is_within_call_window(job):
-                if not await candidate_has_any_screening_call(
-                    self._session, record.job_id, record.candidate_id
-                ):
+            if job is None:
+                return None
+            state = await call_state_on_approval(self._session, record.job_id, record.candidate_id)
+            if state == "never":
+                # Never called: the usual path (and the periodic dispatcher covers the
+                # time outside the call window).
+                if is_within_call_window(job):
                     await auto_dispatch_unqueued_approved_for_job(self._session, job)
+            elif state == "fresh":
+                # Approved again after an earlier round (rejected, sent back to Resume
+                # Screening, a cancelled call): the periodic dispatcher only looks at
+                # candidates who were never called, so queue their new call here. Outside
+                # the window it waits for the window to open.
+                await dispatch_screening_for_candidates(
+                    self._session, job, [record.candidate_id], respect_cancel=False
+                )
 
         return None

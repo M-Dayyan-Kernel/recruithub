@@ -716,6 +716,48 @@ class InterviewHrDecisionUpdate(BaseModel):
     hr_decision: Literal["approved", "rejected"]
 
 
+class VoiceScreeningCandidate(BaseModel):
+    candidate_id: uuid.UUID
+    name: str
+    # The Resume Screening stage state: queued / scheduled / retrying / flagged / cancelled.
+    state: str
+
+
+class VoiceScreeningPreview(BaseModel):
+    """What switching voice screening on or off would do to this job's candidates."""
+    enabled: bool
+    # Turning off: approved candidates still waiting in the phone round. They must be sent
+    # somewhere, so the switch asks where.
+    in_phone_round: List[VoiceScreeningCandidate] = []
+    # On a call right now: it finishes normally whatever is chosen.
+    live_calls: int = 0
+    # Have a finished call (passed, failed, needs review): they keep their result.
+    with_call_result: int = 0
+    # Already have an interview link: not affected either way.
+    in_interviews: int = 0
+
+
+class VoiceScreeningChange(BaseModel):
+    enabled: bool
+    # Required when turning off while candidates are in the phone round.
+    move_to: Optional[Literal["interview", "resume"]] = None
+
+
+class VoiceScreeningChangeResult(BaseModel):
+    enabled: bool
+    move_to: Optional[Literal["interview", "resume"]] = None
+    moved: int = 0
+    links_sent: int = 0
+    # Moved to an interview but the email did not go out (no address, mail failure).
+    email_failed: List[str] = []
+    # Could not be moved at all; running the change again retries them.
+    failed: List[str] = []
+    live_calls: int = 0
+    # A large phone round: this many are being moved after the response (see
+    # voice_screening_service.INLINE_LIMIT). Anyone that fails there is still waiting.
+    in_background: int = 0
+
+
 class InterviewCancelRequest(BaseModel):
     """Cancel a pending interview link. `notify_candidate` sends the "interview cancelled" email."""
     notify_candidate: bool = False
