@@ -8,6 +8,7 @@ import type { Job } from '@/types/api'
 import Modal from '@/components/ui/Modal'
 import { BTN_GHOST, BTN_PRIMARY } from '@/components/ui/Surface'
 import { VoiceScreeningSwitch } from '@/components/screening/VoiceScreeningSwitch'
+import { voiceScreeningPreviewQuery } from '@/hooks/usePhoneScreeningVisible'
 import {
   phoneRoundBreakdown,
   plural,
@@ -48,10 +49,7 @@ export function VoiceScreeningToggle({ job, className }: { job: Job; className?:
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<VoiceScreeningChangeResult | null>(null)
 
-  const previewQuery = {
-    queryKey: ['voice-screening', job.id],
-    queryFn: () => api.get(`/api/jobs/${job.id}/voice-screening`) as unknown as Promise<VoiceScreeningPreview>,
-  }
+  const previewQuery = voiceScreeningPreviewQuery(job.id)
 
   // Always fresh when the dialog opens (staleTime 0), through the same cache as the
   // "Place them" count, so the two cannot disagree.

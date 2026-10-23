@@ -37,6 +37,11 @@ function isLiveCall(call: ScreeningCall): boolean {
   return LIVE_CALL_STATUSES.has(call.call_status)
 }
 
+/** Ringing, in conversation, or placed and waiting for Vapi's answer (backend: call_is_on_its_way). */
+function isOnItsWay(call: ScreeningCall | null): boolean {
+  return call !== null && (isLiveCall(call) || (call.call_status === 'pending' && Boolean(call.vapi_call_id)))
+}
+
 function latestCallForCandidate(
   candidateId: string,
   calls: ScreeningCall[],
@@ -289,6 +294,11 @@ export function buildScreeningRows(
   candidatesMap: Record<string, Candidate>,
   screeningCalls: ScreeningCall[],
   settings: SystemSettings | undefined,
+  /**
+   * The job's voice-screening switch. Off, nothing will be dialled: no Call Now or Cancel,
+   * and everyone still waiting without a call result can be moved on or rejected by hand.
+   */
+  screeningOn: boolean = true,
 ): ScreeningRow[] {
   return approvedShortlist.map((sr) => {
     const candidate = candidatesMap[sr.candidate_id]
@@ -303,10 +313,11 @@ export function buildScreeningRows(
     const attemptNumber = latestCall ? (latestCall.retry_count ?? 0) + 1 : 1
     const scheduledRetry = latestCall ? isScheduledRetry(latestCall) : false
     const isActive = latestCall ? isLiveCall(latestCall) : false
-    const canCallNow = canCallNowForRow(tab, phone, latestCall, settings)
+    const canCallNow = screeningOn && canCallNowForRow(tab, phone, latestCall, settings)
     // Mirrors the server: a call that was queued (a row not yet dialled) or that was never
     // created because the candidate is still waiting for auto-dispatch.
     const canCancel =
+      screeningOn &&
       tab === 'pending' &&
       isCallablePhone(phone, settings) &&
       (latestCall === null ? true : isScheduledRetry(latestCall))
@@ -319,10 +330,18 @@ export function buildScreeningRows(
       latestCall,
       attemptNumber,
       tab,
-      statusLabel: statusLabelForRow(latestCall, tab, flagReason),
+      statusLabel:
+        !screeningOn && tab === 'pending' && !isOnItsWay(latestCall)
+          ? 'Waiting · screening off'
+          : statusLabelForRow(latestCall, tab, flagReason),
       canCallNow,
       canCancel,
-      canPlace: !isActive && (tab === 'flagged' || latestCall?.call_status === 'cancelled'),
+      canPlace:
+        !isOnItsWay(latestCall) &&
+        (tab === 'flagged' ||
+          latestCall?.call_status === 'cancelled' ||
+          // With screening off nothing will call the rest of the waiting rows either.
+          (!screeningOn && tab === 'pending')),
       isActive,
       isScheduledRetry: scheduledRetry,
       flagReason,

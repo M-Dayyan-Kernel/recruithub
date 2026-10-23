@@ -94,6 +94,8 @@ function ScreeningTableRow({
     queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
     queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
     queryClient.invalidateQueries({ queryKey: ['candidates'] })
+    // With screening off, whether this tab exists at all depends on who is left.
+    queryClient.invalidateQueries({ queryKey: ['voice-screening', jobId] })
   }
   const handleCancelCall = async () => {
     setCancelError(null)
@@ -332,6 +334,7 @@ export function ScreeningTab({ jobId }: Props) {
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
   const activeTab = resolveScreeningTab(searchParams.get('tab'))
+  const screeningOn = job?.voice_screening_enabled !== false
   const autoTriggeredRef = useRef<Set<string>>(new Set())
 
   const {
@@ -385,8 +388,9 @@ export function ScreeningTab({ jobId }: Props) {
         candidatesMap,
         screeningCalls ?? [],
         systemSettings,
+        screeningOn,
       ),
-    [approvedShortlist, candidatesMap, screeningCalls, systemSettings],
+    [approvedShortlist, candidatesMap, screeningCalls, systemSettings, screeningOn],
   )
 
   const activeCallIds = useMemo(
@@ -517,12 +521,24 @@ export function ScreeningTab({ jobId }: Props) {
     />
   )
 
-  const showSettingsCard = activeTab === 'pending' || activeTab === 'flagged'
+  // Off: the call window and bulk dial mean nothing; say why the tab is still here instead.
+  const showSettingsCard = screeningOn && (activeTab === 'pending' || activeTab === 'flagged')
+  const offBanner = !screeningOn && (
+    <div className="mb-4 rounded-card border border-warn/30 bg-warn-soft px-4 py-3 text-[13px] text-ink">
+      <p className="font-semibold">Voice screening is off for this job</p>
+      <p className="mt-0.5 text-ink-muted">
+        No calls will be placed. These candidates were in the phone round when it was turned off:
+        move them to an interview or reject them, and act on any call results in Completed. This
+        tab goes away once nobody is left here.
+      </p>
+    </div>
+  )
 
   if (isLoading) {
     return (
       <div>
         {showSettingsCard && settingsCard}
+        {offBanner}
         <div className="h-64 animate-pulse rounded-xl bg-slate-200" />
       </div>
     )
@@ -532,6 +548,7 @@ export function ScreeningTab({ jobId }: Props) {
     return (
       <div>
         {showSettingsCard && settingsCard}
+        {offBanner}
         <BackendError onRetry={refetch} />
       </div>
     )
@@ -541,6 +558,7 @@ export function ScreeningTab({ jobId }: Props) {
     return (
       <div>
         {showSettingsCard && settingsCard}
+        {offBanner}
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
             <Mic className="h-6 w-6 text-slate-400" />
@@ -557,6 +575,7 @@ export function ScreeningTab({ jobId }: Props) {
   return (
     <div>
       {showSettingsCard && settingsCard}
+        {offBanner}
 
       <div className={WORKFLOW_CARD_CLASS}>
         {activeTab === 'completed' ? (
