@@ -215,7 +215,9 @@ def resolve_shortlist_stage(
     if not screening_effective and stage.kind == "screening" and stage.state in PHONE_ROUND_STATES:
         # Screening is off and nothing will call them: they wait for HR to place them
         # (the voice-screening switch offers that).
-        return ShortlistStage(kind="screening", state="paused")
+        # The flag reason, when there is one, travels along: the Phone screening tab lists
+        # flagged rows separately, and the link has to land on the list they are in.
+        return ShortlistStage(kind="screening", state="paused", reason=stage.reason)
     return stage
 
 
@@ -247,13 +249,20 @@ async def load_stages(
     for session in sessions.scalars().all():
         sessions_by[session.candidate_id].append(session)
     reports = await db.execute(
-        select(InterviewReport.candidate_id).where(
+        select(InterviewReport.interview_session_id).where(
             InterviewReport.job_id == job_id,
             InterviewReport.candidate_id.in_(approved_candidate_ids),
         )
     )
-    with_report = set(reports.scalars().all())
+    reported_sessions = set(reports.scalars().all())
+    # "Has a report" means the candidate's latest session has one, as the Interviews tab
+    # reads it. A report from an earlier interview (before a reschedule) must not make a
+    # new, unstarted link look completed.
     return {
-        cid: (calls_by[cid], sessions_by[cid], cid in with_report)
+        cid: (
+            calls_by[cid],
+            sessions_by[cid],
+            bool(sessions_by[cid]) and _newest(sessions_by[cid]).id in reported_sessions,
+        )
         for cid in approved_candidate_ids
     }

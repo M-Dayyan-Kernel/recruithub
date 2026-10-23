@@ -141,6 +141,11 @@ class StageTests(unittest.TestCase):
         # ...but a call with an outcome, or a live one, still says what it is
         self.assertEqual(_stage(calls=[_call("completed", "fail")], effective=False), ("screening", "failed"))
         self.assertEqual(_stage(calls=[_call("in_progress")], effective=False), ("screening", "live"))
+        # a flagged one keeps its reason, so the link can land on the Flagged list
+        s = resolve_shortlist_stage("approved", [_call("failed")], [], phone=PHONE, settings=_settings(), screening_effective=False)
+        self.assertEqual((s.state, s.reason), ("paused", "The call could not connect"))
+        s = resolve_shortlist_stage("approved", [_call("pending", vapi=None)], [], phone=PHONE, settings=_settings(), screening_effective=False)
+        self.assertIsNone(s.reason)
 
     def test_interview_states(self):
         started = NOW - timedelta(minutes=5)
@@ -282,6 +287,29 @@ class ListStageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((by_id[approved.id].stage.kind, by_id[approved.id].stage.state), ("screening", "queued"))
         self.assertIsNone(by_id[pending.id].stage)
 
+
+class LoadStagesReportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_has_report_is_about_the_latest_interview_only(self):
+        from app.services.shortlist_stage_service import load_stages
+
+        cand = uuid.uuid4()
+        old = SimpleNamespace(id=uuid.uuid4(), candidate_id=cand, created_at=NOW - timedelta(days=3))
+        new = SimpleNamespace(id=uuid.uuid4(), candidate_id=cand, created_at=NOW)
+
+        def _r(rows):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = rows
+            return r
+
+        db = AsyncMock()
+        # calls, sessions, then the ids of sessions that have a report (only the old one)
+        db.execute = AsyncMock(side_effect=[_r([]), _r([old, new]), _r([old.id])])
+        out = await load_stages(db, uuid.uuid4(), [cand])
+        self.assertFalse(out[cand][2], "a report on an earlier interview must not count for the new link")
+
+        db.execute = AsyncMock(side_effect=[_r([]), _r([old, new]), _r([new.id])])
+        out = await load_stages(db, uuid.uuid4(), [cand])
+        self.assertTrue(out[cand][2])
 
 if __name__ == "__main__":
     unittest.main()
