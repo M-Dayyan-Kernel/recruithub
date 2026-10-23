@@ -118,7 +118,7 @@ class InterviewPublicService:
         job = job_result.scalars().first()
 
         if session.expires_at and session.expires_at < datetime.now(timezone.utc):
-            if session.status not in ("completed", "expired"):
+            if session.status not in ("completed", "expired", "cancelled"):
                 session.status = "expired"
                 await self._session.commit()
                 await self._interviews.refresh(session)
@@ -159,6 +159,8 @@ class InterviewPublicService:
             raise HTTPException(status_code=409, detail="Interview already completed.")
         if session.status == "expired":
             raise HTTPException(status_code=410, detail="Interview link has expired.")
+        if session.status == "cancelled":
+            raise HTTPException(status_code=410, detail="This interview has been cancelled.")
 
         await assert_session_joinable(session, self._session)
 
@@ -272,6 +274,9 @@ class InterviewPublicService:
                     token=candidate_token,
                     livekit_url=livekit_url,
                 )
+            if session.status == "cancelled":
+                # HR cancelled while we were setting up the room.
+                raise HTTPException(status_code=410, detail="This interview has been cancelled.")
             raise HTTPException(
                 status_code=409,
                 detail="Interview already started or not in pending state.",
@@ -310,6 +315,8 @@ class InterviewPublicService:
 
         if session.status == "expired":
             raise HTTPException(status_code=410, detail="Interview link has expired.")
+        if session.status == "cancelled":
+            raise HTTPException(status_code=410, detail="This interview has been cancelled.")
 
         if session.status == "completed":
             from app.models.models import InterviewReport

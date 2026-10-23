@@ -213,6 +213,39 @@ async def send_reschedule_notification(
     return sent
 
 
+async def send_interview_cancelled_notification(
+    candidate_name: str,
+    candidate_email: str,
+    job_title: str,
+    *,
+    templates: dict[str, dict[str, Any]],
+    company_name: str | None = None,
+    gmail_token_json: str | dict | None = None,
+) -> bool:
+    subject, html_body = render_template(
+        "interview_cancelled",
+        templates,
+        {
+            "candidate_name": candidate_name,
+            "job_title": job_title,
+            "company_name": company_name or "Webknot Technologies",
+        },
+    )
+    sent = await _send_html_email_async(
+        to_email=candidate_email,
+        subject=subject,
+        html_body=html_body,
+        gmail_token_json=gmail_token_json,
+    )
+    if sent:
+        logger.info(
+            "Interview cancellation notice sent to %s (job=%s)",
+            candidate_email,
+            job_title,
+        )
+    return sent
+
+
 async def send_failed_screening_attempt_email(
     candidate_name: str,
     candidate_email: str,

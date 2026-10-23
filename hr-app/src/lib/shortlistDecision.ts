@@ -20,6 +20,7 @@ const SCREENING_STATES: Record<string, { detail: string; tone: StageTone; tab: '
   queued: { detail: 'Waiting for the call', tone: 'neutral', tab: 'pending' },
   scheduled: { detail: 'Call scheduled', tone: 'neutral', tab: 'pending' },
   retrying: { detail: 'Retrying the call', tone: 'neutral', tab: 'pending' },
+  cancelled: { detail: 'Call cancelled', tone: 'neutral', tab: 'pending' },
   live: { detail: 'Call in progress', tone: 'accent', tab: 'pending' },
   review: { detail: 'Needs your review', tone: 'warn', tab: 'completed' },
   failed: { detail: 'Did not pass', tone: 'neg', tab: 'completed' },
@@ -33,6 +34,7 @@ const INTERVIEW_STATES: Record<string, { detail: string; tone: StageTone; tab: s
   completed: { detail: 'Completed', tone: 'neutral', tab: 'completed' },
   finalist: { detail: 'Approved as a finalist', tone: 'pos', tab: 'finalists', title: 'Finalist' },
   flagged: { detail: 'Needs attention', tone: 'warn', tab: 'flagged' },
+  cancelled: { detail: 'Interview cancelled', tone: 'neutral', tab: 'scheduled' },
 }
 
 /**

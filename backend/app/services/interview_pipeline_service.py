@@ -77,6 +77,9 @@ def classify_interview_tab(
         return "flagged"
     if not session:
         return "completed" if has_report else "pending"
+    if session.status == "cancelled":
+        # Back to "needs a link": HR sends a new one or schedules a new time from here.
+        return "scheduled"
     if session.status == "in_progress":
         return "ongoing"
     # Interview finished (or assessment running/failed) → Completed, not Scheduled.

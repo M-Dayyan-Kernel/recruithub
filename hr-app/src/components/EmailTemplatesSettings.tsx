@@ -34,6 +34,10 @@ const TEMPLATE_META: Record<string, { label: string; when: string }> = {
     label: 'Interview rescheduled',
     when: 'Sent with a new link when an interview is rescheduled.',
   },
+  interview_cancelled: {
+    label: 'Interview cancelled',
+    when: 'Sent when an interview is cancelled and HR chooses to tell the candidate.',
+  },
   rejection: {
     label: 'Rejection',
     when: 'Sent when a candidate is rejected from the shortlist.',

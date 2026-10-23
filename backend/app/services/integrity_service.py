@@ -262,6 +262,8 @@ class IntegrityService:
             raise NotFoundError(public_message="Interview session not found")
         if interview.status == "expired":
             raise HTTPException(status_code=410, detail="Interview link has expired.")
+        if interview.status == "cancelled":
+            raise HTTPException(status_code=410, detail="This interview has been cancelled.")
         if interview.status in ("completed", "assessed", "assessment_failed"):
             raise HTTPException(status_code=409, detail="Interview already completed.")
         return interview

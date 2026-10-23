@@ -716,6 +716,28 @@ class InterviewHrDecisionUpdate(BaseModel):
     hr_decision: Literal["approved", "rejected"]
 
 
+class InterviewCancelRequest(BaseModel):
+    """Cancel a pending interview link. `notify_candidate` sends the "interview cancelled" email."""
+    notify_candidate: bool = False
+
+
+class InterviewCancelResponse(BaseModel):
+    session_id: uuid.UUID
+    status: str
+    # None when no email was asked for; otherwise whether it went out.
+    email_sent: Optional[bool] = None
+
+
+class ScreeningCancelRequest(BaseModel):
+    candidate_id: uuid.UUID
+
+
+class ScreeningCancelResponse(BaseModel):
+    candidate_id: uuid.UUID
+    # Calls that were queued or scheduled and are now cancelled (1 when a marker was recorded).
+    cancelled: int
+
+
 class InterviewScheduleRequest(BaseModel):
     """Schedule an AI interview for a specific date and time (job timezone)."""
     scheduled_date: str = Field(description="YYYY-MM-DD")

@@ -15,6 +15,8 @@ export interface ScreeningRow {
   tab: ScreeningTabId
   statusLabel: string
   canCallNow: boolean
+  /** A queued or scheduled call that has not been dialled yet and can still be called off. */
+  canCancel: boolean
   isActive: boolean
   isScheduledRetry: boolean
   flagReason?: string
@@ -123,6 +125,11 @@ function classifyTab(
     return { tab: 'pending' }
   }
 
+  // HR called it off before it was placed: still the phone round, waiting on HR.
+  if (call.call_status === 'cancelled') {
+    return { tab: 'pending' }
+  }
+
   if (call.call_outcome === 'declined') {
     return { tab: 'flagged', flagReason: 'Candidate declined the call' }
   }
@@ -203,6 +210,7 @@ function canCallNowForRow(
   if (tab === 'pending') {
     return (
       latestCall === null ||
+      latestCall.call_status === 'cancelled' ||
       scheduledRetry ||
       (latestCall !== null &&
         isConnectFailure(latestCall) &&
@@ -228,6 +236,8 @@ function statusLabelForRow(
     if (flagReason?.toLowerCase().includes('needs hr review')) return 'Needs Review'
     return 'Flagged'
   }
+
+  if (call.call_status === 'cancelled') return 'Call Cancelled'
 
   if (isLiveCall(call)) {
     return 'Call In Progress'
@@ -273,6 +283,12 @@ export function buildScreeningRows(
     const scheduledRetry = latestCall ? isScheduledRetry(latestCall) : false
     const isActive = latestCall ? isLiveCall(latestCall) : false
     const canCallNow = canCallNowForRow(tab, phone, latestCall, settings)
+    // Mirrors the server: a call that was queued (a row not yet dialled) or that was never
+    // created because the candidate is still waiting for auto-dispatch.
+    const canCancel =
+      tab === 'pending' &&
+      isCallablePhone(phone, settings) &&
+      (latestCall === null ? true : isScheduledRetry(latestCall))
 
     return {
       candidateId: sr.candidate_id,
@@ -284,6 +300,7 @@ export function buildScreeningRows(
       tab,
       statusLabel: statusLabelForRow(latestCall, tab, flagReason),
       canCallNow,
+      canCancel,
       isActive,
       isScheduledRetry: scheduledRetry,
       flagReason,

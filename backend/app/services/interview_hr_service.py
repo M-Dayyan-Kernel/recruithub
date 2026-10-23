@@ -17,6 +17,8 @@ from app.models.models import Candidate, InterviewSession, Job, ScreeningCall, U
 from app.repositories.interview_repository import InterviewRepository
 from app.schemas.schemas import (
     FinalistsResponse,
+    InterviewCancelRequest,
+    InterviewCancelResponse,
     InterviewHrDecisionUpdate,
     InterviewPipelineResponse,
     InterviewScheduleRequest,
@@ -514,6 +516,53 @@ class InterviewHrService:
             if "already exists" in msg:
                 raise HTTPException(status_code=409, detail=msg) from exc
             raise HTTPException(status_code=400, detail=msg) from exc
+
+    async def cancel(
+        self,
+        actor: User,
+        candidate_id: uuid.UUID,
+        body: InterviewCancelRequest,
+    ) -> InterviewCancelResponse:
+        """
+        Cancel the candidate's pending interview link. The candidate stays in the Interviews
+        stage, so HR can send a new link or schedule a new time afterwards.
+        """
+        from app.services.interview_cancel_service import (
+            cancel_pending_session,
+            send_cancelled_email,
+        )
+
+        candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
+        session = await cancel_pending_session(
+            self._session, candidate_id=candidate_id, job_id=candidate.job_id
+        )
+        await self._audit.log_change(
+            actor=actor,
+            action="interview.cancelled",
+            entity_type="interview",
+            entity_id=session.id,
+            subject_label=await self._candidate_label(candidate, candidate_id),
+            feature="interview_session",
+            before={
+                "status": "pending",
+                "scheduled_interview_at": session.scheduled_interview_at.isoformat()
+                if session.scheduled_interview_at
+                else None,
+            },
+            after={"status": "cancelled", "email_requested": body.notify_candidate},
+            job_id=candidate.job_id,
+            candidate_id=candidate_id,
+        )
+        # Commit first: the email can be slow, and it must not hold the session row (which a
+        # candidate may be opening) or be sent for a cancellation that then fails to save.
+        await self._session.commit()
+
+        email_sent: bool | None = None
+        if body.notify_candidate:
+            email_sent = await send_cancelled_email(self._session, session, candidate)
+        return InterviewCancelResponse(
+            session_id=session.id, status=session.status, email_sent=email_sent
+        )
 
     async def retry_assessment(
         self, actor: User, candidate_id: uuid.UUID

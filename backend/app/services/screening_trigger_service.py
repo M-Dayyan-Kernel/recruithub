@@ -57,6 +57,20 @@ async def find_scheduled_pending_call(
     return result.scalars().first()
 
 
+async def newest_call_is_cancelled(
+    db: AsyncSession,
+    job_id: uuid.UUID,
+    candidate_id: uuid.UUID,
+) -> bool:
+    result = await db.execute(
+        select(ScreeningCall.call_status)
+        .where(ScreeningCall.job_id == job_id, ScreeningCall.candidate_id == candidate_id)
+        .order_by(ScreeningCall.created_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none() == "cancelled"
+
+
 async def candidate_has_any_screening_call(
     db: AsyncSession,
     job_id: uuid.UUID,
@@ -158,6 +172,16 @@ async def dispatch_screening_for_candidates(
         scheduled = await find_scheduled_pending_call(db, job.id, cand_uuid)
         if scheduled:
             dispatch_queue.append((scheduled.id, force))
+            continue
+
+        # HR cancelled this call on purpose. Only an explicit "Call Now" (force) places a new
+        # one: an automatic dispatch, or a stale tab auto-dialling a row it still thinks has
+        # never been called, must not undo the cancel.
+        if not force and await newest_call_is_cancelled(db, job.id, cand_uuid):
+            skipped.append({
+                "name": candidate.name,
+                "reason": "The call was cancelled; use Call Now to place a new one",
+            })
             continue
 
         if not candidate.phone:

@@ -379,6 +379,21 @@ Trigger AI voice screening calls for a set of HR-approved candidates.
 
 ---
 
+#### `POST /api/jobs/{job_id}/screening/cancel`
+Cancel a candidate's **queued or scheduled** call (one that has not been dialled). The candidate stays in the phone round; `POST .../screening/trigger` places a new call whenever HR wants one.
+
+**Request Body:** `{ "candidate_id": "uuid" }`
+
+**Response `200`:** `{ "candidate_id": "uuid", "cancelled": 1 }`
+
+**Behaviour:** queued rows (`call_status = "pending"`, no `vapi_call_id`) become `cancelled` (kept, not deleted). An approved candidate with no call yet gets a `cancelled` marker row, so the auto-dispatch that calls every approved candidate without one does not place the call anyway. Writes a `screening.call_cancelled` audit row. Holds the call row's lock, so a dial already in flight finishes first and the cancel then refuses.
+
+**Errors:**
+- `409` — a call is in progress (`initiated` / `in_progress`, or placed and awaiting the webhook); nothing queued to cancel; already cancelled; the candidate is not approved; or voice screening is off for the job
+- `404` — job or candidate not found
+
+---
+
 #### `POST /api/screening/webhook`
 Receive Vapi.ai call-end webhooks. **No auth required.** Do not call from frontend.
 
@@ -423,6 +438,23 @@ HR view: list all interview sessions for a job, enriched with `candidate_name` a
 **Errors:** `404` — job not found
 
 > **Nova gotcha:** `interview_url` is computed from `CANDIDATE_APP_URL` env var (default `http://localhost:5174`). `candidate_name` is batch-loaded via join — always present. `expires_at` is set (7 days from send) for sessions created after Sprint A.
+
+---
+
+#### `POST /api/candidates/{candidate_id}/interview/cancel`
+Cancel the candidate's **pending** interview link (the candidate has not opened it). The session becomes `cancelled`, the link stops working (`410` for the candidate), and the candidate stays in the Interviews stage — `interview/send` or `interview/schedule` issue a new link.
+
+**Request Body:** `{ "notify_candidate": false }` (optional; `true` sends the editable `interview_cancelled` email template)
+
+**Response `200`:** `{ "session_id": "uuid", "status": "cancelled", "email_sent": null | true | false }` — `email_sent` is `null` unless notification was requested; a failed email does not undo the cancellation.
+
+**Errors:**
+- `409` — the interview is in progress, already completed, expired or cancelled (the message says which)
+- `404` — no interview to cancel
+
+Writes an `interview.cancelled` audit row (previous scheduled time, whether an email was requested). The cancellation is committed before the email is attempted, so a mail outage or slow server never undoes it or holds the session row.
+
+> **Status:** `InterviewSession.status` gains `cancelled`. Not active (the one-active-session-per-candidate index covers `pending`/`in_progress` only), not flagged, and filed under the Scheduled tab.
 
 ---
 
@@ -626,7 +658,7 @@ interface ScreeningCall {
   candidate_id: string;
   job_id: string;
   vapi_call_id: string | null;
-  call_status: "pending" | "initiated" | "in_progress" | "completed" | "failed";
+  call_status: "pending" | "initiated" | "in_progress" | "completed" | "failed" | "cancelled";
   availability: string | null;
   employment_status: string | null;
   relevant_experience: string | null;
@@ -652,7 +684,7 @@ interface InterviewSession {
   job_id: string;
   unique_token: string;
   livekit_room_name: string | null;
-  status: "pending" | "in_progress" | "completed" | "expired";
+  status: "pending" | "in_progress" | "completed" | "expired" | "cancelled";
   email_sent_at: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -779,11 +811,13 @@ VITE_API_URL=http://localhost:8080
 | PATCH | `/api/shortlist/{id}/decision` | HR approve/reject/override |
 | POST | `/api/shortlist/{id}/feedback` | HR feedback |
 | POST | `/api/jobs/{id}/screening/trigger` | Trigger voice screening |
+| POST | `/api/jobs/{id}/screening/cancel` | Cancel a queued call |
 | POST | `/api/screening/webhook` | Vapi webhook (internal) |
 | GET | `/api/jobs/{id}/screening` | Get screening results |
 | PATCH | `/api/screening/{id}/result` | HR pass/fail decision on screening |
 | GET | `/api/jobs/{id}/interviews` | List interview sessions for job |
 | POST | `/api/candidates/{id}/interview/send` | Send interview link |
+| POST | `/api/candidates/{id}/interview/cancel` | Cancel a pending interview link |
 | GET | `/api/interview/{token}` | Get session by token |
 | POST | `/api/interview/{token}/start` | Start interview (get LiveKit token) |
 | GET | `/api/interview/{token}/integrity-policy` | Live AI-extension blocklist + heuristic rules for the interview page (rate-limited per token) |

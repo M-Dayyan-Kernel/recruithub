@@ -38,7 +38,8 @@ def resolve_hiring_stage(
         hr_decision = getattr(interview_session, "hr_decision", None) or "pending"
         if interview_report is not None and hr_decision == "approved":
             return "Finalist"
-        if interview_session.status in ("pending", "in_progress"):
+        # "cancelled": HR called the interview off, but the candidate is still in this stage.
+        if interview_session.status in ("pending", "in_progress", "cancelled"):
             return "Interview"
         if interview_session.status in ("completed", "assessed", "assessment_failed") or interview_report:
             if hr_decision == "approved":
@@ -46,7 +47,8 @@ def resolve_hiring_stage(
             return "Interview"
 
     if screening is not None:
-        if screening.call_status in ("pending", "in_progress") or (
+        # "cancelled": HR cancelled the queued call; the candidate is still in this stage.
+        if screening.call_status in ("pending", "in_progress", "cancelled") or (
             screening.call_status == "completed" and screening.result in (None, "needs_review")
         ):
             return "Screening"

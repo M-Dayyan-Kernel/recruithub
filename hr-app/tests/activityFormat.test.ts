@@ -67,6 +67,24 @@ test('a reschedule with a time shows the new and previous time', () => {
   assert.ok(!UUID_RE.test(visible(v)), visible(v))
 })
 
+test('a cancelled interview says whether an email was asked for, and what it was', () => {
+  const base = { action: 'interview.cancelled', entity_type: 'interview', feature: 'interview_session' }
+  const asked = describeActivity(row({ ...base, before_state: { status: 'pending', scheduled_interview_at: '2026-10-24T09:30:00+00:00' }, after_state: { status: 'cancelled', email_requested: true } }))
+  assert.equal(asked.event, 'Interview cancelled')
+  assert.deepEqual(asked.details.find(([k]) => k === 'Email to candidate'), ['Email to candidate', 'Requested'])
+  assert.ok(asked.details.some(([k]) => k === 'Was scheduled for'))
+  const quiet = describeActivity(row({ ...base, after_state: { status: 'cancelled', email_requested: false } }))
+  assert.equal(quiet.details.find(([k]) => k === 'Email to candidate')?.[1], 'Not requested')
+  assert.ok(!UUID_RE.test(visible(asked)), visible(asked))
+})
+
+test('a cancelled screening call reads as a cancellation, with no id', () => {
+  const v = describeActivity(row({ action: 'screening.call_cancelled', entity_type: 'screening', feature: 'call_status', before_state: { call_status: 'pending' }, after_state: { call_status: 'cancelled' } }))
+  assert.equal(v.event, 'Screening call cancelled')
+  assert.deepEqual(v.change, { kind: 'chip', chip: { text: 'Cancelled', tone: 'muted' } })
+  assert.ok(!UUID_RE.test(visible(v)), visible(v))
+})
+
 test('a shortlist decision reads as In review -> Shortlisted, never pending -> approved', () => {
   const v = describeActivity(row({ action: 'shortlist.decision_set', entity_type: 'shortlist', feature: 'hr_decision', before_state: { hr_decision: 'pending' }, after_state: { hr_decision: 'approved' } }))
   assert.equal(v.event, 'Shortlist decision')
@@ -160,10 +178,10 @@ test('platform events read as sentences too', () => {
 const BACKEND_ACTIONS = [
   'candidate.view_detail', 'candidate.updated', 'candidate.deleted', 'candidate.retry_processing', 'candidate.gdpr_erase', 'candidate.uploaded',
   'extension_policy.updated', 'extension_blocklist.updated', 'extension_blocklist.deleted', 'extension_blocklist.added',
-  'interview.queued', 'interview.scheduled', 'interview.link_sent', 'interview.decision_set', 'interview.email_resent', 'interview.rescheduled', 'interview.retry_assessment',
+  'interview.queued', 'interview.scheduled', 'interview.link_sent', 'interview.decision_set', 'interview.email_resent', 'interview.rescheduled', 'interview.retry_assessment', 'interview.cancelled',
   'job.created', 'job.updated', 'job.deleted',
   'tenant.created', 'tenant.updated', 'tenant.approved', 'tenant.rejected', 'tenant.deleted',
-  'screening.result_set', 'screening.triggered',
+  'screening.result_set', 'screening.triggered', 'screening.call_cancelled',
   'shortlist.decision_set', 'shortlist.feedback_set', 'shortlist.triggered',
   'settings.updated', 'settings.email_template_updated', 'settings.email_template_restored',
   'user.created', 'user.invite_revoked', 'user.invited', 'user.updated', 'user.deleted',

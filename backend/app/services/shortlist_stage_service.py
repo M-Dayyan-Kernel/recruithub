@@ -113,6 +113,10 @@ def _screening_stage(
         return _flagged("Phone number is not in the allowed region")
     if call is None:
         return ShortlistStage(kind="screening", state="queued")
+    if call.call_status == "cancelled":
+        # HR cancelled the queued call. The Phone screening tab files it under Pending,
+        # where "Call Now" starts a new one.
+        return ShortlistStage(kind="screening", state="cancelled")
     if call.call_outcome == "declined":
         return _flagged("Candidate declined the call")
     if _is_technical_failure(call):
@@ -146,6 +150,9 @@ def _screening_stage(
 
 def _interview_stage(session: InterviewSession, has_report: bool) -> ShortlistStage:
     """Whatever tab the Interviews page files this session under, name it the same way."""
+    if session.status == "cancelled":
+        # Filed under Scheduled (needs a link) by the Interviews tab; say why.
+        return ShortlistStage(kind="interview", state="cancelled")
     tab = classify_interview_tab(session, has_report=has_report)
     if tab == "flagged":
         return ShortlistStage(
