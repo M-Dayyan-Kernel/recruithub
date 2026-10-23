@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request, status
 
 from app.dependencies import (
     RequireAdminOrHr,
+    get_phone_round_service,
     get_screening_cancel_service,
     get_screening_service,
     get_screening_trigger_service,
@@ -12,6 +13,9 @@ from app.dependencies import (
 )
 from app.schemas.schemas import (
     ScreeningCallResponse,
+    PhoneRoundActionResponse,
+    PhoneRoundAdvanceRequest,
+    PhoneRoundRejectRequest,
     ScreeningCancelRequest,
     ScreeningCancelResponse,
     ScreeningResultUpdate,
@@ -52,6 +56,36 @@ async def cancel_screening_call(
     service: ScreeningCancelService = Depends(get_screening_cancel_service),
 ):
     return await service.cancel(actor, job_id, body.candidate_id)
+
+
+@router.post(
+    "/jobs/{job_id}/screening/advance",
+    response_model=PhoneRoundActionResponse,
+    dependencies=[Depends(hr_roles)],
+)
+async def advance_without_call(
+    job_id: uuid.UUID,
+    body: PhoneRoundAdvanceRequest,
+    actor: RequireAdminOrHr,
+    service=Depends(get_phone_round_service),
+):
+    """Move a candidate the call could not settle on to an interview, with a reason."""
+    return await service.advance(actor, job_id, body.candidate_id, body.reason)
+
+
+@router.post(
+    "/jobs/{job_id}/screening/reject",
+    response_model=PhoneRoundActionResponse,
+    dependencies=[Depends(hr_roles)],
+)
+async def reject_from_phone_round(
+    job_id: uuid.UUID,
+    body: PhoneRoundRejectRequest,
+    actor: RequireAdminOrHr,
+    service=Depends(get_phone_round_service),
+):
+    """Reject a candidate the call could not settle, from the Phone screening tab."""
+    return await service.reject(actor, job_id, body.candidate_id)
 
 
 @router.post("/screening/webhook")

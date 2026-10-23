@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Loader2, Mic, Phone, PhoneOff } from 'lucide-react'
+import { ArrowRight, Loader2, Mic, Phone, PhoneOff, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import type {
   Candidate,
@@ -12,6 +12,7 @@ import type {
 } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { BTN_DANGER, BTN_GHOST } from '@/components/ui/Surface'
 import type { JobOutletContext } from '@/components/JobLayout'
 import { ScreeningSettingsCard } from '@/components/screening/ScreeningSettingsCard'
 import { CompletedScreeningList } from '@/components/screening/CompletedScreeningList'
@@ -107,6 +108,40 @@ function ScreeningTableRow({
     }
   }
 
+  // Moving a candidate the call could not settle: on to an interview (with a reason), or out.
+  const [placing, setPlacing] = useState<'advance' | 'reject' | null>(null)
+  const [reason, setReason] = useState('')
+  const [placeError, setPlaceError] = useState<string | null>(null)
+  const placeMutation = useMutation({
+    mutationFn: (kind: 'advance' | 'reject') =>
+      api.post(
+        `/api/jobs/${jobId}/screening/${kind}`,
+        kind === 'advance' ? { candidate_id: row.candidateId, reason: reason.trim() } : { candidate_id: row.candidateId },
+      ) as unknown as Promise<{ email_sent: boolean }>,
+  })
+  const handlePlace = async () => {
+    if (!placing) return
+    setPlaceError(null)
+    try {
+      const out = await placeMutation.mutateAsync(placing)
+      if (placing === 'advance') {
+        if (out.email_sent) toast.success(`${row.candidateName} moved to Interviews; the link was emailed`)
+        else toast.error(`${row.candidateName} moved to Interviews, but the email did not go out. Send the link from the Interviews tab.`)
+      } else if (out.email_sent) {
+        toast.success(`${row.candidateName} rejected; they were emailed`)
+      } else {
+        toast.error(`${row.candidateName} rejected, but the rejection email did not go out.`)
+      }
+      setPlacing(null)
+    } catch (err) {
+      setPlaceError(err instanceof Error && err.message ? err.message : 'Could not update the candidate. Please try again.')
+    } finally {
+      refreshAfterCancel()
+      queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
+    }
+  }
+  const reasonOk = reason.trim().length >= 3
+
   const variant = row.isActive ? 'active' : row.tab
 
   return (
@@ -156,6 +191,35 @@ function ScreeningTableRow({
                 Cancel call
               </button>
             )}
+            {row.canPlace && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlaceError(null)
+                    setReason('')
+                    setPlacing('advance')
+                  }}
+                  aria-label={`Move ${row.candidateName} to interview without a call`}
+                  className={BTN_GHOST}
+                >
+                  <ArrowRight size={12} aria-hidden />
+                  Move to interview
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlaceError(null)
+                    setPlacing('reject')
+                  }}
+                  aria-label={`Reject ${row.candidateName}`}
+                  className={BTN_DANGER}
+                >
+                  <X size={12} aria-hidden />
+                  Reject
+                </button>
+              </>
+            )}
             {row.isActive && (
               <span className="inline-flex items-center gap-1 text-xs text-blue-600">
                 <Loader2 size={12} className="animate-spin" />
@@ -177,6 +241,55 @@ function ScreeningTableRow({
           </div>
         </td>
       </tr>
+      {placing === 'advance' && (
+        <ConfirmDialog
+          title={`Move ${row.candidateName} to interview without a call?`}
+          body={
+            <p>
+              They skip the screening call and are emailed an interview link now. The reason is kept in
+              the activity log.
+            </p>
+          }
+          confirmLabel="Move to interview"
+          cancelLabel="Not now"
+          tone="accent"
+          busy={placeMutation.isPending}
+          error={placeError}
+          confirmDisabled={!reasonOk}
+          onConfirm={() => void handlePlace()}
+          onClose={() => setPlacing(null)}
+        >
+          <label className="block text-[13px] text-ink">
+            <span className="mb-1 block font-medium">Why skip the call?</span>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              disabled={placeMutation.isPending}
+              maxLength={500}
+              rows={3}
+              placeholder="e.g. Confirmed availability and notice period by email"
+              className="block w-full resize-y rounded-md border border-line bg-surface px-3 py-2 text-[13px] text-ink placeholder:text-ink-subtle focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-soft"
+            />
+          </label>
+        </ConfirmDialog>
+      )}
+      {placing === 'reject' && (
+        <ConfirmDialog
+          title={`Reject ${row.candidateName}?`}
+          body={
+            <p>
+              They leave the phone round and are emailed a rejection. You can approve them again from
+              Resume Screening, which starts a new call.
+            </p>
+          }
+          confirmLabel="Reject candidate"
+          cancelLabel="Not now"
+          busy={placeMutation.isPending}
+          error={placeError}
+          onConfirm={() => void handlePlace()}
+          onClose={() => setPlacing(null)}
+        />
+      )}
       {confirmCancel && (
         <ConfirmDialog
           title={`Cancel the call to ${row.candidateName}?`}

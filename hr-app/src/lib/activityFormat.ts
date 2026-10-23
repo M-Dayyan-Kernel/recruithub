@@ -377,6 +377,22 @@ export function describeActivity(row: ActivityRowInput): ActivityView {
         details,
       }
     }
+    case 'screening.advanced_without_call': {
+      const details: Array<[string, string]> = [who, ['Reason', text(after?.reason, '—')]]
+      return {
+        ...base,
+        event: 'Moved to interview without a call',
+        change: { kind: 'chip', chip: chip('Skipped the call', 'muted') },
+        details,
+      }
+    }
+    case 'screening.rejected':
+      return {
+        ...base,
+        event: 'Rejected in Phone screening',
+        change: transition(SHORTLIST_DECISIONS.approved ?? 'Approved', SHORTLIST_DECISIONS.rejected ?? 'Rejected', decisionTone),
+        details: [who, ['What happened', 'Rejected from the phone round. Any call still queued was cancelled.']],
+      }
     case 'screening.call_cancelled':
       return {
         ...base,

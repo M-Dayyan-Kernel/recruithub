@@ -173,6 +173,12 @@ def get_screening_cancel_service(db: AsyncSession = Depends(get_db)) -> Screenin
     return ScreeningCancelService(db)
 
 
+def get_phone_round_service(db: AsyncSession = Depends(get_db)) -> "PhoneRoundService":
+    from app.services.phone_round_service import PhoneRoundService
+
+    return PhoneRoundService(db)
+
+
 def get_screening_webhook_service(
     db: AsyncSession = Depends(get_db),
 ) -> ScreeningWebhookService:

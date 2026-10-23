@@ -206,7 +206,10 @@ def resolve_shortlist_stage(
     if sessions:
         return _interview_stage(_newest(sessions), has_report)
     if not screening_effective and not calls:
-        return ShortlistStage(kind="interview", state="pending")
+        # Approving with screening off moves them straight to an interview; approved with
+        # no call and no interview means that did not happen (or screening went off before
+        # their call). They wait for HR to place them, like the rest of the phone round.
+        return ShortlistStage(kind="screening", state="paused")
     call = _pick_call(calls) if calls else None
     stage = _screening_stage(call, phone, settings, now or datetime.now(timezone.utc))
     if not screening_effective and stage.kind == "screening" and stage.state in PHONE_ROUND_STATES:

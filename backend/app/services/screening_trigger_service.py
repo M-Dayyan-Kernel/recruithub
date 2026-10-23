@@ -38,6 +38,22 @@ async def candidate_has_live_call(
     return result.scalar_one_or_none() is not None
 
 
+def call_is_on_its_way(call: ScreeningCall) -> bool:
+    """Ringing, in conversation, or placed and waiting for Vapi's answer."""
+    return call.call_status in LIVE_CALL_STATUSES or (call.call_status == "pending" and bool(call.vapi_call_id))
+
+
+def cancel_undialled_calls(calls: list[ScreeningCall], why: str) -> int:
+    """Cancel queued or scheduled calls nobody has dialled yet (kept, not deleted)."""
+    cancelled = 0
+    for call in calls:
+        if call.call_status == "pending" and not call.vapi_call_id:
+            call.call_status = "cancelled"
+            call.summary = why
+            cancelled += 1
+    return cancelled
+
+
 async def find_scheduled_pending_call(
     db: AsyncSession,
     job_id: uuid.UUID,

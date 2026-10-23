@@ -39,7 +39,10 @@ async def _ensure_bypass_screening_call(
     candidate_id: uuid.UUID,
     job_id: uuid.UUID,
     bypass_summary: str = BYPASS_SUMMARY_JOB,
+    reuse_existing_pass: bool = True,
 ) -> ScreeningCall:
+    if not reuse_existing_pass:
+        return await _new_bypass_call(db, candidate_id=candidate_id, job_id=job_id, bypass_summary=bypass_summary)
     result = await db.execute(
         select(ScreeningCall)
         .where(
@@ -57,6 +60,16 @@ async def _ensure_bypass_screening_call(
             await db.flush()
         return existing
 
+    return await _new_bypass_call(db, candidate_id=candidate_id, job_id=job_id, bypass_summary=bypass_summary)
+
+
+async def _new_bypass_call(
+    db: AsyncSession,
+    *,
+    candidate_id: uuid.UUID,
+    job_id: uuid.UUID,
+    bypass_summary: str,
+) -> ScreeningCall:
     now = datetime.now(timezone.utc)
     screening_call = ScreeningCall(
         candidate_id=candidate_id,
@@ -73,6 +86,24 @@ async def _ensure_bypass_screening_call(
 
 
 async def _send_invitation_if_needed(
+    db: AsyncSession,
+    *,
+    interview_session,
+    candidate: Candidate,
+    job_title: str,
+) -> tuple[bool, str | None]:
+    """Never raises: it runs after the move is committed, so a failure here is a failed
+    email (reported as such), not a failed move."""
+    try:
+        return await _send_invitation(
+            db, interview_session=interview_session, candidate=candidate, job_title=job_title
+        )
+    except Exception:  # noqa: BLE001 - see docstring
+        logger.exception("Interview invitation failed for candidate=%s", candidate.id)
+        return False, "Failed to send interview invitation email"
+
+
+async def _send_invitation(
     db: AsyncSession,
     *,
     interview_session,
@@ -100,6 +131,7 @@ async def advance_approved_candidate_to_interview(
     candidate_id: uuid.UUID,
     job_id: uuid.UUID,
     bypass_summary: str = BYPASS_SUMMARY_JOB,
+    reuse_existing_pass: bool = True,
 ) -> AdvanceResult:
     """
     When voice screening is disabled, create a bypass pass record, interview session,
@@ -122,8 +154,16 @@ async def advance_approved_candidate_to_interview(
     )
     if existing_session:
         await _ensure_bypass_screening_call(
-            db, candidate_id=candidate_id, job_id=job_id, bypass_summary=bypass_summary
+            db,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            bypass_summary=bypass_summary,
+            reuse_existing_pass=reuse_existing_pass,
         )
+        # Saved before the email (here and below): a link must never be emailed for a
+        # session that then fails to save, and a slow mail server must not hold the
+        # caller's row locks for the length of the send.
+        await db.commit()
         email_sent, email_skipped_reason = await _send_invitation_if_needed(
             db,
             interview_session=existing_session,
@@ -139,7 +179,11 @@ async def advance_approved_candidate_to_interview(
         )
 
     await _ensure_bypass_screening_call(
-        db, candidate_id=candidate_id, job_id=job_id, bypass_summary=bypass_summary
+        db,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        bypass_summary=bypass_summary,
+        reuse_existing_pass=reuse_existing_pass,
     )
 
     try:
@@ -163,6 +207,7 @@ async def advance_approved_candidate_to_interview(
             email_skipped_reason=str(exc),
         )
 
+    await db.commit()
     email_sent, email_skipped_reason = await _send_invitation_if_needed(
         db,
         interview_session=interview_session,

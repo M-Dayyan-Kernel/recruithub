@@ -29,7 +29,7 @@ from app.schemas.schemas import (
 from app.services.audit_service import AuditService
 from app.services.screening_defaults import get_default_screening_questions
 from app.services.candidate_contact_service import resolve_candidate_name
-from app.services.screening_trigger_service import LIVE_CALL_STATUSES
+from app.services.screening_trigger_service import call_is_on_its_way, cancel_undialled_calls
 from app.services.shortlist_stage_service import (
     PHONE_ROUND_STATES,
     load_stages,
@@ -249,12 +249,9 @@ class VoiceScreeningService:
             .scalars()
             .all()
         )
-        if any(c.call_status in LIVE_CALL_STATUSES or (c.call_status == "pending" and c.vapi_call_id) for c in calls):
+        if any(call_is_on_its_way(c) for c in calls):
             return False
-        for call in calls:
-            if call.call_status == "pending":
-                call.call_status = "cancelled"
-                call.summary = CANCELLED_BY_SWITCH
+        cancel_undialled_calls(calls, CANCELLED_BY_SWITCH)
         return True
 
     async def _lock_still_waiting(self, job_id: uuid.UUID, candidate_id: uuid.UUID) -> ShortlistResult | None:
@@ -336,7 +333,11 @@ async def advance_to_interview(
                 await db.commit()  # release the lock; someone else placed them
                 continue
             advance = await advance_approved_candidate_to_interview(
-                db, candidate_id=item.candidate_id, job_id=job_id, bypass_summary=BYPASS_SUMMARY
+                db,
+                candidate_id=item.candidate_id,
+                job_id=job_id,
+                bypass_summary=BYPASS_SUMMARY,
+                reuse_existing_pass=False,  # newer than the round they are leaving, as above
             )
         except Exception:  # noqa: BLE001 - reported per candidate, the others still go
             logger.exception("Could not move candidate=%s to interview", item.candidate_id)
