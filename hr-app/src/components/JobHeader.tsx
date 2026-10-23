@@ -14,7 +14,7 @@ import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { EditJobModal } from '@/components/EditJobModal'
 import { JobStatusBadge } from '@/components/JobStatusBadge'
-import { VoiceScreeningSwitch } from '@/components/screening/VoiceScreeningSwitch'
+import { VoiceScreeningToggle } from '@/components/screening/VoiceScreeningToggle'
 import { cn } from '@/lib/utils'
 
 const DESCRIPTION_PREVIEW_LINES = 3
@@ -91,17 +91,12 @@ export function JobHeader({ job, showDelete = false }: Props) {
   const [showStatusMenu, setShowStatusMenu] = useState(false)
   const [descriptionExpanded, setDescriptionExpanded] = useState(false)
   const [skillsExpanded, setSkillsExpanded] = useState(false)
-  const [jobScreeningOn, setJobScreeningOn] = useState(job.voice_screening_enabled !== false)
   const statusMenuRef = useRef<HTMLDivElement>(null)
 
   const skills = job.required_skills ?? []
   const description = job.description?.trim() || 'No description provided.'
   const isLongDescription = description.length > 220 || description.split('\n').length > DESCRIPTION_PREVIEW_LINES
   const expLabel = experienceLabel(job)
-
-  useEffect(() => {
-    setJobScreeningOn(job.voice_screening_enabled !== false)
-  }, [job.voice_screening_enabled])
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -142,26 +137,6 @@ export function JobHeader({ job, showDelete = false }: Props) {
     },
   })
 
-  const screeningToggleMutation = useMutation({
-    mutationFn: (enabled: boolean) =>
-      api.patch(`/api/jobs/${job.id}`, {
-        voice_screening_enabled: enabled,
-      }) as Promise<Job>,
-    onMutate: (enabled) => {
-      setJobScreeningOn(enabled)
-    },
-    onSuccess: (updatedJob, enabled) => {
-      const merged = { ...updatedJob, voice_screening_enabled: enabled }
-      queryClient.setQueryData(['job', job.id], merged)
-      setJobScreeningOn(enabled)
-      toast.success(enabled ? 'Voice screening on' : 'Voice screening off')
-    },
-    onError: () => {
-      setJobScreeningOn(job.voice_screening_enabled !== false)
-      toast.error('Failed to update voice screening setting')
-    },
-  })
-
   const handleDelete = () => {
     const confirmed = window.confirm(
       `Delete "${job.title}"? This will permanently remove the job and all candidates, shortlist results, screening calls, and interviews.`,
@@ -170,7 +145,7 @@ export function JobHeader({ job, showDelete = false }: Props) {
   }
 
   const isActionPending =
-    statusMutation.isPending || deleteMutation.isPending || screeningToggleMutation.isPending
+    statusMutation.isPending || deleteMutation.isPending
   const visibleSkills = skillsExpanded ? skills : skills.slice(0, SKILL_PREVIEW_COUNT)
   const hiddenSkillCount = skills.length - SKILL_PREVIEW_COUNT
 
@@ -201,11 +176,7 @@ export function JobHeader({ job, showDelete = false }: Props) {
                     </span>
                   )}
                 </div>
-                <VoiceScreeningSwitch
-                  checked={jobScreeningOn}
-                  disabled={screeningToggleMutation.isPending}
-                  onChange={(enabled) => screeningToggleMutation.mutate(enabled)}
-                />
+                <VoiceScreeningToggle job={job} />
               </div>
             </div>
 

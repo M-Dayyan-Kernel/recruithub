@@ -15,6 +15,13 @@ export interface ScreeningRow {
   tab: ScreeningTabId
   statusLabel: string
   canCallNow: boolean
+  /** A queued or scheduled call that has not been dialled yet and can still be called off. */
+  canCancel: boolean
+  /**
+   * The call cannot settle this candidate (flagged, or a call HR cancelled): offer the
+   * ways forward by hand, moving them to an interview or rejecting them.
+   */
+  canPlace: boolean
   isActive: boolean
   isScheduledRetry: boolean
   flagReason?: string
@@ -30,6 +37,11 @@ function isLiveCall(call: ScreeningCall): boolean {
   return LIVE_CALL_STATUSES.has(call.call_status)
 }
 
+/** Ringing, in conversation, or placed and waiting for Vapi's answer (backend: call_is_on_its_way). */
+function isOnItsWay(call: ScreeningCall | null): boolean {
+  return call !== null && (isLiveCall(call) || (call.call_status === 'pending' && Boolean(call.vapi_call_id)))
+}
+
 function latestCallForCandidate(
   candidateId: string,
   calls: ScreeningCall[],
@@ -43,7 +55,16 @@ function latestCallForCandidate(
   const successfulCalls = [...forCandidate]
     .filter(isSuccessfulScreeningCall)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  if (successfulCalls.length > 0) return successfulCalls[0]
+  if (successfulCalls.length > 0) {
+    const best = successfulCalls[0]
+    // Calls made after it belong to a later round (approved again after this result), which
+    // is what is happening now. A success cancels its own pending retries, so nothing newer
+    // is left over from the same round.
+    const later = forCandidate
+      .filter((c) => new Date(c.created_at).getTime() > new Date(best.created_at).getTime())
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    return later[0] ?? best
+  }
 
   const scheduledRetry = forCandidate.find((c) => isScheduledRetry(c))
   if (scheduledRetry) return scheduledRetry
@@ -109,17 +130,26 @@ function classifyTab(
   phone: string | null,
   settings: SystemSettings | undefined,
 ): { tab: ScreeningTabId; flagReason?: string } {
-  if (!phone) {
+  // A call that already reached the candidate keeps its outcome: a phone number removed or
+  // failing the region check afterwards must not turn a finished screening into "flagged".
+  const reached = call !== null && isSuccessfulScreeningCall(call)
+
+  if (!reached && !phone) {
     return { tab: 'flagged', flagReason: 'No phone number on file' }
   }
 
-  if (settings?.enforce_phone_geography && settings.allowed_phone_regions.includes('IN')) {
+  if (!reached && phone && settings?.enforce_phone_geography && settings.allowed_phone_regions.includes('IN')) {
     if (!phoneLooksIndian(phone)) {
       return { tab: 'flagged', flagReason: 'Phone number not in allowed region (+91 only)' }
     }
   }
 
   if (!call) {
+    return { tab: 'pending' }
+  }
+
+  // HR called it off before it was placed: still the phone round, waiting on HR.
+  if (call.call_status === 'cancelled') {
     return { tab: 'pending' }
   }
 
@@ -189,6 +219,9 @@ function canCallNowForRow(
 ): boolean {
   if (!isCallablePhone(phone, settings)) return false
   if (latestCall && isLiveCall(latestCall)) return false
+  // Already sent to an interview: the phone round is behind them, and the dialler would
+  // refuse the call anyway.
+  if (latestCall?.has_interview_session) return false
 
   const scheduledRetry = latestCall ? isScheduledRetry(latestCall) : false
   const maxAttempts = maxDialAttempts(settings)
@@ -203,6 +236,7 @@ function canCallNowForRow(
   if (tab === 'pending') {
     return (
       latestCall === null ||
+      latestCall.call_status === 'cancelled' ||
       scheduledRetry ||
       (latestCall !== null &&
         isConnectFailure(latestCall) &&
@@ -218,7 +252,7 @@ function statusLabelForRow(
   tab: ScreeningTabId,
   flagReason?: string,
 ): string {
-  if (!call) return 'Pending'
+  if (!call) return tab === 'flagged' ? 'Flagged' : 'Pending'
 
   if (tab === 'flagged') {
     if (flagReason?.toLowerCase().includes('maximum attempts')) {
@@ -228,6 +262,8 @@ function statusLabelForRow(
     if (flagReason?.toLowerCase().includes('needs hr review')) return 'Needs Review'
     return 'Flagged'
   }
+
+  if (call.call_status === 'cancelled') return 'Call Cancelled'
 
   if (isLiveCall(call)) {
     return 'Call In Progress'
@@ -258,6 +294,11 @@ export function buildScreeningRows(
   candidatesMap: Record<string, Candidate>,
   screeningCalls: ScreeningCall[],
   settings: SystemSettings | undefined,
+  /**
+   * The job's voice-screening switch. Off, nothing will be dialled: no Call Now or Cancel,
+   * and everyone still waiting without a call result can be moved on or rejected by hand.
+   */
+  screeningOn: boolean = true,
 ): ScreeningRow[] {
   return approvedShortlist.map((sr) => {
     const candidate = candidatesMap[sr.candidate_id]
@@ -272,7 +313,14 @@ export function buildScreeningRows(
     const attemptNumber = latestCall ? (latestCall.retry_count ?? 0) + 1 : 1
     const scheduledRetry = latestCall ? isScheduledRetry(latestCall) : false
     const isActive = latestCall ? isLiveCall(latestCall) : false
-    const canCallNow = canCallNowForRow(tab, phone, latestCall, settings)
+    const canCallNow = screeningOn && canCallNowForRow(tab, phone, latestCall, settings)
+    // Mirrors the server: a call that was queued (a row not yet dialled) or that was never
+    // created because the candidate is still waiting for auto-dispatch.
+    const canCancel =
+      screeningOn &&
+      tab === 'pending' &&
+      isCallablePhone(phone, settings) &&
+      (latestCall === null ? true : isScheduledRetry(latestCall))
 
     return {
       candidateId: sr.candidate_id,
@@ -282,8 +330,18 @@ export function buildScreeningRows(
       latestCall,
       attemptNumber,
       tab,
-      statusLabel: statusLabelForRow(latestCall, tab, flagReason),
+      statusLabel:
+        !screeningOn && tab === 'pending' && !isOnItsWay(latestCall)
+          ? 'Waiting · screening off'
+          : statusLabelForRow(latestCall, tab, flagReason),
       canCallNow,
+      canCancel,
+      canPlace:
+        !isOnItsWay(latestCall) &&
+        (tab === 'flagged' ||
+          latestCall?.call_status === 'cancelled' ||
+          // With screening off nothing will call the rest of the waiting rows either.
+          (!screeningOn && tab === 'pending')),
       isActive,
       isScheduledRetry: scheduledRetry,
       flagReason,

@@ -114,6 +114,45 @@ Upload a job description document (PDF or DOCX) and extract structured fields vi
 
 ---
 
+#### `GET /api/jobs/{job_id}/voice-screening`
+Who the voice-screening switch would affect, shown before it is flipped.
+
+**Response `200`:**
+```json
+{
+  "enabled": true,
+  "in_phone_round": [{ "candidate_id": "uuid", "name": "Asha", "state": "queued | scheduled | retrying | flagged | cancelled" }],
+  "live_calls": 1,
+  "with_call_result": 2,
+  "in_interviews": 3
+}
+```
+`in_phone_round` = approved candidates waiting for a call with no call result. Live calls, finished calls and candidates with an interview are only counted: the switch never moves them. A finished call keeps its outcome whatever the candidate's phone number says today (a failed candidate is never moved on to an interview).
+
+#### `POST /api/jobs/{job_id}/voice-screening`
+Switch voice screening on or off.
+
+**Request Body:** `{ "enabled": false, "move_to": "interview" | "resume" | null }`
+
+- **Off, with candidates in the phone round** — `move_to` is required (`422` otherwise). Their undialled calls are cancelled, then:
+  - `interview`: each is moved straight to an interview (bypass "pass" screening record, pending session, invitation email), one at a time and committed separately; audit `interview.link_sent` with `reason: voice_screening_turned_off`.
+  - `resume`: each goes back to `hr_decision = "pending"`; audit `shortlist.returned_to_resume`.
+- **Off with nobody waiting, or on** — just the flag. Turning on moves nobody.
+- The job row is locked, so two people switching at once take turns; the second sees nobody waiting.
+- Re-running "off" retries anyone still waiting (e.g. after a partial failure).
+
+**Response `200`:** `{ "enabled", "move_to", "moved", "links_sent", "email_failed": [names], "failed": [names], "live_calls", "in_background" }`
+
+> `PATCH /api/jobs/{job_id}` refuses `voice_screening_enabled: false` with `409`: switching off only happens here, under the job lock. (Switching on through PATCH is still allowed.)
+
+> **Large rounds:** up to 10 candidates are moved inside the request; the rest are moved after the response (`in_background` in the result). Anyone who cannot be moved stays waiting, shows as `stage.state = "paused"` on the shortlist, and the switch offers them again.
+
+> **After the switch is off:** a call that was live when it flipped finishes normally but schedules no retry, so the candidate waits (paused) instead of being flagged by a retry the dialler would refuse.
+
+> **Re-approval:** a candidate approved again after an earlier round (rejected, sent back, a cancelled call) gets a fresh call queued on approval, unless a call is already on its way or an earlier call passed.
+
+---
+
 #### `DELETE /api/jobs/{job_id}`
 Delete a job and all related records (candidates, shortlist results, screening calls, interview sessions).
 
@@ -379,6 +418,43 @@ Trigger AI voice screening calls for a set of HR-approved candidates.
 
 ---
 
+#### `POST /api/jobs/{job_id}/screening/cancel`
+Cancel a candidate's **queued or scheduled** call (one that has not been dialled). The candidate stays in the phone round; `POST .../screening/trigger` places a new call whenever HR wants one.
+
+**Request Body:** `{ "candidate_id": "uuid" }`
+
+**Response `200`:** `{ "candidate_id": "uuid", "cancelled": 1 }`
+
+**Behaviour:** queued rows (`call_status = "pending"`, no `vapi_call_id`) become `cancelled` (kept, not deleted). An approved candidate with no call yet gets a `cancelled` marker row, so the auto-dispatch that calls every approved candidate without one does not place the call anyway. Writes a `screening.call_cancelled` audit row. Holds the call row's lock, so a dial already in flight finishes first and the cancel then refuses.
+
+**Errors:**
+- `409` — a call is in progress (`initiated` / `in_progress`, or placed and awaiting the webhook); nothing queued to cancel; already cancelled; the candidate is not approved; or voice screening is off for the job
+- `404` — job or candidate not found
+
+---
+
+#### `POST /api/jobs/{job_id}/screening/advance`
+Move a candidate the call could not settle on to an interview **without a call**.
+
+**Request Body:** `{ "candidate_id": "uuid", "reason": "at least 3 characters (trimmed), max 500" }`
+
+**Response `200`:** `{ "candidate_id", "interview_session_id", "email_sent" }`
+
+Allowed only while the candidate is approved and waiting in the phone round with **no call result** (queued, scheduled, retrying, flagged, cancelled, or paused — screening off with no call result or never called). Undialled calls are cancelled; a new bypass `pass` record carrying who and why is written (newer than the round's calls, so both tabs read them as passed); the session is saved, then the interview link is emailed (an email failure never undoes the move). Audit `screening.advanced_without_call` (the reason), committed together with the move. The HR app offers this on flagged rows and rows whose call was cancelled; a queued call is cancelled first, and with screening off the job's "Place them" handles the waiting candidates.
+
+#### `POST /api/jobs/{job_id}/screening/reject`
+Reject such a candidate from the Phone screening tab.
+
+**Request Body:** `{ "candidate_id": "uuid" }` — **Response `200`:** `{ "candidate_id", "interview_session_id": null, "email_sent" }`
+
+Undialled calls are cancelled, `hr_decision` becomes `rejected` (committed before the rejection email is attempted), audit `screening.rejected`. Approving them again from Resume Screening queues a fresh call.
+
+> **Dialler guard:** just before placing any call, the dialler cancels it instead if the candidate is no longer approved or already has a pending/in-progress interview — this catches a Call Now that raced a reject or a move.
+
+**Errors (both):** `409` — a call is in progress; the call has a result (decide from the result); already in Interviews; not approved / not in the phone round. Both lock the shortlist row, then the calls (the order every path uses), so an advance and a reject at the same moment cannot both apply.
+
+---
+
 #### `POST /api/screening/webhook`
 Receive Vapi.ai call-end webhooks. **No auth required.** Do not call from frontend.
 
@@ -423,6 +499,23 @@ HR view: list all interview sessions for a job, enriched with `candidate_name` a
 **Errors:** `404` — job not found
 
 > **Nova gotcha:** `interview_url` is computed from `CANDIDATE_APP_URL` env var (default `http://localhost:5174`). `candidate_name` is batch-loaded via join — always present. `expires_at` is set (7 days from send) for sessions created after Sprint A.
+
+---
+
+#### `POST /api/candidates/{candidate_id}/interview/cancel`
+Cancel the candidate's **pending** interview link (the candidate has not opened it). The session becomes `cancelled`, the link stops working (`410` for the candidate), and the candidate stays in the Interviews stage — `interview/send` or `interview/schedule` issue a new link.
+
+**Request Body:** `{ "notify_candidate": false }` (optional; `true` sends the editable `interview_cancelled` email template)
+
+**Response `200`:** `{ "session_id": "uuid", "status": "cancelled", "email_sent": null | true | false }` — `email_sent` is `null` unless notification was requested; a failed email does not undo the cancellation.
+
+**Errors:**
+- `409` — the interview is in progress, already completed, expired or cancelled (the message says which)
+- `404` — no interview to cancel
+
+Writes an `interview.cancelled` audit row (previous scheduled time, whether an email was requested). The cancellation is committed before the email is attempted, so a mail outage or slow server never undoes it or holds the session row.
+
+> **Status:** `InterviewSession.status` gains `cancelled`. Not active (the one-active-session-per-candidate index covers `pending`/`in_progress` only), not flagged, and filed under the Scheduled tab.
 
 ---
 
@@ -626,7 +719,7 @@ interface ScreeningCall {
   candidate_id: string;
   job_id: string;
   vapi_call_id: string | null;
-  call_status: "pending" | "initiated" | "in_progress" | "completed" | "failed";
+  call_status: "pending" | "initiated" | "in_progress" | "completed" | "failed" | "cancelled";
   availability: string | null;
   employment_status: string | null;
   relevant_experience: string | null;
@@ -652,7 +745,7 @@ interface InterviewSession {
   job_id: string;
   unique_token: string;
   livekit_room_name: string | null;
-  status: "pending" | "in_progress" | "completed" | "expired";
+  status: "pending" | "in_progress" | "completed" | "expired" | "cancelled";
   email_sent_at: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -779,11 +872,17 @@ VITE_API_URL=http://localhost:8080
 | PATCH | `/api/shortlist/{id}/decision` | HR approve/reject/override |
 | POST | `/api/shortlist/{id}/feedback` | HR feedback |
 | POST | `/api/jobs/{id}/screening/trigger` | Trigger voice screening |
+| POST | `/api/jobs/{id}/screening/cancel` | Cancel a queued call |
+| POST | `/api/jobs/{id}/screening/advance` | Move to interview without a call (with reason) |
+| POST | `/api/jobs/{id}/screening/reject` | Reject from the phone round |
+| GET | `/api/jobs/{id}/voice-screening` | Preview the voice-screening switch |
+| POST | `/api/jobs/{id}/voice-screening` | Switch voice screening, placing the phone round |
 | POST | `/api/screening/webhook` | Vapi webhook (internal) |
 | GET | `/api/jobs/{id}/screening` | Get screening results |
 | PATCH | `/api/screening/{id}/result` | HR pass/fail decision on screening |
 | GET | `/api/jobs/{id}/interviews` | List interview sessions for job |
 | POST | `/api/candidates/{id}/interview/send` | Send interview link |
+| POST | `/api/candidates/{id}/interview/cancel` | Cancel a pending interview link |
 | GET | `/api/interview/{token}` | Get session by token |
 | POST | `/api/interview/{token}/start` | Start interview (get LiveKit token) |
 | GET | `/api/interview/{token}/integrity-policy` | Live AI-extension blocklist + heuristic rules for the interview page (rate-limited per token) |

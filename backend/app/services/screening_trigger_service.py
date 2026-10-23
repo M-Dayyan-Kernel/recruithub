@@ -38,6 +38,22 @@ async def candidate_has_live_call(
     return result.scalar_one_or_none() is not None
 
 
+def call_is_on_its_way(call: ScreeningCall) -> bool:
+    """Ringing, in conversation, or placed and waiting for Vapi's answer."""
+    return call.call_status in LIVE_CALL_STATUSES or (call.call_status == "pending" and bool(call.vapi_call_id))
+
+
+def cancel_undialled_calls(calls: list[ScreeningCall], why: str) -> int:
+    """Cancel queued or scheduled calls nobody has dialled yet (kept, not deleted)."""
+    cancelled = 0
+    for call in calls:
+        if call.call_status == "pending" and not call.vapi_call_id:
+            call.call_status = "cancelled"
+            call.summary = why
+            cancelled += 1
+    return cancelled
+
+
 async def find_scheduled_pending_call(
     db: AsyncSession,
     job_id: uuid.UUID,
@@ -57,19 +73,44 @@ async def find_scheduled_pending_call(
     return result.scalars().first()
 
 
-async def candidate_has_any_screening_call(
+async def newest_call_is_cancelled(
     db: AsyncSession,
     job_id: uuid.UUID,
     candidate_id: uuid.UUID,
 ) -> bool:
     result = await db.execute(
-        select(ScreeningCall.id).where(
-            ScreeningCall.job_id == job_id,
-            ScreeningCall.candidate_id == candidate_id,
-        )
+        select(ScreeningCall.call_status)
+        .where(ScreeningCall.job_id == job_id, ScreeningCall.candidate_id == candidate_id)
+        .order_by(ScreeningCall.created_at.desc())
         .limit(1)
     )
-    return result.scalar_one_or_none() is not None
+    return result.scalar_one_or_none() == "cancelled"
+
+
+async def call_state_on_approval(
+    db: AsyncSession,
+    job_id: uuid.UUID,
+    candidate_id: uuid.UUID,
+) -> str:
+    """What an approval should do about the call, from one look at the candidate's calls:
+    "never" (never called: the usual dispatch), "busy" (a call is on its way, or an earlier
+    call passed: nothing to do), or "fresh" (approved again after a round that ended
+    without a pass: they need a new call)."""
+    rows = (
+        await db.execute(
+            select(ScreeningCall.call_status, ScreeningCall.result).where(
+                ScreeningCall.job_id == job_id, ScreeningCall.candidate_id == candidate_id
+            )
+        )
+    ).all()
+    if not rows:
+        return "never"
+    for status, result in rows:
+        if status == "pending" or status in LIVE_CALL_STATUSES:
+            return "busy"
+        if status == "completed" and result == "pass":
+            return "busy"
+    return "fresh"
 
 
 async def find_unqueued_approved_candidate_ids(
@@ -102,6 +143,7 @@ async def dispatch_screening_for_candidates(
     candidate_ids: list[uuid.UUID],
     *,
     force: bool = False,
+    respect_cancel: bool = True,
 ) -> tuple[int, int, list[dict]]:
     """
     Create ScreeningCall rows (when needed) and enqueue Celery dial tasks.
@@ -158,6 +200,16 @@ async def dispatch_screening_for_candidates(
         scheduled = await find_scheduled_pending_call(db, job.id, cand_uuid)
         if scheduled:
             dispatch_queue.append((scheduled.id, force))
+            continue
+
+        # HR cancelled this call on purpose. Only an explicit "Call Now" (force) places a new
+        # one: an automatic dispatch, or a stale tab auto-dialling a row it still thinks has
+        # never been called, must not undo the cancel.
+        if not force and respect_cancel and await newest_call_is_cancelled(db, job.id, cand_uuid):
+            skipped.append({
+                "name": candidate.name,
+                "reason": "The call was cancelled; use Call Now to place a new one",
+            })
             continue
 
         if not candidate.phone:

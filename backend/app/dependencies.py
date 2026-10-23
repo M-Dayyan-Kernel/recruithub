@@ -38,6 +38,7 @@ from app.services.job_service import JobService
 from app.services.resume_upload_service import ResumeUploadService
 from app.services.shortlist_service import ShortlistService
 from app.services.shortlist_trigger_service import ShortlistTriggerService
+from app.services.screening_cancel_service import ScreeningCancelService
 from app.services.screening_service import ScreeningService
 from app.services.screening_trigger_service import ScreeningTriggerService
 from app.services.screening_webhook_service import ScreeningWebhookService
@@ -122,6 +123,12 @@ def get_job_service(db: AsyncSession = Depends(get_db)) -> JobService:
     return JobService(db)
 
 
+def get_voice_screening_service(db: AsyncSession = Depends(get_db)) -> "VoiceScreeningService":
+    from app.services.voice_screening_service import VoiceScreeningService
+
+    return VoiceScreeningService(db)
+
+
 def get_job_description_parse_service(
     db: AsyncSession = Depends(get_db),
 ) -> JobDescriptionParseService:
@@ -160,6 +167,16 @@ def get_screening_trigger_service(
 
 def get_screening_service(db: AsyncSession = Depends(get_db)) -> ScreeningService:
     return ScreeningService(db)
+
+
+def get_screening_cancel_service(db: AsyncSession = Depends(get_db)) -> ScreeningCancelService:
+    return ScreeningCancelService(db)
+
+
+def get_phone_round_service(db: AsyncSession = Depends(get_db)) -> "PhoneRoundService":
+    from app.services.phone_round_service import PhoneRoundService
+
+    return PhoneRoundService(db)
 
 
 def get_screening_webhook_service(

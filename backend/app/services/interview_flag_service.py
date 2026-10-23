@@ -48,6 +48,9 @@ def get_flag_reason(session: InterviewSession | None, *, has_report: bool = Fals
     """Return a human-readable flag reason, or None if the session should not be flagged."""
     if not session or has_report:
         return None
+    # Cancelled on purpose by HR: not a failed interview, so nothing to flag.
+    if session.status == "cancelled":
+        return None
     if has_meaningful_transcript(session.transcript):
         return None
     if session.status == "in_progress":

@@ -20,6 +20,8 @@ const SCREENING_STATES: Record<string, { detail: string; tone: StageTone; tab: '
   queued: { detail: 'Waiting for the call', tone: 'neutral', tab: 'pending' },
   scheduled: { detail: 'Call scheduled', tone: 'neutral', tab: 'pending' },
   retrying: { detail: 'Retrying the call', tone: 'neutral', tab: 'pending' },
+  cancelled: { detail: 'Call cancelled', tone: 'neutral', tab: 'pending' },
+  paused: { detail: 'Screening is off: move them on or reject', tone: 'warn', tab: 'pending' },
   live: { detail: 'Call in progress', tone: 'accent', tab: 'pending' },
   review: { detail: 'Needs your review', tone: 'warn', tab: 'completed' },
   failed: { detail: 'Did not pass', tone: 'neg', tab: 'completed' },
@@ -33,6 +35,7 @@ const INTERVIEW_STATES: Record<string, { detail: string; tone: StageTone; tab: s
   completed: { detail: 'Completed', tone: 'neutral', tab: 'completed' },
   finalist: { detail: 'Approved as a finalist', tone: 'pos', tab: 'finalists', title: 'Finalist' },
   flagged: { detail: 'Needs attention', tone: 'warn', tab: 'flagged' },
+  cancelled: { detail: 'Interview cancelled', tone: 'neutral', tab: 'scheduled' },
 }
 
 /**
@@ -43,11 +46,13 @@ const INTERVIEW_STATES: Record<string, { detail: string; tone: StageTone; tab: s
 export function describeStage(stage: ShortlistStage, jobId: string): StageView {
   if (stage.kind === 'screening') {
     const known = SCREENING_STATES[stage.state]
+    // Paused (screening off) rows are listed where they were: Flagged if they had a flag.
+    const tab = stage.state === 'paused' && stage.reason ? 'flagged' : (known?.tab ?? 'pending')
     return {
       title: 'Phone screening',
       detail: (stage.state === 'flagged' && stage.reason) || known?.detail || 'In this stage',
       tone: known?.tone ?? 'neutral',
-      to: `/jobs/${jobId}/screening?tab=${known?.tab ?? 'pending'}`,
+      to: `/jobs/${jobId}/screening?tab=${tab}`,
       toLabel: 'Open Phone screening',
     }
   }

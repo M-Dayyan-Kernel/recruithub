@@ -27,6 +27,11 @@ const ACTIONS: Record<
   'shortlist.decision_set': { label: 'Shortlist decision', Icon: Gavel, tone: 'accent' },
   'screening.result_set': { label: 'Screening result', Icon: PhoneCall, tone: 'accent' },
   'interview.decision_set': { label: 'Interview decision', Icon: Video, tone: 'accent' },
+  'interview.cancelled': { label: 'Interview cancelled', Icon: Video, tone: 'neutral' },
+  'screening.call_cancelled': { label: 'Screening call cancelled', Icon: PhoneCall, tone: 'neutral' },
+  'screening.advanced_without_call': { label: 'Moved to interview without a call', Icon: ArrowRight, tone: 'accent' },
+  'screening.rejected': { label: 'Rejected in Phone screening', Icon: Gavel, tone: 'neg' },
+  'shortlist.returned_to_resume': { label: 'Returned to Resume Screening', Icon: Gavel, tone: 'neutral' },
 }
 
 const NODE_TONES = {

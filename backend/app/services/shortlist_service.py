@@ -229,7 +229,7 @@ class ShortlistService:
         if payload.hr_decision == "rejected":
             # Only reached on a change: a repeat Reject returned early above, so the
             # candidate is emailed once.
-            await self._send_rejection_email(actor, record, shortlist_id, candidate)
+            await self.send_rejection_email(actor, record, shortlist_id, candidate)
 
         if payload.hr_decision == "approved":
             approval_response = await self._handle_approval_side_effects(
@@ -270,13 +270,13 @@ class ShortlistService:
         await self._shortlist.refresh(record)
         return ShortlistResultResponse.model_validate(record)
 
-    async def _send_rejection_email(
+    async def send_rejection_email(
         self,
         actor: User,
         record,
         shortlist_id: uuid.UUID,
         candidate: Candidate | None,
-    ) -> None:
+    ) -> bool:
         candidate_email = resolve_candidate_email(candidate)
         if not candidate_email:
             logger.warning(
@@ -284,7 +284,7 @@ class ShortlistService:
                 shortlist_id,
                 record.candidate_id,
             )
-            return
+            return False
 
         job = await self._session.get(Job, record.job_id)
         job_title = job.title if job else "the position"
@@ -310,6 +310,8 @@ class ShortlistService:
                 shortlist_id,
                 record.candidate_id,
             )
+            return False
+        return True
 
     async def _handle_approval_side_effects(
         self,
@@ -353,15 +355,27 @@ class ShortlistService:
         from app.services.celery_health import celery_workers_available_async
         from app.services.screening_trigger_service import (
             auto_dispatch_unqueued_approved_for_job,
-            candidate_has_any_screening_call,
+            call_state_on_approval,
+            dispatch_screening_for_candidates,
         )
 
         if await celery_workers_available_async():
             job = await self._session.get(Job, record.job_id)
-            if job and is_within_call_window(job):
-                if not await candidate_has_any_screening_call(
-                    self._session, record.job_id, record.candidate_id
-                ):
+            if job is None:
+                return None
+            state = await call_state_on_approval(self._session, record.job_id, record.candidate_id)
+            if state == "never":
+                # Never called: the usual path (and the periodic dispatcher covers the
+                # time outside the call window).
+                if is_within_call_window(job):
                     await auto_dispatch_unqueued_approved_for_job(self._session, job)
+            elif state == "fresh":
+                # Approved again after an earlier round (rejected, sent back to Resume
+                # Screening, a cancelled call): the periodic dispatcher only looks at
+                # candidates who were never called, so queue their new call here. Outside
+                # the window it waits for the window to open.
+                await dispatch_screening_for_candidates(
+                    self._session, job, [record.candidate_id], respect_cancel=False
+                )
 
         return None

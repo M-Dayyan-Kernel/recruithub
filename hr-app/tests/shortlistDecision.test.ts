@@ -14,6 +14,23 @@ test('every screening state links to the tab that owns it', () => {
   assert.equal(tab('failed'), '/jobs/job-1/screening?tab=completed')
   assert.equal(tab('flagged'), '/jobs/job-1/screening?tab=flagged')
   assert.equal(tab('retrying'), '/jobs/job-1/screening?tab=pending')
+  assert.equal(tab('cancelled'), '/jobs/job-1/screening?tab=pending')
+})
+
+test('a paused screening (screening switched off) still points at Phone screening, which stays open for them', () => {
+  const v = describeStage({ kind: 'screening', state: 'paused' }, JOB)
+  assert.deepEqual([v.title, v.tone, v.to, v.toLabel], ['Phone screening', 'warn', '/jobs/job-1/screening?tab=pending', 'Open Phone screening'])
+  assert.match(v.detail, /Screening is off/)
+  // one that was flagged is listed under Flagged, so the link goes there
+  const f = describeStage({ kind: 'screening', state: 'paused', reason: 'No phone number on file' }, JOB)
+  assert.equal(f.to, '/jobs/job-1/screening?tab=flagged')
+})
+
+test('a cancelled call or interview names the stage and says so', () => {
+  const c = describeStage({ kind: 'screening', state: 'cancelled' }, JOB)
+  assert.deepEqual([c.title, c.detail], ['Phone screening', 'Call cancelled'])
+  const i = describeStage({ kind: 'interview', state: 'cancelled' }, JOB)
+  assert.deepEqual([i.title, i.detail], ['Interview', 'Interview cancelled'])
 })
 
 test('a flagged screening says why, in the server’s words', () => {
@@ -32,6 +49,7 @@ test('every interview state links to the tab that owns it', () => {
   assert.equal(tab('pending'), '/jobs/job-1/interviews?tab=scheduled')
   assert.equal(tab('link_sent'), '/jobs/job-1/interviews?tab=scheduled')
   assert.equal(tab('flagged'), '/jobs/job-1/interviews?tab=flagged')
+  assert.equal(tab('cancelled'), '/jobs/job-1/interviews?tab=scheduled')
   assert.equal(tab('live'), '/jobs/job-1/interviews?tab=ongoing')
   assert.equal(tab('completed'), '/jobs/job-1/interviews?tab=completed')
   assert.equal(tab('finalist'), '/jobs/job-1/interviews?tab=finalists')

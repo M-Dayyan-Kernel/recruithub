@@ -14,6 +14,7 @@ import {
   Clock,
   CalendarClock,
   Download,
+  Ban,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
@@ -24,6 +25,7 @@ import type {
   FinalistsResponse,
 } from '@/types/api'
 import { ScheduleInterviewModal } from '@/components/screening/ScheduleInterviewModal'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { InterviewPipelineTable } from '@/components/InterviewPipelineTable'
 import type { InterviewPipelineTab } from '@/types/api'
 import { downloadFinalistsExcel } from '@/lib/finalistsExport'
@@ -40,6 +42,7 @@ type InterviewStatus =
   | 'in_progress'
   | 'completed'
   | 'report_ready'
+  | 'cancelled'
 
 type InterviewTabId = InterviewPipelineTab
 
@@ -80,6 +83,8 @@ function resolveInterviewStatus(
   session: InterviewSession | null | undefined,
 ): InterviewStatus {
   if (!session) return hasReport ? 'completed' : 'not_sent'
+  // Called off by HR: the link is dead, and the candidate needs a new one.
+  if (session.status === 'cancelled') return 'cancelled'
   if (hasReport || session.status === 'completed') return 'completed'
   if (session.status === 'in_progress') return 'in_progress'
   if (
@@ -147,6 +152,11 @@ const INTERVIEW_STATUS_CONFIG: Record<
     label: 'Completed',
     className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     dotClassName: 'bg-emerald-500',
+  },
+  cancelled: {
+    label: 'Cancelled',
+    className: 'bg-surface text-ink-muted border-line',
+    dotClassName: 'bg-ink-subtle',
   },
   report_ready: {
     label: 'Report Ready',
@@ -300,8 +310,40 @@ function CandidateInterviewCard({
     },
   })
 
+  const [confirmCancel, setConfirmCancel] = useState(false)
+  const [notifyOnCancel, setNotifyOnCancel] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
+  const cancelMutation = useMutation<{ email_sent: boolean | null }, Error, boolean>({
+    mutationFn: (notify) =>
+      api.post(`/api/candidates/${candidateId}/interview/cancel`, {
+        notify_candidate: notify,
+      }) as Promise<{ email_sent: boolean | null }>,
+  })
+  const handleCancelInterview = async () => {
+    setCancelError(null)
+    try {
+      const out = await cancelMutation.mutateAsync(notifyOnCancel)
+      if (session) setLocalSession({ ...session, status: 'cancelled' })
+      if (notifyOnCancel && out.email_sent === false) {
+        toast.error(`Interview cancelled, but the email to ${candidateName} could not be sent.`)
+      } else {
+        toast.success(`Interview for ${candidateName} cancelled`)
+      }
+      setConfirmCancel(false)
+    } catch (err) {
+      setCancelError(err instanceof Error && err.message ? err.message : 'Could not cancel the interview. Please try again.')
+    } finally {
+      // Whatever the answer, someone may have changed this candidate: refetch every list.
+      invalidatePipeline()
+      queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['candidates'] })
+    }
+  }
+
   const canResendEmail =
     session?.status === 'pending' && !hasReport && interviewStatus !== 'not_sent'
+  // Only a link the candidate has not opened: stopping a live interview is a separate action.
+  const canCancelInterview = session?.status === 'pending' && !hasReport
 
   const showEmailWarning =
     session?.status === 'pending' && !session.email_sent_at && interviewStatus !== 'not_sent'
@@ -309,7 +351,9 @@ function CandidateInterviewCard({
   const statusHint =
     interviewStatus === 'not_sent'
       ? 'Ready to send AI interview link'
-      : interviewStatus === 'scheduled'
+      : interviewStatus === 'cancelled'
+        ? 'Interview cancelled. Send a new link or schedule a new time.'
+        : interviewStatus === 'scheduled'
         ? 'Candidate notified — please attend at the scheduled time'
         : interviewStatus === 'link_sent'
           ? 'Waiting for candidate to start'
@@ -320,7 +364,8 @@ function CandidateInterviewCard({
               : 'Interview finished — report generating'
 
   const isFutureScheduled = Boolean(
-    session?.scheduled_interview_at &&
+    session?.status !== 'cancelled' &&
+      session?.scheduled_interview_at &&
       new Date(session.scheduled_interview_at) > new Date(),
   )
 
@@ -344,7 +389,7 @@ function CandidateInterviewCard({
           </div>
         </div>
 
-        {interviewStatus === 'not_sent' && (
+        {(interviewStatus === 'not_sent' || interviewStatus === 'cancelled') && (
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             <button
               type="button"
@@ -386,25 +431,44 @@ function CandidateInterviewCard({
           </Link>
         )}
 
-        {canResendEmail && (
-          <button
-            type="button"
-            onClick={() => resendEmailMutation.mutate()}
-            disabled={resendEmailMutation.isPending || sendMutation.isPending}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {resendEmailMutation.isPending ? (
-              <>
-                <Loader2 size={13} className="animate-spin" />
-                Sending…
-              </>
-            ) : (
-              <>
-                <Send size={13} />
-                {session?.email_sent_at ? 'Resend email' : 'Send email'}
-              </>
+        {(canResendEmail || canCancelInterview) && (
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {canResendEmail && (
+              <button
+                type="button"
+                onClick={() => resendEmailMutation.mutate()}
+                disabled={resendEmailMutation.isPending || sendMutation.isPending}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {resendEmailMutation.isPending ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    Sending…
+                  </>
+                ) : (
+                  <>
+                    <Send size={13} />
+                    {session?.email_sent_at ? 'Resend email' : 'Send email'}
+                  </>
+                )}
+              </button>
             )}
-          </button>
+            {canCancelInterview && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCancelError(null)
+                  setNotifyOnCancel(Boolean(session?.email_sent_at))
+                  setConfirmCancel(true)
+                }}
+                aria-label={`Cancel interview for ${candidateName}`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3.5 py-2 text-xs font-semibold text-ink-muted transition-colors hover:border-neg/30 hover:bg-neg-soft hover:text-neg focus:outline-none focus:ring-2 focus:ring-neg/30"
+              >
+                <Ban size={13} aria-hidden />
+                Cancel interview
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -445,7 +509,7 @@ function CandidateInterviewCard({
       )}
 
       {/* Interview link when email failed or not yet sent */}
-      {session?.interview_url && !session.email_sent_at && !isFutureScheduled && (
+      {session?.interview_url && session.status !== 'cancelled' && !session.email_sent_at && !isFutureScheduled && (
         <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50/50 p-3">
           <p className="mb-2 text-xs font-medium text-slate-600">Interview link</p>
           <CopyableUrl url={session.interview_url} />
@@ -453,7 +517,7 @@ function CandidateInterviewCard({
       )}
 
       {/* Interview link panel (immediate send, no future slot) */}
-      {session?.interview_url && session.email_sent_at && !isFutureScheduled && (
+      {session?.interview_url && session.status !== 'cancelled' && session.email_sent_at && !isFutureScheduled && (
         <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50/50 p-3">
           <p className="mb-2 text-xs font-medium text-slate-600">Interview link</p>
           <CopyableUrl url={session.interview_url} />
@@ -497,6 +561,42 @@ function CandidateInterviewCard({
           <AlertCircle size={13} className="shrink-0" />
           {sendError}
         </div>
+      )}
+
+      {confirmCancel && (
+        <ConfirmDialog
+          title={`Cancel the interview for ${candidateName}?`}
+          body={
+            <p>
+              The interview link stops working straight away. {candidateName} stays in Interviews,
+              and you can send a new link or schedule a new time afterwards.
+            </p>
+          }
+          confirmLabel="Cancel interview"
+          cancelLabel="Keep interview"
+          busy={cancelMutation.isPending}
+          error={cancelError}
+          onConfirm={() => void handleCancelInterview()}
+          onClose={() => setConfirmCancel(false)}
+        >
+          <label className="flex cursor-pointer items-start gap-2.5 text-[13px] text-ink">
+            <input
+              type="checkbox"
+              checked={notifyOnCancel}
+              onChange={(e) => setNotifyOnCancel(e.target.checked)}
+              disabled={cancelMutation.isPending}
+              className="mt-0.5 h-4 w-4 rounded border-line text-accent focus:ring-accent"
+            />
+            <span>
+              Email {candidateName} that the interview was cancelled
+              {!session?.email_sent_at && (
+                <span className="mt-0.5 block text-[12px] text-ink-muted">
+                  They were never emailed this link, so you may not need to.
+                </span>
+              )}
+            </span>
+          </label>
+        </ConfirmDialog>
       )}
 
       <ScheduleInterviewModal

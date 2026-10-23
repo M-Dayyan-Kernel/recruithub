@@ -1,19 +1,15 @@
 import { Navigate, useOutletContext } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
 import type { JobOutletContext } from '@/components/JobLayout'
 import { ScreeningTab } from '@/components/ScreeningTab'
-import { api } from '@/lib/api'
-import type { SystemSettings } from '@/types/api'
-import { isVoiceScreeningEffective } from '@/lib/voiceScreening'
+import { usePhoneScreeningVisible } from '@/hooks/usePhoneScreeningVisible'
 
 export default function JobScreeningPage() {
   const { job, jobId } = useOutletContext<JobOutletContext>()
-  const { data: settings, isLoading } = useQuery<SystemSettings>({
-    queryKey: ['settings'],
-    queryFn: () => api.get('/api/settings') as unknown as Promise<SystemSettings>,
-  })
+  // With screening off, the tab stays reachable while phone-round candidates remain;
+  // only once nobody is left does it send HR on to Interviews.
+  const { visible, loading } = usePhoneScreeningVisible(job)
 
-  if (!isLoading && !isVoiceScreeningEffective(settings, job)) {
+  if (!loading && !visible) {
     return <Navigate to={`/jobs/${jobId}/interviews?tab=scheduled`} replace />
   }
 

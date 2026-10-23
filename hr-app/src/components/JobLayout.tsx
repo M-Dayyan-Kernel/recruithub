@@ -1,5 +1,6 @@
 import { Link, Outlet, useLocation, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { usePhoneScreeningVisible } from '@/hooks/usePhoneScreeningVisible'
 import { ArrowLeft, ChevronRight } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
@@ -44,7 +45,8 @@ function JobBreadcrumbs({
   const listPath = archived ? '/jobs/archived' : '/jobs'
   const listLabel = archived ? 'All archived jobs' : 'All jobs'
   const phase = currentPhaseSegment(pathname, jobId)
-  const steps = jobPhaseSteps(job)
+  const { visible: showScreening } = usePhoneScreeningVisible(job)
+  const steps = jobPhaseSteps(job, showScreening)
 
   const crumbClass = 'shrink-0 rounded px-1 py-0.5 transition-colors'
   const currentCrumb = `${crumbClass} font-semibold text-slate-800`

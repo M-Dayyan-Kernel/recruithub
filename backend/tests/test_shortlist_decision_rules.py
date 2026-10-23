@@ -72,6 +72,12 @@ class StageTests(unittest.TestCase):
         self.assertEqual(_stage(phone="+91 98765 43210", settings=_settings(enforce=True)), ("screening", "queued"))
         self.assertEqual(_stage(phone="9876543210", settings=_settings(enforce=True)), ("screening", "queued"))
 
+    def test_a_finished_call_keeps_its_outcome_whatever_the_phone_says_now(self):
+        self.assertEqual(_stage(calls=[_call("completed", "fail")], phone=None), ("screening", "failed"))
+        self.assertEqual(_stage(calls=[_call("completed", "pass")], phone="+1 415 555 0100", settings=_settings(enforce=True)), ("interview", "pending"))
+        # with no outcome yet, the phone still decides
+        self.assertEqual(_stage(calls=[_call("pending", vapi=None)], phone=None), ("screening", "flagged"))
+
     def test_declined_and_technical_failures_flag(self):
         self.assertEqual(_stage(calls=[_call("completed", outcome="declined")]), ("screening", "flagged"))
         self.assertEqual(_stage(calls=[_call("completed", outcome="failed")]), ("screening", "flagged"))
@@ -95,12 +101,51 @@ class StageTests(unittest.TestCase):
         calls = [_call("completed", "fail", minutes=0), _call("initiated", minutes=5)]
         self.assertEqual(_stage(calls=calls), ("screening", "live"))
 
-    def test_a_call_that_reached_the_candidate_beats_a_newer_failed_retry(self):
-        calls = [_call("completed", "pass", minutes=0), _call("failed", minutes=5)]
-        self.assertEqual(_stage(calls=calls), ("interview", "pending"))
+    def test_a_call_after_a_result_is_a_new_round(self):
+        # e.g. failed, rejected, approved again: the new round's call is what is happening
+        calls = [_call("completed", "fail", minutes=0), _call("failed", minutes=5)]
+        self.assertEqual(_stage(calls=calls), ("screening", "flagged"))
 
-    def test_screening_switched_off_without_a_session_means_interview_next(self):
-        self.assertEqual(_stage(effective=False), ("interview", "pending"))
+    def test_a_cancelled_call_keeps_the_candidate_in_screening(self):
+        self.assertEqual(_stage(calls=[_call("cancelled", vapi=None)]), ("screening", "cancelled"))
+        # a later real call outranks the cancelled marker only by being newer/live
+        self.assertEqual(
+            _stage(calls=[_call("cancelled", vapi=None, minutes=0), _call("initiated", minutes=5)]),
+            ("screening", "live"),
+        )
+
+    def test_a_cancelled_interview_keeps_the_candidate_in_interviews(self):
+        self.assertEqual(_stage(sessions=[_session("cancelled")]), ("interview", "cancelled"))
+        # a new link after the cancellation takes over
+        sessions = [_session("cancelled", minutes=0), _session("pending", minutes=5)]
+        self.assertEqual(_stage(sessions=sessions), ("interview", "link_sent"))
+
+    def test_a_new_round_after_a_result_shows_the_new_round(self):
+        old_fail = _call("completed", "fail", minutes=0)
+        self.assertEqual(_stage(calls=[old_fail, _call("pending", vapi=None, minutes=5)]), ("screening", "scheduled"))
+        self.assertEqual(_stage(calls=[old_fail, _call("cancelled", vapi=None, minutes=5)]), ("screening", "cancelled"))
+        # ...including once the new call is placed, or ends unanswered
+        self.assertEqual(_stage(calls=[old_fail, _call("pending", vapi="v", minutes=5)]), ("screening", "queued"))
+        self.assertEqual(_stage(calls=[old_fail, _call("completed", outcome="no_answer", minutes=5)]), ("screening", "retrying"))
+        # an older queued row does not override a newer result
+        self.assertEqual(_stage(calls=[_call("pending", vapi=None, minutes=0), _call("completed", "fail", minutes=5)]), ("screening", "failed"))
+
+    def test_screening_off_never_called_and_no_interview_waits_to_be_placed(self):
+        # Approving with screening off goes straight to an interview; this is when it did not.
+        self.assertEqual(_stage(effective=False), ("screening", "paused"))
+
+    def test_screening_off_leaves_the_phone_round_paused_not_mislabelled(self):
+        # Nothing will call them now: they wait for HR to place them.
+        for call in (_call("pending", vapi=None), _call("cancelled", vapi=None), _call("failed")):
+            self.assertEqual(_stage(calls=[call], effective=False), ("screening", "paused"), call.call_status)
+        # ...but a call with an outcome, or a live one, still says what it is
+        self.assertEqual(_stage(calls=[_call("completed", "fail")], effective=False), ("screening", "failed"))
+        self.assertEqual(_stage(calls=[_call("in_progress")], effective=False), ("screening", "live"))
+        # a flagged one keeps its reason, so the link can land on the Flagged list
+        s = resolve_shortlist_stage("approved", [_call("failed")], [], phone=PHONE, settings=_settings(), screening_effective=False)
+        self.assertEqual((s.state, s.reason), ("paused", "The call could not connect"))
+        s = resolve_shortlist_stage("approved", [_call("pending", vapi=None)], [], phone=PHONE, settings=_settings(), screening_effective=False)
+        self.assertIsNone(s.reason)
 
     def test_interview_states(self):
         started = NOW - timedelta(minutes=5)
@@ -157,7 +202,7 @@ def _service(record):
     repo.refresh = AsyncMock()
     audit = AsyncMock()
     svc = ShortlistService(session, shortlist_repo=repo, audit_service=audit)
-    svc._send_rejection_email = AsyncMock()
+    svc.send_rejection_email = AsyncMock()
     svc._handle_approval_side_effects = AsyncMock(return_value=None)
     return svc, session, audit
 
@@ -184,14 +229,14 @@ class DecisionRuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(err)
         self.assertEqual(result.hr_decision, "approved")
         svc._handle_approval_side_effects.assert_not_awaited()
-        svc._send_rejection_email.assert_not_awaited()
+        svc.send_rejection_email.assert_not_awaited()
         audit.log_change.assert_not_awaited()
         session.rollback.assert_not_awaited()  # would expire the request's other objects
 
     async def test_a_repeat_reject_does_nothing(self):
         svc, session, audit, record, result, err = await self._decide("rejected", "rejected")
         self.assertIsNone(err)
-        svc._send_rejection_email.assert_not_awaited()
+        svc.send_rejection_email.assert_not_awaited()
         audit.log_change.assert_not_awaited()
 
     async def test_an_approved_row_cannot_be_rejected_or_overridden(self):
@@ -199,7 +244,7 @@ class DecisionRuleTests(unittest.IsolatedAsyncioTestCase):
             svc, session, audit, record, result, err = await self._decide("approved", new)
             self.assertIsInstance(err, ConflictError, new)
             self.assertEqual(record.hr_decision, "approved")
-            svc._send_rejection_email.assert_not_awaited()
+            svc.send_rejection_email.assert_not_awaited()
             audit.log_change.assert_not_awaited()
             svc._handle_approval_side_effects.assert_not_awaited()
             session.rollback.assert_not_awaited()
@@ -212,7 +257,7 @@ class DecisionRuleTests(unittest.IsolatedAsyncioTestCase):
     async def test_rejecting_a_pending_row_sends_one_email(self):
         svc, session, audit, record, result, err = await self._decide("pending", "rejected")
         self.assertIsNone(err)
-        svc._send_rejection_email.assert_awaited_once()
+        svc.send_rejection_email.assert_awaited_once()
         svc._handle_approval_side_effects.assert_not_awaited()
 
 
@@ -242,6 +287,29 @@ class ListStageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((by_id[approved.id].stage.kind, by_id[approved.id].stage.state), ("screening", "queued"))
         self.assertIsNone(by_id[pending.id].stage)
 
+
+class LoadStagesReportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_has_report_is_about_the_latest_interview_only(self):
+        from app.services.shortlist_stage_service import load_stages
+
+        cand = uuid.uuid4()
+        old = SimpleNamespace(id=uuid.uuid4(), candidate_id=cand, created_at=NOW - timedelta(days=3))
+        new = SimpleNamespace(id=uuid.uuid4(), candidate_id=cand, created_at=NOW)
+
+        def _r(rows):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = rows
+            return r
+
+        db = AsyncMock()
+        # calls, sessions, then the ids of sessions that have a report (only the old one)
+        db.execute = AsyncMock(side_effect=[_r([]), _r([old, new]), _r([old.id])])
+        out = await load_stages(db, uuid.uuid4(), [cand])
+        self.assertFalse(out[cand][2], "a report on an earlier interview must not count for the new link")
+
+        db.execute = AsyncMock(side_effect=[_r([]), _r([old, new]), _r([new.id])])
+        out = await load_stages(db, uuid.uuid4(), [cand])
+        self.assertTrue(out[cand][2])
 
 if __name__ == "__main__":
     unittest.main()

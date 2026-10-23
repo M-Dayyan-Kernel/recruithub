@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Loader2, Mic, Phone } from 'lucide-react'
+import { ArrowRight, Loader2, Mic, Phone, PhoneOff, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import type {
   Candidate,
@@ -11,6 +11,8 @@ import type {
   SystemSettings,
 } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { BTN_DANGER, BTN_GHOST } from '@/components/ui/Surface'
 import type { JobOutletContext } from '@/components/JobLayout'
 import { ScreeningSettingsCard } from '@/components/screening/ScreeningSettingsCard'
 import { CompletedScreeningList } from '@/components/screening/CompletedScreeningList'
@@ -57,9 +59,12 @@ function StatusPill({ label, variant }: { label: string; variant: ScreeningTabId
 function ScreeningTableRow({
   row,
   jobId,
+  screeningOn,
 }: {
   row: ScreeningRow
   jobId: string
+  /** The job's voice-screening switch: with it off there is no call to cancel. */
+  screeningOn: boolean
 }) {
   const queryClient = useQueryClient()
   const [expanded, setExpanded] = useState(false)
@@ -77,6 +82,67 @@ function ScreeningTableRow({
     },
     onError: (err: Error) => toast.error(err.message || 'Failed to start call'),
   })
+
+  const [confirmCancel, setConfirmCancel] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
+  const cancelMutation = useMutation({
+    mutationFn: () => api.post(`/api/jobs/${jobId}/screening/cancel`, { candidate_id: row.candidateId }),
+  })
+  // Whatever the answer, the row has changed (or someone else changed it first), so every
+  // list that shows this candidate is refetched.
+  const refreshAfterCancel = () => {
+    queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
+    queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
+    queryClient.invalidateQueries({ queryKey: ['candidates'] })
+    // With screening off, whether this tab exists at all depends on who is left.
+    queryClient.invalidateQueries({ queryKey: ['voice-screening', jobId] })
+  }
+  const handleCancelCall = async () => {
+    setCancelError(null)
+    try {
+      await cancelMutation.mutateAsync()
+      toast.success(`Call to ${row.candidateName} cancelled`)
+      setConfirmCancel(false)
+    } catch (err) {
+      setCancelError(err instanceof Error && err.message ? err.message : 'Could not cancel the call. Please try again.')
+    } finally {
+      refreshAfterCancel()
+    }
+  }
+
+  // Moving a candidate the call could not settle: on to an interview (with a reason), or out.
+  const [placing, setPlacing] = useState<'advance' | 'reject' | null>(null)
+  const [reason, setReason] = useState('')
+  const [placeError, setPlaceError] = useState<string | null>(null)
+  const placeMutation = useMutation({
+    mutationFn: (kind: 'advance' | 'reject') =>
+      api.post(
+        `/api/jobs/${jobId}/screening/${kind}`,
+        kind === 'advance' ? { candidate_id: row.candidateId, reason: reason.trim() } : { candidate_id: row.candidateId },
+      ) as unknown as Promise<{ email_sent: boolean }>,
+  })
+  const handlePlace = async () => {
+    if (!placing) return
+    setPlaceError(null)
+    try {
+      const out = await placeMutation.mutateAsync(placing)
+      if (placing === 'advance') {
+        if (out.email_sent) toast.success(`${row.candidateName} moved to Interviews; the link was emailed`)
+        else toast.error(`${row.candidateName} moved to Interviews, but the email did not go out. Send the link from the Interviews tab.`)
+      } else if (out.email_sent) {
+        toast.success(`${row.candidateName} rejected; they were emailed`)
+      } else {
+        toast.error(`${row.candidateName} rejected, but the rejection email did not go out.`)
+      }
+      setPlacing(null)
+    } catch (err) {
+      setPlaceError(err instanceof Error && err.message ? err.message : 'Could not update the candidate. Please try again.')
+    } finally {
+      refreshAfterCancel()
+      queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
+    }
+  }
+  const reasonOk = reason.trim().length >= 3
 
   const variant = row.isActive ? 'active' : row.tab
 
@@ -113,6 +179,49 @@ function ScreeningTableRow({
                 Call Now
               </button>
             )}
+            {row.canCancel && screeningOn && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCancelError(null)
+                  setConfirmCancel(true)
+                }}
+                aria-label={`Cancel call to ${row.candidateName}`}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-[12px] font-medium text-ink-muted transition-colors hover:border-neg/30 hover:bg-neg-soft hover:text-neg focus:outline-none focus:ring-2 focus:ring-neg/30"
+              >
+                <PhoneOff size={12} aria-hidden />
+                Cancel call
+              </button>
+            )}
+            {row.canPlace && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlaceError(null)
+                    setReason('')
+                    setPlacing('advance')
+                  }}
+                  aria-label={`Move ${row.candidateName} to interview without a call`}
+                  className={BTN_GHOST}
+                >
+                  <ArrowRight size={12} aria-hidden />
+                  Move to interview
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlaceError(null)
+                    setPlacing('reject')
+                  }}
+                  aria-label={`Reject ${row.candidateName}`}
+                  className={BTN_DANGER}
+                >
+                  <X size={12} aria-hidden />
+                  Reject
+                </button>
+              </>
+            )}
             {row.isActive && (
               <span className="inline-flex items-center gap-1 text-xs text-blue-600">
                 <Loader2 size={12} className="animate-spin" />
@@ -134,6 +243,72 @@ function ScreeningTableRow({
           </div>
         </td>
       </tr>
+      {placing === 'advance' && (
+        <ConfirmDialog
+          title={`Move ${row.candidateName} to interview without a call?`}
+          body={
+            <p>
+              They skip the screening call and are emailed an interview link now. The reason is kept in
+              the activity log.
+            </p>
+          }
+          confirmLabel="Move to interview"
+          cancelLabel="Not now"
+          tone="accent"
+          busy={placeMutation.isPending}
+          error={placeError}
+          confirmDisabled={!reasonOk}
+          onConfirm={() => void handlePlace()}
+          onClose={() => setPlacing(null)}
+        >
+          <label className="block text-[13px] text-ink">
+            <span className="mb-1 block font-medium">Why skip the call?</span>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              disabled={placeMutation.isPending}
+              maxLength={500}
+              rows={3}
+              placeholder="e.g. Confirmed availability and notice period by email"
+              className="block w-full resize-y rounded-md border border-line bg-surface px-3 py-2 text-[13px] text-ink placeholder:text-ink-subtle focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-soft"
+            />
+          </label>
+        </ConfirmDialog>
+      )}
+      {placing === 'reject' && (
+        <ConfirmDialog
+          title={`Reject ${row.candidateName}?`}
+          body={
+            <p>
+              They leave the phone round and are emailed a rejection. You can approve them again from
+              Resume Screening, which starts a new call.
+            </p>
+          }
+          confirmLabel="Reject candidate"
+          cancelLabel="Not now"
+          busy={placeMutation.isPending}
+          error={placeError}
+          onConfirm={() => void handlePlace()}
+          onClose={() => setPlacing(null)}
+        />
+      )}
+      {confirmCancel && (
+        <ConfirmDialog
+          title={`Cancel the call to ${row.candidateName}?`}
+          body={
+            <p>
+              The call will not be placed. {row.candidateName} stays in Phone screening, and you
+              can call them with Call Now whenever you are ready.
+            </p>
+          }
+          confirmLabel="Cancel call"
+          cancelLabel="Keep call"
+          busy={cancelMutation.isPending}
+          error={cancelError}
+          onConfirm={() => void handleCancelCall()}
+          onClose={() => setConfirmCancel(false)}
+        />
+      )}
       {expanded && row.tab === 'flagged' && (
         <tr>
           <td colSpan={5} className="border-t border-slate-100 bg-amber-50/50 px-4 py-3">
@@ -159,6 +334,7 @@ export function ScreeningTab({ jobId }: Props) {
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
   const activeTab = resolveScreeningTab(searchParams.get('tab'))
+  const screeningOn = job?.voice_screening_enabled !== false
   const autoTriggeredRef = useRef<Set<string>>(new Set())
 
   const {
@@ -212,8 +388,9 @@ export function ScreeningTab({ jobId }: Props) {
         candidatesMap,
         screeningCalls ?? [],
         systemSettings,
+        screeningOn,
       ),
-    [approvedShortlist, candidatesMap, screeningCalls, systemSettings],
+    [approvedShortlist, candidatesMap, screeningCalls, systemSettings, screeningOn],
   )
 
   const activeCallIds = useMemo(
@@ -321,7 +498,15 @@ export function ScreeningTab({ jobId }: Props) {
   const eligibleForBulkCall = useMemo(
     () =>
       rows
-        .filter((r) => (r.tab === 'pending' || r.tab === 'flagged') && r.phone && r.canCallNow)
+        .filter(
+          (r) =>
+            (r.tab === 'pending' || r.tab === 'flagged') &&
+            r.phone &&
+            r.canCallNow &&
+            // HR cancelled this call on purpose: only an individual "Call Now" restarts it,
+            // never a bulk call that happens to sweep the whole tab.
+            r.latestCall?.call_status !== 'cancelled',
+        )
         .map((r) => r.candidateId),
     [rows],
   )
@@ -336,12 +521,24 @@ export function ScreeningTab({ jobId }: Props) {
     />
   )
 
-  const showSettingsCard = activeTab === 'pending' || activeTab === 'flagged'
+  // Off: the call window and bulk dial mean nothing; say why the tab is still here instead.
+  const showSettingsCard = screeningOn && (activeTab === 'pending' || activeTab === 'flagged')
+  const offBanner = !screeningOn && (
+    <div className="mb-4 rounded-card border border-warn/30 bg-warn-soft px-4 py-3 text-[13px] text-ink">
+      <p className="font-semibold">Voice screening is off for this job</p>
+      <p className="mt-0.5 text-ink-muted">
+        No calls will be placed. These candidates were in the phone round when it was turned off:
+        move them to an interview or reject them, and act on any call results in Completed. This
+        tab goes away once nobody is left here.
+      </p>
+    </div>
+  )
 
   if (isLoading) {
     return (
       <div>
         {showSettingsCard && settingsCard}
+        {offBanner}
         <div className="h-64 animate-pulse rounded-xl bg-slate-200" />
       </div>
     )
@@ -351,6 +548,7 @@ export function ScreeningTab({ jobId }: Props) {
     return (
       <div>
         {showSettingsCard && settingsCard}
+        {offBanner}
         <BackendError onRetry={refetch} />
       </div>
     )
@@ -360,6 +558,7 @@ export function ScreeningTab({ jobId }: Props) {
     return (
       <div>
         {showSettingsCard && settingsCard}
+        {offBanner}
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
             <Mic className="h-6 w-6 text-slate-400" />
@@ -376,6 +575,7 @@ export function ScreeningTab({ jobId }: Props) {
   return (
     <div>
       {showSettingsCard && settingsCard}
+        {offBanner}
 
       <div className={WORKFLOW_CARD_CLASS}>
         {activeTab === 'completed' ? (
@@ -412,7 +612,12 @@ export function ScreeningTab({ jobId }: Props) {
                 </tr>
               ) : (
                 filteredRows.map((row) => (
-                  <ScreeningTableRow key={row.candidateId} row={row} jobId={jobId} />
+                  <ScreeningTableRow
+                    key={row.candidateId}
+                    row={row}
+                    jobId={jobId}
+                    screeningOn={job?.voice_screening_enabled !== false}
+                  />
                 ))
               )}
             </tbody>

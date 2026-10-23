@@ -12,9 +12,10 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { FinalistsResponse, Job, SystemSettings } from '@/types/api'
+import type { FinalistsResponse, Job } from '@/types/api'
 import { cn } from '@/lib/utils'
 import { isVoiceScreeningEffective } from '@/lib/voiceScreening'
+import { usePhoneScreeningVisible } from '@/hooks/usePhoneScreeningVisible'
 import { ScreeningStatusTabs } from '@/components/screening/ScreeningStatusTabs'
 import { ShortlistStatusTabs } from '@/components/shortlist/ShortlistStatusTabs'
 import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
@@ -82,10 +83,11 @@ export interface JobPhaseStep {
  * The pipeline steps in order, filtered exactly as the nav tabs are, so a
  * breadcrumb trail never offers a step this job does not actually have.
  */
-export function jobPhaseSteps(job: { voice_screening_enabled?: boolean }): JobPhaseStep[] {
-  const phases = isVoiceScreeningEffective(null, job)
-    ? [...PHASES]
-    : PHASES.filter((p) => p.segment !== 'screening')
+export function jobPhaseSteps(
+  job: { voice_screening_enabled?: boolean },
+  showScreening: boolean = isVoiceScreeningEffective(null, job),
+): JobPhaseStep[] {
+  const phases = showScreening ? [...PHASES] : PHASES.filter((p) => p.segment !== 'screening')
   return phases.map(({ segment, label }) => ({ segment, label }))
 }
 
@@ -140,11 +142,6 @@ export function JobPhaseNav({ job }: Props) {
   const phase = currentPhaseSegment(location.pathname, job.id)
   const [panelOpen, setPanelOpen] = useState(false)
 
-  const { data: settings } = useQuery<SystemSettings>({
-    queryKey: ['settings'],
-    queryFn: () => api.get('/api/settings') as unknown as Promise<SystemSettings>,
-  })
-
   const { data: finalistsData } = useQuery<FinalistsResponse>({
     queryKey: ['finalists', job.id],
     queryFn: () =>
@@ -152,15 +149,16 @@ export function JobPhaseNav({ job }: Props) {
     enabled: phase === 'finalists',
   })
 
-  const screeningEffective = isVoiceScreeningEffective(settings, job)
+  // Shown while screening is on, or while candidates from the phone round remain.
+  const { visible: showScreening } = usePhoneScreeningVisible(job)
   const finalists = finalistsData?.candidates ?? []
 
   const phases = useMemo(() => {
-    if (!screeningEffective) {
+    if (!showScreening) {
       return PHASES.filter((p) => p.segment !== 'screening')
     }
     return [...PHASES]
-  }, [screeningEffective])
+  }, [showScreening])
 
   const activeIndex = phases.findIndex((p) => p.segment === phase)
 

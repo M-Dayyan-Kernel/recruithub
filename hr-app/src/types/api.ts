@@ -135,7 +135,7 @@ export interface SkippedCandidate {
   reason: string
 }
 
-export type CallStatus = 'pending' | 'initiated' | 'in_progress' | 'completed' | 'failed'
+export type CallStatus = 'pending' | 'initiated' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
 export type ScreeningResult = 'pass' | 'fail' | 'needs_review'
 export type CommunicationQuality = 'excellent' | 'good' | 'fair' | 'poor'
 
@@ -205,7 +205,7 @@ export interface InterviewSession {
   candidate_id: string
   job_id: string
   unique_token: string
-  status: 'pending' | 'in_progress' | 'completed' | 'expired' | 'assessment_failed' | 'assessed'
+  status: 'pending' | 'in_progress' | 'completed' | 'expired' | 'cancelled' | 'assessment_failed' | 'assessed'
   hr_decision?: 'pending' | 'approved' | 'rejected'
   candidate_name?: string
   job_title?: string

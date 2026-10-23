@@ -51,6 +51,7 @@ export function useShortlistDecision(jobId: string, shortlistId: string, options
       // Approving moves the candidate into the screening or interview stage.
       queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
       queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['voice-screening', jobId] })
       await queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
     },
   })

@@ -42,6 +42,7 @@ function CompletedScreeningRow({
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
     queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
+    queryClient.invalidateQueries({ queryKey: ['voice-screening', jobId] })
     queryClient.invalidateQueries({ queryKey: ['candidates'] })
   }
 
@@ -203,6 +204,7 @@ export function CompletedScreeningList({
     onSuccess: ({ succeeded, failed, total }) => {
       queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
       queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
+    queryClient.invalidateQueries({ queryKey: ['voice-screening', jobId] })
       if (total === 0) {
         toast('No candidates to schedule')
         return

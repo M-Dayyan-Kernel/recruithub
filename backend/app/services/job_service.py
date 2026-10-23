@@ -6,7 +6,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions import ValidationError
+from app.exceptions import ConflictError, ValidationError
 from app.models.models import Job, User
 from app.repositories.job_repository import JobRepository
 from app.schemas.schemas import JobCreate, JobUpdate, validate_experience_range
@@ -102,6 +102,17 @@ class JobService:
     async def update(self, actor: User, job_id: uuid.UUID, payload: JobUpdate) -> Job:
         job = await self._jobs.get_for_tenant(job_id, actor.tenant_id)
         updates = payload.model_dump(exclude_unset=True)
+        if updates.get("voice_screening_enabled") is False and job.voice_screening_enabled:
+            # Turning screening off decides where the phone round goes, under a lock on the
+            # job; that lives on POST /jobs/{id}/voice-screening. A plain edit doing it too
+            # would be a second, unlocked way to strand candidates waiting for a call.
+            raise ConflictError(
+                public_message=(
+                    "Turn voice screening off with its switch, which asks where candidates "
+                    "waiting for a call should go."
+                )
+            )
+
         # The columns are NOT NULL and 0 means "no bound": an explicit null from
         # a client clearing the field is stored as 0, never written as NULL.
         for field in ("experience_min", "experience_max"):

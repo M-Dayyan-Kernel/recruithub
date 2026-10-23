@@ -13,7 +13,7 @@ import { Screen, StatusScreen } from '@/components/Shell'
 interface InterviewInfo {
   id: string
   unique_token: string
-  status: 'pending' | 'in_progress' | 'completed' | 'expired'
+  status: 'pending' | 'in_progress' | 'completed' | 'expired' | 'cancelled'
   candidate_name?: string
   job_title?: string
   created_at: string
@@ -150,6 +150,18 @@ export default function InterviewLandingPage() {
         tone="muted"
         title="This link has expired"
         body="Your interview link is no longer valid. The hiring team can send you a new one."
+      />
+    )
+
+  // Called off by the hiring team. Not an error on the candidate's side, and a new link
+  // may follow, so say that rather than "expired".
+  if (info.status === 'cancelled')
+    return (
+      <StatusScreen
+        icon={<Clock size={22} />}
+        tone="muted"
+        title="This interview has been cancelled"
+        body="The hiring team has cancelled this interview, and this link no longer works. If a new time is arranged, they will send you a fresh link."
       />
     )
 

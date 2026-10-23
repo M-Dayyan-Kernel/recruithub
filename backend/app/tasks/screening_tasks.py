@@ -51,7 +51,7 @@ MAX_CALL_DURATION_MINUTES = _s.max_call_duration_minutes
 LIVE_SLOT_DEFER_SEC = _s.live_slot_defer_sec
 
 LIVE_CALL_STATUSES = ("initiated", "in_progress")
-TERMINAL_CALL_STATUSES = frozenset({"completed", "failed"})
+TERMINAL_CALL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
 
 def can_set_call_status(current: str | None, new: str) -> bool:
@@ -185,6 +185,46 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
                 "ScreeningCall %s already dispatched (status=%s) — skipping duplicate initiate",
                 screening_call_id,
                 screening_call.call_status,
+            )
+            return
+
+        # Last check before ringing anyone: the candidate may have been rejected or moved on
+        # to an interview since this call was queued (a Call Now racing a Reject or a Move,
+        # a stale tab). Those cancel the calls they can see; this catches one created after.
+        from app.models.models import InterviewSession, ShortlistResult
+
+        decision = (
+            await session.execute(
+                select(ShortlistResult.hr_decision).where(
+                    ShortlistResult.job_id == screening_call.job_id,
+                    ShortlistResult.candidate_id == screening_call.candidate_id,
+                )
+            )
+        ).scalars().first()
+        in_interview = (
+            await session.execute(
+                select(InterviewSession.id)
+                .where(
+                    InterviewSession.job_id == screening_call.job_id,
+                    InterviewSession.candidate_id == screening_call.candidate_id,
+                    InterviewSession.status.in_(["pending", "in_progress"]),
+                )
+                .limit(1)
+            )
+        ).scalars().first()
+        if decision != "approved" or in_interview is not None:
+            screening_call.call_status = "cancelled"
+            screening_call.summary = (
+                "Not placed: the candidate is no longer approved."
+                if decision != "approved"
+                else "Not placed: the candidate already has an interview link."
+            )
+            await session.commit()
+            logger.info(
+                "ScreeningCall %s not placed — decision=%s, interview=%s",
+                screening_call_id,
+                decision,
+                in_interview is not None,
             )
             return
 
@@ -1256,6 +1296,18 @@ async def _schedule_retry(session, screening_call) -> None:
         return
 
     settings = await load_system_settings(session, tenant_id=job.tenant_id)
+    from app.services.screening_gate_service import is_voice_screening_effective
+
+    if not is_voice_screening_effective(settings, job):
+        # Screening was switched off while this call was live. A retry would only be marked
+        # failed by the dialler, flagging the candidate; leave them waiting instead, where
+        # the switch can place them.
+        logger.info(
+            "Voice screening is off for job=%s — not scheduling a retry for candidate=%s",
+            job.id,
+            screening_call.candidate_id,
+        )
+        return
     if not can_schedule_retry(screening_call.retry_count, settings.screening_max_retries):
         logger.info(
             "Max retries (%d) reached for candidate=%s — not scheduling another retry",

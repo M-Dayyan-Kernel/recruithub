@@ -7,7 +7,7 @@ import { RequiredMark } from '@/components/FieldError'
 import type { Job, InterviewQuestion, ScreeningQuestion } from '@/types/api'
 import { InterviewQuestionsEditor } from '@/components/InterviewQuestionsEditor'
 import { ScreeningQuestionsEditor } from '@/components/ScreeningQuestionsEditor'
-import { VoiceScreeningSwitch } from '@/components/screening/VoiceScreeningSwitch'
+import { VoiceScreeningToggle } from '@/components/screening/VoiceScreeningToggle'
 import { getDefaultScreeningQuestions } from '@/lib/screeningDefaults'
 import {
   validateYearsText,
@@ -41,9 +41,9 @@ export function EditJobModal({ job, open, onClose }: Props) {
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>(
     job.interview_questions ?? [],
   )
-  const [voiceScreeningEnabled, setVoiceScreeningEnabled] = useState(
-    job.voice_screening_enabled !== false,
-  )
+  // Not a form field: the switch applies at once (it may move candidates), so the form
+  // reads the job's live value rather than holding a copy until Save.
+  const voiceScreeningEnabled = job.voice_screening_enabled !== false
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   // Voice screening needs at least one question to ask.
@@ -150,11 +150,6 @@ export function EditJobModal({ job, open, onClose }: Props) {
     const nextQuestions = interviewQuestions
     if (origQuestions !== JSON.stringify(nextQuestions)) {
       payload.interview_questions = nextQuestions
-    }
-
-    const origVoiceScreening = job.voice_screening_enabled !== false
-    if (voiceScreeningEnabled !== origVoiceScreening) {
-      payload.voice_screening_enabled = voiceScreeningEnabled
     }
 
     if (Object.keys(payload).length === 0) {
@@ -316,12 +311,12 @@ export function EditJobModal({ job, open, onClose }: Props) {
             </div>
           </div>
 
-          <VoiceScreeningSwitch
-            checked={voiceScreeningEnabled}
-            disabled={mutation.isPending}
-            onChange={setVoiceScreeningEnabled}
-            className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5"
-          />
+          <div className="rounded-lg border border-line bg-surface px-3 py-2.5">
+            <VoiceScreeningToggle job={job} />
+            <p className="mt-1 text-xs text-ink-muted">
+              Changes straight away, separately from Save, because it can move candidates.
+            </p>
+          </div>
 
           <div>
             <ScreeningQuestionsEditor

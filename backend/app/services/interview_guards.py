@@ -31,7 +31,7 @@ async def assert_session_joinable(session, db) -> None:
     now = datetime.now(timezone.utc)
 
     if session.expires_at and session.expires_at < now:
-        if session.status not in ("completed", "expired", "assessed", "assessment_failed"):
+        if session.status not in ("completed", "expired", "cancelled", "assessed", "assessment_failed"):
             session.status = "expired"
             await db.commit()
             await db.refresh(session)

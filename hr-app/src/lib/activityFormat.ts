@@ -377,6 +377,29 @@ export function describeActivity(row: ActivityRowInput): ActivityView {
         details,
       }
     }
+    case 'screening.advanced_without_call': {
+      const details: Array<[string, string]> = [who, ['Reason', text(after?.reason, '—')]]
+      return {
+        ...base,
+        event: 'Moved to interview without a call',
+        change: { kind: 'chip', chip: chip('Skipped the call', 'muted') },
+        details,
+      }
+    }
+    case 'screening.rejected':
+      return {
+        ...base,
+        event: 'Rejected in Phone screening',
+        change: transition(SHORTLIST_DECISIONS.approved ?? 'Approved', SHORTLIST_DECISIONS.rejected ?? 'Rejected', decisionTone),
+        details: [who, ['What happened', 'Rejected from the phone round. Any call still queued was cancelled.']],
+      }
+    case 'screening.call_cancelled':
+      return {
+        ...base,
+        event: 'Screening call cancelled',
+        change: { kind: 'chip', chip: chip('Cancelled', 'muted') },
+        details: [who, ['What happened', 'The queued call was cancelled before it was placed. The candidate stays in Phone screening.']],
+      }
     case 'screening.result_set': {
       const from = formatValue('result', before?.result)
       const to = formatValue('result', after?.result)
@@ -411,6 +434,13 @@ export function describeActivity(row: ActivityRowInput): ActivityView {
         details: [who, ['Stage', stage], ['From', from], ['To', to]],
       }
     }
+    case 'shortlist.returned_to_resume':
+      return {
+        ...base,
+        event: 'Returned to Resume Screening',
+        change: transition(SHORTLIST_DECISIONS.approved ?? 'Approved', SHORTLIST_DECISIONS.pending ?? 'In review', decisionTone),
+        details: [who, ['Why', 'Voice screening was turned off while they waited for a call.']],
+      }
     case 'shortlist.feedback_set': {
       const type = after?.hr_feedback_type !== undefined ? formatValue('hr_feedback_type', after.hr_feedback_type) : null
       const hasComment = after?.hr_comments !== undefined && after.hr_comments !== null && after.hr_comments !== ''
@@ -448,9 +478,31 @@ export function describeActivity(row: ActivityRowInput): ActivityView {
         tech: techLine(row, typeof after?.session_id === 'string' ? `Session ${after.session_id}` : undefined),
       }
     }
+    case 'interview.cancelled': {
+      const was = before?.scheduled_interview_at ? formatValue('scheduled_interview_at', before.scheduled_interview_at) : null
+      // Whether an email was asked for. Whether it was delivered is told to HR at the time;
+      // the cancellation is saved before the email is attempted.
+      const requested = after?.email_requested
+      const details: Array<[string, string]> = [who]
+      if (was) details.push(['Was scheduled for', was])
+      details.push(['Email to candidate', requested === true ? 'Requested' : 'Not requested'])
+      return {
+        ...base,
+        event: 'Interview cancelled',
+        change: { kind: 'chip', chip: chip('Cancelled', 'neg') },
+        details,
+        note: 'The link no longer works. The candidate stays in Interviews, and a new link or time can be set.',
+        tech: techLine(row, typeof after?.session_id === 'string' ? `Session ${after.session_id}` : undefined),
+      }
+    }
     case 'interview.link_sent': {
       const status = formatValue('status', after?.status) ?? 'Sent'
-      return { ...base, event: 'Interview link sent', change: { kind: 'chip', chip: chip(status, 'muted') }, details: [who, ['Interview', status]] }
+      const details: Array<[string, string]> = [who, ['Interview', status]]
+      if (after?.reason === 'voice_screening_turned_off') {
+        details.push(['Why', 'Voice screening was turned off, so they moved straight to the interview.'])
+        if (after.email_sent === false) details.push(['Email', 'Not delivered'])
+      }
+      return { ...base, event: 'Interview link sent', change: { kind: 'chip', chip: chip(status, 'muted') }, details }
     }
     case 'interview.email_resent':
       return { ...base, event: 'Interview email resent', change: { kind: 'chip', chip: chip('Resent', 'muted') }, details: [who] }
