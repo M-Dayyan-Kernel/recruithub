@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.async_utils import run_sync
 from app.core.logging import get_actor_label, log_event
 from app.core.tenancy import get_tenant_job
-from app.exceptions import ValidationError
+from app.exceptions import ConflictError, ValidationError
 from app.models.models import Candidate, Job, User
 from app.repositories.shortlist_repository import ShortlistRepository
 from app.schemas.schemas import (
@@ -28,6 +28,7 @@ from app.services.candidate_contact_service import (
     resolve_candidate_name,
 )
 from app.services.shortlist_batch_store import ShortlistBatchStore
+from app.services.shortlist_stage_service import load_stages, resolve_shortlist_stage
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ class ShortlistService:
     async def list_results(
         self, actor: User, job_id: uuid.UUID
     ) -> list[ShortlistResultWithCandidateResponse]:
-        await get_tenant_job(self._session, job_id, actor.tenant_id)
+        job = await get_tenant_job(self._session, job_id, actor.tenant_id)
         shortlist_records = await self._shortlist.list_for_job(job_id)
 
         if not shortlist_records:
@@ -102,8 +103,20 @@ class ShortlistService:
         )
         candidates_by_id = {c.id: c for c in candidates_result.scalars().all()}
 
+        approved_ids = [r.candidate_id for r in shortlist_records if r.hr_decision == "approved"]
+        stage_inputs = await load_stages(self._session, job_id, approved_ids)
+        stage_settings = None
+        screening_effective = True
+        if approved_ids:
+            from app.services.screening_gate_service import is_voice_screening_effective
+            from app.services.settings_service import load_system_settings
+
+            stage_settings = await load_system_settings(self._session, tenant_id=actor.tenant_id)
+            screening_effective = is_voice_screening_effective(stage_settings, job)
+
         enriched: list[ShortlistResultWithCandidateResponse] = []
         for record in shortlist_records:
+            calls, sessions, has_report = stage_inputs.get(record.candidate_id, ([], [], False))
             candidate = candidates_by_id.get(record.candidate_id)
             parsed = (candidate.parsed_data or {}) if candidate else {}
             candidate_name = parsed.get("name") or (candidate.name if candidate else None)
@@ -129,6 +142,15 @@ class ShortlistService:
                     created_at=record.created_at,
                     candidate_name=candidate_name,
                     candidate_email=candidate_email,
+                    stage=resolve_shortlist_stage(
+                        record.hr_decision,
+                        calls,
+                        sessions,
+                        has_report=has_report,
+                        phone=candidate.phone if candidate else None,
+                        settings=stage_settings,
+                        screening_effective=screening_effective,
+                    ),
                 )
             )
 
@@ -152,8 +174,29 @@ class ShortlistService:
                 ),
             )
 
-        record = await self._shortlist.get_for_tenant(shortlist_id, actor.tenant_id)
+        record = await self._shortlist.get_for_tenant_locked(shortlist_id, actor.tenant_id)
         previous_decision = record.hr_decision
+
+        # Approval starts a call or sends an invite, so it is the one decision that
+        # cannot be taken back from here: from that point the candidate is managed from
+        # the Phone screening or Interviews tab.
+        if payload.hr_decision == previous_decision:
+            # Idempotent: a repeat must not fire the side effects (or the email) again.
+            current = ShortlistDecisionResponse.model_validate(record)
+            # Nothing was changed; ending the transaction releases the row lock. Commit
+            # rather than rollback: rollback would expire every object in the request's
+            # session (the actor included), which a commit here does not.
+            await self._session.commit()
+            return current
+        if previous_decision == "approved":
+            await self._session.commit()  # release the row lock, as above
+            raise ConflictError(
+                public_message=(
+                    "This candidate is already approved and has moved on. "
+                    "Manage them from the Phone screening or Interviews tab."
+                ),
+            )
+
         record.hr_decision = payload.hr_decision
         candidate = await self._session.get(Candidate, record.candidate_id)
         subject = resolve_candidate_name(candidate) if candidate else str(record.candidate_id)
@@ -183,13 +226,10 @@ class ShortlistService:
             record.recommendation.replace("_", " "),
         )
 
-        if payload.hr_decision == "rejected" and previous_decision != "rejected":
+        if payload.hr_decision == "rejected":
+            # Only reached on a change: a repeat Reject returned early above, so the
+            # candidate is emailed once.
             await self._send_rejection_email(actor, record, shortlist_id, candidate)
-        elif payload.hr_decision == "rejected" and previous_decision == "rejected":
-            logger.debug(
-                "Skipping rejection email for shortlist=%s (already rejected)",
-                shortlist_id,
-            )
 
         if payload.hr_decision == "approved":
             approval_response = await self._handle_approval_side_effects(

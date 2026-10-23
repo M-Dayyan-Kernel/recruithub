@@ -53,10 +53,10 @@ const HR_DECISION_LABEL: Record<Exclude<HrDecision, 'pending'>, string> = {
 export function HrDecisionBadge({ decision }: { decision: Exclude<HrDecision, 'pending'> }) {
   const className =
     decision === 'approved'
-      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+      ? 'bg-pos-soft text-pos border-pos/20'
       : decision === 'rejected'
-        ? 'bg-rose-50 text-rose-700 border-rose-200'
-        : 'bg-amber-50 text-amber-700 border-amber-200'
+        ? 'bg-neg-soft text-neg border-neg/20'
+        : 'bg-warn-soft text-warn border-warn/20'
   return (
     <span
       className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${className}`}
