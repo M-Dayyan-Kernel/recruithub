@@ -690,6 +690,7 @@ export function ShortlistTab({
     } finally {
       queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
       queryClient.invalidateQueries({ queryKey: ['candidates'] })
+      queryClient.invalidateQueries({ queryKey: ['rejected', jobId] })
       setRejectingAll(false)
     }
   }

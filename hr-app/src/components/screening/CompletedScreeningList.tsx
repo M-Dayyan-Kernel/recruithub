@@ -54,20 +54,19 @@ function CompletedScreeningRow({
     queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
     queryClient.invalidateQueries({ queryKey: ['voice-screening', jobId] })
     queryClient.invalidateQueries({ queryKey: ['candidates'] })
+    queryClient.invalidateQueries({ queryKey: ['rejected', jobId] })
   }
 
   const rejectMutation = useMutation({
-    mutationFn: () => api.patch(`/api/screening/${call.id}/result`, { result: 'fail' }),
+    mutationFn: () => api.post(`/api/jobs/${jobId}/candidates/${row.candidateId}/reject`),
     onSuccess: () => {
       invalidate()
       setConfirmReject(false)
-      toast.success(`${row.candidateName} rejected`)
+      toast.success(`${row.candidateName} moved to Rejected`)
     },
-    onError: (err: Error) => {
-      // Refused because the candidate moved on: refresh so the row stops offering Reject.
-      invalidate()
-      setRejectError(err.message || 'Failed to reject candidate')
-    },
+    // No refresh here: the row may flip to its next stage underneath the dialog and take
+    // the refusal's explanation with it. The lists refresh when the dialog is closed.
+    onError: (err: Error) => setRejectError(err.message || 'Failed to reject candidate'),
   })
 
   const scheduleMutation = useMutation({
@@ -181,12 +180,13 @@ function CompletedScreeningRow({
       {confirmReject && (
         <ConfirmDialog
           title={`Reject ${row.candidateName}?`}
-          body={<p>They are marked as not moving forward after phone screening. You can still change this until an interview link is sent.</p>}
+          body={<p>They move to Rejected and are not emailed until you send it from the Rejected list. You can reconsider them until then.</p>}
           confirmLabel="Reject"
           busy={rejectMutation.isPending}
           error={rejectError}
           onConfirm={() => rejectMutation.mutate()}
           onClose={() => {
+            if (rejectError) invalidate() // refused: the row may be stale now
             setConfirmReject(false)
             setRejectError(null)
           }}

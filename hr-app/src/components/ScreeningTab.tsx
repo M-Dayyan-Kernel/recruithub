@@ -129,10 +129,8 @@ function ScreeningTableRow({
       if (placing === 'advance') {
         if (out.email_sent) toast.success(`${row.candidateName} moved to Interviews; the link was emailed`)
         else toast.error(`${row.candidateName} moved to Interviews, but the email did not go out. Send the link from the Interviews tab.`)
-      } else if (out.email_sent) {
-        toast.success(`${row.candidateName} rejected; they were emailed`)
       } else {
-        toast.error(`${row.candidateName} rejected, but the rejection email did not go out.`)
+        toast.success(`${row.candidateName} moved to Rejected`)
       }
       setPlacing(null)
     } catch (err) {
@@ -140,6 +138,7 @@ function ScreeningTableRow({
     } finally {
       refreshAfterCancel()
       queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['rejected', jobId] })
     }
   }
   const reasonOk = reason.trim().length >= 3
@@ -280,8 +279,8 @@ function ScreeningTableRow({
           title={`Reject ${row.candidateName}?`}
           body={
             <p>
-              They leave the phone round and are emailed a rejection. You can approve them again from
-              Resume Screening, which starts a new call.
+              They move to Rejected and are not emailed until you send it from there. You can
+              reconsider them until then, which starts a new call.
             </p>
           }
           confirmLabel="Reject candidate"

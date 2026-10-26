@@ -52,6 +52,7 @@ export function useShortlistDecision(jobId: string, shortlistId: string, options
       queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
       queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
       queryClient.invalidateQueries({ queryKey: ['voice-screening', jobId] })
+      queryClient.invalidateQueries({ queryKey: ['rejected', jobId] })
       await queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
     },
   })

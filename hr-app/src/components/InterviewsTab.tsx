@@ -16,10 +16,11 @@ import {
   Download,
   Ban,
   SkipForward,
+  X,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import { BTN_SECONDARY } from '@/components/ui/Surface'
+import { BTN_DANGER, BTN_SECONDARY } from '@/components/ui/Surface'
 import type {
   InterviewSession,
   Job,
@@ -347,6 +348,30 @@ function CandidateInterviewCard({
     }
   }
 
+  // Rejecting someone whose interview has not started: their link (if any) is cancelled and
+  // they move to Rejected. A live or finished interview is not rejected from here.
+  const [confirmReject, setConfirmReject] = useState(false)
+  const [rejectError, setRejectError] = useState<string | null>(null)
+  const refreshAfterReject = () => {
+    invalidatePipeline()
+    queryClient.invalidateQueries({ queryKey: ['shortlist', jobId] })
+    queryClient.invalidateQueries({ queryKey: ['candidates'] })
+    queryClient.invalidateQueries({ queryKey: ['rejected', jobId] })
+  }
+  const rejectMutation = useMutation({
+    mutationFn: () => api.post(`/api/jobs/${jobId}/candidates/${candidateId}/reject`),
+    onSuccess: () => {
+      setConfirmReject(false)
+      toast.success(`${candidateName} moved to Rejected`)
+      refreshAfterReject()
+    },
+    // Not refreshed on a refusal: the card may leave this tab (the interview just started)
+    // and take the explanation with it. It refreshes when the dialog is closed.
+    onError: (err: Error) => setRejectError(err.message || 'Could not reject this candidate.'),
+  })
+  const canReject =
+    !hasReport && ['not_sent', 'cancelled', 'scheduled', 'link_sent'].includes(interviewStatus)
+
   const canResendEmail =
     session?.status === 'pending' && !hasReport && interviewStatus !== 'not_sent'
   // Only a link the candidate has not opened: stopping a live interview is a separate action.
@@ -496,7 +521,43 @@ function CandidateInterviewCard({
           </span>
         )}
         <InterviewStatusChip status={interviewStatus} />
+        {canReject && (
+          <button
+            type="button"
+            onClick={() => {
+              setRejectError(null)
+              setConfirmReject(true)
+            }}
+            aria-label={`Reject ${candidateName}`}
+            className={`${BTN_DANGER} ml-auto`}
+          >
+            <X size={13} aria-hidden />
+            Reject
+          </button>
+        )}
       </div>
+      {confirmReject && (
+        <ConfirmDialog
+          title={`Reject ${candidateName}?`}
+          body={
+            <p>
+              Their interview link stops working and they move to Rejected. They are not emailed
+              until you send it from the Rejected list, and you can reconsider them until then.
+            </p>
+          }
+          confirmLabel="Reject candidate"
+          busy={rejectMutation.isPending}
+          error={rejectError}
+          onConfirm={() => {
+            setRejectError(null)
+            rejectMutation.mutate()
+          }}
+          onClose={() => {
+            if (rejectError) refreshAfterReject()
+            setConfirmReject(false)
+          }}
+        />
+      )}
       {screeningSkipped && skipReason && (
         <p className="mt-2 text-xs text-ink-muted">{skipReason}</p>
       )}

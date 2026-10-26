@@ -146,7 +146,7 @@ class PhoneRoundServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("by email", kwargs["bypass_summary"])
         self.assertTrue(out.email_sent)
 
-    async def test_reject_commits_before_the_email(self):
+    async def test_reject_goes_to_the_rejected_stage_with_no_email(self):
         order = []
         flagged = _call("failed", vapi="v1", outcome="failed")
         svc, db, audit, row = self._svc(calls=[flagged])
@@ -154,19 +154,36 @@ class PhoneRoundServiceTests(unittest.IsolatedAsyncioTestCase):
         job, cand, ps = self._patches()
         actor = SimpleNamespace(id=uuid.uuid4(), tenant_id=uuid.uuid4(), full_name="HR", role="hr")
 
-        async def email(*a, **k):
-            order.append("email")
-            return False
+        async def reject(self_, actor_, job_id, cand_id):
+            order.append("reject")
 
         for p in ps:
             p.start()
         try:
-            with patch("app.services.shortlist_service.ShortlistService.send_rejection_email", email):
+            with patch("app.services.reject_service.RejectService.reject", reject), patch(
+                "app.services.shortlist_service.ShortlistService.send_rejection_email", AsyncMock()
+            ) as mail:
                 out = await svc.reject(actor, job.id, cand.id)
         finally:
             for p in ps:
                 p.stop()
-        self.assertEqual(order, ["commit", "email"])
-        self.assertEqual(row.hr_decision, "rejected")
+        # the phone round's own checks release their locks before the Rejected stage takes its own
+        self.assertEqual(order, ["commit", "reject"])
+        mail.assert_not_awaited()
         self.assertFalse(out.email_sent)
-        self.assertEqual(audit.log_change.await_args.kwargs["action"], "screening.rejected")
+
+    async def test_reject_is_refused_when_the_phone_round_checks_fail(self):
+        live = _call("in_progress", vapi="v1")
+        svc, db, audit, row = self._svc(calls=[live])
+        job, cand, ps = self._patches()
+        actor = SimpleNamespace(id=uuid.uuid4(), tenant_id=uuid.uuid4(), full_name="HR", role="hr")
+        for p in ps:
+            p.start()
+        try:
+            with patch("app.services.reject_service.RejectService.reject", AsyncMock()) as reject:
+                with self.assertRaises(ConflictError):
+                    await svc.reject(actor, job.id, cand.id)
+        finally:
+            for p in ps:
+                p.stop()
+        reject.assert_not_awaited()

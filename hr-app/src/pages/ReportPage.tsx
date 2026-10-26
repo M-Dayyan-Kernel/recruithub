@@ -110,6 +110,8 @@ export default function ReportPage() {
     if (!jobId) return '/'
     const params = new URLSearchParams()
     const tab = searchParams.get('tab') ?? 'completed'
+    // Reached from the Rejected list: back there, not to an Interviews tab it is not in.
+    if (tab === 'rejected') return `/jobs/${jobId}/rejected`
     params.set('tab', tab)
     const search = searchParams.get('search')
     const page = searchParams.get('page')

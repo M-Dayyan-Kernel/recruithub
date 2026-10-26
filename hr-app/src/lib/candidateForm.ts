@@ -44,6 +44,15 @@ export function isRequiredCandidateField(field: CandidateFormField): boolean {
   return CANDIDATE_REQUIRED_FIELDS.includes(field)
 }
 
+/**
+ * The statuses HR can set here. "on_hold" is retired and "rejected" is no longer a label:
+ * rejecting is its own action (the Rejected stage). An old row still carrying one of them
+ * opens as "active", so saving the form never rejects (or un-rejects) anyone by accident.
+ */
+export function editableStatus(status: string | null | undefined): string {
+  return status === 'hired' ? 'hired' : 'active'
+}
+
 export function candidateFormFromProfile(profile: CandidateProfile): CandidateFormValues {
   return {
     name: profile.name ?? '',
@@ -51,7 +60,7 @@ export function candidateFormFromProfile(profile: CandidateProfile): CandidateFo
     // empty required field it really is, instead of a fake value that saves.
     email: isPlaceholderEmail(profile.email) ? '' : (profile.email ?? ''),
     phone: profile.phone ?? '',
-    status: profile.status,
+    status: editableStatus(profile.status),
     years_experience: profile.years_experience?.toString() ?? '',
     current_ctc: profile.current_ctc ?? '',
     expected_ctc: profile.expected_ctc ?? '',
@@ -122,8 +131,21 @@ export function firstInvalidField(errors: CandidateFormErrors): CandidateFormFie
   return FIELD_ORDER.find((field) => errors[field])
 }
 
-export function candidateUpdatePayload(values: CandidateFormValues): CandidateUpdatePayload {
+/**
+ * The details to save. `status` is sent only when HR changed it from what the form opened
+ * with: an old row can carry a retired label (on_hold, rejected) that the form shows as
+ * "active", and saving a phone number must not rewrite it as a side effect.
+ */
+export function candidateUpdatePayload(
+  values: CandidateFormValues,
+  initial?: CandidateFormValues,
+): CandidateUpdatePayload {
   const text = (value: string) => value.trim() || null
+  const { status, ...rest } = buildPayload(values, text)
+  return initial && initial.status === values.status ? rest : { ...rest, status }
+}
+
+function buildPayload(values: CandidateFormValues, text: (value: string) => string | null): CandidateUpdatePayload {
   return {
     name: values.name.trim(),
     email: values.email.trim(),

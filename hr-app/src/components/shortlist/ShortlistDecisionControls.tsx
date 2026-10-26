@@ -70,7 +70,8 @@ export function ShortlistStatusCell({
 /**
  * What can be done with a row's decision.
  *  - pending / overridden: Approve and Reject.
- *  - rejected: Approve only (a rejection can be reversed; an approval cannot).
+ *  - rejected: no buttons. They are in the Rejected stage, which owns them (Reconsider is
+ *    there), so a link to it is the only action.
  *  - approved: no decision buttons. The candidate is in a stage, and a link to that
  *    stage's tab is the only action, because that is where calling, cancelling and
  *    rescheduling live.
@@ -171,18 +172,28 @@ export function ShortlistDecisionControls({
     )
   }
 
+  if (result.hr_decision === 'rejected') {
+    return (
+      <>
+        <Link to={`/jobs/${jobId}/rejected`} className={BTN_STAGE_LINK} aria-label={`Open Rejected for ${name}`}>
+          Open Rejected
+          <ArrowRight size={13} aria-hidden />
+        </Link>
+        {dialog}
+      </>
+    )
+  }
+
   return (
     <>
       <button type="button" onClick={() => setConfirming('approved')} className={APPROVE_BTN} aria-label={`Approve ${name}`}>
         <Check size={13} aria-hidden />
         Approve
       </button>
-      {result.hr_decision !== 'rejected' && (
-        <button type="button" onClick={() => setConfirming('rejected')} className={REJECT_BTN} aria-label={`Reject ${name}`}>
-          <X size={13} aria-hidden />
-          Reject
-        </button>
-      )}
+      <button type="button" onClick={() => setConfirming('rejected')} className={REJECT_BTN} aria-label={`Reject ${name}`}>
+        <X size={13} aria-hidden />
+        Reject
+      </button>
       {dialog}
     </>
   )

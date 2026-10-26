@@ -89,10 +89,12 @@ test('the approve dialog says what will happen, by the job’s screening setting
   assert.equal(invite.confirmLabel, 'Approve and send invite')
 })
 
-test('the reject dialog says the candidate is emailed', () => {
+test('the reject dialog says they move to Rejected and are not emailed yet', () => {
   const c = decisionCopy('rejected', { name: 'Sam', score: 5, screeningEffective: true })
   assert.equal(c.title, 'Reject Sam (5%)?')
-  assert.match(c.body, /emailed a rejection/)
+  assert.match(c.body, /moves to Rejected/)
+  assert.match(c.body, /not emailed until you send it/)
+  assert.doesNotMatch(c.body, /will be emailed a rejection/)
 })
 
 test('a batch dialog counts the candidates instead of naming one', () => {

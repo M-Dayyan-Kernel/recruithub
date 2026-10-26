@@ -8,11 +8,12 @@ import {
   Menu,
   Phone,
   Trophy,
+  UserX,
   Video,
   X,
 } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { FinalistsResponse, Job } from '@/types/api'
+import type { FinalistsResponse, Job, RejectedListResponse } from '@/types/api'
 import { cn } from '@/lib/utils'
 import { isVoiceScreeningEffective } from '@/lib/voiceScreening'
 import { usePhoneScreeningVisible } from '@/hooks/usePhoneScreeningVisible'
@@ -20,7 +21,7 @@ import { ScreeningStatusTabs } from '@/components/screening/ScreeningStatusTabs'
 import { ShortlistStatusTabs } from '@/components/shortlist/ShortlistStatusTabs'
 import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
 import { downloadFinalistsExcel } from '@/lib/finalistsExport'
-import { PHONE_SCREENING_LABEL, RESUME_SCREENING_LABEL } from '@/lib/stageLabels'
+import { PHONE_SCREENING_LABEL, REJECTED_LABEL, RESUME_SCREENING_LABEL } from '@/lib/stageLabels'
 
 const PHASES = [
   {
@@ -46,6 +47,12 @@ const PHASES = [
     segment: 'finalists',
     icon: Trophy,
     description: 'Top candidates',
+  },
+  {
+    label: REJECTED_LABEL,
+    segment: 'rejected',
+    icon: UserX,
+    description: 'Rejected candidates, and telling them',
   },
 ] as const
 
@@ -149,6 +156,13 @@ export function JobPhaseNav({ job }: Props) {
     enabled: phase === 'finalists',
   })
 
+  const { data: rejectedData } = useQuery<RejectedListResponse>({
+    queryKey: ['rejected', job.id],
+    queryFn: () =>
+      api.get(`/api/jobs/${job.id}/rejected`) as unknown as Promise<RejectedListResponse>,
+    enabled: phase === 'rejected',
+  })
+
   // Shown while screening is on, or while candidates from the phone round remain.
   const { visible: showScreening } = usePhoneScreeningVisible(job)
   const finalists = finalistsData?.candidates ?? []
@@ -231,6 +245,19 @@ export function JobPhaseNav({ job }: Props) {
           badge={
             <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-indigo-600">
               {finalists.length}
+            </span>
+          }
+        />
+      </PhaseToolbar>
+    ) : phase === 'rejected' ? (
+      <PhaseToolbar end={pipelineButton}>
+        <PhaseTitle
+          icon={UserX}
+          title={REJECTED_LABEL}
+          subtitle="Reconsider until a candidate is emailed; emailing is final"
+          badge={
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600">
+              {rejectedData?.candidates.length ?? 0}
             </span>
           }
         />

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -198,30 +197,24 @@ class ShortlistService:
                 ),
             )
 
-        if previous_decision == "rejected" and (
-            record.rejection_emailed_at is not None or record.rejected_from in ("phone", "interview")
-        ):
+        if previous_decision == "rejected":
             await self._session.commit()  # release the row lock, as above
             raise ConflictError(
                 public_message=(
-                    "This candidate was rejected. Reconsider them from the Rejected list "
-                    "(not possible once they have been emailed)."
+                    "This candidate is rejected. Use Reconsider on the Rejected list to bring them back."
                 ),
             )
+        if payload.hr_decision == "rejected":
+            # Rejecting is the Rejected stage's job: it records where from, cancels what has
+            # not started and never emails (that is sent from the Rejected list).
+            await self._session.commit()  # release the row lock; RejectService takes its own
+            from app.services.reject_service import RejectService
+
+            await RejectService(self._session).reject(actor, record.job_id, record.candidate_id)
+            await self._shortlist.refresh(record)
+            return ShortlistDecisionResponse.model_validate(record)
 
         record.hr_decision = payload.hr_decision
-        # The decision changed, so any earlier rejection record no longer describes this
-        # row; a new rejection from here is recorded as one from Resume Screening.
-        record.rejected_from = None
-        record.rejected_at = None
-        record.rejected_by = None
-        record.rejection_email_claimed_at = None
-        record.rejection_emailed_at = None
-        record.reconsider_state = None
-        if payload.hr_decision == "rejected":
-            record.rejected_from = "resume"
-            record.rejected_at = datetime.now(timezone.utc)
-            record.rejected_by = actor.id
         candidate = await self._session.get(Candidate, record.candidate_id)
         subject = resolve_candidate_name(candidate) if candidate else str(record.candidate_id)
 
@@ -249,13 +242,6 @@ class ShortlistService:
             payload.hr_decision.replace("_", " "),
             record.recommendation.replace("_", " "),
         )
-
-        if payload.hr_decision == "rejected":
-            # Only reached on a change: a repeat Reject returned early above, so the
-            # candidate is emailed once.
-            if await self.send_rejection_email(actor, record, shortlist_id, candidate):
-                record.rejection_emailed_at = datetime.now(timezone.utc)
-                await self._session.commit()
 
         if payload.hr_decision == "approved":
             approval_response = await self._handle_approval_side_effects(

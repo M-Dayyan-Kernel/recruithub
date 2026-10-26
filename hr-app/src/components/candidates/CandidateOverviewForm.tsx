@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { ArrowRight, Loader2, X } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { api } from '@/lib/api'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { BTN_DANGER, BTN_STAGE_LINK } from '@/components/ui/Surface'
 import type { CandidateProfile } from '@/types/api'
 import { useUpdateCandidate } from '@/hooks/useUpdateCandidate'
 import { formatHiringStage } from '@/lib/candidates'
@@ -19,12 +25,15 @@ import { WORKFLOW_INPUT_CLASS } from '@/lib/workflow'
 import { FieldError, RequiredMark } from '@/components/FieldError'
 import { cn } from '@/lib/utils'
 
+// Rejecting is an action (below), not a label: it also cancels calls and links.
 const STATUS_OPTIONS = [
   { value: 'active', label: 'Active' },
-  { value: 'on_hold', label: 'On Hold' },
-  { value: 'rejected', label: 'Rejected' },
   { value: 'hired', label: 'Hired' },
 ]
+
+// Stages where Reject does not apply: not yet scored, or done. ("Rejected" is not here: an
+// old profile label can say Rejected for someone who is not on the Rejected list.)
+const NOT_REJECTABLE_STAGES = new Set(['Processing', 'Failed', 'Hired', 'Finalist'])
 
 interface Props {
   profile: CandidateProfile
@@ -53,6 +62,78 @@ const FIELDS: FieldConfig[] = [
 ]
 
 const inputId = (key: string) => `candidate-${key}`
+
+/** Reject from the profile: the same Rejected stage as everywhere else. */
+function RejectSection({ profile }: { profile: CandidateProfile }) {
+  const queryClient = useQueryClient()
+  const [confirming, setConfirming] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const mutation = useMutation({
+    mutationFn: () => api.post(`/api/jobs/${profile.job_id}/candidates/${profile.id}/reject`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['candidates'] })
+      void queryClient.invalidateQueries({ queryKey: ['candidate', profile.id] })
+      for (const key of ['shortlist', 'screening', 'interviews-pipeline', 'rejected']) {
+        void queryClient.invalidateQueries({ queryKey: [key, profile.job_id] })
+      }
+      toast.success(`${profile.name} moved to Rejected`)
+      setConfirming(false)
+    },
+    onError: (err: Error) => setError(err.message || 'Could not reject this candidate.'),
+  })
+
+  // On the Rejected list only if the shortlist says so; an old "rejected" label alone is not
+  // (it can still be rejected properly from here).
+  if (profile.shortlist?.hr_decision === 'rejected') {
+    return (
+      <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-4">
+        <span className="text-sm text-ink-muted">This candidate is rejected.</span>
+        <Link to={`/jobs/${profile.job_id}/rejected`} className={BTN_STAGE_LINK}>
+          Open Rejected
+          <ArrowRight size={13} aria-hidden />
+        </Link>
+      </div>
+    )
+  }
+  if (NOT_REJECTABLE_STAGES.has(profile.hiring_stage)) return null
+
+  return (
+    <div className="mt-6 border-t border-line pt-4">
+      <button type="button" onClick={() => setConfirming(true)} className={BTN_DANGER}>
+        <X size={13} aria-hidden />
+        Reject candidate
+      </button>
+      {profile.hiring_stage === 'Rejected' && (
+        <p className="mt-2 text-xs text-ink-muted">
+          This profile carries an old "rejected" label but they are not on the Rejected list.
+        </p>
+      )}
+      {confirming && (
+        <ConfirmDialog
+          title={`Reject ${profile.name}?`}
+          body={
+            <p>
+              They move to Rejected and anything not yet started (a call, an interview link) is
+              cancelled. They are not emailed until you send it from the Rejected list, and you
+              can reconsider until then.
+            </p>
+          }
+          confirmLabel="Reject candidate"
+          busy={mutation.isPending}
+          error={error}
+          onConfirm={() => {
+            setError(null)
+            mutation.mutate()
+          }}
+          onClose={() => {
+            setConfirming(false)
+            setError(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
 
 export function CandidateOverviewForm({ profile }: Props) {
   const mutation = useUpdateCandidate(profile.id)
@@ -92,10 +173,11 @@ export function CandidateOverviewForm({ profile }: Props) {
       formRef.current?.querySelector<HTMLElement>(`#${inputId(first)}`)?.focus()
       return
     }
-    mutation.mutate(candidateUpdatePayload(form))
+    mutation.mutate(candidateUpdatePayload(form, candidateFormFromProfile(profile)))
   }
 
   return (
+    <>
     <form ref={formRef} onSubmit={handleSubmit} noValidate className="space-y-5">
       <p className="text-xs text-slate-500">
         <span aria-hidden="true" className="text-rose-500">
@@ -192,5 +274,7 @@ export function CandidateOverviewForm({ profile }: Props) {
         Save changes
       </button>
     </form>
+    <RejectSection profile={profile} />
+    </>
   )
 }

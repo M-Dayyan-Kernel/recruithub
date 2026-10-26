@@ -17,7 +17,7 @@
  * Dependency-free apart from stageLabels, so `node --test` can load it.
  */
 
-import { PHONE_SCREENING_LABEL, RESUME_SCREENING_LABEL } from './stageLabels.ts'
+import { PHONE_SCREENING_LABEL, REJECTED_FROM_LABEL, RESUME_SCREENING_LABEL } from './stageLabels.ts'
 
 export type ChipTone = 'muted' | 'plain' | 'accent' | 'pos' | 'warn' | 'neg'
 
@@ -392,6 +392,31 @@ export function describeActivity(row: ActivityRowInput): ActivityView {
         event: 'Rejected in Phone screening',
         change: transition(SHORTLIST_DECISIONS.approved ?? 'Approved', SHORTLIST_DECISIONS.rejected ?? 'Rejected', decisionTone),
         details: [who, ['What happened', 'Rejected from the phone round. Any call still queued was cancelled.']],
+      }
+    case 'shortlist.rejected': {
+      const from = REJECTED_FROM_LABEL[String(after?.rejected_from ?? '')] ?? 'the pipeline'
+      return {
+        ...base,
+        event: `Rejected from ${from}`,
+        change: { kind: 'chip', chip: chip('Rejected', 'neg') },
+        details: [who, ['From', from], ['Emailed', 'Not yet. It is sent from the Rejected list.']],
+      }
+    }
+    case 'shortlist.reconsidered': {
+      const from = REJECTED_FROM_LABEL[String(before?.rejected_from ?? '')] ?? 'the pipeline'
+      return {
+        ...base,
+        event: 'Rejection reconsidered',
+        change: { kind: 'chip', chip: chip('Reconsidered', 'muted') },
+        details: [who, ['Back in', from]],
+      }
+    }
+    case 'shortlist.rejection_emailed':
+      return {
+        ...base,
+        event: 'Rejection email sent',
+        change: { kind: 'chip', chip: chip('Emailed', 'muted') },
+        details: [who, ['What happened', 'The candidate was told. The rejection is now final.']],
       }
     case 'screening.call_cancelled':
       return {

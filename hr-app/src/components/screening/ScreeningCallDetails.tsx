@@ -21,6 +21,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { BTN_SECONDARY, BTN_STAGE_LINK } from '@/components/ui/Surface'
 import type { ScreeningCall, ScreeningResult } from '@/types/api'
 import type { JobOutletContext } from '@/components/JobLayout'
@@ -209,6 +210,19 @@ function ScreeningActionBar({
     onError: () => toast.error('Failed to update decision'),
   })
 
+  const [confirmReject, setConfirmReject] = useState(false)
+  const [rejectError, setRejectError] = useState<string | null>(null)
+  const rejectMutation = useMutation({
+    mutationFn: () => api.post(`/api/jobs/${jobId}/candidates/${call.candidate_id}/reject`),
+    onSuccess: () => {
+      setConfirmReject(false)
+      invalidate()
+      queryClient.invalidateQueries({ queryKey: ['rejected', jobId] })
+      toast.success(`${candidateName ?? 'Candidate'} moved to Rejected`)
+    },
+    onError: (err: Error) => setRejectError(err.message || 'Failed to reject candidate'),
+  })
+
   const scheduleMutation = useMutation({
     mutationFn: () =>
       api.post(`/api/candidates/${call.candidate_id}/interview/send`),
@@ -219,7 +233,8 @@ function ScreeningActionBar({
     onError: (err: Error) => toast.error(err.message || 'Failed to schedule interview'),
   })
 
-  const busy = decisionMutation.isPending || scheduleMutation.isPending || downloadingPdf
+  const busy =
+    decisionMutation.isPending || rejectMutation.isPending || scheduleMutation.isPending || downloadingPdf
 
   const handleDownloadPdf = () => {
     setDownloadingPdf(true)
@@ -288,15 +303,12 @@ function ScreeningActionBar({
         </button>
         <button
           type="button"
-          onClick={() => decisionMutation.mutate('fail')}
+          onClick={() => setConfirmReject(true)}
           disabled={busy}
-          className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${
-            call.result === 'fail'
-              ? 'bg-rose-600 text-white shadow-sm'
-              : 'border border-slate-200 bg-white text-slate-700 hover:border-rose-300 hover:bg-rose-50'
-          }`}
+          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-rose-300 hover:bg-rose-50"
+
         >
-          {decisionMutation.isPending ? (
+          {rejectMutation.isPending ? (
             <Loader2 size={13} className="animate-spin" />
           ) : (
             <ThumbsDown size={13} />
@@ -320,6 +332,29 @@ function ScreeningActionBar({
       )}
       {!hasSession && !isApproved && (
         <p className="text-[10px] text-slate-500">Approve to enable interview actions.</p>
+      )}
+      {confirmReject && (
+        <ConfirmDialog
+          title={`Reject ${candidateName ?? 'this candidate'}?`}
+          body={
+            <p>
+              They move to Rejected and are not emailed until you send it from the Rejected list.
+              You can reconsider them until then.
+            </p>
+          }
+          confirmLabel="Reject candidate"
+          busy={rejectMutation.isPending}
+          error={rejectError}
+          onConfirm={() => {
+            setRejectError(null)
+            rejectMutation.mutate()
+          }}
+          onClose={() => {
+            if (rejectError) invalidate()
+            setConfirmReject(false)
+            setRejectError(null)
+          }}
+        />
       )}
     </div>
   )
