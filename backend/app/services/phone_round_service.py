@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -158,6 +159,12 @@ class PhoneRoundService:
         name = resolve_candidate_name(candidate)
         cancel_undialled_calls(calls, "Cancelled: candidate rejected in Phone screening.")
         row.hr_decision = "rejected"
+        row.rejected_from = "phone"
+        row.rejected_at = datetime.now(timezone.utc)
+        row.rejected_by = actor.id
+        row.rejection_emailed_at = None
+        row.rejection_email_claimed_at = None
+        row.reconsider_state = None
         await self._audit.log_change(
             actor=actor,
             action="screening.rejected",
@@ -174,6 +181,9 @@ class PhoneRoundService:
         await self._session.commit()
         try:
             email_sent = await ShortlistService(self._session).send_rejection_email(actor, row, row.id, candidate)
+            if email_sent:
+                row.rejection_emailed_at = datetime.now(timezone.utc)
+                await self._session.commit()
         except Exception:  # noqa: BLE001 - the rejection stands; HR is told the email did not go
             logger.exception("Rejection email failed for candidate=%s", candidate_id)
             email_sent = False

@@ -15,6 +15,7 @@ from app.exceptions import ConflictError
 from app.models.models import Candidate, InterviewReport, InterviewSession, Job, ScreeningCall, ShortlistResult
 from app.schemas.schemas import FinalistCandidate, FinalistsResponse, InterviewSessionResponse
 from app.services.interview_flag_service import is_flagged_session
+from app.services.rejection_filter import rejected_candidate_ids
 
 
 def _session_is_completed_for_decision(
@@ -124,10 +125,11 @@ async def list_finalists(db: AsyncSession, job_id: uuid.UUID) -> FinalistsRespon
         if session.candidate_id not in overall_latest:
             overall_latest[session.candidate_id] = session
 
+    rejected_ids = await rejected_candidate_ids(db, job_id)
     finalist_sessions = [
         session
         for session in overall_latest.values()
-        if session.hr_decision == "approved"
+        if session.hr_decision == "approved" and session.candidate_id not in rejected_ids
     ]
 
     if not finalist_sessions:

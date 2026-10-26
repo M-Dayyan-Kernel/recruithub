@@ -192,6 +192,14 @@ class ShortlistResult(Base):
     hr_comments: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     model_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     prompt_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    # Rejection record: `hr_decision == 'rejected'` stays THE marker; these say where from,
+    # who/when, whether the candidate has been told, and what Reconsider restores.
+    rejected_from: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # resume | phone | interview
+    rejected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_by: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    rejection_email_claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejection_emailed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    reconsider_state: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships

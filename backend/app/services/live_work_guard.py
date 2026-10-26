@@ -35,6 +35,14 @@ def _interview_live_clause():
     )
 
 
+def interview_is_live(session: InterviewSession) -> bool:
+    """Python twin of `_interview_live_clause`, for sessions already loaded."""
+    if session.status != "in_progress":
+        return False
+    started = session.started_at
+    return started is None or started > datetime.now(timezone.utc) - STALE_INTERVIEW_AFTER
+
+
 async def assert_candidate_not_live(
     db: AsyncSession, job_id: uuid.UUID, candidate_id: uuid.UUID
 ) -> None:

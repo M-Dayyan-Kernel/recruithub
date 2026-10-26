@@ -1279,3 +1279,56 @@ class AuditLogListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+# ---------------------------------------------------------------------------
+# Rejected stage
+# ---------------------------------------------------------------------------
+
+class RejectResponse(BaseModel):
+    candidate_id: uuid.UUID
+    rejected_from: Literal["resume", "phone", "interview"]
+    #: False when the candidate was already rejected (a repeat does nothing).
+    changed: bool = True
+
+
+class ReconsiderResponse(BaseModel):
+    candidate_id: uuid.UUID
+    restored_to: Literal["resume", "phone", "interview"]
+
+
+class RejectedCandidate(BaseModel):
+    candidate_id: uuid.UUID
+    candidate_name: Optional[str] = None
+    candidate_email: Optional[str] = None
+    rejected_from: Optional[Literal["resume", "phone", "interview"]] = None
+    rejected_at: Optional[datetime] = None
+    rejected_by_name: Optional[str] = None
+    #: not_told | sending | emailed
+    email_state: Literal["not_told", "sending", "emailed"]
+    emailed_at: Optional[datetime] = None
+    #: False when there is no address to write to (never uploaded one, or erased).
+    can_email: bool = True
+    #: Reconsider is possible until the candidate has been emailed.
+    can_reconsider: bool = True
+    has_report: bool = False
+
+
+class RejectedListResponse(BaseModel):
+    candidates: List[RejectedCandidate]
+
+
+class RejectionEmailRequest(BaseModel):
+    candidate_ids: List[uuid.UUID] = Field(min_length=1, max_length=10)
+
+
+class RejectionEmailResult(BaseModel):
+    candidate_id: uuid.UUID
+    #: sent | failed | no_email | skipped (already told, sending, or no longer rejected)
+    status: Literal["sent", "failed", "no_email", "skipped"]
+
+
+class RejectionEmailResponse(BaseModel):
+    results: List[RejectionEmailResult]
+    sent: int
+    failed: int
