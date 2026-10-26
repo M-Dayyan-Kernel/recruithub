@@ -12,6 +12,7 @@ from app.repositories.job_repository import JobRepository
 from app.schemas.schemas import JobCreate, JobUpdate, validate_experience_range
 from app.services.audit_service import AuditService
 from app.services.expected_answer_service import ExpectedAnswerService
+from app.services.live_work_guard import assert_job_not_live
 from app.services.screening_defaults import get_default_screening_questions
 from app.services.tenant_integrations_service import TenantIntegrationsService
 
@@ -169,6 +170,7 @@ class JobService:
 
     async def delete(self, actor: User, job_id: uuid.UUID) -> None:
         job = await self._jobs.get_for_tenant(job_id, actor.tenant_id)
+        await assert_job_not_live(self._session, job.id)
         title = job.title
         status_before = job.status
         await self._audit.log_change(

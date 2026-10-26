@@ -10,7 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_utils import run_sync
+from app.exceptions import ConflictError
 from app.models.models import Candidate, Job, SystemSettings
+from app.services.live_work_guard import assert_candidate_not_live
 from app.services.s3_service import delete_object_async, is_s3_object_key
 
 logger = logging.getLogger(__name__)
@@ -58,6 +60,11 @@ async def apply_retention_for_tenant(session: AsyncSession, tenant_id: uuid.UUID
     erased = 0
     for candidate in candidates:
         if candidate.email.endswith("@erased.local"):
+            continue
+        try:
+            # Never blank someone mid-call or mid-interview; the next sweep gets them.
+            await assert_candidate_not_live(session, candidate.job_id, candidate.id)
+        except ConflictError:
             continue
         await erase_candidate_pii(session, candidate, tenant_id=tenant_id)
         erased += 1
