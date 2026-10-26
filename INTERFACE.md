@@ -492,6 +492,38 @@ Set HR decision on a completed screening call.
 
 ---
 
+### Rejected
+
+Rejecting moves a candidate into one place, the Rejected list, from any stage. It is reversible until the candidate is emailed; emailing happens only from this list and is final. `ShortlistResult.hr_decision = "rejected"` is the marker; `rejected_from` (`resume | phone | interview`), `rejected_at`, `rejected_by`, `rejection_email_claimed_at`, `rejection_emailed_at` and `reconsider_state` are the record.
+
+#### `POST /api/jobs/{job_id}/candidates/{candidate_id}/reject`
+Reject from whichever stage the candidate is in (derived on the server: an interview session means `interview`, an approved row with none `phone`, otherwise `resume`). Unstarted calls and interview links are cancelled. **No email is sent.** Repeating it does nothing (`changed: false`).
+
+**Response `200`:** `{ candidate_id, rejected_from, changed }`
+
+**Errors:** `409` — a call is in progress / an interview is in progress (live work is never stopped, so try again when it ends) / the candidate is a finalist / the candidate has no shortlist result yet.
+
+#### `POST /api/jobs/{job_id}/rejected/{candidate_id}/reconsider`
+Put a rejected candidate back where they were rejected from: `resume` → pending on Resume Screening; `phone` → approved (a call that already finished is **not** redialled: a "fail" result goes back to "needs review"; with no finished call, a fresh call is queued, or with screening off they move to Interviews); `interview` → approved with the interview decision pending (a link cancelled by the rejection stays cancelled; HR sends a new one).
+
+**Response `200`:** `{ candidate_id, restored_to }`
+
+**Errors:** `409` — not rejected; already emailed (final); an email is being sent right now.
+
+#### `GET /api/jobs/{job_id}/rejected`
+**Response `200`:** `{ candidates: [{ candidate_id, candidate_name, candidate_email, rejected_from, rejected_at, rejected_by_name, email_state: "not_told" | "sending" | "emailed", emailed_at, can_email, can_reconsider, has_report }] }`, newest rejection first. `can_email` is false when there is no usable address (never uploaded, or erased).
+
+#### `POST /api/jobs/{job_id}/rejected/email`
+**Request:** `{ "candidate_ids": [uuid, ...] }` — 1 to 10 per request (the UI sends batches).
+
+Each candidate is claimed atomically and in its own transaction, so two clicks or a retry never send the same candidate two emails, and one failure does not stop the rest. A claim abandoned for more than 10 minutes can be retried.
+
+**Response `200`:** `{ results: [{ candidate_id, status: "sent" | "failed" | "no_email" | "skipped" }], sent, failed }` — `skipped` means already told, being sent, or no longer rejected; `failed` stays "not told" and can be retried.
+
+> Interview pipeline and Finalists exclude rejected candidates. Existing rejections are classified by `python -m scripts.backfill_rejections` (dry run by default; `--apply` to write).
+
+---
+
 ### Interviews
 
 #### `GET /api/jobs/{job_id}/interviews` *(NEW — Sprint A — was listed as stub, now implemented)*

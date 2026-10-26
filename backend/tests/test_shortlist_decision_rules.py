@@ -179,14 +179,18 @@ class StageTests(unittest.TestCase):
         self.assertEqual(_stage(calls=[_call("completed", "fail")], sessions=sessions), ("interview", "link_sent"))
 
 
-def _record(decision):
+def _record(decision, **extra):
     # A namespace, not a MagicMock: the response schema reads optional attributes
     # (interview_session_id, ...) that a mock would answer with another mock.
-    return SimpleNamespace(
+    fields = dict(
         id=uuid.uuid4(), candidate_id=uuid.uuid4(), job_id=uuid.uuid4(), hr_decision=decision,
         match_score=80.0, recommendation="shortlisted", strengths=[], gaps=[], reason="ok",
         hr_feedback_type=None, hr_comments=None, model_name="m", prompt_version="v", created_at=NOW,
+        rejected_from=None, rejected_at=None, rejected_by=None, rejection_email_claimed_at=None,
+        rejection_emailed_at=None, reconsider_state=None,
     )
+    fields.update(extra)
+    return SimpleNamespace(**fields)
 
 
 def _actor():
@@ -253,6 +257,38 @@ class DecisionRuleTests(unittest.IsolatedAsyncioTestCase):
         svc, session, audit, record, result, err = await self._decide("rejected", "approved")
         self.assertIsNone(err)
         svc._handle_approval_side_effects.assert_awaited_once()
+
+    async def test_a_final_or_staged_rejection_cannot_be_flipped_here(self):
+        for kw in (dict(rejection_emailed_at=NOW), dict(rejected_from="phone"), dict(rejected_from="interview")):
+            with self.subTest(kw):
+                record = _record("rejected", **kw)
+                svc, session, audit = _service(record)
+                with self.assertRaises(ConflictError):
+                    await svc.update_decision(_actor(), record.id, ShortlistDecisionUpdate(hr_decision="approved"))
+                self.assertEqual(record.hr_decision, "rejected")
+                svc._handle_approval_side_effects.assert_not_awaited()
+                audit.log_change.assert_not_awaited()
+
+    async def test_flipping_a_resume_rejection_clears_its_record(self):
+        record = _record("rejected", rejected_from="resume")
+        record.rejected_at = NOW
+        svc, session, audit = _service(record)
+        await svc.update_decision(_actor(), record.id, ShortlistDecisionUpdate(hr_decision="approved"))
+        self.assertEqual((record.hr_decision, record.rejected_from, record.rejected_at), ("approved", None, None))
+
+    async def test_rejecting_records_where_from_and_that_the_email_went(self):
+        svc, session, audit, record, result, err = await self._decide("pending", "rejected")
+        self.assertEqual(record.rejected_from, "resume")
+        self.assertIsNotNone(record.rejected_at)
+        self.assertIsNotNone(record.rejection_emailed_at)
+
+    async def test_rejecting_when_the_email_fails_leaves_them_not_told(self):
+        record = _record("pending")
+        svc, session, audit = _service(record)
+        svc.send_rejection_email = AsyncMock(return_value=False)
+        await svc.update_decision(_actor(), record.id, ShortlistDecisionUpdate(hr_decision="rejected"))
+        self.assertEqual(record.hr_decision, "rejected")
+        self.assertIsNone(record.rejection_emailed_at)
 
     async def test_rejecting_a_pending_row_sends_one_email(self):
         svc, session, audit, record, result, err = await self._decide("pending", "rejected")

@@ -27,6 +27,7 @@ from app.schemas.schemas import (
     InterviewSessionResponse,
 )
 from app.services.interview_flag_service import get_flag_reason, is_flagged_session
+from app.services.rejection_filter import rejected_candidate_ids
 
 logger = logging.getLogger(__name__)
 
@@ -148,11 +149,14 @@ async def get_interview_pipeline(
         if session.candidate_id not in latest_session_by_candidate:
             latest_session_by_candidate[session.candidate_id] = session
 
+    # Rejected candidates are in the Rejected stage, not here: dropped before anything is
+    # counted, so the tab counts match what the tabs list.
+    rejected_ids = await rejected_candidate_ids(db, job_id)
     eligible_candidate_ids = [
         candidate_id
         for candidate_id, pass_call in latest_pass_by_candidate.items()
-        if pass_call.interview_queued_at is not None
-        or candidate_id in latest_session_by_candidate
+        if candidate_id not in rejected_ids
+        and (pass_call.interview_queued_at is not None or candidate_id in latest_session_by_candidate)
     ]
     if not eligible_candidate_ids:
         empty_counts = InterviewPipelineCounts(

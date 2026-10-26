@@ -36,6 +36,7 @@ from app.services.candidate_directory_service import CandidateDirectoryService
 from app.services.job_description_parse_service import JobDescriptionParseService
 from app.services.job_service import JobService
 from app.services.resume_upload_service import ResumeUploadService
+from app.services.reject_service import RejectService
 from app.services.shortlist_service import ShortlistService
 from app.services.shortlist_trigger_service import ShortlistTriggerService
 from app.services.screening_cancel_service import ScreeningCancelService
@@ -157,6 +158,10 @@ def get_shortlist_trigger_service(
 
 def get_shortlist_service(db: AsyncSession = Depends(get_db)) -> ShortlistService:
     return ShortlistService(db)
+
+
+def get_reject_service(db: AsyncSession = Depends(get_db)) -> RejectService:
+    return RejectService(db)
 
 
 def get_screening_trigger_service(

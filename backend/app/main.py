@@ -18,6 +18,7 @@ from app.routers import (
     interviews,
     jobs,
     platform,
+    rejected,
     screening,
     settings,
     shortlist,
@@ -196,6 +197,7 @@ app.include_router(audit.router, prefix="/api/audit-logs", tags=["audit"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(candidates.router, prefix="/api", tags=["candidates"])
 app.include_router(shortlist.router, prefix="/api", tags=["shortlist"])
+app.include_router(rejected.router, prefix="/api", tags=["rejected"])
 app.include_router(screening.router, prefix="/api", tags=["screening"])
 app.include_router(interviews.router, prefix="/api", tags=["interviews"])
 app.include_router(settings.router, prefix="/api", tags=["settings"])
