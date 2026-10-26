@@ -77,7 +77,11 @@ Not preferences. Breaking one breaks the system.
 - `PageHeader` — title, subtitle, actions. Every page starts with one.
 - `Stat` — icon chip, tabular figure, micro-caps label, `tone`.
 - `Badge` / `Dot` — status, toned.
-- `BTN_PRIMARY` / `BTN_GHOST` / `BTN_DANGER` / `INPUT` — control classes.
+- `BTN_PRIMARY` / `BTN_SECONDARY` / `BTN_GHOST` / `BTN_STAGE_LINK` / `BTN_DANGER` / `INPUT` —
+  control classes. Secondary and stage links have a visible border and dark text (white
+  with grey text reads as disabled); a stage link carries an arrow icon.
+- Every action button carries a lucide icon (12–14px) before its label. A status is a
+  `Badge` or plain text, never a button.
 
 Auth pages have their own shell (`components/auth/AuthLayout.tsx`) because they are
 full-bleed and carry no app chrome.

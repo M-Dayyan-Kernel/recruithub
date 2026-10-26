@@ -11,7 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_loader import config
-from app.models.models import Candidate, InterviewReport, InterviewSession, Job, ScreeningCall
+from app.exceptions import ConflictError
+from app.models.models import Candidate, InterviewReport, InterviewSession, Job, ScreeningCall, ShortlistResult
 from app.schemas.schemas import FinalistCandidate, FinalistsResponse, InterviewSessionResponse
 from app.services.interview_flag_service import is_flagged_session
 
@@ -60,6 +61,20 @@ async def set_interview_hr_decision(
     if not candidate:
         raise ValueError("Candidate not found")
 
+    # Shortlist row first (the lock order every other path uses), so a reject or an
+    # approval racing this decision serialises instead of crossing it.
+    shortlist = (
+        await db.execute(
+            select(ShortlistResult)
+            .where(ShortlistResult.job_id == candidate.job_id, ShortlistResult.candidate_id == candidate_id)
+            .with_for_update()
+        )
+    ).scalars().first()
+    if shortlist is not None and shortlist.hr_decision == "rejected":
+        raise ConflictError(
+            public_message="This candidate was rejected. Reconsider them before deciding on the interview."
+        )
+
     sessions_result = await db.execute(
         select(InterviewSession)
         .where(InterviewSession.candidate_id == candidate_id)
@@ -78,8 +93,12 @@ async def set_interview_hr_decision(
     if not _session_is_completed_for_decision(session, has_report=has_report):
         raise ValueError("Interview must be completed before approving or rejecting")
 
+    if session.hr_decision == "approved" and hr_decision != "approved":
+        raise ConflictError(public_message="This candidate is a finalist; the decision can no longer be changed.")
+
     session.hr_decision = hr_decision
-    await db.commit()
+    # The caller writes the audit row and commits, so decision and audit land together.
+    await db.flush()
     await db.refresh(session)
 
     job = await db.get(Job, session.job_id)

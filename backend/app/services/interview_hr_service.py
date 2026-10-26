@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_loader import config
 from app.core.tenancy import get_tenant_candidate, get_tenant_job
-from app.models.models import Candidate, InterviewSession, Job, ScreeningCall, User
+from app.models.models import Candidate, InterviewSession, Job, ScreeningCall, ShortlistResult, User
 from app.repositories.interview_repository import InterviewRepository
 from app.schemas.schemas import (
     FinalistsResponse,
@@ -68,6 +68,37 @@ class InterviewHrService:
         screening_call.interview_queued_at = datetime.now(timezone.utc)
         await self._interviews.flush()
         return screening_call
+
+    async def _refuse_if_rejected(self, candidate: Candidate) -> None:
+        """Locks the shortlist row first (the order every other path uses) and refuses to
+        issue, resend or move an interview link for a rejected candidate: a rejection
+        cancels the link, so a fresh one would quietly undo it."""
+        shortlist = (
+            await self._session.execute(
+                select(ShortlistResult)
+                .where(
+                    ShortlistResult.job_id == candidate.job_id,
+                    ShortlistResult.candidate_id == candidate.id,
+                )
+                .with_for_update()
+            )
+        ).scalars().first()
+        latest_decision = (
+            await self._session.execute(
+                select(InterviewSession.hr_decision)
+                .where(
+                    InterviewSession.job_id == candidate.job_id,
+                    InterviewSession.candidate_id == candidate.id,
+                )
+                .order_by(InterviewSession.created_at.desc())
+                .limit(1)
+            )
+        ).scalars().first()
+        if (shortlist is not None and shortlist.hr_decision == "rejected") or latest_decision == "rejected":
+            raise HTTPException(
+                status_code=409,
+                detail="This candidate was rejected. Reconsider them before sending an interview link.",
+            )
 
     async def queue(self, actor: User, candidate_id: uuid.UUID) -> dict:
         """
@@ -126,6 +157,7 @@ class InterviewHrService:
             )
 
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
+        await self._refuse_if_rejected(candidate)
 
         if not await self._interviews.get_latest_pass_screening_call(
             candidate.job_id, candidate_id
@@ -219,10 +251,13 @@ class InterviewHrService:
         from app.services.interview_session_service import create_pending_interview_session
 
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
+        await self._refuse_if_rejected(candidate)
 
         screening_result = await self._session.execute(
             select(ScreeningCall).where(
                 ScreeningCall.candidate_id == candidate_id,
+                ScreeningCall.job_id == candidate.job_id,
+                ScreeningCall.call_status == "completed",
                 ScreeningCall.result == "pass",
             )
         )
@@ -403,6 +438,7 @@ class InterviewHrService:
         from app.services.interview_schedule_service import resend_interview_notification_email
 
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
+        await self._refuse_if_rejected(candidate)
 
         session_result = await self._session.execute(
             select(InterviewSession)
@@ -477,6 +513,7 @@ class InterviewHrService:
             candidate = await get_tenant_candidate(
                 self._session, candidate_id, actor.tenant_id
             )
+            await self._refuse_if_rejected(candidate)
             result = await reschedule_interview(
                 self._session, candidate_id, schedule=body
             )

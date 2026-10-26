@@ -16,6 +16,15 @@ export function CandidateScreeningTab({ profile }: Props) {
     )
   }
 
+  if (screening.skipped) {
+    return (
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-ink">Phone screening skipped</p>
+        {screening.summary && <p className="text-sm leading-relaxed text-ink-muted">{screening.summary}</p>}
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">

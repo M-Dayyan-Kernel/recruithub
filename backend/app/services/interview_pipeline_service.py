@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_loader import config
+from app.core.screening_skipped import is_skipped_call, skip_reason
 from app.models.models import (
     Candidate,
     InterviewReport,
@@ -188,6 +189,7 @@ async def get_interview_pipeline(
     for candidate_id in eligible_candidate_ids:
         candidate = candidate_map.get(candidate_id)
         session = latest_session_by_candidate.get(candidate_id)
+        pass_call = latest_pass_by_candidate.get(candidate_id)
         report = (
             report_by_session_id.get(session.id)
             if session is not None
@@ -232,6 +234,7 @@ async def get_interview_pipeline(
             not actions_disabled
             and not has_other_active
             and stage in ("completed", "flagged")
+            and _session_hr_decision(session) != "rejected"
         )
 
         session_response = (
@@ -254,6 +257,8 @@ async def get_interview_pipeline(
                 actions_disabled=actions_disabled,
                 has_active_session=has_other_active,
                 hr_decision=_session_hr_decision(session),
+                screening_skipped=pass_call is not None and is_skipped_call(pass_call),
+                skip_reason=skip_reason(pass_call) if pass_call is not None else None,
             )
         )
 

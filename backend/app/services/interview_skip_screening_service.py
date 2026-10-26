@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.screening_skipped import SKIPPED_ENDED_REASON
 from app.models.models import Candidate, Job, ScreeningCall
 from app.services.candidate_contact_service import resolve_candidate_email
 from app.services.interview_schedule_service import send_interview_invitation_email
@@ -76,6 +77,7 @@ async def _new_bypass_call(
         job_id=job_id,
         call_status="completed",
         call_outcome="completed",
+        ended_reason=SKIPPED_ENDED_REASON,
         result="pass",
         summary=bypass_summary,
         interview_queued_at=now,

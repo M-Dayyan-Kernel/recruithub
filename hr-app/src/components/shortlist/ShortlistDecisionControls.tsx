@@ -5,7 +5,7 @@ import { AlertCircle, ArrowRight, Check, Loader2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { ShortlistDecisionResponse, ShortlistResultWithCandidate } from '@/types/api'
 import Modal from '@/components/ui/Modal'
-import { BTN_GHOST } from '@/components/ui/Surface'
+import { BTN_GHOST, BTN_STAGE_LINK } from '@/components/ui/Surface'
 import { HrDecisionBadge } from '@/components/shortlist/shortlistBadges'
 import { useShortlistDecision } from '@/hooks/useShortlistDecision'
 import {
@@ -162,7 +162,7 @@ export function ShortlistDecisionControls({
     const view = describeStage(result.stage, jobId)
     return (
       <>
-        <Link to={view.to} className={BTN_GHOST} aria-label={`${view.toLabel} for ${name}`}>
+        <Link to={view.to} className={BTN_STAGE_LINK} aria-label={`${view.toLabel} for ${name}`}>
           {view.toLabel}
           <ArrowRight size={13} aria-hidden />
         </Link>

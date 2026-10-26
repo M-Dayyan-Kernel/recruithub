@@ -5,6 +5,7 @@ from typing import Literal, Optional, List
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator, model_validator
 
+from app.core.screening_skipped import is_skipped_screening
 from app.schemas.integrity import IntegritySummary
 
 
@@ -674,6 +675,16 @@ class ScreeningCallResponse(BaseModel):
     has_interview_session: bool = False
     created_at: datetime
 
+    @computed_field
+    @property
+    def skipped(self) -> bool:
+        return is_skipped_screening(
+            call_status=self.call_status,
+            vapi_call_id=self.vapi_call_id,
+            ended_reason=self.ended_reason,
+            summary=self.summary,
+        )
+
 
 class ScreeningResultUpdate(BaseModel):
     """HR override of AI screening result."""
@@ -841,6 +852,8 @@ class InterviewPipelineCandidate(BaseModel):
     actions_disabled: bool = False
     has_active_session: bool = False
     hr_decision: Optional[str] = None
+    screening_skipped: bool = False
+    skip_reason: Optional[str] = None
 
 
 class InterviewPipelineResponse(BaseModel):

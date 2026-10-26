@@ -162,6 +162,8 @@ export interface ScreeningCall {
   retry_count?: number
   interview_queued_at?: string | null
   has_interview_session?: boolean
+  /** Moved to interview without a call: a record, not a call that took place. */
+  skipped?: boolean
   created_at: string
 }
 
@@ -251,6 +253,8 @@ export interface InterviewPipelineCandidate {
   actions_disabled?: boolean
   has_active_session?: boolean
   hr_decision?: 'pending' | 'approved' | 'rejected' | null
+  screening_skipped?: boolean
+  skip_reason?: string | null
 }
 
 export interface InterviewPipelineResponse {
