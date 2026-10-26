@@ -20,6 +20,7 @@ from app.schemas.schemas import (
     PaginatedResponse,
 )
 from app.services.audit_service import AuditService
+from app.services.live_work_guard import assert_candidate_not_live
 from app.services.processing_queue_service import ProcessingQueueService
 from app.services.resume_storage_service import ResumeStorageService
 from app.services.retention_service import erase_candidate_pii
@@ -156,6 +157,7 @@ class CandidateService:
         candidate = await get_tenant_candidate(
             self._session, candidate_id, actor.tenant_id
         )
+        await assert_candidate_not_live(self._session, candidate.job_id, candidate.id)
         sessions = await self._candidates.list_interview_sessions(candidate.id)
         recording_keys = [s.recording_key for s in sessions if s.recording_key]
 
@@ -234,6 +236,7 @@ class CandidateService:
         candidate = await get_tenant_candidate(
             self._session, candidate_id, actor.tenant_id
         )
+        await assert_candidate_not_live(self._session, candidate.job_id, candidate.id)
         await erase_candidate_pii(
             self._session, candidate, tenant_id=actor.tenant_id
         )

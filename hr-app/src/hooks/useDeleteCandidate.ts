@@ -12,6 +12,12 @@ export function useDeleteCandidate(jobId: string) {
       queryClient.invalidateQueries({ queryKey: ['candidates', jobId, 'pipeline'] })
       queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
     },
-    onError: () => toast.error('Failed to remove resume'),
+    // The server says why when it refuses (the candidate is on a call or in an interview), so
+    // show that. The id is the message: removing several at once must not stack the same
+    // sentence, but different reasons each still show.
+    onError: (err: Error) => {
+      const message = err.message || 'Failed to remove resume'
+      toast.error(message, { id: `delete-candidate:${message}` })
+    },
   })
 }

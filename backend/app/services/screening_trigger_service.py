@@ -8,7 +8,7 @@ import logging
 import uuid
 from typing import List
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tenancy import get_tenant_job
@@ -41,6 +41,14 @@ async def candidate_has_live_call(
 def call_is_on_its_way(call: ScreeningCall) -> bool:
     """Ringing, in conversation, or placed and waiting for Vapi's answer."""
     return call.call_status in LIVE_CALL_STATUSES or (call.call_status == "pending" and bool(call.vapi_call_id))
+
+
+def call_on_its_way_clause():
+    """SQL twin of `call_is_on_its_way` (keep the two together)."""
+    return or_(
+        ScreeningCall.call_status.in_(LIVE_CALL_STATUSES),
+        and_(ScreeningCall.call_status == "pending", ScreeningCall.vapi_call_id.isnot(None)),
+    )
 
 
 def cancel_undialled_calls(calls: list[ScreeningCall], why: str) -> int:

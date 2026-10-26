@@ -132,8 +132,8 @@ export function JobHeader({ job, showDelete = false }: Props) {
       toast.success('Job deleted')
       navigate('/jobs')
     },
-    onError: () => {
-      toast.error('Failed to delete job')
+    onError: (err: Error) => {
+      toast.error(err.message || 'Failed to delete job')
     },
   })
 
