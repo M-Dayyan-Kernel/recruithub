@@ -395,8 +395,10 @@ class CandidateCreate(BaseModel):
     phone: Optional[str] = None
 
 
-#: Statuses HR can set by hand. (Pipeline stages are derived, not stored here.)
-CANDIDATE_STATUSES = ("active", "on_hold", "rejected", "hired")
+#: Statuses HR can set by hand. (Pipeline stages are derived, not stored here.) "rejected"
+#: is accepted but carried out as a rejection (see CandidateService.update); "on_hold" is
+#: retired and read as "active".
+CANDIDATE_STATUSES = ("active", "rejected", "hired")
 #: Suffix of the stand-in address created when a resume has no email. It means
 #: "email missing", so it is never a valid value for HR to save.
 PLACEHOLDER_EMAIL_SUFFIX = "@upload.pending"
@@ -476,6 +478,8 @@ class CandidateUpdate(BaseModel):
     def _status_known(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return v
+        if v == "on_hold":
+            return "active"  # retired: nothing acted on it; old clients still send it
         if v not in CANDIDATE_STATUSES:
             raise ValueError(f"Status must be one of: {', '.join(CANDIDATE_STATUSES)}")
         return v

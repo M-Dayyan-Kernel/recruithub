@@ -75,7 +75,8 @@ export interface DecisionCopy {
 
 /**
  * What the confirmation dialog says. Approving does something to the candidate (a call or
- * an invite), so the dialog names which; rejecting says the candidate is emailed.
+ * an invite), so the dialog names which; rejecting says they move to Rejected and are not
+ * emailed yet.
  */
 export function decisionCopy(
   decision: 'approved' | 'rejected',
@@ -101,7 +102,7 @@ export function decisionCopy(
   }
   return {
     title: `Reject ${who}?`,
-    body: `${count > 1 ? 'Each candidate' : 'The candidate'} will be emailed a rejection. You can still approve them later if you change your mind.`,
+    body: `${count > 1 ? 'Each candidate' : 'The candidate'} moves to Rejected. They are not emailed until you send it from the Rejected list, and you can reconsider until then.`,
     confirmLabel: count > 1 ? `Reject ${count}` : 'Reject candidate',
   }
 }

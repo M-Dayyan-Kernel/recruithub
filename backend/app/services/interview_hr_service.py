@@ -396,6 +396,8 @@ class InterviewHrService:
         from app.services.interview_finalist_service import set_interview_hr_decision
 
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
+        if payload.hr_decision == "rejected":
+            return await self._reject(actor, candidate)
         try:
             before_decision = None
             sess_result = await self._session.execute(
@@ -430,6 +432,40 @@ class InterviewHrService:
             if msg == "Candidate not found":
                 raise HTTPException(status_code=404, detail=msg) from exc
             raise HTTPException(status_code=400, detail=msg) from exc
+
+    async def _reject(self, actor: User, candidate: Candidate) -> InterviewSessionResponse:
+        """Rejecting is the Rejected stage's job: it cancels an unstarted link, refuses
+        while the interview is live, and never emails (sent from the Rejected list)."""
+        from app.services.reject_service import RejectService
+
+        has_session = (
+            await self._session.execute(
+                select(InterviewSession.id)
+                .where(InterviewSession.candidate_id == candidate.id, InterviewSession.job_id == candidate.job_id)
+                .limit(1)
+            )
+        ).scalars().first()
+        if has_session is None:
+            # Checked first: this endpoint is about interviews, and a rejection that
+            # succeeded must not be reported as an error.
+            raise HTTPException(status_code=400, detail="No interview session found for candidate")
+        await RejectService(self._session).reject(actor, candidate.job_id, candidate.id)
+        latest = (
+            await self._session.execute(
+                select(InterviewSession)
+                .where(InterviewSession.candidate_id == candidate.id, InterviewSession.job_id == candidate.job_id)
+                .order_by(InterviewSession.created_at.desc())
+                .limit(1)
+            )
+        ).scalars().first()
+        if latest is None:
+            raise HTTPException(status_code=400, detail="No interview session found for candidate")
+        job = await self._session.get(Job, candidate.job_id)
+        response = InterviewSessionResponse.model_validate(latest)
+        response.interview_url = f"{config.CANDIDATE_APP_URL}/interview/{latest.unique_token}"
+        response.candidate_name = candidate.name
+        response.job_title = job.title if job else None
+        return response
 
     async def resend_email(
         self, actor: User, candidate_id: uuid.UUID

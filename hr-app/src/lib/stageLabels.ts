@@ -12,6 +12,16 @@
 /** The phone-call screening round (the API identifier stays "Screening"). */
 export const PHONE_SCREENING_LABEL = 'Phone Screening'
 
+/** Where rejected candidates are listed, and told. */
+export const REJECTED_LABEL = 'Rejected'
+
+/** What a person reads for where a candidate was rejected from. */
+export const REJECTED_FROM_LABEL: Record<string, string> = {
+  resume: 'Resume Screening',
+  phone: 'Phone Screening',
+  interview: 'Interview',
+}
+
 /** The resume-review round (the API identifier is "AI Shortlisted"). */
 export const RESUME_SCREENING_LABEL = 'Resume Screening'
 

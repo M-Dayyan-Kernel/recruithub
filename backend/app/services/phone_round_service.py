@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -151,40 +150,13 @@ class PhoneRoundService:
         )
 
     async def reject(self, actor: User, job_id: uuid.UUID, candidate_id: uuid.UUID) -> PhoneRoundActionResponse:
-        """Reject from the phone round: queued calls cancelled, decision rejected, one email.
-        Approving them again from Resume Screening starts a fresh call."""
-        from app.services.shortlist_service import ShortlistService
+        """Reject from the phone round: queued calls cancelled, moved to Rejected. No email
+        (it is sent from the Rejected list); Reconsider starts a fresh call."""
+        from app.services.reject_service import RejectService
 
-        job, candidate, row, calls, state = await self._lock(actor, job_id, candidate_id)
-        name = resolve_candidate_name(candidate)
-        cancel_undialled_calls(calls, "Cancelled: candidate rejected in Phone screening.")
-        row.hr_decision = "rejected"
-        row.rejected_from = "phone"
-        row.rejected_at = datetime.now(timezone.utc)
-        row.rejected_by = actor.id
-        row.rejection_emailed_at = None
-        row.rejection_email_claimed_at = None
-        row.reconsider_state = None
-        await self._audit.log_change(
-            actor=actor,
-            action="screening.rejected",
-            entity_type="shortlist",
-            entity_id=row.id,
-            subject_label=name,
-            feature="hr_decision",
-            before={"hr_decision": "approved", "state": state},
-            after={"hr_decision": "rejected"},
-            job_id=job.id,
-            candidate_id=candidate_id,
-        )
-        # Saved before the email: a slow or failing mail server must not undo it.
+        # The phone round's own checks first (they also take and release the row locks):
+        # this action is only for candidates the call could not settle.
+        await self._lock(actor, job_id, candidate_id)
         await self._session.commit()
-        try:
-            email_sent = await ShortlistService(self._session).send_rejection_email(actor, row, row.id, candidate)
-            if email_sent:
-                row.rejection_emailed_at = datetime.now(timezone.utc)
-                await self._session.commit()
-        except Exception:  # noqa: BLE001 - the rejection stands; HR is told the email did not go
-            logger.exception("Rejection email failed for candidate=%s", candidate_id)
-            email_sent = False
-        return PhoneRoundActionResponse(candidate_id=candidate_id, email_sent=email_sent)
+        await RejectService(self._session).reject(actor, job_id, candidate_id)
+        return PhoneRoundActionResponse(candidate_id=candidate_id, email_sent=False)

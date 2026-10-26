@@ -103,6 +103,7 @@ export default function Layout() {
     if (location.pathname === '/jobs/archived') return 'Archived jobs'
     if (location.pathname.match(/^\/jobs\/[^/]+\/screening/)) return PHONE_SCREENING_LABEL
     if (location.pathname.match(/^\/jobs\/[^/]+\/finalists/)) return 'Finalists'
+    if (location.pathname.match(/^\/jobs\/[^/]+\/rejected/)) return 'Rejected'
     if (location.pathname.match(/^\/jobs\/[^/]+\/interviews/)) return 'Interviews'
     if (location.pathname.match(/^\/jobs\/[^/]+\/shortlist/)) return RESUME_SCREENING_LABEL
     if (location.pathname.match(/^\/jobs\/[^/]+$/)) return 'Job details'

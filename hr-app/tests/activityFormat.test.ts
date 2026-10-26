@@ -212,6 +212,7 @@ const BACKEND_ACTIONS = [
   'tenant.created', 'tenant.updated', 'tenant.approved', 'tenant.rejected', 'tenant.deleted',
   'screening.result_set', 'screening.triggered', 'screening.call_cancelled', 'screening.advanced_without_call', 'screening.rejected',
   'shortlist.decision_set', 'shortlist.feedback_set', 'shortlist.triggered', 'shortlist.returned_to_resume',
+  'shortlist.rejected', 'shortlist.reconsidered', 'shortlist.rejection_emailed',
   'settings.updated', 'settings.email_template_updated', 'settings.email_template_restored',
   'user.created', 'user.invite_revoked', 'user.invited', 'user.updated', 'user.deleted',
 ]

@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check, FileText, Loader2, RefreshCw, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import type { InterviewPipelineCandidate, InterviewSession } from '@/types/api'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { BTN_SECONDARY } from '@/components/ui/Surface'
 import { WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
 
@@ -90,57 +92,94 @@ function DecisionButtons({
   jobId: string
 }) {
   const queryClient = useQueryClient()
+  const [confirmReject, setConfirmReject] = useState(false)
+  const [rejectError, setRejectError] = useState<string | null>(null)
   const decision = row.hr_decision ?? 'pending'
+  const name = row.candidate_name ?? 'Candidate'
   const canDecide =
     !row.actions_disabled &&
     (row.has_report || row.assessment_status === 'ready') &&
     decision !== 'approved'
 
-  const decisionMutation = useMutation({
-    mutationFn: (hr_decision: 'approved' | 'rejected') =>
+  const refresh = () => {
+    for (const key of ['interviews-pipeline', 'finalists', 'rejected']) {
+      queryClient.invalidateQueries({ queryKey: [key, jobId] })
+    }
+    queryClient.invalidateQueries({ queryKey: ['candidates'] })
+    queryClient.invalidateQueries({ queryKey: ['candidate', row.candidate_id] })
+  }
+
+  const approveMutation = useMutation({
+    mutationFn: () =>
       api.patch(`/api/candidates/${row.candidate_id}/interview/decision`, {
-        hr_decision,
+        hr_decision: 'approved',
       }) as Promise<InterviewSession>,
-    onSuccess: (_data, hr_decision) => {
-      queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
-      queryClient.invalidateQueries({ queryKey: ['finalists', jobId] })
-      queryClient.invalidateQueries({ queryKey: ['candidates'] })
-      queryClient.invalidateQueries({ queryKey: ['candidate', row.candidate_id] })
-      toast.success(
-        hr_decision === 'approved'
-          ? `${row.candidate_name ?? 'Candidate'} moved to Finalists`
-          : `${row.candidate_name ?? 'Candidate'} rejected`,
-      )
+    onSuccess: () => {
+      refresh()
+      toast.success(`${name} moved to Finalists`)
     },
     onError: (err: Error) => toast.error(err.message || 'Failed to update decision'),
   })
 
-  if (!canDecide) return null
+  const rejectMutation = useMutation({
+    mutationFn: () => api.post(`/api/jobs/${jobId}/candidates/${row.candidate_id}/reject`),
+    onSuccess: () => {
+      refresh()
+      setConfirmReject(false)
+      toast.success(`${name} moved to Rejected`)
+    },
+    // Refreshed when the dialog closes, not now: the row may leave the tab underneath it.
+    onError: (err: Error) => setRejectError(err.message || 'Failed to reject candidate'),
+  })
 
   // A rejection is not undone from this table (a status is a label, not a button);
   // Reconsider is the way back.
-  if (decision === 'rejected') return null
+  if (!canDecide || decision === 'rejected') return null
 
+  const busy = approveMutation.isPending || rejectMutation.isPending
   return (
     <>
       <button
         type="button"
-        disabled={decisionMutation.isPending}
-        onClick={() => decisionMutation.mutate('approved')}
+        disabled={busy}
+        onClick={() => approveMutation.mutate()}
         className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
       >
-        {decisionMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+        {approveMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
         Approve
       </button>
       <button
         type="button"
-        disabled={decisionMutation.isPending}
-        onClick={() => decisionMutation.mutate('rejected')}
+        disabled={busy}
+        onClick={() => setConfirmReject(true)}
         className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-50"
       >
-        {decisionMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+        <X size={12} />
         Reject
       </button>
+      {confirmReject && (
+        <ConfirmDialog
+          title={`Reject ${name}?`}
+          body={
+            <p>
+              They move to Rejected and are not emailed until you send it from the Rejected list.
+              You can reconsider them until then.
+            </p>
+          }
+          confirmLabel="Reject candidate"
+          busy={rejectMutation.isPending}
+          error={rejectError}
+          onConfirm={() => {
+            setRejectError(null)
+            rejectMutation.mutate()
+          }}
+          onClose={() => {
+            if (rejectError) refresh()
+            setConfirmReject(false)
+            setRejectError(null)
+          }}
+        />
+      )}
     </>
   )
 }

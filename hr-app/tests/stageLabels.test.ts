@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import {
   CANDIDATE_STAGE_FILTERS,
   PHONE_SCREENING_LABEL,
+  REJECTED_FROM_LABEL,
+  REJECTED_LABEL,
   RESUME_SCREENING_LABEL,
   formatHiringStage,
 } from '../src/lib/stageLabels.ts'
@@ -39,4 +41,13 @@ test('the stage filter shows Phone Screening but keeps its URL key', () => {
 
 test('no filter label is the bare word Screening any more', () => {
   assert.ok(CANDIDATE_STAGE_FILTERS.every((f) => f.label !== 'Screening'))
+})
+
+test('rejected candidates have one name, and the places they came from are named like the stages', () => {
+  assert.equal(REJECTED_LABEL, 'Rejected')
+  assert.deepEqual(REJECTED_FROM_LABEL, {
+    resume: RESUME_SCREENING_LABEL,
+    phone: PHONE_SCREENING_LABEL,
+    interview: 'Interview',
+  })
 })

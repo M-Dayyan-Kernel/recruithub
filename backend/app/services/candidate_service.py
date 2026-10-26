@@ -110,6 +110,14 @@ class CandidateService:
         candidate = await get_tenant_candidate(
             self._session, candidate_id, actor.tenant_id
         )
+        if payload.status == "rejected":
+            # A label alone would not stop calls, links or emails: rejecting is the Rejected
+            # stage's job. Refused (409) for someone not scored against the job yet.
+            from app.services.reject_service import RejectService
+
+            await RejectService(self._session).reject(actor, candidate.job_id, candidate_id)
+            payload = payload.model_copy(update={"status": None})
+            candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
         changes: dict[str, tuple[object, object]] = {}
         if payload.phone is not None:
             changes["phone"] = (candidate.phone, payload.phone)

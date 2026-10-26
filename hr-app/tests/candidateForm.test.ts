@@ -9,6 +9,7 @@ import {
   validateCandidateForm,
   type CandidateFormValues,
 } from '../src/lib/candidateForm.ts'
+import { editableStatus } from '../src/lib/candidateForm.ts'
 import { isPlaceholderEmail, validatePhone, validateYearsOfExperience } from '../src/lib/validation.ts'
 
 const valid = (over: Partial<CandidateFormValues> = {}): CandidateFormValues => ({
@@ -125,4 +126,20 @@ test('the payload is trimmed and blanks become null', () => {
   assert.equal(payload.phone, null)
   assert.equal(payload.current_ctc, null)
   assert.equal(payload.years_experience, 3)
+})
+
+test('retired statuses open as active, so saving cannot reject anyone', () => {
+  assert.equal(editableStatus('on_hold'), 'active')
+  assert.equal(editableStatus('rejected'), 'active')
+  assert.equal(editableStatus('active'), 'active')
+  assert.equal(editableStatus('hired'), 'hired')
+  assert.equal(editableStatus(undefined), 'active')
+})
+
+test('the status is sent only when HR changed it', () => {
+  const initial = valid({ status: 'active' })
+  assert.equal('status' in candidateUpdatePayload(initial, initial), false)
+  assert.equal(candidateUpdatePayload(valid({ status: 'hired' }), initial).status, 'hired')
+  // no baseline (older callers): behaves as before
+  assert.equal(candidateUpdatePayload(initial).status, 'active')
 })

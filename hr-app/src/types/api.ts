@@ -605,3 +605,31 @@ export interface AuditLogListResponse {
   limit: number
   offset: number
 }
+
+export type RejectedFrom = 'resume' | 'phone' | 'interview'
+
+export interface RejectedCandidate {
+  candidate_id: string
+  candidate_name?: string | null
+  candidate_email?: string | null
+  rejected_from?: RejectedFrom | null
+  rejected_at?: string | null
+  rejected_by_name?: string | null
+  email_state: 'not_told' | 'sending' | 'emailed'
+  emailed_at?: string | null
+  /** False when there is no usable address (never uploaded one, or erased). */
+  can_email: boolean
+  /** Reconsider is possible until the candidate has been emailed. */
+  can_reconsider: boolean
+  has_report: boolean
+}
+
+export interface RejectedListResponse {
+  candidates: RejectedCandidate[]
+}
+
+export interface RejectionEmailResponse {
+  results: { candidate_id: string; status: 'sent' | 'failed' | 'no_email' | 'skipped' }[]
+  sent: number
+  failed: number
+}

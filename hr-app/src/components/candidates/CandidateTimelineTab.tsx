@@ -31,6 +31,9 @@ const ACTIONS: Record<
   'screening.call_cancelled': { label: 'Screening call cancelled', Icon: PhoneCall, tone: 'neutral' },
   'screening.advanced_without_call': { label: 'Moved to interview without a call', Icon: ArrowRight, tone: 'accent' },
   'screening.rejected': { label: 'Rejected in Phone screening', Icon: Gavel, tone: 'neg' },
+  'shortlist.rejected': { label: 'Rejected', Icon: Gavel, tone: 'neg' },
+  'shortlist.reconsidered': { label: 'Rejection reconsidered', Icon: Gavel, tone: 'neutral' },
+  'shortlist.rejection_emailed': { label: 'Rejection email sent', Icon: Gavel, tone: 'neutral' },
   'shortlist.returned_to_resume': { label: 'Returned to Resume Screening', Icon: Gavel, tone: 'neutral' },
 }
 

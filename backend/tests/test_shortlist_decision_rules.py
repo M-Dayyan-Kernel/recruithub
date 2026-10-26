@@ -253,48 +253,32 @@ class DecisionRuleTests(unittest.IsolatedAsyncioTestCase):
             svc._handle_approval_side_effects.assert_not_awaited()
             session.rollback.assert_not_awaited()
 
-    async def test_a_rejected_row_can_still_be_approved(self):
-        svc, session, audit, record, result, err = await self._decide("rejected", "approved")
-        self.assertIsNone(err)
-        svc._handle_approval_side_effects.assert_awaited_once()
-
-    async def test_a_final_or_staged_rejection_cannot_be_flipped_here(self):
-        for kw in (dict(rejection_emailed_at=NOW), dict(rejected_from="phone"), dict(rejected_from="interview")):
-            with self.subTest(kw):
-                record = _record("rejected", **kw)
-                svc, session, audit = _service(record)
-                with self.assertRaises(ConflictError):
-                    await svc.update_decision(_actor(), record.id, ShortlistDecisionUpdate(hr_decision="approved"))
+    async def test_a_rejected_row_cannot_be_flipped_here(self):
+        # Reconsider (Rejected list) is the only way back
+        for target in ("approved", "overridden"):
+            with self.subTest(target):
+                svc, session, audit, record, result, err = await self._decide("rejected", target)
+                self.assertIsNotNone(err)
+                self.assertIn("Reconsider", err.public_message)
                 self.assertEqual(record.hr_decision, "rejected")
                 svc._handle_approval_side_effects.assert_not_awaited()
                 audit.log_change.assert_not_awaited()
 
-    async def test_flipping_a_resume_rejection_clears_its_record(self):
-        record = _record("rejected", rejected_from="resume")
-        record.rejected_at = NOW
-        svc, session, audit = _service(record)
-        await svc.update_decision(_actor(), record.id, ShortlistDecisionUpdate(hr_decision="approved"))
-        self.assertEqual((record.hr_decision, record.rejected_from, record.rejected_at), ("approved", None, None))
-
-    async def test_rejecting_records_where_from_and_that_the_email_went(self):
-        svc, session, audit, record, result, err = await self._decide("pending", "rejected")
-        self.assertEqual(record.rejected_from, "resume")
-        self.assertIsNotNone(record.rejected_at)
-        self.assertIsNotNone(record.rejection_emailed_at)
-
-    async def test_rejecting_when_the_email_fails_leaves_them_not_told(self):
-        record = _record("pending")
-        svc, session, audit = _service(record)
-        svc.send_rejection_email = AsyncMock(return_value=False)
-        await svc.update_decision(_actor(), record.id, ShortlistDecisionUpdate(hr_decision="rejected"))
-        self.assertEqual(record.hr_decision, "rejected")
-        self.assertIsNone(record.rejection_emailed_at)
-
-    async def test_rejecting_a_pending_row_sends_one_email(self):
-        svc, session, audit, record, result, err = await self._decide("pending", "rejected")
-        self.assertIsNone(err)
-        svc.send_rejection_email.assert_awaited_once()
-        svc._handle_approval_side_effects.assert_not_awaited()
+    async def test_rejecting_goes_through_the_rejected_stage_and_sends_no_email(self):
+        for current in ("pending", "overridden"):
+            with self.subTest(current):
+                record = _record(current)
+                svc, session, audit = _service(record)
+                with patch("app.services.reject_service.RejectService.reject", AsyncMock()) as reject:
+                    result = await svc.update_decision(
+                        _actor(), record.id, ShortlistDecisionUpdate(hr_decision="rejected")
+                    )
+                reject.assert_awaited_once()
+                self.assertEqual(reject.await_args.args[1:], (record.job_id, record.candidate_id))
+                svc.send_rejection_email.assert_not_awaited()
+                svc._handle_approval_side_effects.assert_not_awaited()
+                session.commit.assert_awaited()  # the row lock is released before the stage takes its own
+                self.assertIsNotNone(result)
 
 
 class ListStageTests(unittest.IsolatedAsyncioTestCase):

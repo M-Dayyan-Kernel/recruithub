@@ -241,6 +241,9 @@ Partial update of candidate contact fields.
 
 > Only provided (non-null) fields are updated. Useful for HR to correct OCR errors in parsed contact details.
 
+
+> **Status:** `status` is `active` or `hired`. `on_hold` is retired and read as `active`. `rejected` is carried out as a rejection by the Rejected stage (the label itself is not stored); it is refused (`409`) for a candidate who has not been scored against the job.
+
 ---
 
 #### `DELETE /api/candidates/{candidate_id}` *(NEW — Sprint B-9)*
@@ -350,14 +353,14 @@ Set HR decision on a shortlist entry.
 
 **Response `200`:** `ShortlistResultResponse`
 
-**Rules:** Setting the decision a row already has is a no-op (no side effects, no email, no audit row). `approved` is final from this endpoint: changing an approved row to anything else is refused, because the candidate is by then in a call or interview and is managed from the Phone screening / Interviews tab. `rejected` can still be changed to `approved`. Concurrent requests for one row are serialised on a row lock, so approval side effects run once.
+**Rules:** Setting the decision a row already has is a no-op (no side effects, no email, no audit row). `approved` is final from this endpoint: changing an approved row to anything else is refused, because the candidate is by then in a call or interview and is managed from the Phone screening / Interviews tab. `rejected` is final here too: changing a rejected row is refused (`409`); **Reconsider** on the Rejected list is the way back. Setting `rejected` is carried out by the Rejected stage (see `POST /api/jobs/{job_id}/candidates/{candidate_id}/reject`). Concurrent requests for one row are serialised on a row lock, so approval side effects run once.
 
 **Errors:**
 - `404` — shortlist result not found
 - `409` — the row is already approved and cannot be changed here
 - `422` — invalid `hr_decision` value
 
-> **Email:** On the first transition to `hr_decision = "rejected"`, a rejection email is sent via Gmail to the candidate (if a valid email is on file). Re-clicking Reject does not resend. Email failure does not roll back the decision.
+> **Email:** Rejecting does **not** email the candidate. The rejection email is sent from the Rejected list (`POST /api/jobs/{job_id}/rejected/email`) and is final.
 
 > **Nova UI:** The **AI Shortlisted** tab uses this endpoint for per-card **Approve** / **Reject** buttons on each scored candidate card.
 
@@ -447,7 +450,7 @@ Reject such a candidate from the Phone screening tab.
 
 **Request Body:** `{ "candidate_id": "uuid" }` — **Response `200`:** `{ "candidate_id", "interview_session_id": null, "email_sent" }`
 
-Undialled calls are cancelled, `hr_decision` becomes `rejected` (committed before the rejection email is attempted), audit `screening.rejected`. Approving them again from Resume Screening queues a fresh call.
+Moves them to Rejected (see the Rejected section): undialled calls are cancelled, `email_sent` is always `false` (the email is sent from the Rejected list). Reconsider queues a fresh call. Only for candidates the call could not settle; for anyone else, use `POST /api/jobs/{job_id}/candidates/{candidate_id}/reject`.
 
 > **Dialler guard:** just before placing any call, the dialler cancels it instead if the candidate is no longer approved or already has a pending/in-progress interview — this catches a Call Now that raced a reject or a move.
 
@@ -534,6 +537,11 @@ HR view: list all interview sessions for a job, enriched with `candidate_name` a
 **Errors:** `404` — job not found
 
 > **Nova gotcha:** `interview_url` is computed from `CANDIDATE_APP_URL` env var (default `http://localhost:5174`). `candidate_name` is batch-loaded via join — always present. `expires_at` is set (7 days from send) for sessions created after Sprint A.
+
+---
+
+#### `PATCH /api/candidates/{candidate_id}/interview/decision`
+`approved` moves a finished interview to Finalists (refused for a rejected candidate, and a finalist cannot be changed). `rejected` is carried out by the Rejected stage and works for any candidate with an interview session, not only a finished one (an unstarted link is cancelled; a live interview is refused with `409`); no email is sent.
 
 ---
 
@@ -917,6 +925,10 @@ VITE_API_URL=http://localhost:8080
 | POST | `/api/screening/webhook` | Vapi webhook (internal) |
 | GET | `/api/jobs/{id}/screening` | Get screening results |
 | PATCH | `/api/screening/{id}/result` | HR pass/fail decision on screening |
+| POST | `/api/jobs/{id}/candidates/{cid}/reject` | Reject from any stage (no email) |
+| GET | `/api/jobs/{id}/rejected` | Rejected candidates and whether they were told |
+| POST | `/api/jobs/{id}/rejected/{cid}/reconsider` | Put a rejected candidate back |
+| POST | `/api/jobs/{id}/rejected/email` | Email up to 10 rejected candidates (final) |
 | GET | `/api/jobs/{id}/interviews` | List interview sessions for job |
 | POST | `/api/candidates/{id}/interview/send` | Send interview link |
 | POST | `/api/candidates/{id}/interview/cancel` | Cancel a pending interview link |
