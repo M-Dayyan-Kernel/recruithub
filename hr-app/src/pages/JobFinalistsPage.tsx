@@ -4,6 +4,7 @@ import { FileText, Loader2, Users } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { FinalistsResponse } from '@/types/api'
 import type { JobOutletContext } from '@/components/JobLayout'
+import { BTN_SECONDARY } from '@/components/ui/Surface'
 import { WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
 
 export default function JobFinalistsPage() {
@@ -78,7 +79,7 @@ export default function JobFinalistsPage() {
                   <td className="px-4 py-3 text-right">
                     <Link
                       to={`/jobs/${jobId}/candidates/${c.candidate_id}/report?tab=finalists`}
-                      className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                      className={BTN_SECONDARY}
                     >
                       <FileText size={12} />
                       View Report

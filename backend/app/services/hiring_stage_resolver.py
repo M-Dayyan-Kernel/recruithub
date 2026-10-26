@@ -34,6 +34,11 @@ def resolve_hiring_stage(
     if candidate.pipeline_status in ("queued", "processing"):
         return "Processing"
 
+    # Rejected by HR is final for this label, whatever the candidate's last call or interview
+    # looks like: a rejection cancels what was unstarted, and Reconsider is the way back.
+    if shortlist is not None and shortlist.hr_decision == "rejected":
+        return "Rejected"
+
     if interview_session is not None:
         hr_decision = getattr(interview_session, "hr_decision", None) or "pending"
         if interview_report is not None and hr_decision == "approved":
@@ -45,11 +50,6 @@ def resolve_hiring_stage(
             if hr_decision == "approved":
                 return "Finalist"
             return "Interview"
-
-    # Rejected by HR (from Resume or Phone screening) is final for this label, whatever their
-    # last call looks like; checked before the call because a rejection cancels queued calls.
-    if shortlist is not None and shortlist.hr_decision == "rejected":
-        return "Rejected"
 
     if screening is not None:
         # "cancelled": HR cancelled the queued call; the candidate is still in this stage.

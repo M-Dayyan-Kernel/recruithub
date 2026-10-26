@@ -289,6 +289,11 @@ function statusLabelForRow(
   return 'Pending'
 }
 
+function candidatesWithOnlySkippedCalls(calls: ScreeningCall[]): Set<string> {
+  const withReal = new Set(calls.filter((c) => !c.skipped).map((c) => c.candidate_id))
+  return new Set(calls.filter((c) => c.skipped && !withReal.has(c.candidate_id)).map((c) => c.candidate_id))
+}
+
 export function buildScreeningRows(
   approvedShortlist: ShortlistResultWithCandidate[],
   candidatesMap: Record<string, Candidate>,
@@ -300,7 +305,11 @@ export function buildScreeningRows(
    */
   screeningOn: boolean = true,
 ): ScreeningRow[] {
-  return approvedShortlist.map((sr) => {
+  // A skipped screening is a record that the call never happened. Someone whose only calls
+  // were skipped moved on to the interview and has no place in this tab.
+  const skippedOnly = candidatesWithOnlySkippedCalls(screeningCalls)
+  const realCalls = screeningCalls.filter((c) => !c.skipped)
+  return approvedShortlist.filter((sr) => !skippedOnly.has(sr.candidate_id)).map((sr) => {
     const candidate = candidatesMap[sr.candidate_id]
     const phone = candidate?.phone ?? null
     const name =
@@ -308,7 +317,7 @@ export function buildScreeningRows(
       candidate?.parsed_data?.name ??
       candidate?.name ??
       'Candidate'
-    const latestCall = latestCallForCandidate(sr.candidate_id, screeningCalls)
+    const latestCall = latestCallForCandidate(sr.candidate_id, realCalls)
     const { tab, flagReason } = classifyTab(latestCall, phone, settings)
     const attemptNumber = latestCall ? (latestCall.retry_count ?? 0) + 1 : 1
     const scheduledRetry = latestCall ? isScheduledRetry(latestCall) : false

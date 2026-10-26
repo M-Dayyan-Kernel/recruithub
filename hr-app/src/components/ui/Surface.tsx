@@ -228,6 +228,16 @@ export const BTN_PRIMARY =
 export const BTN_GHOST =
   'inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-line bg-surface px-3 text-[13px] font-medium text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60'
 
+/** A clear secondary action (Report, View report): bordered, dark text, so it reads as a
+ * button and not as a disabled one. No accent, so it never counts against rule 1. */
+export const BTN_SECONDARY =
+  'inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-line-strong bg-surface px-3 text-[13px] font-medium text-ink transition-colors hover:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60'
+
+/** A link to another stage ("Open Interviews →"). Same weight as BTN_SECONDARY; the arrow
+ * icon, passed as a child, is what says "this goes somewhere". */
+export const BTN_STAGE_LINK =
+  'inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-line-strong bg-surface px-3 text-[13px] font-semibold text-ink transition-colors hover:border-ink-subtle hover:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-accent/30'
+
 export const BTN_DANGER =
   'inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-neg-soft bg-neg-soft px-3 text-[13px] font-medium text-neg transition-colors hover:border-neg/30 focus:outline-none focus:ring-2 focus:ring-neg/30 disabled:cursor-not-allowed disabled:opacity-60'
 

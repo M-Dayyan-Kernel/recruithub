@@ -15,9 +15,11 @@ import {
   CalendarClock,
   Download,
   Ban,
+  SkipForward,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
+import { BTN_SECONDARY } from '@/components/ui/Surface'
 import type {
   InterviewSession,
   Job,
@@ -241,6 +243,9 @@ interface CandidateInterviewCardProps {
   jobId: string
   jobTimezone?: string
   hasReport: boolean
+  /** Moved here without a call; `skipReason` is the sentence HR (or the job setting) gave. */
+  screeningSkipped?: boolean
+  skipReason?: string | null
   /** Session pre-loaded from backend (source of truth) */
   initialSession?: InterviewSession | null
 }
@@ -252,6 +257,8 @@ function CandidateInterviewCard({
   jobId,
   jobTimezone,
   hasReport,
+  screeningSkipped = false,
+  skipReason = null,
   initialSession = null,
 }: CandidateInterviewCardProps) {
   const queryClient = useQueryClient()
@@ -424,7 +431,7 @@ function CandidateInterviewCard({
         {hasReport && (
           <Link
             to={`/jobs/${jobId}/candidates/${candidateId}/report?tab=completed`}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700"
+            className={`${BTN_SECONDARY} shrink-0`}
           >
             <FileText size={13} />
             View Report
@@ -474,12 +481,25 @@ function CandidateInterviewCard({
 
       {/* Status badges */}
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
-          <CheckCircle2 size={12} />
-          {PHONE_SCREENING_LABEL} passed
-        </span>
+        {screeningSkipped ? (
+          <span
+            title={skipReason ?? undefined}
+            className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-2.5 py-1 text-xs font-medium text-ink-muted"
+          >
+            <SkipForward size={12} aria-hidden />
+            {PHONE_SCREENING_LABEL} skipped
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+            <CheckCircle2 size={12} />
+            {PHONE_SCREENING_LABEL} passed
+          </span>
+        )}
         <InterviewStatusChip status={interviewStatus} />
       </div>
+      {screeningSkipped && skipReason && (
+        <p className="mt-2 text-xs text-ink-muted">{skipReason}</p>
+      )}
 
       {/* Scheduled slot — candidate notified immediately with link */}
       {isFutureScheduled && session?.scheduled_interview_at && (
@@ -871,6 +891,8 @@ export function InterviewsTab({ job, jobId }: Props) {
               jobId={jobId}
               jobTimezone={job.screening_timezone}
               hasReport={row.has_report}
+              screeningSkipped={row.screening_skipped}
+              skipReason={row.skip_reason}
               initialSession={row.session ?? null}
             />
           ))}

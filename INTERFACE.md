@@ -467,6 +467,8 @@ List all screening calls for a job.
 
 **Response `200`:** `ScreeningCallResponse[]` — ordered by `created_at` desc
 
+> **`skipped`:** `true` for the record written when a candidate is moved to an interview without a call (voice screening off, or "Move to interview"). It is a completed/pass row so the interview gates work, but no call took place: it carries `ended_reason = "skipped"` and the reason in `summary`, and every reader that means "a call happened" (Phone screening tab, dashboard counts, candidate profile) ignores or relabels it. Rows from before the marker are recognised by their summary. A completed pass with no Vapi id is not skipped by that alone.
+
 **Errors:** `404` — job not found
 
 ---
@@ -483,6 +485,7 @@ Set HR decision on a completed screening call.
 
 **Errors:**
 - `404` — screening call not found
+- `409` — the candidate was rejected on the shortlist, or already has an interview session; the Phone screening result is no longer theirs to change
 - `422` — invalid result or call not yet completed
 
 > **Nova UI:** Screening tab **Approve Pass** / **Reject Fail** buttons call this endpoint with `pass` or `fail`.
@@ -529,7 +532,9 @@ Create an interview session and send the interview link to the candidate via ema
 **Errors:**
 - `400` — candidate has not passed screening (`result != "pass"`)
 - `404` — candidate not found
-- `409` — active interview session already exists for this candidate
+- `409` — active interview session already exists for this candidate, or the candidate was rejected (also for `schedule`, `resend` and `reschedule`)
+
+The pass is looked up for this candidate's job and must be a completed call.
 
 > **Nova gotcha:** `email_sent_at` is set if email succeeded; `null` if Gmail delivery failed. Session is still created either way — show the `interview_url` as fallback.
 

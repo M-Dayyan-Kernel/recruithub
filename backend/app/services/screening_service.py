@@ -6,12 +6,13 @@ import asyncio
 import logging
 import uuid
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_loader import config
 from app.core.tenancy import get_tenant_job, get_tenant_screening_call
-from app.exceptions import ValidationError
-from app.models.models import Candidate, User
+from app.exceptions import ConflictError, ValidationError
+from app.models.models import Candidate, ShortlistResult, User
 from app.repositories.interview_repository import InterviewRepository
 from app.repositories.screening_repository import LIVE_CALL_STATUSES, ScreeningRepository
 from app.schemas.schemas import ScreeningCallResponse, ScreeningResultUpdate
@@ -133,6 +134,8 @@ class ScreeningService:
                 public_message="Screening result can only be set after the call is completed.",
             )
 
+        await self._refuse_if_past_screening(screening_call)
+
         before_result = screening_call.result
         screening_call.result = payload.result
         if payload.result != "pass":
@@ -164,6 +167,31 @@ class ScreeningService:
             screening_call,
             has_interview_session=screening_call.candidate_id in interview_candidate_ids,
         )
+
+    async def _refuse_if_past_screening(self, screening_call) -> None:
+        """The result is the Phone screening decision; once the candidate has an interview
+        or was rejected it belongs to another stage and flipping it here would only make
+        this tab disagree with the pipeline. Shortlist row first: the lock order every
+        other path uses."""
+        shortlist = (
+            await self._session.execute(
+                select(ShortlistResult)
+                .where(
+                    ShortlistResult.job_id == screening_call.job_id,
+                    ShortlistResult.candidate_id == screening_call.candidate_id,
+                )
+                .with_for_update()
+            )
+        ).scalars().first()
+        if shortlist is not None and shortlist.hr_decision == "rejected":
+            raise ConflictError(
+                public_message="This candidate was rejected. Reconsider them before changing the result.",
+            )
+        in_interviews = await self._interviews.candidate_ids_with_sessions(screening_call.job_id)
+        if screening_call.candidate_id in in_interviews:
+            raise ConflictError(
+                public_message="This candidate is already in Interviews. Manage them there.",
+            )
 
     @staticmethod
     def _to_response(

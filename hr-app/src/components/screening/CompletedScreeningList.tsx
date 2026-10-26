@@ -1,8 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useOutletContext } from 'react-router-dom'
+import { Link, useOutletContext } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Loader2, Phone, Send } from 'lucide-react'
+import { ArrowRight, FileText, Loader2, Phone, Send, X } from 'lucide-react'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { BTN_DANGER, BTN_SECONDARY, BTN_STAGE_LINK } from '@/components/ui/Surface'
+import { describeStage } from '@/lib/shortlistDecision'
 import type { ScreeningRow } from '@/components/screening/screeningRows'
 import { ScreeningReportModal } from '@/components/screening/ScreeningReportModal'
 import { displayField, isScreeningReportGenerating } from '@/components/screening/screeningUtils'
@@ -33,10 +36,17 @@ function CompletedScreeningRow({
 }) {
   const queryClient = useQueryClient()
   const call = row.latestCall
+  const [confirmReject, setConfirmReject] = useState(false)
+  const [rejectError, setRejectError] = useState<string | null>(null)
   if (!call) return null
 
   const isRejected = call.result === 'fail'
-  const hasSession = Boolean(call.has_interview_session)
+  const stage = row.shortlist.stage
+  // Past screening: the interview owns the candidate now, so this row only says where they
+  // are. (A passed call with no session yet is still this stage's to act on.)
+  const pastScreening =
+    Boolean(call.has_interview_session) || (stage?.kind === 'interview' && stage.state !== 'pending')
+  const stageView = pastScreening && stage ? describeStage(stage, jobId) : null
   const isGenerating = isScreeningReportGenerating(call)
 
   const invalidate = () => {
@@ -50,9 +60,14 @@ function CompletedScreeningRow({
     mutationFn: () => api.patch(`/api/screening/${call.id}/result`, { result: 'fail' }),
     onSuccess: () => {
       invalidate()
+      setConfirmReject(false)
       toast.success(`${row.candidateName} rejected`)
     },
-    onError: () => toast.error('Failed to reject candidate'),
+    onError: (err: Error) => {
+      // Refused because the candidate moved on: refresh so the row stops offering Reject.
+      invalidate()
+      setRejectError(err.message || 'Failed to reject candidate')
+    },
   })
 
   const scheduleMutation = useMutation({
@@ -99,16 +114,24 @@ function CompletedScreeningRow({
             Generating…
           </span>
         ) : (
-          <button
-            type="button"
-            onClick={() => onOpenReport(row)}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-indigo-300 hover:text-indigo-600"
-          >
+          <button type="button" onClick={() => onOpenReport(row)} className={BTN_SECONDARY}>
+            <FileText size={13} aria-hidden />
             Report
           </button>
         )}
       </td>
       <td className="px-4 py-3">
+        {pastScreening ? (
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <span className="text-[13px] text-ink-muted">
+              {stageView ? `${stageView.title} · ${stageView.detail}` : 'In Interviews'}
+            </span>
+            <Link to={stageView?.to ?? `/jobs/${jobId}/interviews`} className={BTN_STAGE_LINK}>
+              Open Interviews
+              <ArrowRight size={13} aria-hidden />
+            </Link>
+          </div>
+        ) : (
         <div className="flex flex-wrap items-center justify-end gap-2">
           {row.canCallNow && (
             <button
@@ -134,37 +157,41 @@ function CompletedScreeningRow({
           <button
             type="button"
             onClick={() => scheduleMutation.mutate()}
-            disabled={busy || isRejected || hasSession}
-            className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold ${
-              hasSession
-                ? 'border border-indigo-200 bg-indigo-50 text-indigo-700'
-                : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50'
-            }`}
+            disabled={busy || isRejected}
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-accent px-3 text-[13px] font-semibold text-accent-ink transition-colors hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {scheduleMutation.isPending ? (
-              <Loader2 size={12} className="animate-spin" />
+              <Loader2 size={13} className="animate-spin" aria-hidden />
             ) : (
-              <Send size={12} />
+              <Send size={13} aria-hidden />
             )}
-            {hasSession ? 'Scheduled' : 'Schedule'}
+            Send interview link
           </button>
-          <button
-            type="button"
-            onClick={() => rejectMutation.mutate()}
-            disabled={busy || isRejected}
-            className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-              isRejected
-                ? 'border-rose-300 bg-rose-600 text-white'
-                : 'border-slate-200 bg-white text-slate-700 hover:border-rose-300 hover:bg-rose-50'
-            }`}
-          >
-            {rejectMutation.isPending ? (
-              <Loader2 size={12} className="inline animate-spin" />
-            ) : null}
-            Reject
-          </button>
+          {isRejected ? (
+            <span className="text-[13px] font-medium text-neg">Rejected</span>
+          ) : (
+            <button type="button" onClick={() => setConfirmReject(true)} disabled={busy} className={BTN_DANGER}>
+              <X size={13} aria-hidden />
+              Reject
+            </button>
+          )}
         </div>
+        )}
       </td>
+      {confirmReject && (
+        <ConfirmDialog
+          title={`Reject ${row.candidateName}?`}
+          body={<p>They are marked as not moving forward after phone screening. You can still change this until an interview link is sent.</p>}
+          confirmLabel="Reject"
+          busy={rejectMutation.isPending}
+          error={rejectError}
+          onConfirm={() => rejectMutation.mutate()}
+          onClose={() => {
+            setConfirmReject(false)
+            setRejectError(null)
+          }}
+        />
+      )}
     </tr>
   )
 }

@@ -192,15 +192,16 @@ export default function DashboardPage() {
     return jobList.map((job, i) => {
       const candidates = (candidateQueries[i]?.data ?? []) as Candidate[]
       const screeningCalls = (screeningQueries[i]?.data ?? []) as ScreeningCall[]
-      // Count unique candidates (retries create multiple completed calls for one person)
+      // Count unique candidates (retries create multiple completed calls for one person).
+      // A skipped screening is a record that no call happened, so it is not counted.
       const screenedCandidateIds = new Set(
         screeningCalls
-          .filter((sc) => sc.call_status === 'completed')
+          .filter((sc) => sc.call_status === 'completed' && !sc.skipped)
           .map((sc) => sc.candidate_id),
       )
       const passedCandidateIds = new Set(
         screeningCalls
-          .filter((sc) => sc.result === 'pass')
+          .filter((sc) => sc.result === 'pass' && !sc.skipped)
           .map((sc) => sc.candidate_id),
       )
       return {
@@ -231,7 +232,7 @@ export default function DashboardPage() {
     jobStats.forEach((s) => {
       const calls = (screeningQueries[jobList.findIndex((j) => j.id === s.job.id)]?.data ?? []) as ScreeningCall[]
       calls
-        .filter((sc) => sc.call_status === 'completed')
+        .filter((sc) => sc.call_status === 'completed' && !sc.skipped)
         .forEach((sc) => {
           const c = allCandidatesMap[sc.candidate_id]
           const candidateName =

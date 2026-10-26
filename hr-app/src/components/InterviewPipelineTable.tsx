@@ -4,6 +4,7 @@ import { Check, FileText, Loader2, RefreshCw, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import type { InterviewPipelineCandidate, InterviewSession } from '@/types/api'
+import { BTN_SECONDARY } from '@/components/ui/Surface'
 import { WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
 
 interface Props {
@@ -52,6 +53,9 @@ function RescheduleButton({
     onError: (err: Error) => toast.error(err.message || 'Failed to reschedule interview'),
   })
 
+  // A rejected candidate has no link to move: Reconsider comes first.
+  if (row.hr_decision === 'rejected') return null
+
   const disabled =
     row.actions_disabled || !row.can_reschedule || row.has_active_session
 
@@ -66,7 +70,7 @@ function RescheduleButton({
       disabled={disabled || rescheduleMutation.isPending}
       title={title}
       onClick={() => rescheduleMutation.mutate()}
-      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className={BTN_SECONDARY}
     >
       {rescheduleMutation.isPending ? (
         <Loader2 size={12} className="animate-spin" />
@@ -113,19 +117,9 @@ function DecisionButtons({
 
   if (!canDecide) return null
 
-  if (decision === 'rejected') {
-    return (
-      <button
-        type="button"
-        disabled={decisionMutation.isPending}
-        onClick={() => decisionMutation.mutate('approved')}
-        className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
-      >
-        {decisionMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-        Approve
-      </button>
-    )
-  }
+  // A rejection is not undone from this table (a status is a label, not a button);
+  // Reconsider is the way back.
+  if (decision === 'rejected') return null
 
   return (
     <>
@@ -264,10 +258,7 @@ export function InterviewPipelineTable({
                           </span>
                         )}
                         {reportReady && !actionsDisabled ? (
-                          <Link
-                            to={reportLink(row.candidate_id)}
-                            className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
-                          >
+                          <Link to={reportLink(row.candidate_id)} className={BTN_SECONDARY}>
                             <FileText size={12} />
                             View Report
                           </Link>

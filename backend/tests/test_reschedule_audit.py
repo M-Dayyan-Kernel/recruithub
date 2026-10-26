@@ -16,6 +16,7 @@ def _service(new_session, previous):
     audit.log_change = AsyncMock()
     svc = InterviewHrService(db, interview_repo=MagicMock(), audit_service=audit)
     svc._candidate_label = AsyncMock(return_value="Cand")
+    svc._refuse_if_rejected = AsyncMock()
     return svc, audit
 
 
