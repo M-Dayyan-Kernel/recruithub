@@ -14,13 +14,12 @@ Copy `backend/.env.example` → `.env.production` on both servers. Use the same 
 
 ```
 SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
 SMTP_USERNAME=<the mailbox, e.g. hr@yourdomain.com>
 SMTP_PASSWORD=<app password, not the login password>
-SMTP_USE_TLS=true          # STARTTLS on 587; use SMTP_USE_SSL=true with port 465 instead
-SMTP_FROM_EMAIL=           # optional; defaults to SMTP_USERNAME
-SMTP_FROM_NAME=Webknot Recruitment   # optional display name
+SMTP_PORT=587              # optional, 587 by default; 465 is encrypted from the start
 ```
+
+The sender address is `SMTP_USERNAME`; the name candidates see is the organization's name (Settings → organization), so each tenant's mail reads "Their Name <hr@yourdomain.com>". Gmail rewrites any other From address back to the logged-in mailbox, so there is no separate from-address setting.
 
 A Gmail / Google Workspace app password needs 2-Step Verification on the account (Google Account → Security → App passwords). Check it with Settings → Email templates → send a test email; a failure is explained in the API log (`docker compose -f docker-compose.app.yml logs api | grep SMTP`).
 

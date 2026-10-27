@@ -10,26 +10,26 @@ from app.services import gmail_service as gs
 def _env(**over):
     base = dict(
         SMTP_HOST="smtp.example.com", SMTP_PORT=587, SMTP_USERNAME="hr@example.com",
-        SMTP_PASSWORD="app-password", SMTP_USE_TLS=True, SMTP_USE_SSL=False,
-        SMTP_FROM_EMAIL="", SMTP_FROM_NAME="", RESEND_API_KEY="", RESEND_FROM_EMAIL="x@y.z",
+        SMTP_PASSWORD="app-password", RESEND_API_KEY="", RESEND_FROM_EMAIL="x@y.z",
     )
     base.update(over)
     return SimpleNamespace(**base)
 
 
-def _server():
+def _server(starttls=True):
     server = MagicMock()
     server.__enter__.return_value = server
+    server.has_extn.side_effect = lambda name: starttls and name == "starttls"
     return server
 
 
 class SmtpSendTests(unittest.TestCase):
-    def _send(self, html=True, body="<p>Hello <b>Asha</b></p><p>Next</p>", **env):
-        server = _server()
+    def _send(self, html=True, body="<p>Hello <b>Asha</b></p><p>Next</p>", from_name=None, starttls=True, **env):
+        server = _server(starttls)
         with patch.object(gs, "env_settings", _env(**env)), patch.object(
             gs.smtplib, "SMTP", return_value=server
         ) as smtp, patch.object(gs.smtplib, "SMTP_SSL", return_value=server) as smtp_ssl:
-            ok = gs._send_via_smtp("asha@example.com", "Interview", body, html=html)
+            ok = gs._send_via_smtp("asha@example.com", "Interview", body, html=html, from_name=from_name)
         return ok, server, smtp, smtp_ssl
 
     def test_starttls_then_login_then_send(self):
@@ -44,27 +44,23 @@ class SmtpSendTests(unittest.TestCase):
         self.assertLess(names.index("login"), names.index("send_message"))
         server.login.assert_called_once_with("hr@example.com", "app-password")
 
-    def test_ssl_mode_uses_smtp_ssl_and_no_starttls(self):
-        ok, server, smtp, smtp_ssl = self._send(SMTP_USE_SSL=True, SMTP_PORT=465)
+    def test_port_465_is_encrypted_from_the_start_and_never_starttls(self):
+        ok, server, smtp, smtp_ssl = self._send(SMTP_PORT=465)
         self.assertTrue(ok)
         smtp_ssl.assert_called_once()
         smtp.assert_not_called()
         server.starttls.assert_not_called()
 
-    def test_no_tls_when_turned_off(self):
-        ok, server, *_ = self._send(SMTP_USE_TLS=False)
+    def test_starttls_only_when_the_server_offers_it(self):
+        ok, server, *_ = self._send(starttls=False)
         self.assertTrue(ok)
         server.starttls.assert_not_called()
-
-    def test_no_login_without_a_username(self):
-        ok, server, *_ = self._send(SMTP_USERNAME="", SMTP_PASSWORD="", SMTP_FROM_EMAIL="relay@example.com")
-        self.assertTrue(ok)
-        server.login.assert_not_called()
+        server.login.assert_called_once()
 
     def test_message_headers_and_parts(self):
-        ok, server, *_ = self._send(SMTP_FROM_NAME="Webknot Recruitment")
+        ok, server, *_ = self._send(from_name="Webknot Technologies")
         msg = server.send_message.call_args.args[0]
-        self.assertEqual(msg["From"], "Webknot Recruitment <hr@example.com>")
+        self.assertEqual(msg["From"], "Webknot Technologies <hr@example.com>")
         self.assertEqual(msg["To"], "asha@example.com")
         self.assertEqual(msg["Subject"], "Interview")
         self.assertTrue(msg["Message-ID"].endswith("@example.com>"))
@@ -73,9 +69,18 @@ class SmtpSendTests(unittest.TestCase):
         self.assertIn("Hello Asha", msg.get_payload()[0].get_payload(decode=True).decode())
         self.assertEqual(server.send_message.call_args.kwargs, {"from_addr": "hr@example.com", "to_addrs": ["asha@example.com"]})
 
-    def test_from_email_overrides_the_username(self):
-        ok, server, *_ = self._send(SMTP_FROM_EMAIL="noreply@example.com")
-        self.assertEqual(server.send_message.call_args.kwargs["from_addr"], "noreply@example.com")
+    def test_the_sender_is_the_username_and_a_missing_name_is_just_the_address(self):
+        ok, server, *_ = self._send()
+        msg = server.send_message.call_args.args[0]
+        self.assertEqual(msg["From"], "hr@example.com")
+        self.assertEqual(server.send_message.call_args.kwargs["from_addr"], "hr@example.com")
+
+    def test_an_organization_name_with_odd_characters_stays_one_valid_header(self):
+        ok, server, *_ = self._send(from_name='Acme, "R&D" Ltd\nBcc: evil@x.com')
+        msg = server.send_message.call_args.args[0]
+        self.assertNotIn("\n", msg["From"])
+        self.assertIsNone(msg["Bcc"])
+        self.assertIn("<hr@example.com>", msg["From"])
 
     def test_plain_body_is_one_text_part(self):
         ok, server, *_ = self._send(html=False, body="just text")
@@ -110,7 +115,7 @@ class SmtpSendTests(unittest.TestCase):
         with patch.object(gs, "env_settings", _env(SMTP_HOST="")):
             self.assertFalse(gs.smtp_configured())
             self.assertFalse(gs._send_via_smtp("a@b.com", "s", "x", html=False))
-        with patch.object(gs, "env_settings", _env(SMTP_USERNAME="", SMTP_FROM_EMAIL="")):
+        with patch.object(gs, "env_settings", _env(SMTP_USERNAME="")):
             self.assertFalse(gs._send_via_smtp("a@b.com", "s", "x", html=False))
 
 
@@ -130,6 +135,16 @@ class TransportOrderTests(unittest.TestCase):
         for html in (True, False):
             out, calls = self._run(smtp_ok=True, resend_key="k", html=html)
             self.assertEqual((out, calls), (True, ["smtp"]))
+
+    def test_the_organization_name_reaches_smtp(self):
+        seen = {}
+        with patch.object(gs, "env_settings", _env()), patch.object(gs.mocks, "mock_email_enabled", return_value=False), patch.object(
+            gs, "_send_via_smtp", side_effect=lambda *a, **k: seen.update(k) or True
+        ):
+            gs.send_html_email("a@b.com", "s", "<p>x</p>", from_name="Webknot Technologies")
+            self.assertEqual(seen["from_name"], "Webknot Technologies")
+            gs.send_plain_email("a@b.com", "s", "x", from_name="Acme")
+            self.assertEqual(seen["from_name"], "Acme")
 
     def test_a_failed_smtp_falls_back_to_resend_then_gmail(self):
         self.assertEqual(self._run(smtp_ok=False, resend_key="k"), (True, ["smtp", "resend"]))

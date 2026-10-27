@@ -224,6 +224,7 @@ class SystemSettingsService:
             subject=f"[TEST] {rendered['subject']}",
             html_body=rendered["body_html"],
             gmail_token_json=gmail_token,
+            from_name=await get_company_name(self._session, admin.tenant_id),
         )
         if not sent:
             raise ServiceUnavailableError(

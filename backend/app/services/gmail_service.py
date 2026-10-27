@@ -61,17 +61,14 @@ def _html_to_text(html_body: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", re.sub(r"[ \t]+", " ", text)).strip()
 
 
-def _smtp_sender() -> str:
-    return _clean_header(env_settings.SMTP_FROM_EMAIL or env_settings.SMTP_USERNAME)
-
-
-def _send_via_smtp(to_email: str, subject: str, body: str, *, html: bool) -> bool:
+def _send_via_smtp(to_email: str, subject: str, body: str, *, html: bool, from_name: str | None = None) -> bool:
     host = (env_settings.SMTP_HOST or "").strip()
     if not host:
         return False
-    sender = _smtp_sender()
+    username = (env_settings.SMTP_USERNAME or "").strip()
+    sender = _clean_header(username)
     if not sender:
-        logger.error("SMTP is configured but there is no sender: set SMTP_FROM_EMAIL or SMTP_USERNAME")
+        logger.error("SMTP is configured but SMTP_USERNAME is empty, so there is no sender address")
         return False
 
     if html:
@@ -80,26 +77,27 @@ def _send_via_smtp(to_email: str, subject: str, body: str, *, html: bool) -> boo
         message.attach(MIMEText(body, "html", "utf-8"))
     else:
         message = MIMEText(body, "plain", "utf-8")
-    message["From"] = formataddr((_clean_header(env_settings.SMTP_FROM_NAME), sender))
+    # The display name is the organization's, so each tenant's candidates see their own name
+    # on mail that all leaves through one mailbox. Only the label: the address is the login.
+    message["From"] = formataddr((_clean_header(from_name or ""), sender))
     message["To"] = _clean_header(to_email)
     message["Subject"] = _clean_header(subject)
     message["Date"] = formatdate(localtime=False)
     message["Message-ID"] = make_msgid(domain=sender.rsplit("@", 1)[-1] or None)
 
     port = int(env_settings.SMTP_PORT)
-    username = (env_settings.SMTP_USERNAME or "").strip()
     try:
-        if env_settings.SMTP_USE_SSL:
-            server = smtplib.SMTP_SSL(host, port, timeout=SMTP_TIMEOUT_SECONDS, context=ssl.create_default_context())
+        context = ssl.create_default_context()
+        if port == 465:
+            server = smtplib.SMTP_SSL(host, port, timeout=SMTP_TIMEOUT_SECONDS, context=context)
         else:
             server = smtplib.SMTP(host, port, timeout=SMTP_TIMEOUT_SECONDS)
         with server:
             server.ehlo()
-            if env_settings.SMTP_USE_TLS and not env_settings.SMTP_USE_SSL:
-                server.starttls(context=ssl.create_default_context())
+            if port != 465 and server.has_extn("starttls"):
+                server.starttls(context=context)
                 server.ehlo()
-            if username:
-                server.login(username, env_settings.SMTP_PASSWORD or "")
+            server.login(username, env_settings.SMTP_PASSWORD or "")
             server.send_message(message, from_addr=sender, to_addrs=[to_email])
         logger.info("SMTP email sent to %s via %s:%s", to_email, host, port)
         return True
@@ -186,8 +184,7 @@ def email_transport_hint() -> str:
     if smtp_configured():
         hints.append(
             "SMTP is configured — check SMTP_HOST, SMTP_PORT, SMTP_USERNAME and SMTP_PASSWORD "
-            "(Gmail needs an app password), and that SMTP_FROM_EMAIL is the signed-in mailbox "
-            "or a verified alias. The API log says why the last send failed."
+            "(Gmail needs an app password). The API log says why the last send failed."
         )
     if resend_configured():
         hints.append(
@@ -209,12 +206,14 @@ def send_html_email(
     html_body: str,
     *,
     gmail_token_json: str | dict | None = None,
+    from_name: str | None = None,
 ) -> bool:
+    """`from_name` is the display name on SMTP mail (the organization's name)."""
     if mocks.mock_email_enabled():
         return mocks.mock_email_send(to_email, subject)
 
     if smtp_configured():
-        if _send_via_smtp(to_email, subject, html_body, html=True):
+        if _send_via_smtp(to_email, subject, html_body, html=True, from_name=from_name):
             return True
         logger.warning("SMTP send failed for %s — falling back", to_email)
 
@@ -235,12 +234,12 @@ def send_html_email(
         return False
 
 
-def send_plain_email(to_email: str, subject: str, body: str) -> bool:
+def send_plain_email(to_email: str, subject: str, body: str, *, from_name: str | None = None) -> bool:
     if mocks.mock_email_enabled():
         return mocks.mock_email_send(to_email, subject)
 
     if smtp_configured():
-        if _send_via_smtp(to_email, subject, body, html=False):
+        if _send_via_smtp(to_email, subject, body, html=False, from_name=from_name):
             return True
         logger.warning("SMTP send failed for %s — falling back", to_email)
 

@@ -129,6 +129,7 @@ async def send_interview_link(
         subject=subject,
         html_body=html_body,
         gmail_token_json=gmail_token_json,
+        from_name=company_name,
     )
     if sent:
         logger.info(
@@ -167,6 +168,7 @@ async def send_scheduled_interview_notification(
         subject=subject,
         html_body=html_body,
         gmail_token_json=gmail_token_json,
+        from_name=company_name,
     )
     if sent:
         logger.info(
@@ -203,6 +205,7 @@ async def send_reschedule_notification(
         subject=subject,
         html_body=html_body,
         gmail_token_json=gmail_token_json,
+        from_name=company_name,
     )
     if sent:
         logger.info(
@@ -236,6 +239,7 @@ async def send_interview_cancelled_notification(
         subject=subject,
         html_body=html_body,
         gmail_token_json=gmail_token_json,
+        from_name=company_name,
     )
     if sent:
         logger.info(
@@ -269,6 +273,7 @@ async def send_failed_screening_attempt_email(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
+        from_name=company_name,
     )
     if sent:
         logger.info(
@@ -306,6 +311,7 @@ async def send_rejection_email(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
+        from_name=company_name,
     )
     if sent:
         logger.info(
@@ -361,6 +367,7 @@ async def send_org_invite_email(
             to_email=to_email,
             subject=subject,
             html_body=html_body,
+            from_name=organization_name,
         )
     except Exception:
         logger.exception("Failed to send org invite email to %s", to_email)
