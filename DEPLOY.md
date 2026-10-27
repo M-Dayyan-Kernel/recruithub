@@ -10,7 +10,21 @@
 
 Copy `backend/.env.example` → `.env.production` on both servers. Use the same secrets; only `DATABASE_URL` / `REDIS_URL` differ on Server 2 (see below).
 
-**Gmail OAuth:** set `GMAIL_CREDENTIALS_JSON` and `GMAIL_TOKEN_JSON` in `.env.production` (single-line JSON, wrap in single quotes).
+**Email:** the API tries SMTP first (when `SMTP_HOST` is set), then Resend, then the Gmail API. On **both** servers (the Celery worker also sends mail) set in `.env.production`:
+
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=<the mailbox, e.g. hr@yourdomain.com>
+SMTP_PASSWORD=<app password, not the login password>
+SMTP_USE_TLS=true          # STARTTLS on 587; use SMTP_USE_SSL=true with port 465 instead
+SMTP_FROM_EMAIL=           # optional; defaults to SMTP_USERNAME
+SMTP_FROM_NAME=Webknot Recruitment   # optional display name
+```
+
+A Gmail / Google Workspace app password needs 2-Step Verification on the account (Google Account → Security → App passwords). Check it with Settings → Email templates → send a test email; a failure is explained in the API log (`docker compose -f docker-compose.app.yml logs api | grep SMTP`).
+
+**Gmail OAuth (fallback):** set `GMAIL_CREDENTIALS_JSON` and `GMAIL_TOKEN_JSON` in `.env.production` (single-line JSON, wrap in single quotes).
 
 **Interview recordings:** LiveKit egress uploads MP4s to Linode (`S3_BUCKET`, prefix `recruitment-interview-recordings/`). In production, configure LiveKit webhooks to `{BACKEND_PUBLIC_URL}/api/livekit/webhook`. Locally, the API falls back to checking S3 when serving reports.
 

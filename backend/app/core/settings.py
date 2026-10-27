@@ -48,6 +48,22 @@ class Settings(BaseSettings):
     GMAIL_CREDENTIALS_JSON: str = ""
     GMAIL_TOKEN_JSON: str = ""
 
+    # SMTP (optional; tried first when SMTP_HOST is set). Works with any provider: Gmail or
+    # Google Workspace (smtp.gmail.com:587 with an app password), your own mail server, SES...
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    # STARTTLS on a plain connection (port 587). Ignored when SMTP_USE_SSL is true.
+    SMTP_USE_TLS: bool = True
+    # TLS from the first byte (port 465).
+    SMTP_USE_SSL: bool = False
+    # Sender address; defaults to SMTP_USERNAME. Providers usually require it to be the
+    # authenticated mailbox or a verified alias.
+    SMTP_FROM_EMAIL: str = ""
+    # Optional display name shown to candidates, e.g. "Webknot Recruitment".
+    SMTP_FROM_NAME: str = ""
+
     # Resend (optional — used when Gmail OAuth is not configured)
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
