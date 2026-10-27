@@ -48,6 +48,16 @@ class Settings(BaseSettings):
     GMAIL_CREDENTIALS_JSON: str = ""
     GMAIL_TOKEN_JSON: str = ""
 
+    # SMTP (optional; tried first when SMTP_HOST is set). Works with any provider: Gmail or
+    # Google Workspace (smtp.gmail.com with an app password), your own mail server, SES...
+    # The sender address is SMTP_USERNAME; the display name is the organization's name.
+    # Port 465 is encrypted from the start; any other port upgrades with STARTTLS when the
+    # server offers it.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+
     # Resend (optional — used when Gmail OAuth is not configured)
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
