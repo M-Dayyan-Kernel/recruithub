@@ -25,11 +25,11 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { BTN_SECONDARY, BTN_STAGE_LINK } from '@/components/ui/Surface'
 import type { ScreeningCall, ScreeningResult } from '@/types/api'
 import type { JobOutletContext } from '@/components/JobLayout'
-import { downloadScreeningReportPdf } from '@/lib/screeningReportPdf'
 import {
   displayField,
   isScreeningReportGenerating,
 } from '@/components/screening/screeningUtils'
+import { parseTranscript } from '@/lib/transcript'
 
 function formatCallDate(iso: string): string {
   try {
@@ -122,36 +122,6 @@ const QUALITY_COLOR: Record<string, string> = {
   poor: 'bg-rose-500',
 }
 
-type TranscriptTurn = { speaker: 'ai' | 'candidate' | 'unknown'; text: string }
-
-function parseTranscript(transcript: string): TranscriptTurn[] {
-  const lines = transcript.split(/\n+/).map((l) => l.trim()).filter(Boolean)
-  const turns: TranscriptTurn[] = []
-
-  for (const line of lines) {
-    const aiMatch = line.match(/^(?:AI|Assistant|Agent|Bot)\s*[:|-]\s*(.+)$/i)
-    const userMatch = line.match(/^(?:User|Customer|Candidate|Human)\s*[:|-]\s*(.+)$/i)
-    if (aiMatch) {
-      turns.push({ speaker: 'ai', text: aiMatch[1].trim() })
-      continue
-    }
-    if (userMatch) {
-      turns.push({ speaker: 'candidate', text: userMatch[1].trim() })
-      continue
-    }
-    if (turns.length > 0) {
-      turns[turns.length - 1].text += ` ${line}`
-    } else {
-      turns.push({ speaker: 'unknown', text: line })
-    }
-  }
-
-  if (turns.length === 0 && transcript.trim()) {
-    return [{ speaker: 'unknown', text: transcript.trim() }]
-  }
-  return turns
-}
-
 function DetailCard({ label, value }: { label: string; value?: string | null }) {
   const display = displayField(value)
   if (!display) return null
@@ -236,10 +206,11 @@ function ScreeningActionBar({
   const busy =
     decisionMutation.isPending || rejectMutation.isPending || scheduleMutation.isPending || downloadingPdf
 
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     setDownloadingPdf(true)
     try {
-      downloadScreeningReportPdf(call, {
+      const { downloadScreeningReport } = await import('@/lib/pdf')
+      await downloadScreeningReport(call, {
         candidateName,
         phone,
         jobTitle: job.title,

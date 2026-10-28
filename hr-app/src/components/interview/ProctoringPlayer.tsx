@@ -12,7 +12,11 @@ import {
   Users,
 } from 'lucide-react'
 import DetectionFrames, { useFlagFrames } from './DetectionFrames'
-import type { VideoProctoringFlag } from '@/types/api'
+import { isHard, parseTimestamp, toTimedFlags, type TimedFlag } from '@/lib/proctoringFlags'
+
+// The flag helpers moved to lib/proctoringFlags so the PDF report counts flags the same way this page does.
+export { isHard, parseTimestamp, toTimedFlags }
+export type { TimedFlag }
 
 /**
  * Recording player with the proctoring flags pinned onto the scrub bar.
@@ -26,26 +30,11 @@ import type { VideoProctoringFlag } from '@/types/api'
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** "HH:MM:SS" or "MM:SS" -> seconds. Returns null on anything unparseable. */
-export function parseTimestamp(ts: string | null | undefined): number | null {
-  if (!ts) return null
-  const parts = ts.split(':').map((p) => Number(p))
-  if (parts.some((n) => !Number.isFinite(n))) return null
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
-  if (parts.length === 2) return parts[0] * 60 + parts[1]
-  if (parts.length === 1) return parts[0]
-  return null
-}
-
 export function formatClock(totalSec: number): string {
   if (!Number.isFinite(totalSec) || totalSec < 0) return '0:00'
   const m = Math.floor(totalSec / 60)
   const s = Math.floor(totalSec % 60)
   return `${m}:${String(s).padStart(2, '0')}`
-}
-
-export function isHard(severity: string | undefined): boolean {
-  return (severity ?? '').toUpperCase() === 'HARD'
 }
 
 /** Picks an icon from the event wording - the backend sends prose, not a code. */
@@ -56,18 +45,6 @@ export function flagIcon(event: string) {
   if (e.includes('no face') || e.includes('face')) return ScanFace
   if (e.includes('look') || e.includes('gaze')) return Eye
   return Flag
-}
-
-export interface TimedFlag extends VideoProctoringFlag {
-  atSec: number
-}
-
-/** Drops flags we cannot place on the bar, and orders them by time. */
-export function toTimedFlags(flags: VideoProctoringFlag[] | null | undefined): TimedFlag[] {
-  return (flags ?? [])
-    .map((f) => ({ ...f, atSec: parseTimestamp(f.timestamp) }))
-    .filter((f): f is TimedFlag => f.atSec != null)
-    .sort((a, b) => a.atSec - b.atSec)
 }
 
 // ---------------------------------------------------------------------------

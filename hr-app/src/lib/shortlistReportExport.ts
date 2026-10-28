@@ -1,27 +1,9 @@
 import { buildSkillMatchMap } from '@/lib/skillMatch'
+import { SKILL_STATUS_LABEL, formatHrDecision, formatRecommendation } from '@/lib/reportLabels'
 import type { ShortlistResultWithCandidate } from '@/types/api'
-
-const SKILL_STATUS_LABEL = {
-  matched: 'Matched',
-  gap: 'Gap',
-  unclear: 'Unclear',
-} as const
 
 export function slugifyFilename(value: string): string {
   return value.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'export'
-}
-
-function formatRecommendation(rec: ShortlistResultWithCandidate['recommendation']): string {
-  if (rec === 'shortlisted') return 'Shortlisted'
-  if (rec === 'rejected') return 'Rejected'
-  return 'Review'
-}
-
-function formatHrDecision(decision: ShortlistResultWithCandidate['hr_decision']): string {
-  if (decision === 'pending') return 'Pending'
-  if (decision === 'approved') return 'Approved'
-  if (decision === 'rejected') return 'Rejected'
-  return 'Overridden'
 }
 
 function csvEscape(value: string | number | null | undefined): string {

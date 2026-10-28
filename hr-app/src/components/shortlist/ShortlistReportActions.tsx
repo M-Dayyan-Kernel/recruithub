@@ -2,7 +2,6 @@ import { useState } from 'react'
 import toast from 'react-hot-toast'
 import { Download, Loader2 } from 'lucide-react'
 import type { ShortlistResultWithCandidate } from '@/types/api'
-import { downloadShortlistReportPdf } from '@/lib/shortlistReportPdf'
 
 interface Props {
   result: ShortlistResultWithCandidate
@@ -19,10 +18,11 @@ export function ShortlistReportActions({
 }: Props) {
   const [downloading, setDownloading] = useState(false)
 
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     setDownloading(true)
     try {
-      downloadShortlistReportPdf(result, requiredSkills, { jobTitle })
+      const { downloadShortlistReport } = await import('@/lib/pdf')
+      await downloadShortlistReport(result, requiredSkills, { jobTitle })
       toast.success('PDF report downloaded')
     } catch {
       toast.error('Failed to generate PDF')

@@ -14,7 +14,6 @@ import StatTile from '@/components/interview/StatTile'
 import Tabs, { type TabDef } from '@/components/interview/Tabs'
 import GlassCard from '@/components/interview/GlassCard'
 import InsightCard from '@/components/interview/InsightCard'
-import { downloadInterviewReportPdf } from '@/lib/interviewReportPdf'
 import TranscriptChat from '@/components/TranscriptChat'
 import { parseTranscript } from '@/lib/transcript'
 
@@ -336,10 +335,12 @@ export default function ReportPage() {
               <button
                 type="button"
                 disabled={downloadingPdf}
-                onClick={() => {
+                onClick={async () => {
                   setDownloadingPdf(true)
                   try {
-                    downloadInterviewReportPdf(report)
+                    // Loaded on demand: the PDF library and its fonts are not part of the page.
+                    const { downloadInterviewReport } = await import('@/lib/pdf')
+                    await downloadInterviewReport(report)
                     toast.success('Interview report downloaded')
                   } catch {
                     toast.error('Failed to generate PDF')

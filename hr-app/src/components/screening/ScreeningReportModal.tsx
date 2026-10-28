@@ -3,7 +3,6 @@ import { Download, Loader2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { ScreeningCall } from '@/types/api'
 import { ScreeningCallDetails } from '@/components/screening/ScreeningCallDetails'
-import { downloadScreeningReportPdf } from '@/lib/screeningReportPdf'
 
 interface Props {
   call: ScreeningCall
@@ -34,10 +33,11 @@ export function ScreeningReportModal({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
 
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     setDownloading(true)
     try {
-      downloadScreeningReportPdf(call, {
+      const { downloadScreeningReport } = await import('@/lib/pdf')
+      await downloadScreeningReport(call, {
         candidateName,
         phone,
         jobTitle,
