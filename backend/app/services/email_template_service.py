@@ -31,14 +31,25 @@ TEMPLATE_IDS = (
 # out the interview link simply has no link, because that is what they wrote.
 TEMPLATE_PLACEHOLDERS: dict[str, tuple[str, ...]] = {
     "failed_screening_attempt": ("{{candidate_name}}", "{{job_title}}", "{{phone_number}}"),
-    "interview_invitation": ("{{candidate_name}}", "{{job_title}}", "{{interview_url}}"),
+    "interview_invitation": (
+        "{{candidate_name}}",
+        "{{job_title}}",
+        "{{interview_url}}",
+        "{{deadline}}",
+    ),
     "interview_scheduled": (
         "{{candidate_name}}",
         "{{job_title}}",
         "{{interview_url}}",
         "{{scheduled_at}}",
+        "{{deadline}}",
     ),
-    "interview_reschedule": ("{{candidate_name}}", "{{job_title}}", "{{interview_url}}"),
+    "interview_reschedule": (
+        "{{candidate_name}}",
+        "{{job_title}}",
+        "{{interview_url}}",
+        "{{deadline}}",
+    ),
     "interview_cancelled": ("{{candidate_name}}", "{{job_title}}"),
     "rejection": ("{{candidate_name}}", "{{job_title}}"),
 }
@@ -77,6 +88,7 @@ _DEFAULT_TEMPLATES: dict[str, dict[str, Any]] = {
     {{company_name}}. Please complete your AI interview using the link below:
   </p>
   <p><a href="{{interview_url}}">{{interview_url}}</a></p>
+  <p>The link works until <strong>{{deadline}}</strong>, so please complete your interview by then.</p>
   <p>Good luck!</p>
 </body>
 </html>""",
@@ -120,6 +132,7 @@ _DEFAULT_TEMPLATES: dict[str, dict[str, Any]] = {
       Use the link below to join the interview at the scheduled time. We recommend
       opening it a few minutes early to check your camera and microphone.
     </p>
+    <p>The link stays valid until <strong>{{deadline}}</strong>.</p>
     <a href="{{interview_url}}" class="btn">Open interview link</a>
     <p>Or copy and paste this link into your browser:</p>
     <p style="word-break: break-all; font-size: 13px; color: #666;">{{interview_url}}</p>
@@ -142,7 +155,7 @@ _DEFAULT_TEMPLATES: dict[str, dict[str, Any]] = {
     Your interview for the <strong>{{job_title}}</strong> role at {{company_name}} has been
     rescheduled. Your previous link is no longer valid.
   </p>
-  <p>Please use this new link to join:</p>
+  <p>Please use this new link to join. It works until <strong>{{deadline}}</strong>:</p>
   <p><a href="{{interview_url}}">{{interview_url}}</a></p>
   <p>We look forward to speaking with you.</p>
 </body>
@@ -197,17 +210,20 @@ _PREVIEW_SAMPLES: dict[str, dict[str, str]] = {
         "candidate_name": "Jane Doe",
         "job_title": "Senior Software Engineer",
         "interview_url": "https://interview.example.com/abc-123",
+        "deadline": "Saturday, 31 October 2026 at 6:00 PM",
     },
     "interview_scheduled": {
         "candidate_name": "Jane Doe",
         "job_title": "Senior Software Engineer",
         "interview_url": "https://interview.example.com/abc-123",
         "scheduled_at": "Tuesday, 28 October 2026 at 11:00 AM",
+        "deadline": "Saturday, 31 October 2026 at 11:00 AM",
     },
     "interview_reschedule": {
         "candidate_name": "Jane Doe",
         "job_title": "Senior Software Engineer",
         "interview_url": "https://interview.example.com/xyz-789",
+        "deadline": "Saturday, 31 October 2026 at 6:00 PM",
     },
     "interview_cancelled": {
         "candidate_name": "Jane Doe",

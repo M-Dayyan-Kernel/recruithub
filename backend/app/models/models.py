@@ -292,7 +292,7 @@ class InterviewSession(Base):
     video_proctoring_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     video_proctoring_result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     video_proctoring_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)  # Link expiry (7 days from send)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)  # Link expiry (session_link_ttl_days after the send time, or after the scheduled slot)
     scheduled_interview_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     rescheduled_from_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("interview_sessions.id", ondelete="SET NULL"), nullable=True

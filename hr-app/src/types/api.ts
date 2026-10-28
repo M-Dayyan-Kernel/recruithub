@@ -174,6 +174,8 @@ export interface SystemSettings {
   screening_max_retries: number
   screening_retry_delay_seconds: number
   company_name: string
+  /** Read-only: how many days an interview link works (platform-wide, set in config). */
+  interview_link_ttl_days: number
   updated_at: string
 }
 

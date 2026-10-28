@@ -19,6 +19,7 @@ from app.services.candidate_contact_service import (
     resolve_candidate_name,
 )
 from app.services.interview_schedule_service import (
+    format_deadline_label,
     parse_scheduled_at,
     send_scheduled_interview_notification_email,
 )
@@ -79,6 +80,7 @@ async def send_reschedule_email(
         interview_url=interview_url,
         templates=templates,
         company_name=company_name,
+        deadline_label=format_deadline_label(session, job),
     )
     if sent:
         session.email_sent_at = datetime.now(timezone.utc)

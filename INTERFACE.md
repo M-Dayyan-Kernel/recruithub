@@ -536,7 +536,7 @@ HR view: list all interview sessions for a job, enriched with `candidate_name` a
 
 **Errors:** `404` — job not found
 
-> **Nova gotcha:** `interview_url` is computed from `CANDIDATE_APP_URL` env var (default `http://localhost:5174`). `candidate_name` is batch-loaded via join — always present. `expires_at` is set (7 days from send) for sessions created after Sprint A.
+> **Nova gotcha:** `interview_url` is computed from `CANDIDATE_APP_URL` env var (default `http://localhost:5174`). `candidate_name` is batch-loaded via join — always present. `expires_at` is set for sessions created after Sprint A: `session_link_ttl_days` (3) after the send time, or after the scheduled slot. `GET /api/settings` returns the same number as read-only `interview_link_ttl_days`.
 
 ---
 
@@ -796,7 +796,7 @@ interface InterviewSession {
   completed_at: string | null;
   created_at: string;
   egress_id: string | null;
-  expires_at: string | null;         // ISO 8601 — 7 days from send; null for old sessions
+  expires_at: string | null;         // ISO 8601 — session_link_ttl_days (3) after the send time, or after scheduled_interview_at; null for old sessions
   // Enriched
   interview_url: string | null;
   candidate_name: string | null;

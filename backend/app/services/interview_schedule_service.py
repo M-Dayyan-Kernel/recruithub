@@ -61,6 +61,15 @@ def format_scheduled_at_label(
     return local_dt.strftime("%A, %d %B %Y at %I:%M %p").lstrip("0").replace(" 0", " ")
 
 
+def format_deadline_label(session: InterviewSession, job: Job | None) -> str:
+    """When the link stops working, in the job's timezone; '' for a session with no expiry."""
+    if not session.expires_at:
+        return ""
+    return format_scheduled_at_label(
+        session.expires_at, (job.screening_timezone if job else None) or "Asia/Kolkata"
+    )
+
+
 async def send_interview_invitation_email(
     db: AsyncSession,
     session: InterviewSession,
@@ -90,6 +99,7 @@ async def send_interview_invitation_email(
         interview_url=interview_url,
         templates=templates,
         company_name=company_name,
+        deadline_label=format_deadline_label(session, job),
     )
     if sent:
         session.email_sent_at = datetime.now(timezone.utc)
@@ -140,6 +150,7 @@ async def send_scheduled_interview_notification_email(
         scheduled_at_label=scheduled_label,
         templates=templates,
         company_name=company_name,
+        deadline_label=format_deadline_label(session, job),
     )
     if sent:
         session.email_sent_at = datetime.now(timezone.utc)

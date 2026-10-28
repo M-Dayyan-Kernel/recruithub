@@ -12,6 +12,7 @@ export const PLACEHOLDER_LABELS: Record<string, string> = {
   '{{phone_number}}': 'Phone number',
   '{{interview_url}}': 'Interview link',
   '{{scheduled_at}}': 'Interview date & time',
+  '{{deadline}}': 'Complete-by date & time',
   '{{company_name}}': 'Company name',
 }
 

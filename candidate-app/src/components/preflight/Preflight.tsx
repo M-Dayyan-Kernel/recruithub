@@ -9,6 +9,7 @@ import {
   type ProctorState,
 } from '@/proctoring/types'
 import { useProctorSession } from '@/hooks/useProctoring'
+import { describeWindow, type InterviewWindow } from '@/lib/deadline'
 import Welcome from './Welcome'
 import {
   ConsentStep,
@@ -75,11 +76,14 @@ export default function Preflight({
   token,
   candidateName,
   jobTitle,
+  window,
   onReady,
 }: {
   token: string
   candidateName?: string | null
   jobTitle?: string | null
+  /** When the interview opens (if scheduled) and when its link stops working. */
+  window: InterviewWindow
   onReady: () => void
 }) {
   const { session, snapshot } = useProctorSession(token)
@@ -117,6 +121,8 @@ export default function Preflight({
     () => !needsGreeting(derivedIndex, hasDurableProgress) || hasReloadAfterInstall(session.token),
   )
   useEffect(() => clearReloadAfterInstall(session.token), [session.token])
+
+  const { opens, completeBy } = describeWindow(window)
 
   const currentIndex = Math.min(index, STEPS.length)
   const step = currentIndex >= STEPS.length ? null : STEPS[currentIndex]
@@ -160,6 +166,8 @@ export default function Preflight({
       <Welcome
         candidateName={candidateName}
         jobTitle={jobTitle}
+        opens={opens}
+        completeBy={completeBy}
         onStart={() => setGreeted(true)}
       />
     )
@@ -182,6 +190,7 @@ export default function Preflight({
       <p className="mt-10 text-[0.72rem] text-ink-muted">
         {jobTitle ?? 'Interview'}
         {candidateName ? ` · ${candidateName}` : ''}
+        {completeBy ? ` · Complete by ${completeBy}` : ''}
       </p>
     </Screen>
   )

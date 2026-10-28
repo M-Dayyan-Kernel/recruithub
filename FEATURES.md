@@ -218,7 +218,7 @@ Legacy UI explorations with mock/stub data. Not connected to the live backend. S
 |---------|-------------|----------|
 | Interview pipeline view | Tabs: Pending, Scheduled, Ongoing, Completed | `InterviewsTab.tsx` |
 | Queue candidate | Mark screening-passed candidate for interview (no email) | API: `POST /api/candidates/{id}/interview/queue` |
-| Send interview link | Create session + email invitation with 7-day expiry | `InterviewsTab.tsx` / API: `POST .../interview/send` |
+| Send interview link | Create session + email invitation; the link works for 3 days (`session_link_ttl_days`) and the email states the deadline | `InterviewsTab.tsx` / API: `POST .../interview/send` |
 | Schedule interview | Create session with specific datetime + scheduled email | `ScheduleInterviewModal.tsx` / API: `POST .../interview/schedule` |
 | Edit interview rubric | Update interview questions on existing job | `InterviewRubricPanel.tsx` |
 | Copy interview link | Copy candidate URL to clipboard | `InterviewsTab.tsx` |

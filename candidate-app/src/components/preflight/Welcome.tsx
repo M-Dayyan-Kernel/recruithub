@@ -13,10 +13,16 @@ import { IconBadge, Panel, PrimaryButton, Screen } from '@/components/Shell'
 export default function Welcome({
   candidateName,
   jobTitle,
+  opens,
+  completeBy,
   onStart,
 }: {
   candidateName?: string | null
   jobTitle?: string | null
+  /** Scheduled interviews only: when the link opens. */
+  opens?: string | null
+  /** When the link stops working. */
+  completeBy?: string | null
   onStart: () => void
 }) {
   return (
@@ -39,7 +45,24 @@ export default function Welcome({
           )
         }
         action={<PrimaryButton onClick={onStart}>Get started</PrimaryButton>}
-      />
+      >
+        {(opens || completeBy) && (
+          <dl className="mx-auto max-w-[440px] space-y-1.5 rounded-[9px] border border-line bg-panel-alt px-4 py-3 text-left text-[0.85rem] text-ink-muted">
+            {opens && (
+              <div className="flex gap-2">
+                <dt className="w-28 shrink-0 font-semibold text-ink">Opens</dt>
+                <dd>{opens}</dd>
+              </div>
+            )}
+            {completeBy && (
+              <div className="flex gap-2">
+                <dt className="w-28 shrink-0 font-semibold text-ink">Complete by</dt>
+                <dd>{completeBy}</dd>
+              </div>
+            )}
+          </dl>
+        )}
+      </Panel>
     </Screen>
   )
 }

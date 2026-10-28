@@ -18,8 +18,15 @@ async def _send_html_email_async(**kwargs) -> bool:
     return await run_sync(gmail_service.send_html_email, **kwargs)
 
 
-def _build_interview_email_html(candidate_name: str, job_title: str, interview_url: str) -> str:
+def _build_interview_email_html(
+    candidate_name: str, job_title: str, interview_url: str, deadline_label: str = ""
+) -> str:
     """Build a clean HTML email body for the interview invitation."""
+    deadline_item = (
+        f"<li>Complete your interview by <strong>{deadline_label}</strong></li>"
+        if deadline_label
+        else ""
+    )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -64,6 +71,7 @@ def _build_interview_email_html(candidate_name: str, job_title: str, interview_u
         <li>Make sure you're using Chrome, Firefox, or Edge (latest version)</li>
         <li>The interview typically takes 20–30 minutes</li>
         <li>Your link is unique — please don't share it</li>
+        {deadline_item}
       </ul>
     </div>
 
@@ -106,6 +114,7 @@ async def send_interview_link(
     *,
     templates: dict[str, dict[str, Any]] | None = None,
     company_name: str | None = None,
+    deadline_label: str = "",
 ) -> bool:
     """Send an immediate interview invitation (join at your convenience)."""
     if templates:
@@ -116,12 +125,15 @@ async def send_interview_link(
                 "candidate_name": candidate_name,
                 "job_title": job_title,
                 "interview_url": interview_url,
+                "deadline": deadline_label,
                 "company_name": company_name or "Webknot Technologies",
             },
         )
     else:
         subject = f"[Interview Invitation] {job_title}"
-        html_body = _build_interview_email_html(candidate_name, job_title, interview_url)
+        html_body = _build_interview_email_html(
+            candidate_name, job_title, interview_url, deadline_label
+        )
 
     sent = await _send_html_email_async(
         to_email=candidate_email,
@@ -147,6 +159,7 @@ async def send_scheduled_interview_notification(
     *,
     templates: dict[str, dict[str, Any]] | None = None,
     company_name: str | None = None,
+    deadline_label: str = "",
 ) -> bool:
     """Notify candidate of a future interview slot with the join link."""
     subject, html_body = render_template(
@@ -157,6 +170,7 @@ async def send_scheduled_interview_notification(
             "job_title": job_title,
             "interview_url": interview_url,
             "scheduled_at": scheduled_at_label,
+            "deadline": deadline_label,
             "company_name": company_name or "Webknot Technologies",
         },
     )
@@ -184,6 +198,7 @@ async def send_reschedule_notification(
     *,
     templates: dict[str, dict[str, Any]],
     company_name: str | None = None,
+    deadline_label: str = "",
 ) -> bool:
     subject, html_body = render_template(
         "interview_reschedule",
@@ -192,6 +207,7 @@ async def send_reschedule_notification(
             "candidate_name": candidate_name,
             "job_title": job_title,
             "interview_url": interview_url,
+            "deadline": deadline_label,
             "company_name": company_name or "Webknot Technologies",
         },
     )

@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import InterviewBusyScreen from '@/components/InterviewBusyScreen'
 import Preflight from '@/components/preflight/Preflight'
 import { Screen, StatusScreen } from '@/components/Shell'
+import { formatInstant } from '@/lib/deadline'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -17,6 +18,9 @@ interface InterviewInfo {
   candidate_name?: string
   job_title?: string
   created_at: string
+  scheduled_interview_at?: string | null
+  /** When the link stops working; null on sessions created before links expired. */
+  expires_at?: string | null
   mock_mode?: boolean
   capacity_available?: boolean | null
   retry_after_minutes?: number | null
@@ -143,15 +147,19 @@ export default function InterviewLandingPage() {
     )
   }
 
-  if (info.status === 'expired')
+  if (info.status === 'expired') {
+    const expiredAt = formatInstant(info.expires_at)
     return (
       <StatusScreen
         icon={<Clock size={22} />}
         tone="muted"
         title="This link has expired"
-        body="Your interview link is no longer valid. The hiring team can send you a new one."
+        body={`Your interview link ${
+          expiredAt ? `stopped working on ${expiredAt}` : 'is no longer valid'
+        }. The hiring team can send you a new one.`}
       />
     )
+  }
 
   // Called off by the hiring team. Not an error on the candidate's side, and a new link
   // may follow, so say that rather than "expired".
@@ -209,6 +217,10 @@ export default function InterviewLandingPage() {
         token={token ?? ''}
         candidateName={info.candidate_name}
         jobTitle={info.job_title}
+        window={{
+          scheduled_interview_at: info.scheduled_interview_at,
+          expires_at: info.expires_at,
+        }}
         onReady={handleReady}
       />
     </div>
