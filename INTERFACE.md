@@ -40,8 +40,10 @@ Create a new job posting.
   "required_skills": ["string"],
   "experience_min": 0,
   "experience_max": 5,
+  "work_mode": "remote | hybrid | onsite (required)",
+  "work_location": "string, one line, up to 80 chars (required for hybrid and onsite; dropped for remote)",
   "screening_questions": [
-    { "id": "uuid", "question": "string" }
+    { "id": "uuid", "question": "string, up to 200 chars", "kind": "role | custom" }
   ],
   "interview_questions": [
     { "id": "uuid", "question": "string", "score": 25 }
@@ -50,9 +52,19 @@ Create a new job posting.
 }
 ```
 
-**Response `201`:** `JobResponse`
+`screening_questions` holds only the role-specific and custom questions. The six **standard**
+questions (availability, employment, experience, current CTC, expected CTC, and a location question
+built from `work_mode` / `work_location`) are always added by the server: any standard row a client
+sends (an id starting `screening-default-`, or `kind: "standard"`) is ignored. A call has at most 10
+questions in all, so with the six standard ones at most 4 can be added.
 
-**Errors:** `422` — validation error
+**Response `201`:** `JobResponse`. Its `screening_questions` is the whole list: the standard questions
+first (`kind: "standard"`), then the role and custom ones. Jobs created before work modes existed have
+`work_mode: null`; their list is rebuilt the same way on read, with the generic location question
+until a mode is set.
+
+**Errors:** `422` — validation error (missing `work_mode`, a hybrid or onsite job with no location, a
+question over 200 characters, more than 10 questions in all)
 
 ---
 
@@ -77,11 +89,13 @@ Get a single job by UUID.
 #### `PATCH /api/jobs/{job_id}`
 Partial update a job (any subset of fields).
 
-**Request Body:** Same fields as `POST /api/jobs` — all optional
+**Request Body:** Same fields as `POST /api/jobs` — all optional. `work_mode` cannot be sent as `null`.
+The standard questions are rebuilt whenever `title`, `work_mode`, `work_location` or
+`screening_questions` is sent; a status-only update leaves the job's questions alone.
 
 **Response `200`:** `JobResponse`
 
-**Errors:** `404 Job not found`
+**Errors:** `404 Job not found`, `422` — validation error (same rules as create)
 
 ---
 
@@ -98,8 +112,10 @@ Upload a job description document (PDF or DOCX) and extract structured fields vi
   "required_skills": ["string"],
   "experience_min": 0,
   "experience_max": 5,
+  "work_mode": "remote | hybrid | onsite | null (null when the document does not say)",
+  "work_location": "string | null",
   "screening_questions": [
-    { "id": "uuid", "question": "string" }
+    { "id": "uuid", "question": "string", "kind": "role" }
   ],
   "interview_questions": [
     { "id": "uuid", "question": "string", "score": 25 }
@@ -107,10 +123,31 @@ Upload a job description document (PDF or DOCX) and extract structured fields vi
 }
 ```
 
+`screening_questions` are the AI's role-specific questions only, at most two. The standard ones come
+from `GET /api/jobs/standard-screening-questions`.
+
 **Errors:**
 - `413` — file exceeds 20 MB
 - `422` — unsupported file type, unreadable document, or no extractable content
 - `500` — AI parsing failure
+
+---
+
+#### `GET /api/jobs/standard-screening-questions`
+The locked screening questions for the given job details, so the create and edit forms can show them
+before the job exists. A preview only: creating or updating a job always rebuilds them on the server.
+
+**Query params:** `?title=...&work_mode=remote|hybrid|onsite&work_location=...`
+
+**Response `200`:**
+```json
+{
+  "standard": [{ "id": "screening-default-availability", "question": "string", "kind": "standard" }],
+  "max_total": 10,
+  "max_chars": 200,
+  "max_location_chars": 80
+}
+```
 
 ---
 

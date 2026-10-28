@@ -13,12 +13,11 @@ from app.schemas.schemas import JobCreate, JobUpdate, validate_experience_range
 from app.services.audit_service import AuditService
 from app.services.expected_answer_service import ExpectedAnswerService
 from app.services.live_work_guard import assert_job_not_live
-from app.services.screening_defaults import get_default_screening_questions
-from app.services.tenant_integrations_service import TenantIntegrationsService
-
-_NO_SCREENING_QUESTIONS_MESSAGE = (
-    "Add at least one screening question, or turn voice screening off."
+from app.services.screening_defaults import (
+    normalize_screening_questions_for_write,
+    validate_work_location,
 )
+from app.services.tenant_integrations_service import TenantIntegrationsService
 
 _JOB_AUDIT_FIELDS = (
     "title",
@@ -26,6 +25,8 @@ _JOB_AUDIT_FIELDS = (
     "required_skills",
     "experience_min",
     "experience_max",
+    "work_mode",
+    "work_location",
     "screening_questions",
     "interview_questions",
     "screening_call_from",
@@ -54,15 +55,17 @@ class JobService:
 
     async def create(self, actor: User, payload: JobCreate) -> Job:
         data = payload.model_dump()
-        if data.get("screening_questions") is None:
-            # Field omitted entirely (JD parsing, API clients): seed the defaults.
-            data["screening_questions"] = get_default_screening_questions(
-                data.get("title") or ""
+        # The list is always the locked standard questions plus whatever role and custom ones
+        # were sent; a client's own copies of the standard ones are ignored.
+        try:
+            data["screening_questions"] = normalize_screening_questions_for_write(
+                data.get("screening_questions"),
+                title=data["title"],
+                work_mode=data["work_mode"],
+                work_location=data.get("work_location"),
             )
-        elif not data["screening_questions"] and data.get("voice_screening_enabled"):
-            # Explicitly cleared. Refilling here would resurrect questions the
-            # user just deleted, so reject instead of silently overriding them.
-            raise ValidationError(public_message=_NO_SCREENING_QUESTIONS_MESSAGE)
+        except ValueError as exc:
+            raise ValidationError(public_message=str(exc)) from exc
         if data.get("interview_questions"):
             data["interview_questions"] = await self._enrich_interview_questions(
                 actor.tenant_id,
@@ -128,14 +131,7 @@ class JobService:
                 validate_experience_range(effective_min, effective_max)
             except ValueError as exc:
                 raise ValidationError(public_message=str(exc)) from exc
-        if "screening_questions" in updates and not updates["screening_questions"]:
-            # Voice screening needs something to ask, whether the flag is being
-            # changed in this same request or was already on.
-            voice_on = updates.get(
-                "voice_screening_enabled", job.voice_screening_enabled
-            )
-            if voice_on:
-                raise ValidationError(public_message=_NO_SCREENING_QUESTIONS_MESSAGE)
+        self._apply_work_and_screening_updates(job, updates)
         if "interview_questions" in updates and updates["interview_questions"] is not None:
             updates["interview_questions"] = await self._enrich_interview_questions(
                 actor.tenant_id,
@@ -167,6 +163,43 @@ class JobService:
         await self._session.commit()
         await self._jobs.refresh(job)
         return job
+
+    @staticmethod
+    def _apply_work_and_screening_updates(job: Job, updates: dict) -> None:
+        """Validate the work fields against the mode the job will have, and rebuild its question
+        list when anything it is built from changes.
+
+        A status-only update (archive, unarchive) touches none of them, so a legacy job with no
+        work mode can still be archived.
+        """
+        if "work_mode" in updates and updates["work_mode"] is None:
+            raise ValidationError(
+                public_message="Work mode cannot be cleared. Choose remote, hybrid or on-site."
+            )
+        work_mode = updates.get("work_mode", job.work_mode)
+        work_location = updates["work_location"] if "work_location" in updates else job.work_location
+        if "work_mode" in updates or "work_location" in updates:
+            try:
+                updates["work_location"] = validate_work_location(work_mode, work_location)
+            except ValueError as exc:
+                raise ValidationError(public_message=str(exc)) from exc
+            work_location = updates["work_location"]
+
+        if not {"screening_questions", "title", "work_mode", "work_location"} & updates.keys():
+            return
+        sent = "screening_questions" in updates
+        try:
+            updates["screening_questions"] = normalize_screening_questions_for_write(
+                updates["screening_questions"] if sent else job.screening_questions,
+                title=updates.get("title", job.title),
+                work_mode=work_mode,
+                work_location=work_location,
+                # What a client sends must meet the limits; what is already stored may predate
+                # them, and renaming a job must not fail on it.
+                strict=sent,
+            )
+        except ValueError as exc:
+            raise ValidationError(public_message=str(exc)) from exc
 
     async def delete(self, actor: User, job_id: uuid.UUID) -> None:
         job = await self._jobs.get_for_tenant(job_id, actor.tenant_id)

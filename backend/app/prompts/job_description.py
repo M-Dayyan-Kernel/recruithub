@@ -12,9 +12,11 @@ Return ONLY valid JSON with exactly these fields:
 - required_skills: array of strings (individual technical skills, tools, languages, frameworks mentioned)
 - experience_min: number or null (minimum years of experience required, if stated)
 - experience_max: number or null (maximum years of experience required, if stated)
-- screening_questions: array of objects, each with {{ "id": "<uuid string>", "question": "<screening question text>" }}
-  Generate 2-5 ADDITIONAL role-specific phone screening questions beyond standard HR topics (availability, CTC, notice period).
-  Do NOT repeat standard HR screening topics — focus on must-haves from the JD (skills, certifications, domain experience, work authorization, etc.).
+- work_mode: one of "remote", "hybrid", "onsite", or null. Use it ONLY if the job description states how the work is done (e.g. "work from office", "WFO", "hybrid", "remote", "work from home"). If it does not say, use null — do not guess.
+- work_location: string or null. The city or office location where a hybrid or on-site role is based, if stated. null for a remote role or when not stated.
+- screening_questions: array of EXACTLY 2 objects, each with {{ "id": "<uuid string>", "question": "<screening question text>" }}
+  Generate exactly 2 role-specific phone screening questions about must-haves from the JD (skills, certifications, domain experience, work authorization, etc.). Keep each under 180 characters.
+  Do NOT cover availability, notice period, current employment, CTC or salary, work location or remote/hybrid/on-site preference, or years of experience: those are asked separately.
   Each question must have a unique id (UUID string).
 - interview_questions: array of objects, each with {{ "id": "<uuid string>", "question": "<interview question text>", "score": <positive integer> }}
   Generate 4-6 role-relevant TECHNICAL interview questions only (stack, architecture, debugging, system design, tools, trade-offs).

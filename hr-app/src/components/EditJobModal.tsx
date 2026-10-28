@@ -4,12 +4,19 @@ import { X, Loader2, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import { RequiredMark } from '@/components/FieldError'
-import type { Job, InterviewQuestion, ScreeningQuestion } from '@/types/api'
+import type { Job, InterviewQuestion, ScreeningQuestion, WorkMode } from '@/types/api'
 import { InterviewQuestionsEditor } from '@/components/InterviewQuestionsEditor'
 import { ScreeningQuestionsEditor } from '@/components/ScreeningQuestionsEditor'
 import { VoiceScreeningToggle } from '@/components/screening/VoiceScreeningToggle'
-import { getDefaultScreeningQuestions } from '@/lib/screeningDefaults'
+import { WorkModeFields } from '@/components/WorkModeFields'
+import { useStandardScreeningQuestions } from '@/hooks/useStandardScreeningQuestions'
+import { editableQuestions, needsWorkMode, questionKind } from '@/lib/screeningQuestions'
 import {
+  SCREENING_QUESTIONS_MAX_TOTAL,
+  SCREENING_QUESTION_MAX_LENGTH,
+  WORK_LOCATION_MAX_LENGTH,
+  validateScreeningQuestionText,
+  validateWorkLocation,
   validateYearsText,
   validateExperienceRange,
 } from '@/lib/validation'
@@ -33,22 +40,36 @@ export function EditJobModal({ job, open, onClose }: Props) {
   // Flagged as typed, so a bad value is never hidden until (or past) submit.
   const minExpError = validateYearsText(minExp, 'Min experience')
   const maxExpError = validateYearsText(maxExp, 'Max experience')
-  const [screeningQuestions, setScreeningQuestions] = useState<ScreeningQuestion[]>(
-    job.screening_questions?.length
-      ? job.screening_questions
-      : getDefaultScreeningQuestions(job.title),
+  const [workMode, setWorkMode] = useState<WorkMode | null>(job.work_mode ?? null)
+  const [workLocation, setWorkLocation] = useState(job.work_location ?? '')
+  // The role-specific and custom questions; the locked standard ones come from the API.
+  const [extraQuestions, setExtraQuestions] = useState<ScreeningQuestion[]>(() =>
+    editableQuestions(job.screening_questions),
   )
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>(
     job.interview_questions ?? [],
   )
-  // Not a form field: the switch applies at once (it may move candidates), so the form
-  // reads the job's live value rather than holding a copy until Save.
-  const voiceScreeningEnabled = job.voice_screening_enabled !== false
   const [submitError, setSubmitError] = useState<string | null>(null)
 
-  // Voice screening needs at least one question to ask.
-  const missingScreeningQuestions =
-    voiceScreeningEnabled && !screeningQuestions.some((q) => q.question.trim())
+  const { data: standardData } = useStandardScreeningQuestions(title, workMode, workLocation)
+  // Until the preview loads, the job's own standard rows (always present in its list) stand in.
+  const standardQuestions =
+    standardData?.standard ??
+    (job.screening_questions ?? []).filter((q) => questionKind(q) === 'standard')
+  const maxTotalQuestions = standardData?.max_total ?? SCREENING_QUESTIONS_MAX_TOTAL
+  const maxQuestionChars = standardData?.max_chars ?? SCREENING_QUESTION_MAX_LENGTH
+  const maxLocationChars = standardData?.max_location_chars ?? WORK_LOCATION_MAX_LENGTH
+
+  // A job saved before these limits may hold blank, over-long or too many questions. Say so up
+  // front and block Save, rather than let the API refuse it.
+  const firstQuestionError =
+    extraQuestions
+      .map((q) => validateScreeningQuestionText(q.question, maxQuestionChars))
+      .find(Boolean) ?? null
+  const overCap = standardQuestions.length + extraQuestions.length > maxTotalQuestions
+  const locationError = validateWorkLocation(workMode, workLocation, maxLocationChars)
+  const legacyJob = needsWorkMode(job)
+  const saveBlocked = !workMode || Boolean(locationError) || Boolean(firstQuestionError) || overCap
 
   const mutation = useMutation({
     mutationFn: (payload: Record<string, unknown>) =>
@@ -101,13 +122,21 @@ export function EditJobModal({ job, open, onClose }: Props) {
       setSubmitError(expError.message)
       return
     }
-    if (voiceScreeningEnabled && !screeningQuestions.some((q) => q.question.trim())) {
-      setSubmitError('Add at least one screening question, or turn voice screening off')
+    if (!workMode) {
+      setSubmitError('Choose a work mode: remote, hybrid or on-site')
+      return
+    }
+    if (locationError) {
+      setSubmitError(locationError)
       return
     }
     // Blank rows used to be dropped silently on save; reject them instead.
-    if (screeningQuestions.some((q) => !q.question.trim())) {
-      setSubmitError('Fill in or remove the empty screening question')
+    if (firstQuestionError) {
+      setSubmitError(firstQuestionError)
+      return
+    }
+    if (overCap) {
+      setSubmitError(`A call can have at most ${maxTotalQuestions} questions. Remove some to save.`)
       return
     }
     if (interviewQuestions.some((q) => !q.question.trim())) {
@@ -136,13 +165,16 @@ export function EditJobModal({ job, open, onClose }: Props) {
     if (newMin !== job.experience_min) payload.experience_min = newMin ?? null
     if (newMax !== (job.experience_max || undefined)) payload.experience_max = newMax ?? null
 
-    const origScreening = JSON.stringify(
-      job.screening_questions?.length
-        ? job.screening_questions
-        : getDefaultScreeningQuestions(job.title),
-    )
-    const nextScreening = screeningQuestions
-    if (origScreening !== JSON.stringify(nextScreening)) {
+    if (workMode !== (job.work_mode ?? null)) payload.work_mode = workMode
+    // Sent as an explicit null when cleared (a remote job has no location): the API drops an
+    // omitted field, so a stale location would otherwise stay.
+    const nextLocation = workMode === 'remote' ? null : workLocation.trim()
+    if (nextLocation !== (job.work_location ?? null)) payload.work_location = nextLocation
+
+    // Only the role-specific and custom questions are sent. The standard ones are rebuilt by the
+    // API from the title and work arrangement, whatever is sent.
+    const nextScreening = extraQuestions.map((q) => ({ ...q, question: q.question.trim() }))
+    if (JSON.stringify(editableQuestions(job.screening_questions)) !== JSON.stringify(nextScreening)) {
       payload.screening_questions = nextScreening
     }
 
@@ -311,6 +343,25 @@ export function EditJobModal({ job, open, onClose }: Props) {
             </div>
           </div>
 
+          <div className="rounded-lg border border-line bg-surface-2 px-3 py-3">
+            {legacyJob && (
+              <p className="mb-3 flex items-start gap-2 rounded-md bg-warn-soft px-3 py-2 text-xs text-warn" role="status">
+                <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden />
+                This job was created before work modes. Choose one to save: it decides how the
+                screening call asks candidates about location.
+              </p>
+            )}
+            <WorkModeFields
+              mode={workMode}
+              location={workLocation}
+              onModeChange={setWorkMode}
+              onLocationChange={setWorkLocation}
+              disabled={mutation.isPending}
+              locationError={workLocation ? locationError : null}
+              maxLocationChars={maxLocationChars}
+            />
+          </div>
+
           <div className="rounded-lg border border-line bg-surface px-3 py-2.5">
             <VoiceScreeningToggle job={job} />
             <p className="mt-1 text-xs text-ink-muted">
@@ -320,14 +371,23 @@ export function EditJobModal({ job, open, onClose }: Props) {
 
           <div>
             <ScreeningQuestionsEditor
-              questions={screeningQuestions}
-              onChange={setScreeningQuestions}
+              standard={standardQuestions}
+              questions={extraQuestions}
+              onChange={setExtraQuestions}
+              maxTotal={maxTotalQuestions}
+              maxChars={maxQuestionChars}
               disabled={mutation.isPending}
             />
-            {missingScreeningQuestions && (
-              <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600">
-                <AlertCircle size={11} />
-                Add at least one screening question, or turn voice screening off
+            {overCap && (
+              <p className="mt-1.5 flex items-center gap-1 text-xs text-neg" role="alert">
+                <AlertCircle size={11} aria-hidden />
+                This job has more questions than a call allows ({maxTotalQuestions}). Remove some to save.
+              </p>
+            )}
+            {firstQuestionError && (
+              <p className="mt-1.5 flex items-center gap-1 text-xs text-neg" role="alert">
+                <AlertCircle size={11} aria-hidden />
+                {firstQuestionError}
               </p>
             )}
           </div>
@@ -350,7 +410,7 @@ export function EditJobModal({ job, open, onClose }: Props) {
           </button>
           <button
             onClick={handleSubmit}
-            disabled={mutation.isPending || missingScreeningQuestions}
+            disabled={mutation.isPending || saveBlocked}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {mutation.isPending ? (

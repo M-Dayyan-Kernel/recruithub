@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import { Clock, Loader2, Phone, Settings2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Job, ScreeningTriggerResponse } from '@/types/api'
+import { editableQuestions } from '@/lib/screeningQuestions'
 import { ScreeningCriteriaModal } from '@/components/screening/ScreeningCriteriaModal'
 import {
   formatTimeForInput,
@@ -32,18 +33,17 @@ export function ScreeningSettingsCard({ job, eligibleCandidateIds, onCallsTrigge
 
   const timezone = job.screening_timezone || 'Asia/Kolkata'
   const withinWindow = isWithinCallWindow(fromTime, toTime, timezone)
-  const screeningQuestions =
-    job.screening_questions?.length
-      ? job.screening_questions
-      : []
-  const questionCount = screeningQuestions.length
+  // The standard questions are the same on every job, so the preview shows what is specific to
+  // this one: the role-specific and custom questions.
+  const questionCount = job.screening_questions?.length ?? 0
+  const extraQuestions = editableQuestions(job.screening_questions)
   const previewText =
-    questionCount > 0
-      ? screeningQuestions
+    extraQuestions.length > 0
+      ? extraQuestions
           .slice(0, 2)
           .map((q) => q.question)
           .join(' · ')
-      : 'Default HR screening questions apply.'
+      : 'Standard questions only.'
   const eligibleCount = eligibleCandidateIds.length
 
   const saveMutation = useMutation({

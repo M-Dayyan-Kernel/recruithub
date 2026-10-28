@@ -27,7 +27,6 @@ from app.schemas.schemas import (
     VoiceScreeningPreview,
 )
 from app.services.audit_service import AuditService
-from app.services.screening_defaults import get_default_screening_questions
 from app.services.candidate_contact_service import resolve_candidate_name
 from app.services.screening_trigger_service import call_is_on_its_way, cancel_undialled_calls
 from app.services.shortlist_stage_service import (
@@ -147,11 +146,6 @@ class VoiceScreeningService:
                 )
             )
         move_to = body.move_to if waiting else None
-        if body.enabled and not job.voice_screening_enabled and not job.screening_questions:
-            # The calls would use these defaults anyway; saving them makes the job say so
-            # (and is what the Edit modal already shows for a job with none).
-            job.screening_questions = get_default_screening_questions(job.title or "")
-
         before = bool(job.voice_screening_enabled)
         job.voice_screening_enabled = body.enabled
         if before != body.enabled:

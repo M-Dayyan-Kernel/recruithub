@@ -262,6 +262,8 @@ test('Back to Job link navigates to correct job detail page', async ({ page }) =
       required_skills: ['React'],
       experience_min: 3,
       experience_max: 7,
+      work_mode: 'hybrid',
+      work_location: 'Bengaluru',
       screening_questions: [],
       interview_questions: [],
       status: 'active',

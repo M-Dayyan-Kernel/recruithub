@@ -12,7 +12,12 @@ from app.prompts.job_description import (
     PARSE_JD_SYSTEM_PROMPT,
     build_parse_jd_user_prompt,
 )
-from app.services.screening_defaults import merge_screening_questions
+from app.services.screening_defaults import (
+    clean_work_location,
+    normalize_role_questions,
+    parse_work_mode,
+    MAX_WORK_LOCATION_CHARS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,26 +27,25 @@ _EMPTY_JD: dict = {
     "required_skills": [],
     "experience_min": None,
     "experience_max": None,
+    "work_mode": None,
+    "work_location": None,
     "screening_questions": [],
     "interview_questions": [],
 }
 
 
-def _normalize_parsed_screening_questions(raw_questions: list | None) -> list[dict]:
-    if not raw_questions:
-        return []
-    normalized = []
-    for item in raw_questions:
-        if not isinstance(item, dict):
-            continue
-        question = (item.get("question") or "").strip()
-        if not question:
-            continue
-        normalized.append({
-            "id": item.get("id") or str(uuid.uuid4()),
-            "question": question,
-        })
-    return normalized
+def _normalize_parsed_work_arrangement(parsed: dict) -> None:
+    """Keep only a work mode the JD actually states, and a location that fits where it is used.
+
+    The model is told to answer null rather than guess; anything outside the three modes is
+    treated as not stated, and HR then chooses. A remote job has no location.
+    """
+    mode = parse_work_mode(parsed.get("work_mode"))
+    location = clean_work_location(parsed.get("work_location"))
+    if mode == "remote" or (location is not None and len(location) > MAX_WORK_LOCATION_CHARS):
+        location = None
+    parsed["work_mode"] = mode
+    parsed["work_location"] = location
 
 
 def _filter_oral_interview_questions(raw_questions: list[dict]) -> list[dict]:
@@ -105,9 +109,10 @@ class JdParserService:
 
         if mocks.mock_openai_enabled():
             parsed = mocks.mock_jd_parse(raw_text)
-            parsed["screening_questions"] = _normalize_parsed_screening_questions(
+            parsed["screening_questions"] = normalize_role_questions(
                 parsed.get("screening_questions")
             )
+            _normalize_parsed_work_arrangement(parsed)
             parsed["interview_questions"] = _normalize_parsed_questions(
                 parsed.get("interview_questions")
             )
@@ -131,13 +136,10 @@ class JdParserService:
         parsed["interview_questions"] = _normalize_parsed_questions(
             parsed.get("interview_questions")
         )
-        job_title = (parsed.get("title") or "").strip()
-        additional_screening = _normalize_parsed_screening_questions(
-            parsed.get("screening_questions")
-        )
-        parsed["screening_questions"] = merge_screening_questions(
-            None, additional_screening, job_title
-        )
+        # Only the role-specific questions: the standard ones are the server's, built from the
+        # job's title and work arrangement once HR has confirmed them.
+        parsed["screening_questions"] = normalize_role_questions(parsed.get("screening_questions"))
+        _normalize_parsed_work_arrangement(parsed)
         logger.info(
             "Parsed job description: title=%r, skills=%d, screening_questions=%d, interview_questions=%d",
             parsed.get("title"),

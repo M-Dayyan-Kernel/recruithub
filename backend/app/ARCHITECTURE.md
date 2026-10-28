@@ -1205,11 +1205,14 @@ Returns structured identity/contact, skills, experience, education, current comp
 
 ## `screening_defaults.py`
 
-- `get_default_screening_questions`.
-- `merge_screening_questions`.
+- `build_standard_questions`: the six locked questions, built from a job's title, work mode and location (`str.replace`, never `str.format`).
+- `normalize_screening_questions_for_write`: standard questions first, then the submitted role and custom ones; client copies of standard rows are ignored; limits (200 characters each, 10 in all) enforced when strict.
+- `effective_screening_questions(job)`: what a call asks, recomposed on every read so legacy lists and renamed jobs are never stale.
+- `normalize_role_questions`: the JD parser's output trimmed to two, over-long ones dropped.
+- `parse_work_mode`, `clean_work_location`, `validate_work_location`.
 - `format_screening_questions_for_prompt`.
 
-Guarantees a baseline HR screening script and avoids duplicating prompt formatting.
+The standard questions belong to the server: clients send only the role and custom ones.
 
 ## `screening_dispatch_service.py`
 

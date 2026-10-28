@@ -110,11 +110,18 @@ def mock_jd_parse(raw_text: str) -> dict:
         "required_skills": ["Python", "SQL", "REST APIs", "Git"],
         "experience_min": 2,
         "experience_max": 6,
+        # A JD that says nothing about where the work happens: HR picks the mode.
+        "work_mode": None,
+        "work_location": None,
         "screening_questions": [
             {
                 "id": str(uuid.uuid4()),
                 "question": "Do you have hands-on experience with the core stack mentioned in this role?",
-            }
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "question": "Have you worked with REST APIs and relational databases in production?",
+            },
         ],
         "interview_questions": [
             {

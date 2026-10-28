@@ -5,7 +5,12 @@ import {
   EXPERIENCE_MAX_YEARS,
   SCREENING_ATTEMPTS_MAX,
   SCREENING_DELAY_MAX_MINUTES,
+  SCREENING_QUESTIONS_MAX_TOTAL,
+  SCREENING_QUESTION_MAX_LENGTH,
+  WORK_LOCATION_MAX_LENGTH,
   validateExperienceRange,
+  validateScreeningQuestionText,
+  validateWorkLocation,
   validateScreeningAttemptsText,
   validateScreeningDelayText,
   validateWholeNumberText,
@@ -138,3 +143,36 @@ test('the generic validator keeps the years messages unchanged', () => {
     'Max experience cannot exceed 60 years',
   )
 })
+
+// ── phone-screening questions and the work location ────────────────────────
+
+test('the limits mirror the backend', () => {
+  // backend/app/services/screening_defaults.py: MAX_SCREENING_QUESTIONS / _QUESTION_CHARS / MAX_WORK_LOCATION_CHARS
+  assert.equal(SCREENING_QUESTIONS_MAX_TOTAL, 10)
+  assert.equal(SCREENING_QUESTION_MAX_LENGTH, 200)
+  assert.equal(WORK_LOCATION_MAX_LENGTH, 80)
+})
+
+test('a screening question is required and has a length limit', () => {
+  assert.equal(validateScreeningQuestionText('Have you used Kafka?'), null)
+  assert.equal(validateScreeningQuestionText('x'.repeat(200)), null)
+  assert.equal(
+    validateScreeningQuestionText('x'.repeat(201)),
+    'Questions can be at most 200 characters',
+  )
+  assert.equal(validateScreeningQuestionText('   '), 'Fill in or remove the empty screening question')
+  assert.equal(validateScreeningQuestionText('x'.repeat(51), 50), 'Questions can be at most 50 characters')
+})
+
+test('a location is needed for hybrid and on-site jobs only', () => {
+  assert.equal(validateWorkLocation('onsite', 'Bengaluru'), null)
+  assert.equal(validateWorkLocation('hybrid', ''), 'Work location is required for hybrid and on-site jobs')
+  assert.equal(validateWorkLocation('onsite', '   '), 'Work location is required for hybrid and on-site jobs')
+  assert.equal(validateWorkLocation('remote', ''), null)
+  assert.equal(validateWorkLocation(null, ''), null)
+  assert.equal(
+    validateWorkLocation('onsite', 'x'.repeat(81)),
+    'Work location must be at most 80 characters',
+  )
+})
+

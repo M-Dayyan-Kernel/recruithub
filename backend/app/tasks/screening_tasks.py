@@ -26,6 +26,7 @@ from app.prompts.screening import (
     EXTRACTION_SYSTEM_PROMPT,
     build_screening_extraction_user_prompt,
 )
+from app.services.screening_defaults import effective_screening_questions
 
 logger = logging.getLogger(__name__)
 
@@ -1168,7 +1169,9 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
                 transcript,
                 integrations.openai_api_key,
                 job_title=job.title,
-                screening_questions=job.screening_questions,
+                screening_questions=effective_screening_questions(job),
+                work_mode=job.work_mode,
+                work_location=job.work_location,
             )
 
             screening_call.availability = _clean_extracted_str(extracted.get("availability"))
@@ -1365,24 +1368,26 @@ async def _extract_screening_fields(
     *,
     job_title: str | None = None,
     screening_questions: list | None = None,
+    work_mode: str | None = None,
+    work_location: str | None = None,
 ) -> dict:
-    """Call GPT-4o to extract structured screening fields from transcript."""
+    """Call GPT-4o to extract structured screening fields from transcript.
+
+    `screening_questions` is the job's effective list (the standard questions included)."""
     from app.clients import mocks
 
     if mocks.mock_openai_enabled():
         return mocks.mock_screening_extraction()
 
-    from app.services.screening_defaults import format_screening_questions_for_prompt, merge_screening_questions
+    from app.services.screening_defaults import format_screening_questions_for_prompt
     from app.clients import openai_client
 
-    questions_text = format_screening_questions_for_prompt(
-        merge_screening_questions(screening_questions, None, job_title or ""),
-        job_title or "",
-    )
     user_content = build_screening_extraction_user_prompt(
         transcript=transcript,
         job_title=job_title,
-        questions_text=questions_text,
+        questions_text=format_screening_questions_for_prompt(screening_questions),
+        work_mode=work_mode,
+        work_location=work_location,
     )
 
     raw_content = await openai_client().chat_completion_json(

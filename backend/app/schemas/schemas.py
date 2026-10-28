@@ -3,10 +3,25 @@ import uuid
 from datetime import date, datetime, time
 from typing import Literal, Optional, List
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 from app.core.screening_skipped import is_skipped_screening
 from app.schemas.integrity import IntegritySummary
+from app.services.screening_defaults import (
+    MAX_SCREENING_QUESTION_CHARS,
+    MAX_SCREENING_QUESTIONS,
+    MAX_WORK_LOCATION_CHARS,
+    validate_work_location,
+)
 
 
 _PASSWORD_MIN_LEN = 12
@@ -73,9 +88,16 @@ class InterviewQuestion(InterviewQuestionPublic):
     expected_points: Optional[List[str]] = None
 
 
+WorkMode = Literal["remote", "hybrid", "onsite"]
+
+
 class ScreeningQuestion(BaseModel):
     id: str
     question: str
+    # standard: locked and built by the server; role: written by the JD parser; custom: added by
+    # HR. Rows stored before kinds existed read as custom (the server regenerates the standard
+    # ones from their ids).
+    kind: Literal["standard", "role", "custom"] = "custom"
 
 
 #: Sanity cap for years-of-experience fields; mirrored in the web client.
@@ -114,6 +136,7 @@ def _normalize_screening_questions(questions: Optional[List]) -> List[dict]:
             q = ScreeningQuestion(
                 id=item.get("id") or str(uuid.uuid4()),
                 question=(item.get("question") or "").strip(),
+                kind=item.get("kind") if item.get("kind") in ("standard", "role", "custom") else "custom",
             )
         else:
             continue
@@ -193,9 +216,12 @@ class JobCreate(BaseModel):
     required_skills: Optional[List[str]] = None
     experience_min: int = 0
     experience_max: int = 0
-    # None means "not supplied" — the service fills in defaults. An explicit []
-    # means the caller deliberately cleared them and must be honoured, not
-    # silently repopulated.
+    # Required: the screening call's location question is built from it. The location is required
+    # for hybrid and on-site jobs and dropped for remote ones.
+    work_mode: WorkMode
+    work_location: Optional[str] = None
+    # Only the role and custom questions: the standard ones are the server's, so they are never
+    # taken from here. None or [] both mean "no extra questions".
     screening_questions: Optional[List[ScreeningQuestion]] = None
     interview_questions: List[InterviewQuestion] = []
     voice_screening_enabled: bool = True
@@ -224,6 +250,11 @@ class JobCreate(BaseModel):
         validate_experience_range(self.experience_min, self.experience_max)
         return self
 
+    @model_validator(mode="after")
+    def check_work_location(self):
+        self.work_location = validate_work_location(self.work_mode, self.work_location)
+        return self
+
 
 class JobUpdate(BaseModel):
     title: Optional[str] = None
@@ -231,6 +262,10 @@ class JobUpdate(BaseModel):
     required_skills: Optional[List[str]] = None
     experience_min: Optional[int] = None
     experience_max: Optional[int] = None
+    # An explicit null work_mode is refused by JobService.update: a mode cannot be un-set. The
+    # location is checked there too, against the mode the job will have.
+    work_mode: Optional[WorkMode] = None
+    work_location: Optional[str] = None
     screening_questions: Optional[List[ScreeningQuestion]] = None
     interview_questions: Optional[List[InterviewQuestion]] = None
     screening_call_from: Optional[time] = None
@@ -267,7 +302,14 @@ class JobResponse(BaseModel):
     required_skills: Optional[List[str]] = None
     experience_min: int
     experience_max: int
-    screening_questions: List[ScreeningQuestion] = []
+    work_mode: Optional[str] = None
+    work_location: Optional[str] = None
+    # Read from Job.effective_screening_questions, so a legacy job's list comes out as the
+    # standard questions plus its role and custom ones.
+    screening_questions: List[ScreeningQuestion] = Field(
+        default=[],
+        validation_alias=AliasChoices("effective_screening_questions", "screening_questions"),
+    )
     interview_questions: List[InterviewQuestionPublic] = []
     screening_call_from: Optional[time] = None
     screening_call_to: Optional[time] = None
@@ -303,8 +345,22 @@ class JobParseResponse(BaseModel):
     required_skills: List[str] = []
     experience_min: Optional[int] = None
     experience_max: Optional[int] = None
+    # Null when the JD does not say: HR chooses before the job can be created.
+    work_mode: Optional[WorkMode] = None
+    work_location: Optional[str] = None
+    # The JD parser's role-specific questions only (at most two); the standard ones come from
+    # the standard-questions preview.
     screening_questions: List[ScreeningQuestion] = []
     interview_questions: List[InterviewQuestionPublic] = []
+
+
+class StandardScreeningQuestionsResponse(BaseModel):
+    """The locked questions for a job being created or edited, and the limits that apply."""
+
+    standard: List[ScreeningQuestion]
+    max_total: int = MAX_SCREENING_QUESTIONS
+    max_chars: int = MAX_SCREENING_QUESTION_CHARS
+    max_location_chars: int = MAX_WORK_LOCATION_CHARS
 
 
 # ---------------------------------------------------------------------------

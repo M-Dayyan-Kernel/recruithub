@@ -127,6 +127,10 @@ class Job(Base):
     required_skills: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String), nullable=True)
     experience_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     experience_max: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # remote | hybrid | onsite; NULL on jobs created before work modes existed.
+    work_mode: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    # One short line; set for hybrid and onsite jobs only.
+    work_location: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     screening_questions: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     interview_questions: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     screening_call_from: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
@@ -138,6 +142,13 @@ class Job(Base):
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    @property
+    def effective_screening_questions(self) -> list[dict]:
+        """What a call asks: the locked standard questions plus the stored role and custom ones."""
+        from app.services.screening_defaults import effective_screening_questions
+
+        return effective_screening_questions(self)
 
     # Relationships
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="jobs")

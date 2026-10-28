@@ -112,6 +112,7 @@ const FEEDBACK: Record<string, string> = {
   incorrectly_shortlisted: 'Incorrectly shortlisted',
 }
 const MODES: Record<string, string> = { shadow: 'Shadow', enforce: 'Enforce' }
+const WORK_MODES: Record<string, string> = { remote: 'Remote', hybrid: 'Hybrid', onsite: 'On-site' }
 
 /** What a field is called, for "<Field> changed". */
 const FIELD_LABELS: Record<string, string> = {
@@ -126,6 +127,8 @@ const FIELD_LABELS: Record<string, string> = {
   experience_min: 'Minimum experience',
   experience_max: 'Maximum experience',
   years_experience: 'Years of experience',
+  work_mode: 'Work mode',
+  work_location: 'Work location',
   current_ctc: 'Current CTC',
   expected_ctc: 'Expected CTC',
   notice_period: 'Notice period',
@@ -257,6 +260,8 @@ export function formatValue(field: string, value: unknown): string | null {
         return FEEDBACK[lower] ?? titleCase(value)
       case 'mode':
         return MODES[lower] ?? titleCase(value)
+      case 'work_mode':
+        return WORK_MODES[lower] ?? titleCase(value)
       case 'result':
         return titleCase(value)
       default:

@@ -7,19 +7,34 @@ import {
   Upload,
   Sparkles,
   Briefcase,
+  MapPin,
   Target,
   ClipboardList,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { Job, ParsedJobDescription, InterviewQuestion, ScreeningQuestion, SystemSettings } from '@/types/api'
+import type {
+  Job,
+  ParsedJobDescription,
+  InterviewQuestion,
+  ScreeningQuestion,
+  SystemSettings,
+  WorkMode,
+} from '@/types/api'
 import { InterviewQuestionsEditor } from '@/components/InterviewQuestionsEditor'
 import { ScreeningQuestionsEditor } from '@/components/ScreeningQuestionsEditor'
 import { VoiceScreeningSwitch } from '@/components/screening/VoiceScreeningSwitch'
-import { getDefaultScreeningQuestions } from '@/lib/screeningDefaults'
+import { WorkModeFields } from '@/components/WorkModeFields'
+import { useStandardScreeningQuestions } from '@/hooks/useStandardScreeningQuestions'
+import { remainingQuestionSlots } from '@/lib/screeningQuestions'
 import { RequiredMark } from '@/components/FieldError'
 import {
+  SCREENING_QUESTIONS_MAX_TOTAL,
+  SCREENING_QUESTION_MAX_LENGTH,
+  WORK_LOCATION_MAX_LENGTH,
   validateExperienceRange,
+  validateScreeningQuestionText,
+  validateWorkLocation,
   validateYearsText,
 } from '@/lib/validation'
 
@@ -29,6 +44,9 @@ interface CreateJobPayload {
   required_skills: string[]
   experience_min?: number
   experience_max?: number
+  work_mode: WorkMode
+  work_location?: string
+  /** Only the role-specific and custom questions: the standard ones are the server's. */
   screening_questions?: ScreeningQuestion[]
   interview_questions?: InterviewQuestion[]
   voice_screening_enabled?: boolean
@@ -112,9 +130,13 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
   const [skillInput, setSkillInput] = useState('')
   const [minExp, setMinExp] = useState('')
   const [maxExp, setMaxExp] = useState('')
-  const [screeningQuestions, setScreeningQuestions] = useState<ScreeningQuestion[]>(() =>
-    getDefaultScreeningQuestions(),
-  )
+  // How the work is done. The JD fills these when it says; a choice made by hand is never
+  // overwritten by a later parse.
+  const [workMode, setWorkMode] = useState<WorkMode | null>(null)
+  const [workLocation, setWorkLocation] = useState('')
+  const workEditedByHand = useRef({ mode: false, location: false })
+  // The role-specific and custom screening questions; the locked standard ones come from the API.
+  const [extraQuestions, setExtraQuestions] = useState<ScreeningQuestion[]>([])
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([])
   const [voiceScreeningEnabled, setVoiceScreeningEnabled] = useState(true)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
@@ -123,6 +145,12 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
   const [wasPrefilled, setWasPrefilled] = useState(false)
+
+  const { data: standardData } = useStandardScreeningQuestions(title, workMode, workLocation)
+  const standardQuestions = standardData?.standard ?? []
+  const maxTotalQuestions = standardData?.max_total ?? SCREENING_QUESTIONS_MAX_TOTAL
+  const maxQuestionChars = standardData?.max_chars ?? SCREENING_QUESTION_MAX_LENGTH
+  const maxLocationChars = standardData?.max_location_chars ?? WORK_LOCATION_MAX_LENGTH
 
   const { data: settings } = useQuery<SystemSettings>({
     queryKey: ['settings'],
@@ -155,7 +183,17 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
       if (parsed.required_skills?.length) setSkills(parsed.required_skills)
       setMinExp(parsed.experience_min != null ? String(parsed.experience_min) : '')
       setMaxExp(parsed.experience_max != null ? String(parsed.experience_max) : '')
-      if (parsed.screening_questions?.length) setScreeningQuestions(parsed.screening_questions)
+      if (parsed.work_mode && !workEditedByHand.current.mode) setWorkMode(parsed.work_mode)
+      if (parsed.work_location && !workEditedByHand.current.location) {
+        setWorkLocation(parsed.work_location)
+      }
+      // Only the role-specific questions are replaced: custom ones typed by hand stay, within the cap.
+      if (parsed.screening_questions?.length) {
+        setExtraQuestions((prev) => {
+          const room = remainingQuestionSlots(standardQuestions.length, 0, maxTotalQuestions)
+          return [...parsed.screening_questions!, ...prev.filter((q) => q.kind !== 'role')].slice(0, room)
+        })
+      }
       if (parsed.interview_questions?.length) setInterviewQuestions(parsed.interview_questions)
 
       toast.success('Fields extracted — review before creating')
@@ -230,17 +268,9 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
     if (expError) {
       errors[expError.field === 'min' ? 'minExp' : 'maxExp'] = expError.message
     }
-    // The AI voice agent needs something to ask, so an empty list is only
-    // valid when voice screening is switched off.
-    const filledScreening = screeningQuestions.filter((q) => q.question.trim())
-    if (voiceScreeningEnabled && filledScreening.length === 0) {
-      errors.screeningQuestions =
-        'Add at least one screening question, or turn voice screening off'
-    } else if (filledScreening.length !== screeningQuestions.length) {
-      // Blank rows used to be dropped silently, so half-typed questions
-      // disappeared on save.
-      errors.screeningQuestions = 'Fill in or remove the empty screening question'
-    }
+    // Blank rows used to be dropped silently, so half-typed questions disappeared on save.
+    const questionError = firstQuestionError
+    if (questionError) errors.screeningQuestions = questionError
     if (interviewQuestions.some((q) => !q.question.trim())) {
       errors.interviewQuestions = 'Fill in or remove the empty interview question'
     }
@@ -265,7 +295,9 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
       required_skills: finalSkills,
       experience_min: minExp ? Number(minExp) : undefined,
       experience_max: maxExp ? Number(maxExp) : undefined,
-      screening_questions: filledScreening,
+      work_mode: workMode as WorkMode,
+      work_location: workMode === 'remote' ? undefined : workLocation.trim(),
+      screening_questions: extraQuestions.map((q) => ({ ...q, question: q.question.trim() })),
       interview_questions: interviewQuestions,
       voice_screening_enabled: voiceScreeningEnabled,
     })
@@ -290,9 +322,14 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
 
   const isParsing = parseMutation.isPending
   const isBusy = mutation.isPending || isParsing
-  // Voice screening needs at least one question to ask.
-  const missingScreeningQuestions =
-    voiceScreeningEnabled && !screeningQuestions.some((q) => q.question.trim())
+  // The first problem in the questions HR can edit, if any. The standard ones are never wrong.
+  const firstQuestionError =
+    extraQuestions
+      .map((q) => validateScreeningQuestionText(q.question, maxQuestionChars))
+      .find(Boolean) ?? null
+  const locationError = validateWorkLocation(workMode, workLocation, maxLocationChars)
+  // A job cannot be created until it says how the work is done (and where, if not remote).
+  const createBlocked = !workMode || Boolean(locationError) || Boolean(firstQuestionError)
 
   return (
     <>
@@ -535,6 +572,36 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
           </div>
         </FormSection>
 
+        {/* Work arrangement */}
+        <FormSection
+          icon={<MapPin size={17} />}
+          title="Work arrangement"
+          description="Remote, hybrid or on-site. The screening call asks candidates about the location based on this."
+        >
+          <WorkModeFields
+            mode={workMode}
+            location={workLocation}
+            onModeChange={(next) => {
+              workEditedByHand.current.mode = true
+              setWorkMode(next)
+            }}
+            onLocationChange={(next) => {
+              workEditedByHand.current.location = true
+              setWorkLocation(next)
+            }}
+            disabled={isBusy}
+            locationError={workLocation ? locationError : null}
+            maxLocationChars={maxLocationChars}
+            hint={
+              workMode
+                ? undefined
+                : wasPrefilled
+                  ? 'The job description does not say how the work is done. Choose one to continue.'
+                  : 'Choose one to continue. A job description that states it fills this in for you.'
+            }
+          />
+        </FormSection>
+
         {/* Evaluation */}
         <FormSection
           icon={<ClipboardList size={17} />}
@@ -550,21 +617,23 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
 
           <div>
             <ScreeningQuestionsEditor
-              questions={screeningQuestions}
+              standard={standardQuestions}
+              questions={extraQuestions}
               onChange={(next) => {
-                setScreeningQuestions(next)
+                setExtraQuestions(next)
                 if (fieldErrors.screeningQuestions) {
                   setFieldErrors((p) => ({ ...p, screeningQuestions: undefined }))
                 }
               }}
+              maxTotal={maxTotalQuestions}
+              maxChars={maxQuestionChars}
               disabled={isBusy}
               scrollable
             />
-            {missingScreeningQuestions && (
-              <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600">
+            {fieldErrors.screeningQuestions && (
+              <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600" role="alert">
                 <AlertCircle size={11} />
-                {fieldErrors.screeningQuestions ??
-                  'Add at least one screening question, or turn voice screening off'}
+                {fieldErrors.screeningQuestions}
               </p>
             )}
           </div>
@@ -610,7 +679,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={isBusy || missingScreeningQuestions}
+            disabled={isBusy || createBlocked}
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-indigo-700 hover:shadow disabled:cursor-not-allowed disabled:opacity-50"
           >
             {mutation.isPending ? (

@@ -8,6 +8,7 @@ import { JobStatusBadge } from '@/components/JobStatusBadge'
 import { filterActiveJobs } from '@/lib/jobStatus'
 import { paletteFor } from '@/components/ui/OrgArt'
 import { PageHeader } from '@/components/ui/Surface'
+import { workArrangementLabel } from '@/lib/screeningQuestions'
 
 function experienceLabel(job: Job): string | null {
   const { experience_min: min, experience_max: max } = job
@@ -39,6 +40,7 @@ function shortDate(iso?: string | null): string {
 
 function JobCard({ job }: { job: Job }) {
   const expLabel = experienceLabel(job)
+  const workLabel = workArrangementLabel(job.work_mode, job.work_location)
   const tint = paletteFor(job.id)
   const skills = job.required_skills ?? []
   const screeningCount = job.screening_questions?.length ?? 0
@@ -69,6 +71,7 @@ function JobCard({ job }: { job: Job }) {
           {job.title}
         </h2>
         {expLabel && <p className="mt-1 text-[12px] font-medium text-ink-muted">{expLabel}</p>}
+        {workLabel && <p className="mt-0.5 text-[12px] font-medium text-ink-muted">{workLabel}</p>}
 
         {skills.length > 0 && (
           <div className="mt-3.5 flex flex-wrap gap-1.5">

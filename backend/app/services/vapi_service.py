@@ -18,8 +18,8 @@ from app.prompts.screening import (
     build_screening_first_message,
 )
 from app.services.screening_defaults import (
+    effective_screening_questions,
     format_screening_questions_for_prompt,
-    merge_screening_questions,
 )
 
 if TYPE_CHECKING:
@@ -36,9 +36,8 @@ def _build_screening_prompt(
     screening_questions: list | None = None,
     required_skills: list | None = None,
 ) -> str:
-    """Build the system prompt for the AI screening call."""
-    questions = merge_screening_questions(screening_questions, None, job_title)
-    questions_block = format_screening_questions_for_prompt(questions, job_title)
+    """Build the system prompt for the AI screening call from the job's effective questions."""
+    questions_block = format_screening_questions_for_prompt(screening_questions)
 
     return build_screening_call_prompt(
         candidate_name=candidate_name,
@@ -216,7 +215,7 @@ async def initiate_screening_call(
         candidate_phone=candidate.phone,
         job_title=job.title,
         job_description=job.description or "",
-        screening_questions=job.screening_questions,
+        screening_questions=effective_screening_questions(job),
         required_skills=job.required_skills,
         screening_call_id=screening_call_id,
     )
