@@ -267,7 +267,7 @@ class AssessmentRetryConfig(BaseModel):
 class InterviewConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     max_follow_ups_per_topic: int = 2
-    session_link_ttl_days: int = 7
+    session_link_ttl_days: int = 3
     schedule_early_grace_sec: int = 120
     public_rate_limit_per_minute: int = 20
     max_concurrent_interviews: int = 25

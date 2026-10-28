@@ -17,6 +17,7 @@ from app.services.email_template_service import (
 
 SCHEDULED = "interview_scheduled"
 SLOT = "Tuesday, 28 October 2026 at 11:00 AM"
+DEADLINE = "Saturday, 31 October 2026 at 11:00 AM"
 URL = "https://apply.example.com/interview/abc-123"
 
 
@@ -26,6 +27,7 @@ def _variables(**over):
         "job_title": "Backend Engineer",
         "interview_url": URL,
         "scheduled_at": SLOT,
+        "deadline": DEADLINE,
         "company_name": "Acme",
     }
     base.update(over)
@@ -82,7 +84,7 @@ class RenderTests(unittest.TestCase):
     def test_default_renders_the_slot_link_and_names(self):
         subject, body = render_template(SCHEDULED, {}, _variables())
         self.assertEqual(subject, f"[Interview Scheduled] Backend Engineer — {SLOT}")
-        for expected in ("Asha Rao", "Backend Engineer", SLOT, URL):
+        for expected in ("Asha Rao", "Backend Engineer", SLOT, URL, DEADLINE):
             self.assertIn(expected, body)
         self.assertNotIn("{{", body)
         self.assertIn('class="slot"', body)  # the default keeps its highlighted slot block

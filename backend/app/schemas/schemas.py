@@ -311,6 +311,12 @@ class JobParseResponse(BaseModel):
 # System settings schemas
 # ---------------------------------------------------------------------------
 
+def _interview_link_ttl_days() -> int:
+    from app.core.config_loader import config
+
+    return config.interview.session_link_ttl_days
+
+
 class SystemSettingsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -320,6 +326,10 @@ class SystemSettingsResponse(BaseModel):
     screening_max_retries: int
     screening_retry_delay_seconds: int
     company_name: str = "Webknot Technologies"
+    # Read-only: the platform-wide interview link validity (config.yaml), shown to admins.
+    interview_link_ttl_days: int = Field(
+        default_factory=lambda: _interview_link_ttl_days()
+    )
     updated_at: datetime
 
 

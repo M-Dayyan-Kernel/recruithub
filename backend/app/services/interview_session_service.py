@@ -40,7 +40,7 @@ async def create_pending_interview_session(
     job_id: uuid.UUID,
 ) -> tuple[InterviewSession, Candidate, str]:
     """
-    Create a pending InterviewSession with a 7-day expiry.
+    Create a pending InterviewSession that expires session_link_ttl_days from now.
 
     Returns (session, candidate, job_title). Raises ValueError if candidate/job missing
     or an active session already exists.

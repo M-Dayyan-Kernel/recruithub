@@ -105,3 +105,10 @@ test('preview documents get a base target so links cannot navigate the frame', (
   assert.match(wrapped, /<base target="_blank">/)
   assert.match(wrapped, /<body><p>just a fragment<\/p><\/body>/)
 })
+
+test('the deadline placeholder has recruiter wording and survives the plain-text round trip', () => {
+  assert.equal(placeholderLabel('{{deadline}}'), 'Complete-by date & time')
+  assert.equal(humanizePlaceholders('Finish by {{deadline}}'), 'Finish by [Complete-by date & time]')
+  const written = 'Please finish by {{deadline}}.'
+  assert.equal(htmlToPlainText(plainTextToHtml(written)), written)
+})

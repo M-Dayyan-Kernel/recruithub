@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Clock, Globe, Phone } from 'lucide-react'
+import { CalendarClock, Clock, Globe, Phone } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
@@ -19,6 +19,7 @@ const DEFAULT_RETRY_DELAY_MINUTES = 30
 const TABS: TabDef[] = [
   { id: 'screening', label: PHONE_SCREENING_LABEL },
   { id: 'email', label: 'Email templates' },
+  { id: 'interview', label: 'Interviews' },
 ]
 
 /** One settings group: icon chip, title, explanation, then the controls. */
@@ -54,6 +55,35 @@ function SettingSection({
   )
 }
 
+/**
+ * How long an interview link works. Read-only on purpose: it is one value for the whole
+ * platform (config.yaml), so an organisation cannot lengthen it for its own candidates.
+ */
+function InterviewLinkSettings({ days }: { days: number }) {
+  return (
+    <SettingSection
+      icon={<CalendarClock className="h-[18px] w-[18px]" />}
+      title="Interview link validity"
+      description="How long a candidate has to complete their interview."
+    >
+      <p className="text-[15px] font-semibold text-ink">
+        {days} {days === 1 ? 'day' : 'days'}
+      </p>
+      <ul className="mt-3 list-disc space-y-1.5 pl-5 text-[13px] leading-relaxed text-ink-muted">
+        <li>
+          Counted from when the link is sent, or from the scheduled time for a scheduled interview.
+        </li>
+        <li>After that the link stops working and the candidate needs a new one.</li>
+        <li>
+          Candidates see their deadline on the interview page. Add the Complete-by placeholder to
+          an invitation email to state it there too.
+        </li>
+        <li>This applies to every organisation and cannot be changed here.</li>
+      </ul>
+    </SettingSection>
+  )
+}
+
 function formatDelayLabel(minutes: number): string {
   if (minutes < 60) return `${minutes} min`
   if (minutes < 1440) return `${Math.round(minutes / 60)} hr`
@@ -61,7 +91,7 @@ function formatDelayLabel(minutes: number): string {
 }
 
 export default function SettingsPage() {
-  const [tab, setTab] = useState<'screening' | 'email'>('screening')
+  const [tab, setTab] = useState<'screening' | 'email' | 'interview'>('screening')
   const queryClient = useQueryClient()
   const { data, isLoading, isError, refetch } = useQuery<SystemSettings>({
     queryKey: ['settings'],
@@ -134,6 +164,8 @@ export default function SettingsPage() {
 
       {tab === 'email' ? (
         <EmailTemplatesSettings />
+      ) : tab === 'interview' ? (
+        <InterviewLinkSettings days={data.interview_link_ttl_days} />
       ) : (
       <div className="space-y-4">
       <SettingSection
