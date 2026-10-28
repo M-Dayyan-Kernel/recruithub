@@ -33,7 +33,7 @@ import {
   exportTimestamp,
   slugifyFilename,
 } from '@/lib/shortlistReportExport'
-import { downloadAllShortlistReportsPdf } from '@/lib/shortlistReportPdf'
+import { checkBundleSize } from '@/lib/pdf/limits'
 
 // ---------------------------------------------------------------------------
 // Score badge
@@ -580,6 +580,7 @@ export function ShortlistTab({
   const queryClient = useQueryClient()
   const [approvingAll, setApprovingAll] = useState(false)
   const [rejectingAll, setRejectingAll] = useState(false)
+  const [exportingPdf, setExportingPdf] = useState(false)
   // The names are captured when the dialog opens: the list refetches while the batch
   // runs, and a dialog that re-derives them would empty itself before it closes.
   const [bulkConfirm, setBulkConfirm] = useState<{ decision: 'approved' | 'rejected'; names: string[]; ids: Set<string> } | null>(null)
@@ -724,18 +725,34 @@ export function ShortlistTab({
     )
   }
 
-  const handleExportShortlistedReports = () => {
+  const handleExportShortlistedReports = async () => {
+    if (exportingPdf) return
     if (aiShortlistedCandidates.length === 0) {
       toast('No resume-screened candidates to export.')
       return
     }
+    const size = checkBundleSize(aiShortlistedCandidates.length)
+    if (!size.ok) {
+      toast.error(size.message)
+      return
+    }
+    setExportingPdf(true)
+    // A large export is laid out on the main thread, so the page can pause for a few seconds.
+    const notice = size.slow
+      ? toast.loading(`Preparing ${aiShortlistedCandidates.length} reports. This page may pause for a few seconds.`)
+      : null
     try {
-      downloadAllShortlistReportsPdf(aiShortlistedCandidates, requiredSkills, { jobTitle })
+      // Loaded on demand: the PDF library and its fonts are not part of the page.
+      const { downloadShortlistBundle } = await import('@/lib/pdf')
+      await downloadShortlistBundle(aiShortlistedCandidates, requiredSkills, { jobTitle })
       toast.success(
         `Downloaded PDF with ${aiShortlistedCandidates.length} report${aiShortlistedCandidates.length !== 1 ? 's' : ''}`,
       )
     } catch {
       toast.error('Failed to generate PDF export')
+    } finally {
+      if (notice) toast.dismiss(notice)
+      setExportingPdf(false)
     }
   }
 
@@ -888,11 +905,11 @@ export function ShortlistTab({
             <button
               type="button"
               onClick={handleExportShortlistedReports}
-              disabled={aiShortlistedCandidates.length === 0}
+              disabled={aiShortlistedCandidates.length === 0 || exportingPdf}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <FileText size={14} />
-              Export all PDFs
+              {exportingPdf ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+              {exportingPdf ? 'Preparing PDF…' : 'Export all PDFs'}
             </button>
           </div>
         </div>

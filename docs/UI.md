@@ -110,3 +110,12 @@ Anything that asserts something about a candidate shows where it came from.
   the inverse of the interview score beside it.
 - A null result says so (*"No assessable transcript was recorded"*) rather than rendering
   as a zero that looks like a measurement.
+
+---
+
+## 6. PDF reports
+
+The downloadable reports (`hr-app/src/lib/pdf`, see `docs/PDF.md`) follow the same rules as the screens:
+the palette in `theme.ts` is a hex copy of the tokens in `src/styles/tokens.css` (a test keeps them in
+step), green/amber/red mean a status only, zero counts are neutral, and numbers are set in the mono face.
+If a token changes here, change it in `theme.ts`.
