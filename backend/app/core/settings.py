@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     CANDIDATE_APP_URL: str = "http://localhost:5174"
     HR_APP_URL: str = "http://localhost:5173"
 
+    # Gmail API credentials. Not used for sending today: kept for letting an organization's admin
+    # send from their own Gmail account later (see app/services/gmail_service.py).
     GMAIL_CREDENTIALS_PATH: str = "credentials.json"
     GMAIL_TOKEN_PATH: str = "token.json"
     # Optional inline OAuth JSON (preferred in Docker/production over file paths)
@@ -57,10 +59,6 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USERNAME: str = ""
     SMTP_PASSWORD: str = ""
-
-    # Resend (optional — used when Gmail OAuth is not configured)
-    RESEND_API_KEY: str = ""
-    RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
 
     # Local filesystem fallbacks when S3 is not configured (paths, not size limits)
     UPLOAD_DIR: str = "uploads/resumes"

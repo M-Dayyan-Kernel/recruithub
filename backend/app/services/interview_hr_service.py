@@ -508,7 +508,7 @@ class InterviewHrService:
             raise HTTPException(
                 status_code=502,
                 detail=(
-                    "Failed to send interview email. Check Gmail configuration "
+                    "Failed to send interview email. Check the SMTP configuration "
                     "and that the candidate has a valid email address."
                 ),
             )

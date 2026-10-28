@@ -1,9 +1,11 @@
 """
-Email transport. Tried in order: mock (MOCK_EMAIL), SMTP (when SMTP_HOST is set), Resend,
-then the Gmail API (OAuth user credentials with gmail.send scope). Each falls back to the next
-on failure; every send returns True/False and never raises.
+Email transport. Platform mail goes over SMTP (SMTP_HOST), or the MOCK_EMAIL stub; every send
+returns True/False and never raises. There is no fallback transport.
 
-Tenant token loading stays here; OAuth/send transport is in GmailClient.
+The Gmail API pieces below (send_via_gmail, get_tenant_gmail_token, the OAuth helpers and
+GmailClient) are deliberately NOT part of that path. They are kept for a planned feature: letting
+an organization's admin send mail from their own Gmail account instead of the shared SMTP
+mailbox. Nothing calls them yet, and no screen sets the tenant token (system_settings.integrations).
 """
 
 from __future__ import annotations
@@ -18,7 +20,6 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate, make_msgid
 
-import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import gmail_client, mocks
@@ -107,45 +108,6 @@ def _send_via_smtp(to_email: str, subject: str, body: str, *, html: bool, from_n
         return False
 
 
-def resend_configured() -> bool:
-    return bool((env_settings.RESEND_API_KEY or "").strip())
-
-
-def _send_via_resend(to_email: str, subject: str, html_body: str) -> bool:
-    api_key = (env_settings.RESEND_API_KEY or "").strip()
-    if not api_key:
-        return False
-    from_email = (env_settings.RESEND_FROM_EMAIL or "onboarding@resend.dev").strip()
-    try:
-        response = httpx.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "from": from_email,
-                "to": [to_email],
-                "subject": subject,
-                "html": html_body,
-            },
-            timeout=30.0,
-        )
-        if response.status_code in (200, 201):
-            logger.info("Resend email sent to %s (id=%s)", to_email, response.json().get("id"))
-            return True
-        logger.error(
-            "Resend API error for %s: status=%s body=%s",
-            to_email,
-            response.status_code,
-            response.text,
-        )
-        return False
-    except Exception as exc:
-        logger.error("Resend send failed for %s: %s", to_email, exc)
-        return False
-
-
 async def get_tenant_gmail_token(
     db: AsyncSession,
     tenant_id: uuid.UUID | None,
@@ -163,97 +125,54 @@ async def get_tenant_gmail_token(
     return token or None
 
 
-def gmail_configured(gmail_token_json: str | dict | None = None) -> bool:
-    if mocks.mock_email_enabled():
-        return True
-    if smtp_configured() or resend_configured():
-        return True
-    try:
-        load_credentials_from_integration(gmail_token_json)
-        return True
-    except GmailNotConfiguredError:
-        return False
-    except Exception:
-        return False
-
-
 def email_transport_hint() -> str:
     if mocks.mock_email_enabled():
         return "Email mock mode is enabled (MOCK_EMAIL=true)."
-    hints: list[str] = []
-    if smtp_configured():
-        hints.append(
-            "SMTP is configured — check SMTP_HOST, SMTP_PORT, SMTP_USERNAME and SMTP_PASSWORD "
-            "(Gmail needs an app password). The API log says why the last send failed."
+    if not smtp_configured():
+        return (
+            "SMTP is not configured: set SMTP_HOST, SMTP_USERNAME and SMTP_PASSWORD in the "
+            "backend env. For local dev without sending mail, set MOCK_EMAIL=true."
         )
-    if resend_configured():
-        hints.append(
-            "Resend is configured — verify RESEND_FROM_EMAIL is a verified sender in Resend."
-        )
-    else:
-        hints.append("Set SMTP_HOST (+ SMTP_USERNAME, SMTP_PASSWORD) or RESEND_API_KEY in backend/.env, or")
-    hints.append(
-        "configure Gmail OAuth (GMAIL_TOKEN_JSON in .env, or `python -m scripts.gmail_auth`), "
-        "or add a tenant Gmail token under Settings → Integrations."
+    return (
+        "Check SMTP_HOST, SMTP_PORT, SMTP_USERNAME and SMTP_PASSWORD (Gmail needs an app "
+        "password). The API log says why the last send failed."
     )
-    hints.append("For local dev without sending mail, set MOCK_EMAIL=true.")
-    return " ".join(hints)
 
 
-def send_html_email(
+def send_via_gmail(
     to_email: str,
     subject: str,
-    html_body: str,
+    body: str,
     *,
-    gmail_token_json: str | dict | None = None,
-    from_name: str | None = None,
+    html: bool,
+    token_json: str | dict | None = None,
 ) -> bool:
-    """`from_name` is the display name on SMTP mail (the organization's name)."""
+    """Send as the Gmail account behind `token_json` (the tenant admin's). Not wired in yet."""
+    try:
+        message = MIMEText(body, "html" if html else "plain", "utf-8")
+        message_id = gmail_client().send_mime_message(
+            to_email, subject, message, token_json=token_json
+        )
+        logger.info("Gmail email sent to %s (message_id=%s)", to_email, message_id)
+        return True
+    except Exception as exc:  # noqa: BLE001 - mail must never raise into the caller
+        logger.error("Failed to send Gmail email to %s: %s", to_email, exc)
+        return False
+
+
+def _send(to_email: str, subject: str, body: str, *, html: bool, from_name: str | None) -> bool:
     if mocks.mock_email_enabled():
         return mocks.mock_email_send(to_email, subject)
-
-    if smtp_configured():
-        if _send_via_smtp(to_email, subject, html_body, html=True, from_name=from_name):
-            return True
-        logger.warning("SMTP send failed for %s — falling back", to_email)
-
-    if resend_configured():
-        if _send_via_resend(to_email, subject, html_body):
-            return True
-        logger.warning("Resend send failed for %s — falling back to Gmail", to_email)
-
-    try:
-        message = MIMEText(html_body, "html", "utf-8")
-        message_id = gmail_client().send_mime_message(
-            to_email, subject, message, token_json=gmail_token_json
-        )
-        logger.info("Gmail HTML email sent to %s (message_id=%s)", to_email, message_id)
-        return True
-    except Exception as exc:
-        logger.error("Failed to send Gmail HTML email to %s: %s", to_email, exc)
+    if not smtp_configured():
+        logger.error("Cannot send email to %s: SMTP_HOST is not set", to_email)
         return False
+    return _send_via_smtp(to_email, subject, body, html=html, from_name=from_name)
+
+
+def send_html_email(to_email: str, subject: str, html_body: str, *, from_name: str | None = None) -> bool:
+    """`from_name` is the display name on the mail (the organization's name)."""
+    return _send(to_email, subject, html_body, html=True, from_name=from_name)
 
 
 def send_plain_email(to_email: str, subject: str, body: str, *, from_name: str | None = None) -> bool:
-    if mocks.mock_email_enabled():
-        return mocks.mock_email_send(to_email, subject)
-
-    if smtp_configured():
-        if _send_via_smtp(to_email, subject, body, html=False, from_name=from_name):
-            return True
-        logger.warning("SMTP send failed for %s — falling back", to_email)
-
-    if resend_configured():
-        html_body = f"<pre>{body}</pre>"
-        if _send_via_resend(to_email, subject, html_body):
-            return True
-        logger.warning("Resend send failed for %s — falling back to Gmail", to_email)
-
-    try:
-        message = MIMEText(body, "plain", "utf-8")
-        message_id = gmail_client().send_mime_message(to_email, subject, message)
-        logger.info("Gmail plain email sent to %s (message_id=%s)", to_email, message_id)
-        return True
-    except Exception as exc:
-        logger.error("Failed to send Gmail plain email to %s: %s", to_email, exc)
-        return False
+    return _send(to_email, subject, body, html=False, from_name=from_name)

@@ -116,10 +116,9 @@ See `.env.example` for all required variables.
 | `S3_REGION` | Sprint 6+ | e.g. `in-maa-1` |
 | `S3_BUCKET` | Sprint 6+ | Bucket for interview recordings |
 | `S3_FORCE_PATH_STYLE` | Sprint 6+ | `true` for Linode |
-| `SMTP_HOST` | Optional | Turns on SMTP mail (tried before Resend and Gmail), e.g. `smtp.gmail.com` |
+| `SMTP_HOST` | Optional | SMTP server that all mail goes through, e.g. `smtp.gmail.com` |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` | With `SMTP_HOST` | The mailbox (also the sender address) and its app password |
 | `SMTP_PORT` | Optional | `587` by default (STARTTLS); `465` is encrypted from the start |
-| `RESEND_API_KEY` | Optional | Interview link emails when SMTP is not set |
 
 ---
 
