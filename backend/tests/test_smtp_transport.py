@@ -10,7 +10,7 @@ from app.services import gmail_service as gs
 def _env(**over):
     base = dict(
         SMTP_HOST="smtp.example.com", SMTP_PORT=587, SMTP_USERNAME="hr@example.com",
-        SMTP_PASSWORD="app-password", RESEND_API_KEY="", RESEND_FROM_EMAIL="x@y.z",
+        SMTP_PASSWORD="app-password",
     )
     base.update(over)
     return SimpleNamespace(**base)
@@ -119,22 +119,30 @@ class SmtpSendTests(unittest.TestCase):
             self.assertFalse(gs._send_via_smtp("a@b.com", "s", "x", html=False))
 
 
-class TransportOrderTests(unittest.TestCase):
-    def _run(self, *, smtp_ok, resend_key="", html=True):
+class TransportTests(unittest.TestCase):
+    def _run(self, *, smtp_ok, html=True, host="smtp.example.com"):
         calls = []
-        with patch.object(gs, "env_settings", _env(RESEND_API_KEY=resend_key)), patch.object(
+        with patch.object(gs, "env_settings", _env(SMTP_HOST=host)), patch.object(
             gs.mocks, "mock_email_enabled", return_value=False
         ), patch.object(gs, "_send_via_smtp", side_effect=lambda *a, **k: calls.append("smtp") or smtp_ok), patch.object(
-            gs, "_send_via_resend", side_effect=lambda *a, **k: calls.append("resend") or True
-        ), patch.object(gs, "gmail_client") as gmail:
-            gmail.return_value.send_mime_message.side_effect = lambda *a, **k: calls.append("gmail") or "id"
+            gs, "gmail_client"
+        ) as gmail:
             out = gs.send_html_email("a@b.com", "s", "<p>x</p>") if html else gs.send_plain_email("a@b.com", "s", "x")
+            gmail.assert_not_called()
         return out, calls
 
-    def test_smtp_goes_first_and_stops_on_success(self):
+    def test_smtp_is_the_only_transport(self):
         for html in (True, False):
-            out, calls = self._run(smtp_ok=True, resend_key="k", html=html)
-            self.assertEqual((out, calls), (True, ["smtp"]))
+            self.assertEqual(self._run(smtp_ok=True, html=html), (True, ["smtp"]))
+
+    def test_a_failed_smtp_send_is_not_retried_through_gmail(self):
+        for html in (True, False):
+            self.assertEqual(self._run(smtp_ok=False, html=html), (False, ["smtp"]))
+
+    def test_without_smtp_host_nothing_is_sent(self):
+        for html in (True, False):
+            with self.assertLogs(gs.logger, "ERROR"):
+                self.assertEqual(self._run(smtp_ok=True, html=html, host=""), (False, []))
 
     def test_the_organization_name_reaches_smtp(self):
         seen = {}
@@ -146,10 +154,6 @@ class TransportOrderTests(unittest.TestCase):
             gs.send_plain_email("a@b.com", "s", "x", from_name="Acme")
             self.assertEqual(seen["from_name"], "Acme")
 
-    def test_a_failed_smtp_falls_back_to_resend_then_gmail(self):
-        self.assertEqual(self._run(smtp_ok=False, resend_key="k"), (True, ["smtp", "resend"]))
-        self.assertEqual(self._run(smtp_ok=False), (True, ["smtp", "gmail"]))
-
     def test_mock_mode_sends_nothing(self):
         with patch.object(gs, "env_settings", _env()), patch.object(gs.mocks, "mock_email_enabled", return_value=True), patch.object(
             gs.mocks, "mock_email_send", return_value=True
@@ -157,10 +161,13 @@ class TransportOrderTests(unittest.TestCase):
             self.assertTrue(gs.send_html_email("a@b.com", "s", "x"))
         smtp.assert_not_called()
 
-    def test_smtp_alone_counts_as_configured(self):
-        with patch.object(gs, "env_settings", _env()), patch.object(gs.mocks, "mock_email_enabled", return_value=False):
-            self.assertTrue(gs.gmail_configured())
-            self.assertIn("SMTP is configured", gs.email_transport_hint())
+    def test_the_hint_says_what_to_set_when_smtp_is_missing(self):
+        with patch.object(gs.mocks, "mock_email_enabled", return_value=False):
+            with patch.object(gs, "env_settings", _env(SMTP_HOST="")):
+                hint = gs.email_transport_hint()
+            self.assertIn("SMTP_HOST", hint)
+            self.assertNotIn("Gmail OAuth", hint)
+            self.assertNotIn("Integrations", hint)
 
     def test_html_to_text(self):
         text = gs._html_to_text("<style>p{}</style><h1>Hi</h1><p>A &amp; B<br>C</p><script>x()</script>")

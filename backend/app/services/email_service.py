@@ -1,5 +1,5 @@
 """
-Email Service — interview invitations, rejection, and screening notifications via Gmail API.
+Email Service — interview invitations, rejection, and screening notifications over SMTP.
 
 Functions return True on success, False on failure (never raise).
 """
@@ -106,7 +106,6 @@ async def send_interview_link(
     *,
     templates: dict[str, dict[str, Any]] | None = None,
     company_name: str | None = None,
-    gmail_token_json: str | dict | None = None,
 ) -> bool:
     """Send an immediate interview invitation (join at your convenience)."""
     if templates:
@@ -128,7 +127,6 @@ async def send_interview_link(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
-        gmail_token_json=gmail_token_json,
         from_name=company_name,
     )
     if sent:
@@ -149,7 +147,6 @@ async def send_scheduled_interview_notification(
     *,
     templates: dict[str, dict[str, Any]] | None = None,
     company_name: str | None = None,
-    gmail_token_json: str | dict | None = None,
 ) -> bool:
     """Notify candidate of a future interview slot with the join link."""
     subject, html_body = render_template(
@@ -167,7 +164,6 @@ async def send_scheduled_interview_notification(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
-        gmail_token_json=gmail_token_json,
         from_name=company_name,
     )
     if sent:
@@ -188,7 +184,6 @@ async def send_reschedule_notification(
     *,
     templates: dict[str, dict[str, Any]],
     company_name: str | None = None,
-    gmail_token_json: str | dict | None = None,
 ) -> bool:
     subject, html_body = render_template(
         "interview_reschedule",
@@ -204,7 +199,6 @@ async def send_reschedule_notification(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
-        gmail_token_json=gmail_token_json,
         from_name=company_name,
     )
     if sent:
@@ -223,7 +217,6 @@ async def send_interview_cancelled_notification(
     *,
     templates: dict[str, dict[str, Any]],
     company_name: str | None = None,
-    gmail_token_json: str | dict | None = None,
 ) -> bool:
     subject, html_body = render_template(
         "interview_cancelled",
@@ -238,7 +231,6 @@ async def send_interview_cancelled_notification(
         to_email=candidate_email,
         subject=subject,
         html_body=html_body,
-        gmail_token_json=gmail_token_json,
         from_name=company_name,
     )
     if sent:
@@ -292,7 +284,7 @@ async def send_rejection_email(
     templates: dict[str, dict[str, Any]] | None = None,
     company_name: str | None = None,
 ) -> bool:
-    """Send a polite application rejection email via Gmail."""
+    """Send a polite application rejection email over SMTP."""
     if templates:
         subject, html_body = render_template(
             "rejection",
@@ -353,7 +345,7 @@ async def send_org_invite_email(
     invite_url: str,
     invited_by_name: str | None = None,
 ) -> bool:
-    """Send an organization membership invite via Gmail. Returns False on failure (never raises)."""
+    """Send an organization membership invite over SMTP. Returns False on failure (never raises)."""
     role_label = "Admin" if role == "admin" else "HR"
     subject = f"You're invited to join {organization_name}"
     html_body = _build_org_invite_email_html(

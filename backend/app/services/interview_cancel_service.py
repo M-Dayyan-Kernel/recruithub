@@ -20,7 +20,6 @@ from app.services.candidate_contact_service import (
     resolve_candidate_email,
     resolve_candidate_name,
 )
-from app.services.gmail_service import get_tenant_gmail_token
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +107,6 @@ async def send_cancelled_email(
             job_title=job.title if job else "the position",
             templates=await get_merged_templates(db, tenant_id),
             company_name=await get_company_name(db, tenant_id),
-            gmail_token_json=await get_tenant_gmail_token(db, tenant_id),
         )
     except Exception:  # noqa: BLE001 - see docstring
         logger.exception("Failed to send interview cancellation email to candidate=%s", candidate.id)

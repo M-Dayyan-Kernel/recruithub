@@ -217,13 +217,11 @@ class SystemSettingsService:
         except ValueError as exc:
             raise ValidationError(public_message=str(exc)) from exc
 
-        gmail_token = await gmail_service.get_tenant_gmail_token(self._session, admin.tenant_id)
         sent = await run_sync(
             gmail_service.send_html_email,
             to_email=payload.to_email,
             subject=f"[TEST] {rendered['subject']}",
             html_body=rendered["body_html"],
-            gmail_token_json=gmail_token,
             from_name=await get_company_name(self._session, admin.tenant_id),
         )
         if not sent:
