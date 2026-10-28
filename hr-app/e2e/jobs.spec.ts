@@ -15,9 +15,12 @@ import {
   mockGetShortlist,
   mockGetShortlistStatus,
   mockGetScreening,
+  mockAuthenticatedSession,
+  mockStandardScreeningQuestions,
 } from './fixtures'
 
 async function mockLayoutWithJobs(page: import('@playwright/test').Page) {
+  await mockAuthenticatedSession(page)
   await mockGetJobsSafe(page)
 }
 
@@ -103,11 +106,15 @@ test('Create Job link in sidebar navigates to create page', async ({ page }) => 
 
 test('Create Job form shows validation errors on empty submit', async ({ page }) => {
   await mockLayoutWithJobs(page)
+  await mockStandardScreeningQuestions(page)
 
   await page.goto('/jobs/new')
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByRole('heading', { name: 'Create New Job' })).toBeVisible()
+  await expect(page.getByText('Import from document')).toBeVisible()
+  // The button stays disabled until the job says how the work is done.
+  await expect(page.getByRole('button', { name: 'Create Job' })).toBeDisabled()
+  await page.getByRole('radio', { name: 'Remote' }).click()
   await page.getByRole('button', { name: 'Create Job' }).click()
 
   await expect(page.getByText('Job title is required')).toBeVisible()
@@ -136,12 +143,14 @@ test('Create Job success navigates to new job Resume Screening page', async ({ p
   await mockGetShortlist(page, newJobId, [])
   await mockGetShortlistStatus(page, newJobId)
   await mockGetScreening(page, newJobId, [])
+  await mockStandardScreeningQuestions(page)
 
   await page.goto('/jobs/new')
   await page.waitForLoadState('networkidle')
 
   await page.locator('input[placeholder*="Senior Frontend"]').fill('New Test Role')
   await page.locator('textarea').first().fill('This is a test job description.')
+  await page.getByRole('radio', { name: 'Remote' }).click()
   await page.getByRole('button', { name: 'Create Job' }).click()
 
   await expect(page.getByText('Job created successfully')).toBeVisible({ timeout: 5000 })
@@ -156,19 +165,21 @@ test('Create Job success navigates to new job Resume Screening page', async ({ p
 test('Create Job shows error on 422 API error', async ({ page }) => {
   await mockLayoutWithJobs(page)
   await mockPostJob(page, 422)
+  await mockStandardScreeningQuestions(page)
 
   await page.goto('/jobs/new')
   await page.waitForLoadState('networkidle')
 
   await page.locator('input[placeholder*="Senior Frontend"]').fill('Bad Job')
   await page.locator('textarea').first().fill('This should fail.')
+  await page.getByRole('radio', { name: 'Remote' }).click()
   await page.getByRole('button', { name: 'Create Job' }).click()
 
   await expect(
     page.locator('text=Failed to create job').or(page.locator('text=Validation error')).first(),
   ).toBeVisible({ timeout: 5000 })
   await expect(page).toHaveURL('/jobs/new')
-  await expect(page.getByRole('heading', { name: 'Create New Job' })).toBeVisible()
+  await expect(page.getByText('Import from document')).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------

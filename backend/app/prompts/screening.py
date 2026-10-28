@@ -10,19 +10,21 @@ Return ONLY valid JSON with these exact fields:
   "relevant_experience": "string — brief summary of relevant experience mentioned",
   "current_ctc": "string — current CTC/salary mentioned (e.g. '12 LPA', '15 lakhs', 'Not disclosed')",
   "expected_ctc": "string — expected CTC/salary (e.g. '18-20 LPA', 'Open to discussion')",
-  "notice_period": "string — notice period (e.g. '30 days', '2 months', 'Immediate joiner')",
+  "notice_period": "string — notice period, often stated when asked about availability (e.g. '30 days', '2 months', 'Immediate joiner'); null if not mentioned",
   "location_preference": "string — location or remote/hybrid preference",
   "communication_quality": "string — one of: excellent, good, fair, poor",
-  "willingness_to_proceed": "boolean — true if candidate expressed interest in proceeding, false if not, null if unclear",
+  "willingness_to_proceed": "boolean — true if the candidate expressed interest or engaged with no sign of unwillingness, false only if they said they do not want to proceed, null if unclear",
   "summary": "string — 2-3 sentence summary of the screening call",
   "result": "string — one of: pass, fail, needs_review"
 }
 
 Classifier rules for 'result':
 - When employer screening questions are provided in the user message, verify answers cover those topics.
-- "pass": candidate answers screening questions satisfactorily AND shows strong standard fit signals — willing to proceed, reasonable CTC expectations, relevant experience, acceptable availability and notice period.
-- "fail": candidate gives clear disqualifying answers to screening questions OR shows clear disqualifiers — not willing to proceed, CTC extremely out of range (>2x stated), irrelevant experience, unavailable for foreseeable future.
+- "pass": candidate answers screening questions satisfactorily AND shows strong standard fit signals — no signs of unwillingness to proceed, reasonable CTC expectations, relevant experience, acceptable availability (a notice period is welcome but not required).
+- "fail": candidate gives clear disqualifying answers to screening questions OR shows clear disqualifiers — says they do not want to proceed, CTC extremely out of range (>2x stated), irrelevant experience, unavailable for foreseeable future.
 - "needs_review": ambiguous signals, incomplete information, call cut short, mixed signals, or questions not fully answered.
+
+Work location: when the user message states the role's work arrangement and it is on-site or hybrid, and the candidate clearly refuses or says they cannot work from that location, set 'result' to "needs_review" (never "fail") and say why in the summary. This does not apply to a remote role or when the work arrangement is not specified.
 
 Be conservative — when in doubt, use "needs_review" rather than "fail".
 """
@@ -79,17 +81,32 @@ SCREENING_END_CALL_MESSAGE = (
 )
 
 
+_WORK_MODE_LABELS = {"remote": "Remote", "hybrid": "Hybrid", "onsite": "On-site"}
+
+
+def _describe_work_arrangement(work_mode: str | None, work_location: str | None) -> str:
+    label = _WORK_MODE_LABELS.get(work_mode or "")
+    if label is None:
+        return "not specified"
+    if work_mode != "remote" and work_location:
+        return f"{label} in {work_location}"
+    return label
+
+
 def build_screening_extraction_user_prompt(
     *,
     transcript: str,
     job_title: str | None,
     questions_text: str,
+    work_mode: str | None = None,
+    work_location: str | None = None,
 ) -> str:
     from app.core.config_loader import config
 
     context_parts: list[str] = []
     if job_title:
         context_parts.append(f"Role: {job_title}")
+    context_parts.append(f"Work arrangement: {_describe_work_arrangement(work_mode, work_location)}")
     if questions_text.strip():
         context_parts.append(
             "Employer screening questions (evaluate pass/fail based on how well "

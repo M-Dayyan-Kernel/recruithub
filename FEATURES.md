@@ -148,9 +148,10 @@ Legacy UI explorations with mock/stub data. Not connected to the live backend. S
 
 | Feature | Description | Location |
 |---------|-------------|----------|
-| Create job manually | Title, description, skills, experience range, screening questions, interview rubric | HR: `CreateJobForm.tsx` / API: `POST /api/jobs` |
+| Create job manually | Title, description, skills, experience range, work mode and location, screening questions, interview rubric | HR: `CreateJobForm.tsx` / API: `POST /api/jobs` |
 | Parse job description (JD) | Upload PDF/DOCX → GPT-4o extracts fields and generates questions | HR: `CreateJobForm.tsx` / API: `POST /api/jobs/parse-jd` |
-| Default screening questions | Auto-applied if none provided (availability, CTC, notice period, etc.) | `screening_defaults.py` |
+| Standard screening questions | Six locked questions on every job (availability including notice period, employment, experience, current CTC, expected CTC, and a location question built from the job's work mode and location); up to 4 more (2 AI-generated, the rest HR's) within a 10-question, 200-characters-each cap | `screening_defaults.py`, `ScreeningQuestionsEditor.tsx` |
+| Work mode | Remote, hybrid or on-site plus a location, read from the JD or chosen by HR; required to create a job | `WorkModeFields.tsx`, `jd_parser_service.py` |
 | Interview rubric enrichment | GPT generates hidden `expected_points` for each interview question | `expected_answer_service.py` |
 | List jobs | Filter by status; Jobs page cards + dashboard | API: `GET /api/jobs` / `JobsPage.tsx` |
 | View job details | Title, skills, status, screening/interview config | `JobHeader.tsx` |
@@ -195,7 +196,7 @@ Legacy UI explorations with mock/stub data. Not connected to the live backend. S
 
 | Feature | Description | Location |
 |---------|-------------|----------|
-| Configure screening questions | Edit per-job screening criteria | `ScreeningCriteriaModal.tsx` |
+| Configure screening questions | Edit the role-specific and custom questions (the standard ones are locked) | `ScreeningCriteriaModal.tsx` |
 | Call window settings | Set allowed calling hours and timezone per job | `ScreeningSettingsCard.tsx` |
 | Trigger screening calls | Start outbound Vapi calls for approved candidates | `ScreeningTab.tsx` / API: `POST /api/jobs/{id}/screening/trigger` |
 | Auto-screen on approve | Automatically queue screening when HR approves shortlist (if Celery up + in call window) | `shortlist.py` route |

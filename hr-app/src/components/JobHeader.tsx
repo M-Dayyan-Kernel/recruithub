@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
+  MapPin,
   Pencil,
   Trash2,
 } from 'lucide-react'
@@ -16,6 +17,7 @@ import { EditJobModal } from '@/components/EditJobModal'
 import { JobStatusBadge } from '@/components/JobStatusBadge'
 import { VoiceScreeningToggle } from '@/components/screening/VoiceScreeningToggle'
 import { cn } from '@/lib/utils'
+import { workArrangementLabel } from '@/lib/screeningQuestions'
 
 const DESCRIPTION_PREVIEW_LINES = 3
 const SKILL_PREVIEW_COUNT = 8
@@ -97,6 +99,7 @@ export function JobHeader({ job, showDelete = false }: Props) {
   const description = job.description?.trim() || 'No description provided.'
   const isLongDescription = description.length > 220 || description.split('\n').length > DESCRIPTION_PREVIEW_LINES
   const expLabel = experienceLabel(job)
+  const workLabel = workArrangementLabel(job.work_mode, job.work_location)
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -168,6 +171,12 @@ export function JobHeader({ job, showDelete = false }: Props) {
                     <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-1 ring-1 ring-slate-200/80">
                       <Briefcase className="h-3.5 w-3.5 text-slate-400" />
                       {expLabel}
+                    </span>
+                  )}
+                  {workLabel && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-1 ring-1 ring-slate-200/80">
+                      <MapPin className="h-3.5 w-3.5 text-slate-400" />
+                      {workLabel}
                     </span>
                   )}
                   {skills.length > 0 && (

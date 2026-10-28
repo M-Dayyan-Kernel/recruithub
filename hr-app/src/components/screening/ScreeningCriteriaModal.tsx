@@ -1,14 +1,16 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { X, Loader2, Plus } from 'lucide-react'
+import { X, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { Job } from '@/types/api'
+import type { Job, ScreeningQuestion } from '@/types/api'
+import { ScreeningQuestionsEditor } from '@/components/ScreeningQuestionsEditor'
+import { editableQuestions, questionKind } from '@/lib/screeningQuestions'
 import {
-  ScreeningQuestionsEditor,
-  createScreeningQuestion,
-} from '@/components/ScreeningQuestionsEditor'
-import { getDefaultScreeningQuestions } from '@/lib/screeningDefaults'
+  SCREENING_QUESTIONS_MAX_TOTAL,
+  SCREENING_QUESTION_MAX_LENGTH,
+  validateScreeningQuestionText,
+} from '@/lib/validation'
 
 interface Props {
   job: Job
@@ -18,21 +20,23 @@ interface Props {
 
 export function ScreeningCriteriaModal({ job, open, onClose }: Props) {
   const queryClient = useQueryClient()
-  const [questions, setQuestions] = useState(
-    job.screening_questions?.length
-      ? job.screening_questions
-      : getDefaultScreeningQuestions(job.title),
+  // The standard questions come with the job and are locked; the rest are what this edits.
+  const standard = (job.screening_questions ?? []).filter((q) => questionKind(q) === 'standard')
+  const [questions, setQuestions] = useState<ScreeningQuestion[]>(() =>
+    editableQuestions(job.screening_questions),
   )
+  const total = standard.length + questions.length
 
-  // This modal only edits questions, so voice screening stays as configured —
-  // saving an empty list would leave the agent with nothing to ask.
-  const filled = questions.filter((q) => q.question.trim())
-  const canSave = filled.length > 0 || job.voice_screening_enabled === false
+  const firstError =
+    questions
+      .map((q) => validateScreeningQuestionText(q.question, SCREENING_QUESTION_MAX_LENGTH))
+      .find(Boolean) ?? null
+  const canSave = !firstError && total <= SCREENING_QUESTIONS_MAX_TOTAL
 
   const mutation = useMutation({
     mutationFn: () =>
       api.patch(`/api/jobs/${job.id}`, {
-        screening_questions: filled,
+        screening_questions: questions.map((q) => ({ ...q, question: q.question.trim() })),
       }) as unknown as Promise<Job>,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['job', job.id] })
@@ -52,7 +56,7 @@ export function ScreeningCriteriaModal({ job, open, onClose }: Props) {
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-slate-800">Screening questions</h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              {questions.length} question{questions.length !== 1 ? 's' : ''} for voice screening
+              {total} question{total !== 1 ? 's' : ''} for voice screening
             </p>
           </div>
           <button
@@ -67,29 +71,21 @@ export function ScreeningCriteriaModal({ job, open, onClose }: Props) {
 
         <div className="px-5 py-4">
           <ScreeningQuestionsEditor
+            standard={standard}
             questions={questions}
             onChange={setQuestions}
             disabled={mutation.isPending}
-            embedded
+            compact
             scrollable
           />
-          {!canSave && (
-            <p className="mt-2 text-xs text-rose-600">
-              Add at least one screening question, or turn voice screening off on the job.
+          {firstError && (
+            <p className="mt-2 text-xs text-rose-600" role="alert">
+              {firstError}
             </p>
           )}
         </div>
 
-        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-100 px-5 py-3">
-          <button
-            type="button"
-            onClick={() => setQuestions((prev) => [...prev, createScreeningQuestion()])}
-            disabled={mutation.isPending}
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-          >
-            <Plus size={13} />
-            Add question
-          </button>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
           <div className="flex gap-2">
             <button
               type="button"

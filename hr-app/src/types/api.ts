@@ -7,9 +7,24 @@ export interface PaginatedResponse<T> {
   offset: number
 }
 
+/** standard: locked, built by the server. role: written by the JD parser. custom: added by HR. */
+export type ScreeningQuestionKind = 'standard' | 'role' | 'custom'
+
+export type WorkMode = 'remote' | 'hybrid' | 'onsite'
+
 export interface ScreeningQuestion {
   id: string
   question: string
+  /** Absent on questions the form just created: those are custom. */
+  kind?: ScreeningQuestionKind
+}
+
+/** The locked screening questions for a job's details, and the limits the API enforces. */
+export interface StandardScreeningQuestions {
+  standard: ScreeningQuestion[]
+  max_total: number
+  max_chars: number
+  max_location_chars: number
 }
 
 export interface InterviewQuestion {
@@ -38,6 +53,10 @@ export interface ParsedJobDescription {
   required_skills: string[]
   experience_min?: number | null
   experience_max?: number | null
+  /** Null when the JD does not say how the work is done: HR chooses. */
+  work_mode?: WorkMode | null
+  work_location?: string | null
+  /** The parser's role-specific questions only (at most two). */
   screening_questions?: ScreeningQuestion[]
   interview_questions?: InterviewQuestion[]
 }
@@ -49,6 +68,10 @@ export interface Job {
   required_skills: string[] | null
   experience_min?: number
   experience_max?: number
+  /** Null on jobs created before work modes existed. */
+  work_mode?: WorkMode | null
+  work_location?: string | null
+  /** The standard questions first, then the role and custom ones. */
   screening_questions?: ScreeningQuestion[]
   interview_questions?: InterviewQuestion[]
   interview_total_score?: number

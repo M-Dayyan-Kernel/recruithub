@@ -244,3 +244,35 @@ export function validateExperienceRange(
   }
   return null
 }
+
+// Phone-screening question limits. Mirror MAX_SCREENING_QUESTIONS, MAX_SCREENING_QUESTION_CHARS
+// and MAX_WORK_LOCATION_CHARS in backend/app/services/screening_defaults.py, which the API
+// enforces. The values the API reports (`/api/jobs/standard-screening-questions`) win once loaded;
+// these are what the form uses until then.
+export const SCREENING_QUESTIONS_MAX_TOTAL = 10
+export const SCREENING_QUESTION_MAX_LENGTH = 200
+export const WORK_LOCATION_MAX_LENGTH = 80
+
+/** One role or custom screening question: required, and within the length limit. */
+export function validateScreeningQuestionText(
+  raw: string,
+  max = SCREENING_QUESTION_MAX_LENGTH,
+): string | null {
+  const text = raw.trim()
+  if (!text) return 'Fill in or remove the empty screening question'
+  if (text.length > max) return `Questions can be at most ${max} characters`
+  return null
+}
+
+/** The work location: required for hybrid and on-site jobs, not used for remote ones. */
+export function validateWorkLocation(
+  mode: string | null | undefined,
+  raw: string,
+  max = WORK_LOCATION_MAX_LENGTH,
+): string | null {
+  if (mode !== 'hybrid' && mode !== 'onsite') return null
+  const text = raw.trim()
+  if (!text) return 'Work location is required for hybrid and on-site jobs'
+  if (text.length > max) return `Work location must be at most ${max} characters`
+  return null
+}

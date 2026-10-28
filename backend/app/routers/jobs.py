@@ -16,12 +16,14 @@ from app.schemas.schemas import (
     JobParseResponse,
     JobResponse,
     JobUpdate,
+    StandardScreeningQuestionsResponse,
     VoiceScreeningChange,
     VoiceScreeningChangeResult,
     VoiceScreeningPreview,
 )
 from app.services.job_description_parse_service import JobDescriptionParseService
 from app.services.job_service import JobService
+from app.services.screening_defaults import build_standard_questions, clean_work_location, parse_work_mode
 
 router = APIRouter(dependencies=[Depends(hr_roles)])
 
@@ -64,6 +66,22 @@ async def parse_jd(
         return await service.parse_upload(file, actor.tenant_id)
     except DomainError as exc:
         _raise_domain(exc)
+
+
+@router.get("/standard-screening-questions", response_model=StandardScreeningQuestionsResponse)
+async def standard_screening_questions(
+    title: str = Query("", description="The job title, used in the experience question"),
+    work_mode: Optional[str] = Query(None, description="remote, hybrid or onsite"),
+    work_location: Optional[str] = Query(None),
+):
+    """The locked screening questions for these job details, so the form can show them before the
+    job exists. A preview only: creating or updating a job always rebuilds them on the server.
+    Registered before /{job_id}, which would otherwise take this path."""
+    return StandardScreeningQuestionsResponse(
+        standard=build_standard_questions(
+            title, parse_work_mode(work_mode), clean_work_location(work_location)
+        )
+    )
 
 
 @router.get("/{job_id}", response_model=JobResponse)

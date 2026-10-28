@@ -1,37 +1,83 @@
-import { Plus, Trash2, MessageCircle } from 'lucide-react'
-import type { ScreeningQuestion } from '@/types/api'
+import type { ReactNode } from 'react'
+import { Lock, MessageCircle, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
+import type { ScreeningQuestion, ScreeningQuestionKind } from '@/types/api'
+import { Badge } from '@/components/ui/Surface'
+import { KIND_BADGES, questionKind, remainingQuestionSlots } from '@/lib/screeningQuestions'
+import { SCREENING_QUESTIONS_MAX_TOTAL, SCREENING_QUESTION_MAX_LENGTH } from '@/lib/validation'
 
 interface Props {
+  /** The locked questions the server builds. Shown first, never editable. */
+  standard: ScreeningQuestion[]
+  /** The role-specific and custom questions, which HR can edit, remove and add to. */
   questions: ScreeningQuestion[]
   onChange: (questions: ScreeningQuestion[]) => void
+  /** Total questions on a call, the standard ones included. */
+  maxTotal?: number
+  /** Per role or custom question. */
+  maxChars?: number
   disabled?: boolean
-  embedded?: boolean
-  /** Cap visible rows; extra questions scroll inside the list */
+  /** Cap visible rows; extra questions scroll inside the list. */
   scrollable?: boolean
-  hideHeader?: boolean
+  /** Leave out the title and explanation, for a modal that already has them. */
+  compact?: boolean
 }
 
 const fieldClass =
-  'w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/15 disabled:bg-slate-50 disabled:text-slate-500'
+  'w-full rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm text-ink placeholder:text-ink-subtle transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-soft disabled:bg-surface-2 disabled:text-ink-muted'
 
 /** Highlights a row whose question text is still blank, which blocks saving. */
-const emptyFieldClass = 'border-rose-300 focus:border-rose-400 focus:ring-rose-500/15'
+const emptyFieldClass = 'border-neg focus:border-neg'
 
 export function createScreeningQuestion(): ScreeningQuestion {
   return {
     id: crypto.randomUUID(),
     question: '',
+    kind: 'custom',
   }
 }
 
+const KIND_ICONS: Record<ScreeningQuestionKind, ReactNode> = {
+  standard: <Lock size={11} aria-hidden />,
+  role: <Sparkles size={11} aria-hidden />,
+  custom: <Pencil size={11} aria-hidden />,
+}
+
+/**
+ * What a question is: a label and an icon as well as a colour, so the category never depends on
+ * colour alone. Only the role-specific badge uses the accent (there are at most two of them).
+ */
+function KindBadge({ kind }: { kind: ScreeningQuestionKind }) {
+  const { label, tone, outlined } = KIND_BADGES[kind]
+  const content = (
+    <>
+      {KIND_ICONS[kind]}
+      {label}
+    </>
+  )
+  if (outlined) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-2.5 py-1 text-[11px] font-semibold text-ink-muted">
+        {content}
+      </span>
+    )
+  }
+  return <Badge tone={tone}>{content}</Badge>
+}
+
 export function ScreeningQuestionsEditor({
+  standard,
   questions,
   onChange,
+  maxTotal = SCREENING_QUESTIONS_MAX_TOTAL,
+  maxChars = SCREENING_QUESTION_MAX_LENGTH,
   disabled,
-  embedded,
   scrollable,
-  hideHeader,
+  compact,
 }: Props) {
+  const total = standard.length + questions.length
+  const slots = remainingQuestionSlots(standard.length, questions.length, maxTotal)
+  const atCap = slots === 0
+
   const updateQuestion = (id: string, patch: Partial<ScreeningQuestion>) => {
     onChange(questions.map((q) => (q.id === id ? { ...q, ...patch } : q)))
   }
@@ -41,140 +87,117 @@ export function ScreeningQuestionsEditor({
   }
 
   const addQuestion = () => {
-    onChange([...questions, createScreeningQuestion()])
-  }
-
-  if (embedded) {
-    return (
-      <div className="space-y-2">
-        {questions.length === 0 ? (
-          <div className="flex items-center gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-3 py-4">
-            <MessageCircle size={16} className="shrink-0 text-slate-400" />
-            <p className="text-xs text-slate-500">
-              No questions yet — defaults apply or add questions manually.
-            </p>
-          </div>
-        ) : (
-          <div
-            className={`overflow-hidden rounded-lg border border-slate-200 ${
-              scrollable ? 'scrollbar-thin-light max-h-[15.5rem] overflow-y-auto' : ''
-            }`}
-          >
-            <table className="w-full">
-              <thead>
-                <tr
-                  className={`border-b border-slate-100 bg-slate-50/80 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400 ${
-                    scrollable ? 'sticky top-0 z-10 backdrop-blur-sm' : ''
-                  }`}
-                >
-                  <th className="w-9 px-2 py-1.5">#</th>
-                  <th className="px-2 py-1.5">Question</th>
-                  <th className="w-8 px-1 py-1.5" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
-                {questions.map((q, index) => (
-                  <tr key={q.id} className="group hover:bg-slate-50/60">
-                    <td className="px-2 py-1.5 text-center text-xs font-medium tabular-nums text-slate-400">
-                      {index + 1}
-                    </td>
-                    <td className="px-1 py-1">
-                      <input
-                        type="text"
-                        value={q.question}
-                        onChange={(e) => updateQuestion(q.id, { question: e.target.value })}
-                        disabled={disabled}
-                        placeholder="Screening question…"
-                        aria-label={`Question ${index + 1}`}
-                        aria-invalid={!q.question.trim()}
-                        className={`${fieldClass} ${
-                          q.question.trim() ? '' : emptyFieldClass
-                        }`}
-                      />
-                    </td>
-                    <td className="px-1 py-1 text-center">
-                      <button
-                        type="button"
-                        onClick={() => removeQuestion(q.id)}
-                        disabled={disabled}
-                        title="Remove"
-                        aria-label={`Remove question ${index + 1}`}
-                        className="rounded p-1 text-slate-300 transition-colors hover:bg-rose-50 hover:text-rose-500 disabled:opacity-50 group-hover:text-slate-400"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    )
+    if (!atCap) onChange([...questions, createScreeningQuestion()])
   }
 
   return (
     <div className="space-y-3">
-      {!hideHeader && (
-        <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
+        {!compact ? (
           <div>
-            <p className="text-sm font-medium text-slate-700">Screening questions</p>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Topics the AI voice agent will cover during phone screening.
+            <p className="text-sm font-medium text-ink">Screening questions</p>
+            <p className="mt-0.5 text-xs text-ink-muted">
+              What the AI voice agent asks during phone screening. Standard questions are fixed.
             </p>
           </div>
+        ) : (
+          <p className="text-xs text-ink-muted">Standard questions are fixed.</p>
+        )}
+        <div className="flex shrink-0 items-center gap-3">
+          <span
+            className="font-mono text-xs tabular-nums text-ink-muted"
+            aria-live="polite"
+            data-testid="screening-question-count"
+          >
+            {total} of {maxTotal}
+          </span>
           <button
             type="button"
             onClick={addQuestion}
-            disabled={disabled}
-            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:border-indigo-200 hover:text-indigo-700 disabled:opacity-50"
+            disabled={disabled || atCap}
+            title={atCap ? `A call can have at most ${maxTotal} questions` : undefined}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-line bg-surface px-2.5 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus size={12} />
             Add question
           </button>
         </div>
-      )}
+      </div>
 
-      {questions.length === 0 ? (
-        <div className="flex flex-col items-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-6 text-center">
-          <MessageCircle size={16} className="mb-1.5 text-slate-400" />
-          <p className="text-xs text-slate-500">No questions yet</p>
-        </div>
-      ) : (
-        <div
-          className={
-            scrollable
-              ? 'scrollbar-thin-light max-h-[15.5rem] space-y-2 overflow-y-auto pr-1.5'
-              : 'space-y-2'
-          }
-        >
-          {questions.map((q, index) => (
-            <div
+      <ol
+        className={
+          scrollable
+            ? 'scrollbar-thin-light max-h-[20rem] space-y-2 overflow-y-auto pr-1.5'
+            : 'space-y-2'
+        }
+      >
+        {standard.map((q, index) => (
+          <li
+            key={q.id}
+            className="flex items-start gap-3 rounded-md border border-line bg-surface-2 px-3 py-2"
+          >
+            <span className="w-5 shrink-0 pt-0.5 text-center font-mono text-xs tabular-nums text-ink-subtle">
+              {index + 1}
+            </span>
+            <p className="min-w-0 flex-1 text-sm leading-relaxed text-ink">{q.question}</p>
+            <KindBadge kind="standard" />
+          </li>
+        ))}
+
+        {questions.map((q, index) => {
+          const kind = questionKind(q)
+          const position = standard.length + index + 1
+          const blank = !q.question.trim()
+          return (
+            <li
               key={q.id}
-              className="grid grid-cols-[1fr_28px] items-center gap-2 rounded-lg border border-slate-200/80 bg-slate-50/40 px-2 py-1.5"
+              className="flex items-start gap-3 rounded-md border border-line bg-surface px-3 py-2"
             >
-              <input
-                type="text"
-                value={q.question}
-                onChange={(e) => updateQuestion(q.id, { question: e.target.value })}
-                disabled={disabled}
-                placeholder={`Question ${index + 1}…`}
-                aria-label={`Question ${index + 1}`}
-                aria-invalid={!q.question.trim()}
-                className={`${fieldClass} ${q.question.trim() ? '' : emptyFieldClass}`}
-              />
-              <button
-                type="button"
-                onClick={() => removeQuestion(q.id)}
-                disabled={disabled}
-                aria-label={`Remove question ${index + 1}`}
-                className="rounded p-1 text-slate-400 hover:text-rose-500 disabled:opacity-50"
-              >
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
+              <span className="w-5 shrink-0 pt-2 text-center font-mono text-xs tabular-nums text-ink-subtle">
+                {position}
+              </span>
+              <div className="min-w-0 flex-1">
+                <input
+                  type="text"
+                  value={q.question}
+                  onChange={(e) => updateQuestion(q.id, { question: e.target.value })}
+                  disabled={disabled}
+                  maxLength={maxChars}
+                  placeholder="Screening question…"
+                  aria-label={`Question ${position}`}
+                  aria-invalid={blank}
+                  className={`${fieldClass} ${blank ? emptyFieldClass : ''}`}
+                />
+                {q.question.length >= maxChars * 0.8 && (
+                  <p className="mt-1 text-right font-mono text-[11px] tabular-nums text-ink-muted">
+                    {q.question.length}/{maxChars}
+                  </p>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-1 pt-1">
+                <KindBadge kind={kind} />
+                <button
+                  type="button"
+                  onClick={() => removeQuestion(q.id)}
+                  disabled={disabled}
+                  title="Remove"
+                  aria-label={`Remove question ${position}`}
+                  className="rounded p-1 text-ink-subtle transition-colors hover:bg-neg-soft hover:text-neg disabled:opacity-50"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            </li>
+          )
+        })}
+      </ol>
+
+      {questions.length === 0 && (
+        <div className="flex items-center gap-3 rounded-md border border-dashed border-line bg-surface-2 px-3 py-3">
+          <MessageCircle size={16} className="shrink-0 text-ink-subtle" aria-hidden />
+          <p className="text-xs text-ink-muted">
+            No role-specific questions yet. You can add up to {slots} more.
+          </p>
         </div>
       )}
     </div>

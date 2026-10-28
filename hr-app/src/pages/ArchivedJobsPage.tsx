@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { JobStatusBadge } from '@/components/JobStatusBadge'
 import { filterArchivedJobs } from '@/lib/jobStatus'
+import { workArrangementLabel } from '@/lib/screeningQuestions'
 
 type StatusFilter = 'all' | 'paused' | 'closed'
 
@@ -42,6 +43,7 @@ function ArchivedJobCard({ job }: { job: Job }) {
   })
 
   const expLabel = experienceLabel(job)
+  const workLabel = workArrangementLabel(job.work_mode, job.work_location)
 
   return (
     <article
@@ -64,6 +66,7 @@ function ArchivedJobCard({ job }: { job: Job }) {
       </div>
 
       {expLabel && <p className="mb-2 text-xs text-slate-500">{expLabel}</p>}
+      {workLabel && <p className="mb-2 text-xs text-slate-500">{workLabel}</p>}
 
       <p className="mb-4 line-clamp-3 flex-1 break-words text-sm leading-relaxed text-slate-600">
         {job.description}

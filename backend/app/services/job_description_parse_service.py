@@ -83,6 +83,8 @@ class JobDescriptionParseService:
             required_skills=parsed.get("required_skills") or [],
             experience_min=parsed.get("experience_min"),
             experience_max=parsed.get("experience_max"),
+            work_mode=parsed.get("work_mode"),
+            work_location=parsed.get("work_location"),
             screening_questions=[
                 ScreeningQuestion(**q) for q in (parsed.get("screening_questions") or [])
             ],

@@ -61,6 +61,7 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
 
         # Field omitted entirely -> the service seeds the defaults.
         payload = JobCreate(
+            work_mode="remote",
             title="Backend Engineer",
             description="Build services",
             interview_questions=[],
@@ -111,6 +112,7 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
         )
 
         payload = JobCreate(
+            work_mode="remote",
             title="Backend Engineer",
             description="Build services",
             interview_questions=[{"id": "q1", "question": "Q", "score": 5}],
@@ -123,12 +125,8 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class ScreeningQuestionRequiredTests(unittest.IsolatedAsyncioTestCase):
-    """Clearing every screening question must stick, not silently refill.
-
-    The service used to treat an empty list as "not supplied" and backfill the
-    defaults, so questions the user had just deleted came straight back.
-    """
+class ScreeningQuestionRuleTests(unittest.IsolatedAsyncioTestCase):
+    """The standard questions are the server's: always present, never taken from a client."""
 
     def _service(self):
         self.session = AsyncMock()
@@ -155,50 +153,150 @@ class ScreeningQuestionRequiredTests(unittest.IsolatedAsyncioTestCase):
             is_active=True,
         )
 
-    async def test_create_rejects_empty_questions_when_voice_screening_on(self):
-        service = self._service()
-        payload = JobCreate(
-            title="Backend Engineer",
-            description="Build services",
-            screening_questions=[],
-            voice_screening_enabled=True,
-        )
-        with self.assertRaises(ValidationError) as ctx:
-            await service.create(self._actor(), payload)
-        self.assertIn("at least one screening question", ctx.exception.public_message)
-        self.job_repo.add.assert_not_called()
-
-    async def test_create_allows_empty_questions_when_voice_screening_off(self):
-        service = self._service()
-        payload = JobCreate(
-            title="Backend Engineer",
-            description="Build services",
-            screening_questions=[],
-            voice_screening_enabled=False,
-        )
-        await service.create(self._actor(), payload)
-        stored = self.job_repo.add.call_args.args[0]
-        self.assertEqual(stored.screening_questions, [])
-
-    async def test_update_rejects_clearing_questions_while_voice_screening_on(self):
-        service = self._service()
+    def _job(self, **over):
         job = MagicMock()
         job.voice_screening_enabled = True
-        service._jobs.get_for_tenant = AsyncMock(return_value=job)
-        with self.assertRaises(ValidationError):
-            await service.update(
-                self._actor(), uuid.uuid4(), JobUpdate(screening_questions=[])
-            )
-        self.session.commit.assert_not_awaited()
+        job.title = "Backend Engineer"
+        job.work_mode = "hybrid"
+        job.work_location = "Bengaluru"
+        job.screening_questions = []
+        for key, value in over.items():
+            setattr(job, key, value)
+        return job
 
-    async def test_update_allows_clearing_questions_once_voice_screening_is_off(self):
+    def _stored(self):
+        return self.job_repo.add.call_args.args[0].screening_questions
+
+    async def test_create_always_adds_the_six_standard_questions(self):
         service = self._service()
-        job = MagicMock()
-        job.voice_screening_enabled = False
+        await service.create(
+            self._actor(),
+            JobCreate(title="Backend Engineer", description="D", work_mode="onsite", work_location="Pune"),
+        )
+        stored = self._stored()
+        self.assertEqual([q["kind"] for q in stored], ["standard"] * 6)
+        self.assertIn("work from office in Pune", stored[-1]["question"])
+        self.assertIn("Backend Engineer", stored[2]["question"])
+
+    async def test_create_keeps_role_and_custom_questions_after_the_standard_ones(self):
+        service = self._service()
+        await service.create(
+            self._actor(),
+            JobCreate(
+                title="T",
+                description="D",
+                work_mode="remote",
+                screening_questions=[
+                    {"id": "r1", "question": "Have you used Kafka?", "kind": "role"},
+                    {"id": "c1", "question": "Can you start on a Monday?"},
+                ],
+            ),
+        )
+        stored = self._stored()
+        self.assertEqual([q["kind"] for q in stored][6:], ["role", "custom"])
+
+    async def test_a_clients_own_standard_rows_are_ignored(self):
+        service = self._service()
+        await service.create(
+            self._actor(),
+            JobCreate(
+                title="T",
+                description="D",
+                work_mode="remote",
+                screening_questions=[
+                    {"id": "screening-default-expected-ctc", "question": "Hacked?", "kind": "standard"},
+                ],
+            ),
+        )
+        stored = self._stored()
+        self.assertEqual(len(stored), 6)
+        self.assertNotIn("Hacked?", [q["question"] for q in stored])
+
+    async def test_create_rejects_more_than_ten_questions(self):
+        service = self._service()
+        extra = [{"id": f"x{i}", "question": f"Question number {i}?"} for i in range(5)]
+        with self.assertRaises(ValidationError) as ctx:
+            await service.create(
+                self._actor(),
+                JobCreate(title="T", description="D", work_mode="remote", screening_questions=extra),
+            )
+        self.assertIn("at most 10", ctx.exception.public_message)
+        self.job_repo.add.assert_not_called()
+
+    async def test_create_rejects_an_over_long_question(self):
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            await service.create(
+                self._actor(),
+                JobCreate(
+                    title="T",
+                    description="D",
+                    work_mode="remote",
+                    screening_questions=[{"id": "x", "question": "q" * 201}],
+                ),
+            )
+        self.assertIn("200 characters", ctx.exception.public_message)
+
+    def test_a_job_needs_a_work_mode(self):
+        with self.assertRaises(PydanticValidationError):
+            JobCreate(title="T", description="D")
+
+    def test_hybrid_and_onsite_need_a_location_and_remote_drops_it(self):
+        for mode in ("hybrid", "onsite"):
+            with self.subTest(mode=mode), self.assertRaises(PydanticValidationError):
+                JobCreate(title="T", description="D", work_mode=mode)
+        remote = JobCreate(title="T", description="D", work_mode="remote", work_location="Pune")
+        self.assertIsNone(remote.work_location)
+
+    async def test_update_clearing_the_extra_questions_leaves_the_standard_ones(self):
+        service = self._service()
+        job = self._job(screening_questions=[{"id": "u1", "question": "Old extra?", "kind": "custom"}])
         service._jobs.get_for_tenant = AsyncMock(return_value=job)
         await service.update(self._actor(), uuid.uuid4(), JobUpdate(screening_questions=[]))
-        self.assertEqual(job.screening_questions, [])
+        self.assertEqual([q["kind"] for q in job.screening_questions], ["standard"] * 6)
         self.session.commit.assert_awaited_once()
+
+    async def test_update_rebuilds_the_location_question_when_the_mode_changes(self):
+        service = self._service()
+        job = self._job()
+        service._jobs.get_for_tenant = AsyncMock(return_value=job)
+        await service.update(self._actor(), uuid.uuid4(), JobUpdate(work_mode="remote"))
+        self.assertIsNone(job.work_location)
+        self.assertIn("fully remote", job.screening_questions[-1]["question"])
+
+    async def test_update_rerenders_the_title_and_keeps_stored_extras(self):
+        service = self._service()
+        job = self._job(screening_questions=[{"id": "u1", "question": "x" * 300, "kind": "custom"}])
+        service._jobs.get_for_tenant = AsyncMock(return_value=job)
+        await service.update(self._actor(), uuid.uuid4(), JobUpdate(title="Platform Engineer"))
+        self.assertIn("Platform Engineer", job.screening_questions[2]["question"])
+        # A stored question over today's limit must not stop an unrelated rename.
+        self.assertEqual(len(job.screening_questions), 7)
+
+    async def test_update_refuses_to_clear_the_work_mode(self):
+        service = self._service()
+        service._jobs.get_for_tenant = AsyncMock(return_value=self._job())
+        with self.assertRaises(ValidationError):
+            await service.update(self._actor(), uuid.uuid4(), JobUpdate(work_mode=None))
+        self.session.commit.assert_not_awaited()
+
+    async def test_update_needs_a_location_for_the_mode_the_job_will_have(self):
+        service = self._service()
+        service._jobs.get_for_tenant = AsyncMock(
+            return_value=self._job(work_mode="remote", work_location=None)
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            await service.update(self._actor(), uuid.uuid4(), JobUpdate(work_mode="onsite"))
+        self.assertIn("location", ctx.exception.public_message)
+
+    async def test_a_status_only_update_leaves_a_legacy_job_alone(self):
+        # Archiving a job that predates work modes must not demand one.
+        service = self._service()
+        job = self._job(work_mode=None, work_location=None, screening_questions=[{"id": "old", "question": "Old?"}])
+        service._jobs.get_for_tenant = AsyncMock(return_value=job)
+        await service.update(self._actor(), uuid.uuid4(), JobUpdate(status="closed"))
+        self.assertEqual(job.status, "closed")
+        self.assertEqual(job.screening_questions, [{"id": "old", "question": "Old?"}])
 
     async def test_a_plain_edit_cannot_switch_voice_screening_off(self):
         # That is the switch's job: it asks where the phone round goes, under a job lock.
@@ -237,16 +335,17 @@ class ExperienceRangeTests(unittest.IsolatedAsyncioTestCase):
 
     def test_create_rejects_negative_experience(self):
         with self.assertRaises(PydanticValidationError) as ctx:
-            JobCreate(title="T", description="D", experience_min=-1)
+            JobCreate(work_mode="remote", title="T", description="D", experience_min=-1)
         self.assertIn("cannot be negative", str(ctx.exception))
 
     def test_create_rejects_max_below_min(self):
         with self.assertRaises(PydanticValidationError) as ctx:
-            JobCreate(title="T", description="D", experience_min=6, experience_max=3)
+            JobCreate(work_mode="remote", title="T", description="D", experience_min=6, experience_max=3)
         self.assertIn("cannot be less than", str(ctx.exception))
 
     def test_create_allows_equal_bounds(self):
         payload = JobCreate(
+            work_mode="remote",
             title="T", description="D", experience_min=4, experience_max=4
         )
         self.assertEqual(payload.experience_max, 4)
@@ -258,36 +357,39 @@ class ExperienceRangeTests(unittest.IsolatedAsyncioTestCase):
     # ── "5+ years": a missing or zero maximum means no upper bound ───────────
 
     def test_create_allows_min_only(self):
-        payload = JobCreate(title="T", description="D", experience_min=5)
+        payload = JobCreate(work_mode="remote", title="T", description="D", experience_min=5)
         self.assertEqual(payload.experience_min, 5)
         self.assertEqual(payload.experience_max, 0)
 
     def test_create_treats_explicit_null_bounds_as_unset(self):
         # A parsed JD stating only "5+ years" yields experience_max: null.
         payload = JobCreate(
+            work_mode="remote",
             title="T", description="D", experience_min=5, experience_max=None
         )
         self.assertEqual(payload.experience_max, 0)
         payload = JobCreate(
+            work_mode="remote",
             title="T", description="D", experience_min=None, experience_max=None
         )
         self.assertEqual((payload.experience_min, payload.experience_max), (0, 0))
 
     def test_create_treats_zero_max_as_no_upper_bound(self):
         payload = JobCreate(
+            work_mode="remote",
             title="T", description="D", experience_min=5, experience_max=0
         )
         self.assertEqual(payload.experience_max, 0)
 
     def test_create_still_rejects_real_max_below_min(self):
         with self.assertRaises(PydanticValidationError):
-            JobCreate(title="T", description="D", experience_min=6, experience_max=3)
+            JobCreate(work_mode="remote", title="T", description="D", experience_min=6, experience_max=3)
 
     def test_create_still_rejects_negative_and_oversized(self):
         with self.assertRaises(PydanticValidationError):
-            JobCreate(title="T", description="D", experience_min=5, experience_max=-1)
+            JobCreate(work_mode="remote", title="T", description="D", experience_min=5, experience_max=-1)
         with self.assertRaises(PydanticValidationError):
-            JobCreate(title="T", description="D", experience_min=5, experience_max=61)
+            JobCreate(work_mode="remote", title="T", description="D", experience_min=5, experience_max=61)
 
     def _service_with_job(self, *, experience_min, experience_max):
         session = AsyncMock()
@@ -375,7 +477,7 @@ class InterviewScoreBoundsTests(unittest.TestCase):
     def _payload(self, **q):
         base = {"id": "q1", "question": "Walk me through a project you led", "score": 10}
         base.update(q)
-        return JobCreate(title="T", description="D", interview_questions=[base])
+        return JobCreate(work_mode="remote", title="T", description="D", interview_questions=[base])
 
     def test_score_above_cap_rejected(self):
         with self.assertRaises(PydanticValidationError):

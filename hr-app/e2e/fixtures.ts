@@ -97,14 +97,35 @@ export const MOCK_INTERVIEW_QUESTIONS = [
   },
 ]
 
+/** What the API returns for a job: the locked standard questions first, then role and custom ones. */
+export function standardQuestionsFor(title = 'Senior Frontend Engineer', workMode = 'hybrid', workLocation = 'Bengaluru') {
+  const location =
+    workMode === 'remote'
+      ? 'This role is fully remote. Are you comfortable working remotely?'
+      : workMode === 'onsite'
+        ? `This role is work from office in ${workLocation}. Are you comfortable working from this location?`
+        : `This role is hybrid and based in ${workLocation}. Are you comfortable with the hybrid arrangement and working from there?`
+  return [
+    { id: 'screening-default-availability', question: 'When are you available to start? If you are serving a notice period, please tell me how long.', kind: 'standard' },
+    { id: 'screening-default-employment', question: 'Are you currently employed? What is your current role and company?', kind: 'standard' },
+    { id: 'screening-default-experience', question: `Can you briefly describe your most relevant experience for this ${title} role?`, kind: 'standard' },
+    { id: 'screening-default-current-ctc', question: 'What is your current compensation package (annual CTC)?', kind: 'standard' },
+    { id: 'screening-default-expected-ctc', question: 'What are your salary expectations for this role?', kind: 'standard' },
+    { id: 'screening-default-location', question: location, kind: 'standard' },
+  ]
+}
+
 export const MOCK_SCREENING_QUESTIONS = [
+  ...standardQuestionsFor(),
   {
-    id: 'screening-default-availability',
-    question: 'When are you available to start a new role? Are you currently looking actively?',
+    id: 'screening-role-1',
+    question: 'Have you shipped a production React application with TypeScript?',
+    kind: 'role',
   },
   {
-    id: 'screening-custom-notice',
-    question: 'Must be available to join within 30 days — what is your notice period?',
+    id: 'screening-custom-1',
+    question: 'Must be available to join within 30 days. Is that workable?',
+    kind: 'custom',
   },
 ]
 
@@ -123,6 +144,8 @@ export const MOCK_JOBS_SAFE = [
     required_skills: ['React', 'TypeScript', 'GraphQL'],
     experience_min: 3,
     experience_max: 7,
+    work_mode: 'hybrid',
+    work_location: 'Bengaluru',
     screening_questions: MOCK_SCREENING_QUESTIONS,
     interview_questions: MOCK_INTERVIEW_QUESTIONS,
     interview_total_score: 100,
@@ -141,6 +164,8 @@ export const MOCK_JOBS_SAFE = [
     required_skills: [],  // empty array instead of null — avoids .length crash bug
     experience_min: 2,
     experience_max: 5,
+    work_mode: 'hybrid',
+    work_location: 'Bengaluru',
     screening_questions: [],
     interview_questions: [],
     screening_call_from: '09:00:00',
@@ -158,6 +183,8 @@ export const MOCK_JOBS_SAFE = [
     required_skills: ['Figma', 'User Research'],
     experience_min: 2,
     experience_max: 4,
+    work_mode: 'hybrid',
+    work_location: 'Bengaluru',
     screening_questions: [],
     interview_questions: [],
     screening_call_from: '09:00:00',
@@ -178,6 +205,8 @@ export const MOCK_JOBS = [
     required_skills: ['React', 'TypeScript', 'GraphQL'],
     experience_min: 3,
     experience_max: 7,
+    work_mode: 'hybrid',
+    work_location: 'Bengaluru',
     screening_questions: MOCK_SCREENING_QUESTIONS,
     interview_questions: MOCK_INTERVIEW_QUESTIONS,
     interview_total_score: 100,
@@ -196,6 +225,8 @@ export const MOCK_JOBS = [
     required_skills: null, // intentionally null — must not crash UI
     experience_min: 2,
     experience_max: 5,
+    work_mode: 'hybrid',
+    work_location: 'Bengaluru',
     screening_questions: [],
     interview_questions: [],
     screening_call_from: '09:00:00',
@@ -213,6 +244,8 @@ export const MOCK_JOBS = [
     required_skills: ['Figma', 'User Research'],
     experience_min: 2,
     experience_max: 4,
+    work_mode: 'hybrid',
+    work_location: 'Bengaluru',
     screening_questions: [],
     interview_questions: [],
     screening_call_from: '09:00:00',
@@ -981,4 +1014,21 @@ export async function mockAllJobSubEndpoints(page: Page, jobs = MOCK_JOBS_SAFE) 
     await mockGetScreening(page, job.id,  MOCK_SCREENING.filter(s => s.job_id === job.id))
     await mockGetInterviewPipeline(page, job.id)
   }
+}
+
+/** Mock GET /api/jobs/standard-screening-questions: the locked rows for the job details asked about. */
+export async function mockStandardScreeningQuestions(page: Page) {
+  await page.route('**/api/jobs/standard-screening-questions*', (route: Route) => {
+    const url = new URL(route.request().url())
+    const standard = standardQuestionsFor(
+      url.searchParams.get('title') || 'this',
+      url.searchParams.get('work_mode') || 'hybrid',
+      url.searchParams.get('work_location') || 'Bengaluru',
+    )
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ standard, max_total: 10, max_chars: 200, max_location_chars: 80 }),
+    })
+  })
 }

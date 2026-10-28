@@ -161,6 +161,8 @@ async def _get_or_create_job(db: AsyncSession, tenant: Tenant, title: str) -> Jo
         required_skills=["Python", "FastAPI", "PostgreSQL", "Celery"],
         experience_min=3,
         experience_max=7,
+        work_mode="hybrid",
+        work_location="Bengaluru",
         interview_questions=INTERVIEW_QUESTIONS,
         voice_screening_enabled=False,
         status="active",
