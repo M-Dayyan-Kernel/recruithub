@@ -294,7 +294,7 @@ def _integrity(*, observed):
     )
     session.get = AsyncMock(return_value=job)
     repo.get_org_policy = AsyncMock(
-        return_value=SimpleNamespace(version=4, blocklist_seeded_at=NOW)
+        return_value=SimpleNamespace(version=4, blocklist_seeded_at=NOW, extension_enabled=True)
     )
     service = IntegrityService(
         session, repo=repo, interviews=interviews, audit=AsyncMock(), observed=observed

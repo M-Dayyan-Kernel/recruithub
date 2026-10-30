@@ -28,6 +28,11 @@ export function extensionCheckState(
   return 'not_recorded'
 }
 
-export const EXTENSION_CHECK_OFF_MESSAGE = 'Extension check was turned off for this job.'
+/** Who turned it off matters to the reader: the organization's Admin, or this job's own switch. */
+export function extensionCheckOffMessage(stamp: ExtensionCheckStamp | null | undefined): string {
+  return stamp?.disabled_by === 'org'
+    ? 'Extension check was turned off for the organization.'
+    : 'Extension check was turned off for this job.'
+}
 export const POLICY_UNAVAILABLE_MESSAGE =
   'The extension check could not run because the interview page could not load the check settings. This is not a clean result.'

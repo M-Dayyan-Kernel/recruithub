@@ -10,7 +10,7 @@
  */
 import type { ExtensionCheckStamp, IntegritySummary } from '../../../types/integrity.ts'
 import {
-  EXTENSION_CHECK_OFF_MESSAGE,
+  extensionCheckOffMessage,
   POLICY_UNAVAILABLE_MESSAGE,
   extensionCheckState,
 } from '../../extensionCheckState.ts'
@@ -175,7 +175,7 @@ function buildExtension(
   stamp?: ExtensionCheckStamp | null,
 ): ExtensionSection {
   if (extensionCheckState(integrity, stamp) === 'off') {
-    return { state: 'off', message: EXTENSION_CHECK_OFF_MESSAGE }
+    return { state: 'off', message: extensionCheckOffMessage(stamp) }
   }
   if (!integrity) {
     // No scan on record is not a clean result, so it never reads as one.

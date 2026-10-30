@@ -10,6 +10,7 @@ import {
   MapPin,
   Target,
   ClipboardList,
+  ShieldCheck,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
@@ -24,6 +25,9 @@ import type {
 import { InterviewQuestionsEditor } from '@/components/InterviewQuestionsEditor'
 import { ScreeningQuestionsEditor } from '@/components/ScreeningQuestionsEditor'
 import { VoiceScreeningSwitch } from '@/components/screening/VoiceScreeningSwitch'
+import { ExtensionCheckFields } from '@/components/job/ExtensionCheckFields'
+import { useExtensionOrgEnabled } from '@/components/extensions/useExtensionOrgPolicy'
+import type { ExtensionPolicyMode } from '@/types/integrity'
 import { WorkModeFields } from '@/components/WorkModeFields'
 import { useStandardScreeningQuestions } from '@/hooks/useStandardScreeningQuestions'
 import { remainingQuestionSlots } from '@/lib/screeningQuestions'
@@ -50,8 +54,8 @@ interface CreateJobPayload {
   screening_questions?: ScreeningQuestion[]
   interview_questions?: InterviewQuestion[]
   voice_screening_enabled?: boolean
-  /** The AI-extension check; the mode starts as shadow and is changed on the job page. */
   extension_check_enabled?: boolean
+  extension_check_mode?: ExtensionPolicyMode
 }
 
 interface FieldErrors {
@@ -142,6 +146,10 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([])
   const [voiceScreeningEnabled, setVoiceScreeningEnabled] = useState(true)
   const [extensionCheckEnabled, setExtensionCheckEnabled] = useState(true)
+  const [extensionCheckMode, setExtensionCheckMode] = useState<ExtensionPolicyMode>('shadow')
+  // While an Admin has the check off for the organization, the section is greyed out and the
+  // starting values (on, shadow) are what is sent.
+  const extensionOrgEnabled = useExtensionOrgEnabled()
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -304,6 +312,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
       interview_questions: interviewQuestions,
       voice_screening_enabled: voiceScreeningEnabled,
       extension_check_enabled: extensionCheckEnabled,
+      extension_check_mode: extensionCheckMode,
     })
   }
 
@@ -619,14 +628,6 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
             className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5"
           />
 
-          <VoiceScreeningSwitch
-            label="AI extension check"
-            checked={extensionCheckEnabled}
-            disabled={isBusy}
-            onChange={setExtensionCheckEnabled}
-            className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5"
-          />
-
           <div>
             <ScreeningQuestionsEditor
               standard={standardQuestions}
@@ -669,6 +670,22 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
               </p>
             )}
           </div>
+        </FormSection>
+
+        {/* AI extension check */}
+        <FormSection
+          icon={<ShieldCheck size={17} />}
+          title="AI extension check"
+          description="Blocks candidates who run AI-assistant browser extensions during the interview."
+        >
+          <ExtensionCheckFields
+            enabled={extensionCheckEnabled}
+            mode={extensionCheckMode}
+            onEnabledChange={setExtensionCheckEnabled}
+            onModeChange={setExtensionCheckMode}
+            disabled={isBusy}
+            locked={!extensionOrgEnabled}
+          />
         </FormSection>
       </div>
 

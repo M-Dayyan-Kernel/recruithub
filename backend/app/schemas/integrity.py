@@ -203,6 +203,9 @@ class IntegrityPolicyResponse(BaseModel):
 class OrgPolicyResponse(BaseModel):
     """An organization's extension-check settings, for its Admins (edit) and HR (view)."""
 
+    #: The Admin's master switch. Off: the check runs for no job and recruiters cannot change a
+    #: job's own switch or mode.
+    enabled: bool
     version: int
     entry_count: int
     active_count: int
@@ -212,6 +215,10 @@ class OrgPolicyResponse(BaseModel):
     defaults_total: int
     can_edit: bool
     updated_at: datetime
+
+
+class OrgPolicyUpdate(BaseModel):
+    enabled: Optional[bool] = None
 
 
 class RestoreDefaultsResult(BaseModel):

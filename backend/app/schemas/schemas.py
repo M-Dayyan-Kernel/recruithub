@@ -1066,6 +1066,8 @@ class ExtensionCheckStamp(BaseModel):
     enabled: Optional[bool] = None
     mode: Optional[str] = None
     policy_version: Optional[int] = None
+    #: When `enabled` is false: "org" (the Admin's master switch) or "job" (the job's own switch).
+    disabled_by: Optional[Literal["org", "job"]] = None
 
 
 InterviewReportResponse.model_rebuild()

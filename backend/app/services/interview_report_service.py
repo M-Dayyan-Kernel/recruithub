@@ -104,6 +104,7 @@ class InterviewReportService:
                 "enabled": session.extension_check_enabled,
                 "mode": session.extension_check_mode,
                 "policy_version": session.extension_policy_version,
+                "disabled_by": session.extension_check_disabled_by,
             }
 
         return InterviewReportResponse.model_validate(report_dict)

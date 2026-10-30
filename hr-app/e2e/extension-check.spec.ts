@@ -39,8 +39,9 @@ const entry = (over: Record<string, unknown> = {}) => ({
   ...over,
 })
 
-function policy(canEdit: boolean, entries: unknown[]) {
+function policy(canEdit: boolean, entries: unknown[], enabled: boolean) {
   return {
+    enabled,
     version: 3,
     entry_count: entries.length,
     active_count: entries.length,
@@ -53,7 +54,8 @@ function policy(canEdit: boolean, entries: unknown[]) {
 }
 
 /** Stateful stand-in for /api/extension-policy. Returns the log of write requests. */
-async function mockExtensionPolicy(page: Page, canEdit: boolean) {
+async function mockExtensionPolicy(page: Page, canEdit: boolean, orgEnabled = true) {
+  let enabled = orgEnabled
   const entries: Array<Record<string, unknown>> = [entry()]
   const writes: Array<{ method: string; url: string; body: unknown }> = []
 
@@ -68,7 +70,11 @@ async function mockExtensionPolicy(page: Page, canEdit: boolean) {
     if (method !== 'GET') {
       writes.push({ method, url: path, body: req.postDataJSON?.() ?? null })
     }
-    if (path === '/' && method === 'GET') return json(200, policy(canEdit, entries))
+    if (path === '/' && method === 'GET') return json(200, policy(canEdit, entries, enabled))
+    if (path === '/' && method === 'PUT') {
+      enabled = (req.postDataJSON() as { enabled: boolean }).enabled
+      return json(200, policy(canEdit, entries, enabled))
+    }
     if (path === '/blocklist' && method === 'GET') return json(200, entries)
     if (path === '/blocklist' && method === 'POST') {
       const created = entry({ ...(req.postDataJSON() as object), origin: 'custom', id: crypto.randomUUID() })
@@ -170,7 +176,12 @@ test.describe('organization page', () => {
 })
 
 test.describe('per-job switch', () => {
-  async function openJob(page: Page, role = undefined as typeof MOCK_PLAIN_HR_USER | undefined) {
+  async function openJob(
+    page: Page,
+    role = undefined as typeof MOCK_PLAIN_HR_USER | undefined,
+    orgEnabled = true,
+  ) {
+    await mockExtensionPolicy(page, role === undefined, orgEnabled)
     await mockAuthenticatedSession(page, role)
     const job = { ...MOCK_JOBS[0], extension_check_enabled: true, extension_check_mode: 'enforce' }
     await mockGetJobs(page, [job] as never)
@@ -220,11 +231,30 @@ test.describe('per-job switch', () => {
     await expect.poll(() => patches.length).toBe(1)
     expect(patches[0]).toEqual({ extension_check_mode: 'shadow' })
   })
+
+  test('with it off, HR sees the job controls greyed out and a ? that explains why', async ({ page }) => {
+    const patches = await openJob(page, MOCK_PLAIN_HR_USER, false)
+    const toggle = page.getByRole('checkbox', { name: /Extension check/ })
+    await expect(toggle).toBeDisabled()
+    await page.getByRole('button', { name: 'Why is this disabled?' }).click()
+    await expect(page.getByText('Turned off by your organization', { exact: true })).toBeVisible()
+    await expect(page.getByText(/Ask an Admin to turn it on/)).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByText(/Ask an Admin to turn it on/)).toHaveCount(0)
+    expect(patches).toHaveLength(0)
+  })
+
+  test('with it on, the job controls work and there is no ?', async ({ page }) => {
+    await openJob(page, MOCK_PLAIN_HR_USER, true)
+    await expect(page.getByRole('checkbox', { name: /Extension check/ })).toBeEnabled()
+    await expect(page.getByRole('button', { name: 'Why is this disabled?' })).toHaveCount(0)
+  })
 })
 
 test.describe('create job', () => {
-  async function createJob(page: Page, toggleCheck: boolean) {
+  async function createJob(page: Page, change: (page: Page) => Promise<void>, orgEnabled = true) {
     await mockAuthenticatedSession(page, MOCK_PLAIN_HR_USER)
+    await mockExtensionPolicy(page, false, orgEnabled)
     await mockGetJobs(page, [] as never)
     await mockStandardScreeningQuestions(page)
     const posts: Array<Record<string, unknown>> = []
@@ -234,9 +264,8 @@ test.describe('create job', () => {
       return route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ detail: 'stop here' }) })
     })
     await page.goto('/jobs/new')
-    const toggle = page.getByRole('checkbox', { name: 'AI extension check' })
-    await expect(toggle).toBeChecked()
-    if (toggleCheck) await toggle.evaluate((el: HTMLInputElement) => el.click())
+    await expect(page.getByRole('checkbox', { name: 'AI extension check' })).toBeChecked()
+    await change(page)
     await page.locator('input[placeholder*="Senior Frontend"]').fill('New Role')
     await page.locator('textarea').first().fill('A test job description.')
     await page.getByRole('radio', { name: 'Remote' }).click()
@@ -246,12 +275,39 @@ test.describe('create job', () => {
   }
 
   test('the extension check starts on and is sent with the job', async ({ page }) => {
-    const body = await createJob(page, false)
+    const body = await createJob(page, async () => {})
     expect(body.extension_check_enabled).toBe(true)
+    expect(body.extension_check_mode).toBe('shadow')
+  })
+
+  test('the two modes are explained and Enforce can be chosen', async ({ page }) => {
+    const body = await createJob(page, async (p) => {
+      await expect(p.getByText('Shadow', { exact: true })).toBeVisible()
+      await expect(p.getByText(/only recorded for HR and never stop a candidate/)).toBeVisible()
+      await p.getByRole('radio', { name: /Enforce/ }).check()
+    })
+    expect(body.extension_check_mode).toBe('enforce')
+  })
+
+  test('with the organization switch off it is greyed out, explained, and sends the defaults', async ({ page }) => {
+    const body = await createJob(
+      page,
+      async (p) => {
+        await expect(p.getByRole('checkbox', { name: 'AI extension check' })).toBeDisabled()
+        await expect(p.getByRole('radio', { name: /Enforce/ })).toBeDisabled()
+        await p.getByRole('button', { name: 'Why is this disabled?' }).click()
+        await expect(p.getByText(/Ask an Admin to turn it on/)).toBeVisible()
+      },
+      false,
+    )
+    expect(body.extension_check_enabled).toBe(true)
+    expect(body.extension_check_mode).toBe('shadow')
   })
 
   test('it can be turned off while creating the job', async ({ page }) => {
-    const body = await createJob(page, true)
+    const body = await createJob(page, async (p) => {
+      await p.getByRole('checkbox', { name: 'AI extension check' }).evaluate((el: HTMLInputElement) => el.click())
+    })
     expect(body.extension_check_enabled).toBe(false)
   })
 })
@@ -265,4 +321,38 @@ test('the organization page has no defaults or look-alike switches', async ({ pa
   await expect(page.getByText('Defaults for new jobs')).toHaveCount(0)
   await expect(page.getByText('Also flag extensions that look like AI assistants')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Restore starting list' })).toBeVisible()
+})
+
+test.describe('organization master switch', () => {
+  test('an Admin turns the check off for the organization after a confirmation', async ({ page }) => {
+    await mockAuthenticatedSession(page)
+    await mockShell(page)
+    const { writes } = await mockExtensionPolicy(page, true)
+    await page.goto('/extension-check')
+    const toggle = page.getByRole('switch', { name: 'AI extension check for your organization' })
+    await expect(toggle).toHaveAttribute('aria-checked', 'true')
+    await toggle.click()
+    await expect(page.getByText('Turn off the AI extension check?')).toBeVisible()
+    await page.getByRole('button', { name: 'Turn off', exact: true }).click()
+    await expect(toggle).toHaveAttribute('aria-checked', 'false')
+    expect(writes.filter((w) => w.method === 'PUT')).toEqual([{ method: 'PUT', url: '/', body: { enabled: false } }])
+  })
+
+  test('turning it back on needs no confirmation', async ({ page }) => {
+    await mockAuthenticatedSession(page)
+    await mockShell(page)
+    const { writes } = await mockExtensionPolicy(page, true, false)
+    await page.goto('/extension-check')
+    await page.getByRole('switch', { name: 'AI extension check for your organization' }).click()
+    await expect.poll(() => writes.filter((w) => w.method === 'PUT').length).toBe(1)
+    expect(writes.find((w) => w.method === 'PUT')?.body).toEqual({ enabled: true })
+  })
+
+  test('HR can see the switch but not change it', async ({ page }) => {
+    await mockAuthenticatedSession(page, MOCK_PLAIN_HR_USER)
+    await mockShell(page)
+    await mockExtensionPolicy(page, false)
+    await page.goto('/extension-check')
+    await expect(page.getByRole('switch', { name: 'AI extension check for your organization' })).toBeDisabled()
+  })
 })

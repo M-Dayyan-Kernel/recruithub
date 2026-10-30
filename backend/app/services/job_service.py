@@ -6,7 +6,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions import ConflictError, ValidationError
+from app.exceptions import AuthorizationError, ConflictError, ValidationError
 from app.models.models import Job, User
 from app.repositories.job_repository import JobRepository
 from app.schemas.schemas import JobCreate, JobUpdate, validate_experience_range
@@ -17,6 +17,7 @@ from app.services.screening_defaults import (
     normalize_screening_questions_for_write,
     validate_work_location,
 )
+from app.services.integrity_service import IntegrityService
 from app.services.tenant_integrations_service import TenantIntegrationsService
 
 _JOB_AUDIT_FIELDS = (
@@ -48,15 +49,32 @@ class JobService:
         audit_service: AuditService | None = None,
         expected_answers: ExpectedAnswerService | None = None,
         integrations_service: TenantIntegrationsService | None = None,
+        integrity_service: IntegrityService | None = None,
     ) -> None:
         self._session = session
         self._jobs = job_repo or JobRepository(session)
         self._audit = audit_service or AuditService(session)
         self._expected_answers = expected_answers or ExpectedAnswerService()
         self._integrations = integrations_service or TenantIntegrationsService(session)
+        self._integrity = integrity_service or IntegrityService(session)
+
+    async def _require_extension_check_editable(self, actor: User) -> None:
+        """A job's extension-check switch and mode can only be changed while the organization's
+        master switch is on. The app greys the controls out; this is the server's side of it."""
+        if not await self._integrity.org_enabled(actor.tenant_id):
+            raise AuthorizationError(
+                public_message=(
+                    "The AI extension check is turned off for your organization. "
+                    "An Admin has to turn it on before it can be changed for a job."
+                )
+            )
 
     async def create(self, actor: User, payload: JobCreate) -> Job:
         data = payload.model_dump()
+        # The starting values (on, shadow) are what the greyed-out form sends while the
+        # organization's switch is off, so only a different choice needs the lookup.
+        if (data["extension_check_enabled"], data["extension_check_mode"]) != (True, "shadow"):
+            await self._require_extension_check_editable(actor)
         # The list is always the locked standard questions plus whatever role and custom ones
         # were sent; a client's own copies of the standard ones are ignored.
         try:
@@ -108,6 +126,11 @@ class JobService:
     async def update(self, actor: User, job_id: uuid.UUID, payload: JobUpdate) -> Job:
         job = await self._jobs.get_for_tenant(job_id, actor.tenant_id)
         updates = payload.model_dump(exclude_unset=True)
+        if any(
+            field in updates and updates[field] != getattr(job, field)
+            for field in ("extension_check_enabled", "extension_check_mode")
+        ):
+            await self._require_extension_check_editable(actor)
         if updates.get("voice_screening_enabled") is False and job.voice_screening_enabled:
             # Turning screening off decides where the phone round goes, under a lock on the
             # job; that lives on POST /jobs/{id}/voice-screening. A plain edit doing it too

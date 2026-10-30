@@ -12,6 +12,7 @@ from pydantic import ValidationError as PydanticValidationError
 from app.exceptions import ConflictError, NotFoundError
 from app.models.models import ExtensionBlocklistEntry, ExtensionOrgPolicy, Job, User
 from app.schemas.integrity import (
+    OrgPolicyUpdate,
     BlocklistEntryCreate,
     BlocklistEntryUpdate,
     FlaggedExtensionIn,
@@ -205,7 +206,8 @@ class FakeRepo:
         self.policies.setdefault(
             tenant_id,
             ExtensionOrgPolicy(
-                tenant_id=tenant_id, version=1, blocklist_seeded_at=None, updated_at=NOW,
+                tenant_id=tenant_id, extension_enabled=True, version=1, blocklist_seeded_at=None,
+                updated_at=NOW,
             ),
         )
 
@@ -277,6 +279,7 @@ def _service(*, enabled=True, mode="shadow", session_status="pending", tenant_id
     interview = SimpleNamespace(
         id=uuid.uuid4(), status=session_status, unique_token="tok", job_id=job.id,
         extension_check_enabled=None, extension_check_mode=None, extension_policy_version=None,
+        extension_check_disabled_by=None,
     )
     session.get = AsyncMock(return_value=job)
     session.begin_nested = MagicMock(return_value=_Savepoint())
@@ -372,6 +375,27 @@ class PolicyForJobTests(unittest.IsolatedAsyncioTestCase):
         result = await t.service.policy_for_interview("tok")
         self.assertFalse(result.enabled)
         self.assertEqual(result.blocklist, [])
+
+    async def test_the_orgs_master_switch_outranks_the_jobs_own(self):
+        t = await self._seeded(enabled=True)
+        t.repo.policies[t.tenant_id].extension_enabled = False
+        result = await t.service.policy_for_interview("tok")
+        self.assertFalse(result.enabled)
+        self.assertEqual(result.blocklist, [])
+        self.assertEqual(
+            (t.interview.extension_check_enabled, t.interview.extension_check_disabled_by),
+            (False, "org"),
+        )
+
+    async def test_a_job_that_is_off_is_recorded_as_off_by_the_job(self):
+        t = await self._seeded(enabled=False)
+        await t.service.policy_for_interview("tok")
+        self.assertEqual(t.interview.extension_check_disabled_by, "job")
+
+    async def test_a_running_check_has_no_reason_it_was_off(self):
+        t = await self._seeded(enabled=True)
+        await t.service.policy_for_interview("tok")
+        self.assertIsNone(t.interview.extension_check_disabled_by)
 
     async def test_look_alike_terms_are_always_sent_while_the_check_is_on(self):
         t = await self._seeded()
@@ -475,11 +499,48 @@ class RecordScanTests(unittest.IsolatedAsyncioTestCase):
         t.observed.record.assert_not_awaited()
 
 
+    async def test_scans_are_ignored_while_the_orgs_switch_is_off(self):
+        t = _service(enabled=True)
+        await t.service.ensure_defaults(t.tenant_id)
+        t.repo.policies[t.tenant_id].extension_enabled = False
+        body = IntegrityScanIn(
+            phase="final", scan_completed=True, flagged=[_flagged(blocked=True)]
+        )
+        ack = await t.service.record_scan("tok", body)
+        self.assertFalse(ack.recorded)
+        self.assertEqual(t.repo.scans, [])
+        t.observed.record.assert_not_awaited()
+
+
 class OrgPolicyTests(unittest.IsolatedAsyncioTestCase):
     async def _ready(self):
         t = _service()
         await t.service.ensure_defaults(t.tenant_id)
         return t, _admin(t.tenant_id)
+
+    async def test_turning_the_org_switch_off_bumps_the_version_and_is_audited(self):
+        t, admin = await self._ready()
+        before = t.repo.policies[t.tenant_id].version
+        result = await t.service.update_org_policy(OrgPolicyUpdate(enabled=False), admin)
+        policy = t.repo.policies[t.tenant_id]
+        self.assertEqual((policy.extension_enabled, policy.version), (False, before + 1))
+        self.assertFalse(result.enabled)
+        kwargs = t.audit.log_field_changes.await_args.kwargs
+        self.assertEqual(kwargs["action"], "settings.extension_policy_updated")
+        self.assertEqual(kwargs["changes"], {"extension_enabled": (True, False)})
+
+    async def test_an_unchanged_org_switch_does_not_bump_the_version(self):
+        t, admin = await self._ready()
+        before = t.repo.policies[t.tenant_id].version
+        await t.service.update_org_policy(OrgPolicyUpdate(enabled=True), admin)
+        await t.service.update_org_policy(OrgPolicyUpdate(), admin)
+        self.assertEqual(t.repo.policies[t.tenant_id].version, before)
+        t.audit.log_field_changes.assert_not_awaited()
+
+    async def test_the_org_switch_starts_on(self):
+        t, admin = await self._ready()
+        self.assertTrue((await t.service.get_org_policy(admin, can_edit=True)).enabled)
+        self.assertTrue(await t.service.org_enabled(t.tenant_id))
 
     async def test_the_summary_counts_defaults_and_carries_can_edit(self):
         t, admin = await self._ready()
