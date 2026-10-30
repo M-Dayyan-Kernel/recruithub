@@ -51,7 +51,6 @@ class IntegrityEndpointTests(unittest.TestCase):
         self.assertEqual(client.get("/api/extension-policy/blocklist").status_code, 200)
         entry = uuid.uuid4()
         writes = (
-            ("put", "/api/extension-policy", {"default_mode": "enforce"}),
             ("post", "/api/extension-policy/blocklist", {"extension_id": "a" * 32, "name": "x", "reason": "y"}),
             ("patch", f"/api/extension-policy/blocklist/{entry}", {"status": "inactive"}),
             ("delete", f"/api/extension-policy/blocklist/{entry}", None),
@@ -63,6 +62,11 @@ class IntegrityEndpointTests(unittest.TestCase):
         for method, path, body in writes:
             kwargs = {"json": body} if body is not None else {}
             self.assertEqual(getattr(client, method)(path, **kwargs).status_code, 403, f"{method} {path}")
+
+    def test_there_is_no_org_wide_defaults_route(self):
+        # The on/off switch and mode are per job; an organization has no defaults to edit.
+        client = self._client("admin", _FakeIntegrity())
+        self.assertEqual(client.put("/api/extension-policy", json={"default_mode": "enforce"}).status_code, 405)
 
     def test_admin_may_write_and_hr_cannot_reach_it_unauthenticated(self):
         fake = _FakeIntegrity()

@@ -18,7 +18,6 @@ from app.schemas.integrity import (
     IntegrityScanIn,
     PolicyRules,
     AddObservedToBlocklist,
-    OrgPolicyUpdate,
     MAX_BLOCKLIST_ENTRIES,
     Thresholds,
 )
@@ -206,8 +205,7 @@ class FakeRepo:
         self.policies.setdefault(
             tenant_id,
             ExtensionOrgPolicy(
-                tenant_id=tenant_id, default_enabled=True, default_mode="shadow",
-                heuristics_enabled=True, version=1, blocklist_seeded_at=None, updated_at=NOW,
+                tenant_id=tenant_id, version=1, blocklist_seeded_at=None, updated_at=NOW,
             ),
         )
 
@@ -375,13 +373,16 @@ class PolicyForJobTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.enabled)
         self.assertEqual(result.blocklist, [])
 
-    async def test_heuristics_off_empties_only_the_lookalike_terms(self):
+    async def test_look_alike_terms_are_always_sent_while_the_check_is_on(self):
         t = await self._seeded()
-        t.repo.policies[t.tenant_id].heuristics_enabled = False
         result = await t.service.policy_for_interview("tok")
-        self.assertEqual(result.rules.intent.keywords, [])
-        self.assertEqual(result.rules.intent.vendor_hosts, [])
-        self.assertEqual([b.id for b in result.blocklist], [VALID_ID])
+        self.assertTrue(result.rules.intent.keywords)
+        self.assertTrue(result.rules.intent.vendor_hosts)
+
+    async def test_an_off_job_gets_rules_that_flag_nothing(self):
+        t = await self._seeded(enabled=False)
+        result = await t.service.policy_for_interview("tok")
+        self.assertEqual((result.rules.intent.keywords, result.rules.intent.vendor_hosts), ([], []))
 
     async def test_the_policy_fetch_stamps_the_interview(self):
         t = await self._seeded(mode="enforce")
@@ -479,23 +480,6 @@ class OrgPolicyTests(unittest.IsolatedAsyncioTestCase):
         t = _service()
         await t.service.ensure_defaults(t.tenant_id)
         return t, _admin(t.tenant_id)
-
-    async def test_a_change_bumps_the_version_and_is_audited_with_old_and_new(self):
-        t, admin = await self._ready()
-        before = t.repo.policies[t.tenant_id].version
-        await t.service.update_org_policy(OrgPolicyUpdate(default_mode="enforce"), admin)
-        policy = t.repo.policies[t.tenant_id]
-        self.assertEqual((policy.default_mode, policy.version), ("enforce", before + 1))
-        kwargs = t.audit.log_field_changes.await_args.kwargs
-        self.assertEqual(kwargs["action"], "settings.extension_policy_updated")
-        self.assertEqual(kwargs["changes"], {"default_mode": ("shadow", "enforce")})
-
-    async def test_a_no_op_does_not_bump_the_version(self):
-        t, admin = await self._ready()
-        before = t.repo.policies[t.tenant_id].version
-        await t.service.update_org_policy(OrgPolicyUpdate(default_mode="shadow"), admin)
-        self.assertEqual(t.repo.policies[t.tenant_id].version, before)
-        t.audit.log_field_changes.assert_not_awaited()
 
     async def test_the_summary_counts_defaults_and_carries_can_edit(self):
         t, admin = await self._ready()

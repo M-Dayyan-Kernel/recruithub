@@ -203,9 +203,6 @@ class IntegrityPolicyResponse(BaseModel):
 class OrgPolicyResponse(BaseModel):
     """An organization's extension-check settings, for its Admins (edit) and HR (view)."""
 
-    default_enabled: bool
-    default_mode: Mode
-    heuristics_enabled: bool
     version: int
     entry_count: int
     active_count: int
@@ -215,12 +212,6 @@ class OrgPolicyResponse(BaseModel):
     defaults_total: int
     can_edit: bool
     updated_at: datetime
-
-
-class OrgPolicyUpdate(BaseModel):
-    default_enabled: Optional[bool] = None
-    default_mode: Optional[Mode] = None
-    heuristics_enabled: Optional[bool] = None
 
 
 class RestoreDefaultsResult(BaseModel):

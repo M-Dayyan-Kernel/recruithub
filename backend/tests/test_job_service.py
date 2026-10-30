@@ -18,16 +18,6 @@ from app.schemas.schemas import (
 from app.services.job_service import JobService
 
 
-
-def _org_defaults(enabled: bool = True, mode: str = "shadow"):
-    """An integrity service whose org defaults are what a new job starts from."""
-    service = MagicMock()
-    service.ensure_defaults = AsyncMock(
-        return_value=MagicMock(default_enabled=enabled, default_mode=mode)
-    )
-    return service
-
-
 class JobServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_create_applies_default_screening_questions(self):
         session = AsyncMock()
@@ -67,7 +57,6 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
             audit_service=audit,
             expected_answers=expected,
             integrations_service=integrations,
-            integrity_service=_org_defaults(),
         )
 
         # Field omitted entirely -> the service seeds the defaults.
@@ -120,7 +109,6 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
             audit_service=audit,
             expected_answers=expected,
             integrations_service=integrations,
-            integrity_service=_org_defaults(),
         )
 
         payload = JobCreate(
@@ -134,9 +122,9 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ExtensionCheckDefaultsTests(unittest.IsolatedAsyncioTestCase):
-    """A new job starts from its organization's extension-check defaults."""
+    """A new job starts with the extension check on, in shadow mode."""
 
-    def _service(self, integrity):
+    def _service(self):
         job_repo = MagicMock()
         job_repo.flush = AsyncMock()
         job_repo.refresh = AsyncMock()
@@ -147,7 +135,6 @@ class ExtensionCheckDefaultsTests(unittest.IsolatedAsyncioTestCase):
             audit_service=AsyncMock(),
             expected_answers=AsyncMock(),
             integrations_service=AsyncMock(),
-            integrity_service=integrity,
         )
 
     def _actor(self):
@@ -162,27 +149,15 @@ class ExtensionCheckDefaultsTests(unittest.IsolatedAsyncioTestCase):
             interview_questions=[], **extra,
         )
 
-    async def test_missing_fields_come_from_the_org_defaults(self):
-        integrity = _org_defaults(enabled=False, mode="enforce")
-        actor = self._actor()
-        job = await self._service(integrity).create(actor, self._payload())
-        self.assertEqual((job.extension_check_enabled, job.extension_check_mode), (False, "enforce"))
-        integrity.ensure_defaults.assert_awaited_once_with(actor.tenant_id)
+    async def test_a_new_job_starts_with_the_check_on_in_shadow_mode(self):
+        job = await self._service().create(self._actor(), self._payload())
+        self.assertEqual((job.extension_check_enabled, job.extension_check_mode), (True, "shadow"))
 
-    async def test_an_explicit_choice_wins_over_the_defaults(self):
-        integrity = _org_defaults(enabled=True, mode="shadow")
-        job = await self._service(integrity).create(
-            self._actor(), self._payload(extension_check_enabled=False, extension_check_mode="enforce")
-        )
-        self.assertEqual((job.extension_check_enabled, job.extension_check_mode), (False, "enforce"))
-        integrity.ensure_defaults.assert_not_awaited()
-
-    async def test_only_the_missing_field_is_filled(self):
-        integrity = _org_defaults(enabled=True, mode="enforce")
-        job = await self._service(integrity).create(
+    async def test_the_choice_made_on_the_create_form_is_kept(self):
+        job = await self._service().create(
             self._actor(), self._payload(extension_check_enabled=False)
         )
-        self.assertEqual((job.extension_check_enabled, job.extension_check_mode), (False, "enforce"))
+        self.assertEqual((job.extension_check_enabled, job.extension_check_mode), (False, "shadow"))
 
     def test_the_mode_must_be_shadow_or_enforce(self):
         with self.assertRaises(PydanticValidationError):
@@ -208,7 +183,6 @@ class ScreeningQuestionRuleTests(unittest.IsolatedAsyncioTestCase):
             audit_service=AsyncMock(),
             expected_answers=AsyncMock(),
             integrations_service=AsyncMock(),
-            integrity_service=_org_defaults(),
         )
 
     def _actor(self):
@@ -474,7 +448,6 @@ class ExperienceRangeTests(unittest.IsolatedAsyncioTestCase):
             audit_service=AsyncMock(),
             expected_answers=AsyncMock(),
             integrations_service=AsyncMock(),
-            integrity_service=_org_defaults(),
         )
         return service, job, session
 
@@ -532,7 +505,6 @@ class ExperienceRangeTests(unittest.IsolatedAsyncioTestCase):
             audit_service=AsyncMock(),
             expected_answers=AsyncMock(),
             integrations_service=AsyncMock(),
-            integrity_service=_org_defaults(),
         )
         with self.assertRaises(ValidationError) as ctx:
             await service.update(

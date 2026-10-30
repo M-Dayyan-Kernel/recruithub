@@ -1,8 +1,9 @@
 /**
  * extension-check.spec.ts: an organization's AI extension check.
  *
- * Admins edit the blocklist and defaults; HR sees the same page read-only. Each job has its
- * own on/off switch and mode. Super Admins no longer own any of it.
+ * Admins edit the blocklist; HR sees the same page read-only. There are no organization-wide
+ * defaults: each job has its own on/off switch (also on the create form) and mode. Super Admins
+ * no longer own any of it.
  */
 
 import { test, expect, type Page, type Route } from '@playwright/test'
@@ -20,6 +21,7 @@ import {
   mockGetScreening,
   mockGetSettings,
   mockGetInterviewPipeline,
+  mockStandardScreeningQuestions,
 } from './fixtures'
 
 const entry = (over: Record<string, unknown> = {}) => ({
@@ -39,9 +41,6 @@ const entry = (over: Record<string, unknown> = {}) => ({
 
 function policy(canEdit: boolean, entries: unknown[]) {
   return {
-    default_enabled: true,
-    default_mode: 'shadow',
-    heuristics_enabled: true,
     version: 3,
     entry_count: entries.length,
     active_count: entries.length,
@@ -221,4 +220,49 @@ test.describe('per-job switch', () => {
     await expect.poll(() => patches.length).toBe(1)
     expect(patches[0]).toEqual({ extension_check_mode: 'shadow' })
   })
+})
+
+test.describe('create job', () => {
+  async function createJob(page: Page, toggleCheck: boolean) {
+    await mockAuthenticatedSession(page, MOCK_PLAIN_HR_USER)
+    await mockGetJobs(page, [] as never)
+    await mockStandardScreeningQuestions(page)
+    const posts: Array<Record<string, unknown>> = []
+    await page.route('**/api/jobs', async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      posts.push(route.request().postDataJSON())
+      return route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ detail: 'stop here' }) })
+    })
+    await page.goto('/jobs/new')
+    const toggle = page.getByRole('checkbox', { name: 'AI extension check' })
+    await expect(toggle).toBeChecked()
+    if (toggleCheck) await toggle.evaluate((el: HTMLInputElement) => el.click())
+    await page.locator('input[placeholder*="Senior Frontend"]').fill('New Role')
+    await page.locator('textarea').first().fill('A test job description.')
+    await page.getByRole('radio', { name: 'Remote' }).click()
+    await page.getByRole('button', { name: 'Create Job' }).click()
+    await expect.poll(() => posts.length).toBe(1)
+    return posts[0]
+  }
+
+  test('the extension check starts on and is sent with the job', async ({ page }) => {
+    const body = await createJob(page, false)
+    expect(body.extension_check_enabled).toBe(true)
+  })
+
+  test('it can be turned off while creating the job', async ({ page }) => {
+    const body = await createJob(page, true)
+    expect(body.extension_check_enabled).toBe(false)
+  })
+})
+
+test('the organization page has no defaults or look-alike switches', async ({ page }) => {
+  await mockAuthenticatedSession(page)
+  await mockShell(page)
+  await mockExtensionPolicy(page, true)
+  await page.goto('/extension-check')
+  await expect(page.getByRole('button', { name: 'Add extension' })).toBeVisible()
+  await expect(page.getByText('Defaults for new jobs')).toHaveCount(0)
+  await expect(page.getByText('Also flag extensions that look like AI assistants')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Restore starting list' })).toBeVisible()
 })

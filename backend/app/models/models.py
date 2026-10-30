@@ -140,7 +140,7 @@ class Job(Base):
         Boolean, nullable=False, default=True, server_default="true"
     )
     # The AI-extension check for this job's interviews. The mode is kept while the check is off,
-    # so turning it back on restores it. New jobs copy the organization's defaults.
+    # so turning it back on restores it. A new job starts on, in shadow mode.
     extension_check_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
@@ -429,12 +429,13 @@ class ExtensionBlocklistEntry(Base):
 
 
 class ExtensionOrgPolicy(Base):
-    """One organization's extension-check settings: the defaults new jobs start from, the
-    heuristics switch, and a version that changes whenever its blocklist or settings do.
+    """One organization's extension-check state: a version that changes whenever its blocklist
+    does, and the marker that its starting entries were copied in.
 
-    The per-job switch (on/off and mode) lives on the job. `blocklist_seeded_at` records that the
-    default entries were copied in, so an organization that deletes them all is not seeded again.
-    The heuristic rules themselves are platform defaults in code, not stored here.
+    The on/off switch and mode live on each job; there are no organization-wide defaults for
+    them. `blocklist_seeded_at` records that the default entries were copied in, so an
+    organization that deletes them all is not seeded again. The heuristic rules are platform
+    defaults in code, not stored here.
     """
 
     __tablename__ = "extension_org_policy"
@@ -442,9 +443,6 @@ class ExtensionOrgPolicy(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True
     )
-    default_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
-    default_mode: Mapped[str] = mapped_column(String(10), nullable=False, default="shadow", server_default="shadow")
-    heuristics_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     blocklist_seeded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(

@@ -33,13 +33,8 @@ export interface ExtensionBlocklistCreate {
 /** Everything but the id, which is fixed once an entry exists. */
 export type ExtensionBlocklistUpdate = Partial<Omit<ExtensionBlocklistCreate, 'extension_id'>>
 
-/** An organization's extension-check settings. Admins edit; HR sees `can_edit: false`. */
+/** An organization's extension-check state. Admins edit the list; HR sees `can_edit: false`. */
 export interface ExtensionOrgPolicy {
-  /** What a new job starts with. */
-  default_enabled: boolean
-  default_mode: ExtensionPolicyMode
-  /** Whether extensions that look like AI assistants are flagged, beyond the blocklist. */
-  heuristics_enabled: boolean
   version: number
   entry_count: number
   active_count: number
@@ -48,12 +43,6 @@ export interface ExtensionOrgPolicy {
   defaults_total: number
   can_edit: boolean
   updated_at: string
-}
-
-export interface ExtensionOrgPolicyUpdate {
-  default_enabled?: boolean
-  default_mode?: ExtensionPolicyMode
-  heuristics_enabled?: boolean
 }
 
 export interface RestoreDefaultsResult {

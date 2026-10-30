@@ -987,14 +987,13 @@ VITE_API_URL=http://localhost:8080
 
 ### Organization: AI-extension check
 
-Each organization owns one blocklist and one set of defaults. Admins edit; HR can read all of
+Each organization owns one blocklist. Admins edit; HR can read all of
 it. A cross-organization id is a 404. Every change bumps the organization's policy `version`
 and is audited (`settings.extension_*`) with who, old and new.
 
 | Method | Path | Who | Description |
 |---|---|---|---|
-| GET | `/api/extension-policy` | Admin, HR | Defaults for new jobs (`default_enabled`, `default_mode`), `heuristics_enabled`, `version`, entry counts and the 200-entry cap, how many starting entries are present, `can_edit` |
-| PUT | `/api/extension-policy` | Admin | Edit the defaults and the look-alike switch |
+| GET | `/api/extension-policy` | Admin, HR | `version`, entry counts and the 200-entry cap, how many starting entries are present, `can_edit` |
 | GET | `/api/extension-policy/blocklist` | Admin, HR | The organization's entries (`origin` is `default` or `custom`) |
 | POST | `/api/extension-policy/blocklist` | Admin | Add an entry (`extension_id` is the 32-letter Chrome ID; 409 on a duplicate or a full list) |
 | PATCH | `/api/extension-policy/blocklist/{id}` | Admin | Edit name, reason (up to 500), category, listing URL or status. The id cannot change (422). |
@@ -1007,8 +1006,8 @@ and is audited (`settings.extension_*`) with who, old and new.
 
 The per-job switch is not a separate route: `extension_check_enabled` (bool) and
 `extension_check_mode` (`shadow` or `enforce`) are fields of `POST /api/jobs` and
-`PATCH /api/jobs/{id}` (Admin or HR) and of the job response. A new job without them starts from
-the organization's defaults.
+`PATCH /api/jobs/{id}` (Admin or HR) and of the job response. A new job that does not send them
+starts with the check on, in `shadow` mode.
 
 The public interview routes keep their paths. `GET /api/interview/{token}/integrity-policy`
 returns `enabled: false` with an empty list when the job has the check off. `POST
