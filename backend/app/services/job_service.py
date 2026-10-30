@@ -12,6 +12,7 @@ from app.repositories.job_repository import JobRepository
 from app.schemas.schemas import JobCreate, JobUpdate, validate_experience_range
 from app.services.audit_service import AuditService
 from app.services.expected_answer_service import ExpectedAnswerService
+from app.services.integrity_service import IntegrityService
 from app.services.live_work_guard import assert_job_not_live
 from app.services.screening_defaults import (
     normalize_screening_questions_for_write,
@@ -33,6 +34,8 @@ _JOB_AUDIT_FIELDS = (
     "screening_call_to",
     "screening_timezone",
     "voice_screening_enabled",
+    "extension_check_enabled",
+    "extension_check_mode",
     "status",
 )
 
@@ -46,15 +49,18 @@ class JobService:
         audit_service: AuditService | None = None,
         expected_answers: ExpectedAnswerService | None = None,
         integrations_service: TenantIntegrationsService | None = None,
+        integrity_service: IntegrityService | None = None,
     ) -> None:
         self._session = session
         self._jobs = job_repo or JobRepository(session)
         self._audit = audit_service or AuditService(session)
         self._expected_answers = expected_answers or ExpectedAnswerService()
         self._integrations = integrations_service or TenantIntegrationsService(session)
+        self._integrity = integrity_service or IntegrityService(session)
 
     async def create(self, actor: User, payload: JobCreate) -> Job:
         data = payload.model_dump()
+        await self._apply_extension_check_defaults(actor, data)
         # The list is always the locked standard questions plus whatever role and custom ones
         # were sent; a client's own copies of the standard ones are ignored.
         try:
@@ -163,6 +169,17 @@ class JobService:
         await self._session.commit()
         await self._jobs.refresh(job)
         return job
+
+    async def _apply_extension_check_defaults(self, actor: User, data: dict) -> None:
+        """A new job starts with its organization's extension-check defaults unless it says
+        otherwise. Looked up only when a field is missing, so an explicit choice costs nothing."""
+        if data.get("extension_check_enabled") is not None and data.get("extension_check_mode") is not None:
+            return
+        policy = await self._integrity.ensure_defaults(actor.tenant_id)
+        if data.get("extension_check_enabled") is None:
+            data["extension_check_enabled"] = policy.default_enabled
+        if data.get("extension_check_mode") is None:
+            data["extension_check_mode"] = policy.default_mode
 
     @staticmethod
     def _apply_work_and_screening_updates(job: Job, updates: dict) -> None:

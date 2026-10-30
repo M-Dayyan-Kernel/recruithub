@@ -152,6 +152,6 @@ export function buildInterviewReportModel(
     coverageTotals: allPoints.length
       ? { covered: allPoints.filter((p) => p.covered).length, total: allPoints.length }
       : null,
-    proctoring: buildProctoringModel(report.video_proctoring, report.integrity),
+    proctoring: buildProctoringModel(report.video_proctoring, report.integrity, report.extension_check),
   }
 }

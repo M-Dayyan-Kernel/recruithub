@@ -45,16 +45,16 @@ There are two lists, and it matters which one is in play:
 
 | | Where it lives | Used when |
 |---|---|---|
-| **Live list** | The Recruit Hub backend, edited by a Super Admin (platform console, "AI extension policy") | The interview page supplies it with the scan (see "Detection policy" below). This is the normal case. |
-| **Built-in list** | `blocklist.js` in this extension | Fallback only: policy fetch failed, an older page, and the popup's local "Scan" button |
+| **Live list** | The Recruit Hub backend: one list per organization, edited by that organization's Admins (HR can view it) | The interview page supplies it with the scan (see "Detection policy" below). This is the normal case. |
+| **Built-in list** | `blocklist.js` in this extension | Fallback only: an older page that supplies no policy, and the popup's local "Scan" button |
 
-The built-in list is a snapshot; admin edits do not reach it. Both match by
+The built-in list is a snapshot; organization edits do not reach it. Both match by
 **extension ID** and only when the extension is **enabled**: a disabled match or an
 unknown ID is allowed.
 
 ### Adding an extension
 
-Use the Super Admin screen (no release needed). Take the ID from the extension's
+An Admin adds it on the organization's **AI extension check** page (no release needed). Take the ID from the extension's
 own **Chrome Web Store listing URL** and confirm its name and publisher; do not take
 IDs from third-party directories (one attributed an unrelated extension to a real
 product's name).
@@ -103,7 +103,8 @@ a real Chrome browser, the real `management` permission, or the popup.
 
 Beyond the built-in list, the interview page can hand the extension a **policy** from
 the Recruit Hub backend: the live blocklist plus heuristic rules, versioned, edited by
-a Super Admin with no extension release. The extension needs no network permission for
+the organization's Admins with no extension release. A job can also switch the check off, and then
+the page never asks the extension for a scan. The extension needs no network permission for
 this; the page fetches the policy and sends it in the scan request (`v: 2`).
 
 For each *enabled* extension the extension decides, locally:
@@ -119,7 +120,7 @@ description, access to AI vendor hosts) and **capability** (tab/desktop capture,
 panel, access to every site). Capability alone never flags; a strong match needs both.
 An extension that cannot be turned off (installed by device policy) is recorded but never
 blocks. Each flagged item also carries the extension's own description (trimmed to 300
-characters), which feeds the Super Admin's "Seen extensions" list. Only flagged and blocked extensions leave the browser; the rest of the inventory
+characters), which feeds the organization's "Seen extensions" list. Only flagged and blocked extensions leave the browser; the rest of the inventory
 never does.
 
 `npm test` includes an **evaluation corpus** (`tests/fixtures/corpus.json`) that measures

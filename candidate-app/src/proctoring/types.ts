@@ -85,6 +85,16 @@ export const MANDATORY_PRECONDITIONS: PreconditionType[] = [
 ]
 
 /**
+ * The gates that apply to a given interview: the extension check is only one when the job has
+ * it switched on.
+ */
+export function mandatoryPreconditions(extensionCheckRequired: boolean): PreconditionType[] {
+  return extensionCheckRequired
+    ? MANDATORY_PRECONDITIONS
+    : MANDATORY_PRECONDITIONS.filter((type) => type !== 'extension_check')
+}
+
+/**
  * Preconditions backed by a live stream, browser mode, or a fresh scan. A reload
  * destroys the thing they vouch for, so they are re-validated, never restored.
  * 'environment' is the final readiness gate: its pass carries the proof that

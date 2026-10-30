@@ -501,7 +501,7 @@ export default function ReportPage() {
                       No video analysis is available for this interview.
                     </p>
                   )}
-                  {report.integrity && <ExtensionSignals summary={report.integrity} />}
+                  <ExtensionSignals summary={report.integrity} stamp={report.extension_check} />
                 </div>
               )}
             </div>

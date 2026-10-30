@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { isFullscreen } from '@/proctoring/browser'
 import { Screen } from '@/components/Shell'
 import { clearReloadAfterInstall, hasReloadAfterInstall } from '@/lib/extensionInstall'
@@ -39,7 +39,7 @@ interface StepDefinition {
   Component: (props: StepProps) => JSX.Element
 }
 
-const STEPS: StepDefinition[] = [
+const ALL_STEPS: StepDefinition[] = [
   {
     state: 'EXTENSION_CHECK',
     precondition: 'extension_check',
@@ -77,6 +77,7 @@ export default function Preflight({
   candidateName,
   jobTitle,
   window,
+  extensionCheck,
   onReady,
 }: {
   token: string
@@ -84,9 +85,17 @@ export default function Preflight({
   jobTitle?: string | null
   /** When the interview opens (if scheduled) and when its link stops working. */
   window: InterviewWindow
+  /** Whether this interview has the extension step. Known before this renders, so it never flashes. */
+  extensionCheck: boolean
   onReady: () => void
 }) {
   const { session, snapshot } = useProctorSession(token)
+  const STEPS = useMemo(
+    () => ALL_STEPS.filter((s) => extensionCheck || s.precondition !== 'extension_check'),
+    [extensionCheck],
+  )
+  // The session's own gate list must agree with the steps shown.
+  session.setExtensionCheckRequired(extensionCheck)
 
   // Progression is explicit (each step calls onDone) so a step can finish its
   // own work after its gate has passed. The derived index only decides where to

@@ -16,6 +16,7 @@ import type { Job } from '@/types/api'
 import { EditJobModal } from '@/components/EditJobModal'
 import { JobStatusBadge } from '@/components/JobStatusBadge'
 import { VoiceScreeningToggle } from '@/components/screening/VoiceScreeningToggle'
+import { ExtensionCheckToggle } from '@/components/job/ExtensionCheckToggle'
 import { cn } from '@/lib/utils'
 import { workArrangementLabel } from '@/lib/screeningQuestions'
 
@@ -185,7 +186,10 @@ export function JobHeader({ job, showDelete = false }: Props) {
                     </span>
                   )}
                 </div>
-                <VoiceScreeningToggle job={job} />
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                  <VoiceScreeningToggle job={job} />
+                  <ExtensionCheckToggle job={job} />
+                </div>
               </div>
             </div>
 

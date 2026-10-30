@@ -76,6 +76,8 @@ export type GateResult =
  * extension. The page only forwards it; the extension validates it.
  */
 export interface IntegrityPolicy {
+  /** False when the job's extension check is off. Absent on an older server: treated as on. */
+  enabled?: boolean
   version: number
   mode: 'shadow' | 'enforce'
   blocklist: Array<{
@@ -473,4 +475,57 @@ export function toScanPayload(phase: ScanPhase, result: GateResult): IntegritySc
     // The extension lists blocking items first, so a cap never drops what blocked.
     flagged: flagged.slice(0, MAX_RECORDED_FLAGGED),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Policy loading
+// ---------------------------------------------------------------------------
+
+/** What the backend said about this interview's extension check. */
+export type PolicyState =
+  | { kind: 'policy'; policy: IntegrityPolicy }
+  /** The job has the check switched off: nothing to scan, nothing to record. */
+  | { kind: 'disabled' }
+  /** The policy could not be fetched after retrying. The candidate is let in; the report says so. */
+  | { kind: 'failed' }
+
+/** Waits between attempts: three tries in all. */
+export const POLICY_RETRY_DELAYS_MS = [500, 1_500]
+
+function isPolicyShape(value: unknown): value is IntegrityPolicy {
+  const v = value as IntegrityPolicy | null
+  return !!v && typeof v.version === 'number' && Array.isArray(v.blocklist)
+}
+
+/**
+ * Fetches the policy with retries. A client error (4xx) is final, since asking again cannot
+ * change it; anything else (network, timeout, 5xx, a malformed body) is retried after the
+ * given waits. Never throws.
+ */
+export async function resolvePolicyState(
+  fetchOnce: () => Promise<unknown>,
+  options: { delays?: number[]; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<PolicyState> {
+  const delays = options.delays ?? POLICY_RETRY_DELAYS_MS
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+    try {
+      const body = await fetchOnce()
+      if (isPolicyShape(body)) {
+        return body.enabled === false ? { kind: 'disabled' } : { kind: 'policy', policy: body }
+      }
+    } catch (error) {
+      const status = (error as { status?: number } | null)?.status
+      if (typeof status === 'number' && status >= 400 && status < 500) return { kind: 'failed' }
+    }
+    if (attempt < delays.length) await sleep(delays[attempt])
+  }
+  return { kind: 'failed' }
+}
+
+/** Evidence that the check could not run: recorded, and never read as a clean result. */
+export const POLICY_UNAVAILABLE = 'policy_unavailable'
+
+export function policyUnavailablePayload(phase: ScanPhase): IntegrityScanPayload {
+  return { phase, scan_completed: false, error_code: POLICY_UNAVAILABLE, flagged: [] }
 }

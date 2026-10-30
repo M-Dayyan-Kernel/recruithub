@@ -51,7 +51,7 @@ def _tenant_service(*, exists: bool):
     settings.get_or_create = AsyncMock()
     service = TenantService(
         session, tenant_repo=tenants, user_repo=users, settings_repo=settings,
-        invite_repo=MagicMock(),
+        invite_repo=MagicMock(), integrity_service=MagicMock(seed_new_organization=AsyncMock()),
     )
     return service, session, tenants, users
 

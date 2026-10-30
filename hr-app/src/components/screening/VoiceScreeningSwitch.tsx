@@ -5,9 +5,17 @@ interface Props {
   disabled?: boolean
   onChange: (checked: boolean) => void
   className?: string
+  /** The visible label; the same switch serves other per-job settings. */
+  label?: string
 }
 
-export function VoiceScreeningSwitch({ checked, disabled, onChange, className }: Props) {
+export function VoiceScreeningSwitch({
+  checked,
+  disabled,
+  onChange,
+  className,
+  label = 'Voice screening',
+}: Props) {
   return (
     <label
       className={cn(
@@ -16,7 +24,7 @@ export function VoiceScreeningSwitch({ checked, disabled, onChange, className }:
         className,
       )}
     >
-      <span className="text-xs font-medium text-slate-600 sm:text-sm">Voice screening</span>
+      <span className="text-xs font-medium text-slate-600 sm:text-sm">{label}</span>
       <span className="relative inline-flex h-5 w-9 shrink-0 items-center">
         <input
           type="checkbox"

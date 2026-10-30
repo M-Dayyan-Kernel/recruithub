@@ -1,7 +1,9 @@
 """Built-in starting point for extension detection.
 
-Used to seed the database the first time it is read. After that the database is
-authoritative and a Super Admin edits it; nothing here is consulted again.
+The blocklist here is a TEMPLATE: each organization gets a copy when it is created (and when an
+Admin chooses "restore defaults"), and edits its own list from then on. Changing this file does
+not change an existing organization's list. The heuristic rules below are different: they are the
+platform's own and are not edited per organization (an organization can only switch them off).
 The same shapes are validated by app.schemas.integrity.PolicyRules.
 
 Scoring (implemented in the browser extension, see chrome-extension/rules.js):
@@ -17,10 +19,11 @@ Capability alone never flags: ad blockers and password managers have it.
 
 from __future__ import annotations
 
+import copy
 from datetime import date
 from typing import Any
 
-POLICY_ID = 1
+#: What a new organization's jobs start with: check on, in shadow mode.
 DEFAULT_MODE = "shadow"
 
 DEFAULT_RULES: dict[str, Any] = {
@@ -99,6 +102,20 @@ DEFAULT_RULES: dict[str, Any] = {
 _STORE = "https://chromewebstore.google.com/detail/"
 
 
+def rules_for(heuristics_enabled: bool) -> dict[str, Any]:
+    """The rules sent to the extension for an organization.
+
+    With heuristics off, the keyword and vendor-host lists are empty: the extension scores every
+    extension's intent at zero, so nothing is flagged as "looks like an AI assistant", while
+    exact-ID matches against the blocklist still work.
+    """
+    rules = copy.deepcopy(DEFAULT_RULES)
+    if not heuristics_enabled:
+        rules["intent"]["keywords"] = []
+        rules["intent"]["vendor_hosts"] = []
+    return rules
+
+
 def _entry(extension_id: str, name: str, category: str, reason: str) -> dict[str, Any]:
     return {
         "extension_id": extension_id,
@@ -107,6 +124,7 @@ def _entry(extension_id: str, name: str, category: str, reason: str) -> dict[str
         "reason": reason,
         "listing_url": f"{_STORE}{extension_id}",
         "status": "active",
+        "origin": "default",
         "verified_on": date(2026, 10, 12),
     }
 

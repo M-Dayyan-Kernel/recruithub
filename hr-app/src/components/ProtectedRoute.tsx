@@ -74,3 +74,25 @@ export function AdminRoute() {
 
   return <Outlet />
 }
+
+/**
+ * Pages that Admins edit and HR can read: the organization's AI extension check. Platform
+ * Super Admins are not in a tenant here, so they are sent back to the console.
+ */
+export function AdminOrHrRoute() {
+  const { user, isAdmin, isSuperAdmin, isLoading } = useAuth()
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-slate-800" />
+      </div>
+    )
+  }
+
+  if (!isAdmin && user?.role !== 'hr') {
+    return <Navigate to={isSuperAdmin ? '/admin' : '/'} replace />
+  }
+
+  return <Outlet />
+}

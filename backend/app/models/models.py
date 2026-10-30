@@ -3,7 +3,7 @@ from datetime import datetime, time, date
 from typing import Optional, List
 
 from sqlalchemy import (
-    String, Text, Integer, Float, Boolean, DateTime, Date, ForeignKey, Index, func, literal_column, text, Time
+    String, Text, Integer, Float, Boolean, DateTime, Date, ForeignKey, Index, UniqueConstraint, func, literal_column, text, Time
 )
 from sqlalchemy.orm import relationship, mapped_column, Mapped
 from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSON
@@ -138,6 +138,14 @@ class Job(Base):
     screening_timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Kolkata", server_default="Asia/Kolkata")
     voice_screening_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
+    )
+    # The AI-extension check for this job's interviews. The mode is kept while the check is off,
+    # so turning it back on restores it. New jobs copy the organization's defaults.
+    extension_check_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    extension_check_mode: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="shadow", server_default="shadow"
     )
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -299,6 +307,11 @@ class InterviewSession(Base):
     egress_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # LiveKit egress recording ID
     recording_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)  # S3 object key for egress recording
     recording_ready: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)  # True after egress_ended webhook
+    # What the AI-extension check was set to for this interview, stamped when it starts and
+    # refreshed on each policy fetch and accepted scan. Null on interviews that predate it.
+    extension_check_enabled: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    extension_check_mode: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    extension_policy_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     video_proctoring_job_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     video_proctoring_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     video_proctoring_result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -378,39 +391,62 @@ class PasswordToken(Base):
 class ExtensionBlocklistEntry(Base):
     """A known AI-assistant browser extension that may not be enabled during an interview.
 
-    Platform-wide (not per tenant) and edited by a Super Admin. The ID comes
-    from the extension's own Chrome Web Store listing.
+    One list per organization, edited by its Admins (HR can view it). A new organization starts
+    with a copy of the platform's default entries (`origin = "default"`); entries an admin adds
+    are `custom`. The ID comes from the extension's own Chrome Web Store listing.
     """
 
     __tablename__ = "extension_blocklist"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    extension_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    extension_id: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str] = mapped_column(String(30), nullable=False)  # ai_assistant | interview_assistant
     reason: Mapped[str] = mapped_column(String(500), nullable=False)
     listing_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(10), nullable=False, default="active", server_default="active")
+    origin: Mapped[str] = mapped_column(String(10), nullable=False, default="custom", server_default="custom")
     verified_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "extension_id", name="uq_extension_blocklist_tenant_extension"),
+        # The interview page reads one organization's active entries.
+        Index("ix_extension_blocklist_tenant_status", "tenant_id", "status"),
+    )
 
-class ExtensionPolicy(Base):
-    """Single-row policy for extension detection: mode, heuristic rules, version.
 
-    `version` is bumped on every change to this row or to the blocklist, so a
-    stored scan can say exactly which rules produced it.
+class ExtensionOrgPolicy(Base):
+    """One organization's extension-check settings: the defaults new jobs start from, the
+    heuristics switch, and a version that changes whenever its blocklist or settings do.
+
+    The per-job switch (on/off and mode) lives on the job. `blocklist_seeded_at` records that the
+    default entries were copied in, so an organization that deletes them all is not seeded again.
+    The heuristic rules themselves are platform defaults in code, not stored here.
     """
 
-    __tablename__ = "extension_policy"
+    __tablename__ = "extension_org_policy"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True
+    )
+    default_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    default_mode: Mapped[str] = mapped_column(String(10), nullable=False, default="shadow", server_default="shadow")
+    heuristics_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
-    mode: Mapped[str] = mapped_column(String(10), nullable=False, default="shadow", server_default="shadow")
-    rules: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    blocklist_seeded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -422,9 +458,9 @@ class ExtensionPolicy(Base):
 class ObservedExtension(Base):
     """An extension that was flagged on some candidate's browser, one row per extension.
 
-    A catalog for the Super Admin to decide from. It deliberately holds no
-    candidate, interview, job or organization reference: only facts about the
-    extension itself and how often it has been seen.
+    A catalog, per organization, for its Admins to decide from. It deliberately holds no
+    candidate, interview, job or user reference: only the organization it belongs to, facts
+    about the extension itself and how often it has been seen there.
 
     A dismissal remembers what the extension looked like at the time
     (`dismissed_hash`, `dismissed_reason`) so it can reopen if it changes.
@@ -433,7 +469,10 @@ class ObservedExtension(Base):
     __tablename__ = "observed_extensions"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    extension_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    extension_id: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     strongest_reason: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -459,8 +498,9 @@ class ObservedExtension(Base):
     )
 
     __table_args__ = (
-        # Lists page by status and recency.
-        Index("ix_observed_extensions_status_last_seen", "status", "last_seen_at"),
+        UniqueConstraint("tenant_id", "extension_id", name="uq_observed_extensions_tenant_extension"),
+        # An organization's list pages by status and recency.
+        Index("ix_observed_extensions_tenant_status_last_seen", "tenant_id", "status", "last_seen_at"),
     )
 
 

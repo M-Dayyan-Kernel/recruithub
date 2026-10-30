@@ -1,18 +1,34 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Ban, Check, ChevronDown, ExternalLink, Eye, Inbox, Loader2, Plus, ShieldAlert, Trash2 } from 'lucide-react'
+import {
+  Ban,
+  Check,
+  ChevronDown,
+  ExternalLink,
+  Eye,
+  Inbox,
+  Loader2,
+  Pencil,
+  Plus,
+  RotateCcw,
+  ShieldAlert,
+  Trash2,
+} from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import type {
   BlocklistCategory,
   ExtensionBlocklistCreate,
   ExtensionBlocklistEntry,
-  ExtensionPolicy,
+  ExtensionBlocklistUpdate,
+  ExtensionOrgPolicy,
+  ExtensionOrgPolicyUpdate,
   ExtensionPolicyMode,
   ObservedExtension,
   ObservedExtensionPage,
   ObservedStatus,
+  RestoreDefaultsResult,
 } from '@/types/integrity'
 import { validateExtensionId } from '@/lib/validation'
 import {
@@ -25,20 +41,24 @@ import {
   INPUT,
 } from '@/components/ui/Surface'
 import Modal from '@/components/ui/Modal'
-import { FieldError, RequiredMark } from '@/components/FieldError'
+import Toggle from '@/components/ui/Toggle'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { CharCount, FieldError, RequiredMark } from '@/components/FieldError'
 import { BackendError } from '@/components/BackendError'
 
-const POLICY_KEY = ['platform-extension-policy']
-const BLOCKLIST_KEY = ['platform-extension-blocklist']
-const OBSERVED_KEY = ['platform-observed-extensions']
+const BASE = '/api/extension-policy'
+const POLICY_KEY = ['extension-policy']
+const BLOCKLIST_KEY = ['extension-blocklist']
+const OBSERVED_KEY = ['extension-observed']
 const OBSERVED_PAGE_SIZE = 10
+const REASON_MAX = 500
 
 const CATEGORY_LABEL: Record<BlocklistCategory, string> = {
   ai_assistant: 'AI assistant',
   interview_assistant: 'Interview assistant',
 }
 
-const MODE_COPY: Record<ExtensionPolicyMode, { title: string; summary: string; body: string }> = {
+export const MODE_COPY: Record<ExtensionPolicyMode, { title: string; summary: string; body: string }> = {
   shadow: {
     title: 'Shadow',
     summary: 'Only extensions on the blocklist are blocked. Others are recorded for HR.',
@@ -53,11 +73,15 @@ const MODE_COPY: Record<ExtensionPolicyMode, { title: string; summary: string; b
 
 type View = 'seen' | 'blocklist'
 
-/** What the add dialog opens with: nothing for a blank form, or a seen extension's details. */
-interface AddEntryInitial {
-  extension_id?: string
-  name?: string
-  listing_url?: string | null
+/**
+ * What the entry dialog opens with: nothing for a blank form, an entry to edit, or a seen
+ * extension to add (whose id and name come from what was observed and are not editable).
+ */
+interface EntryDialogState {
+  /** Editing this entry: its id is shown but cannot change. */
+  entry?: ExtensionBlocklistEntry
+  /** Adding from a seen extension. */
+  seen?: Pick<ObservedExtension, 'id' | 'extension_id' | 'name' | 'listing_url'>
 }
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -69,64 +93,86 @@ function Num({ children }: { children: number | string }) {
   return <span className="font-mono tabular-nums">{children}</span>
 }
 
-// ── Add dialog ───────────────────────────────────────────────────────────────
+// ── Add / edit dialog ────────────────────────────────────────────────────────
 
-function AddEntryForm({
-  initial,
+function EntryForm({
+  state,
   onDone,
   onCancel,
   onPendingChange,
 }: {
-  initial?: AddEntryInitial
-  /** Called after the entry was added. */
+  state: EntryDialogState
   onDone: () => void
   onCancel: () => void
   onPendingChange: (pending: boolean) => void
 }) {
   const queryClient = useQueryClient()
-  const [extensionId, setExtensionId] = useState(initial?.extension_id ?? '')
-  const [name, setName] = useState(initial?.name ?? '')
-  const [category, setCategory] = useState<BlocklistCategory>('ai_assistant')
-  const [reason, setReason] = useState('')
-  const [listingUrl, setListingUrl] = useState(initial?.listing_url ?? '')
+  const { entry, seen } = state
+  const editing = Boolean(entry)
+  const [extensionId, setExtensionId] = useState(entry?.extension_id ?? seen?.extension_id ?? '')
+  const [name, setName] = useState(entry?.name ?? seen?.name ?? '')
+  const [category, setCategory] = useState<BlocklistCategory>(entry?.category ?? 'ai_assistant')
+  const [reason, setReason] = useState(entry?.reason ?? '')
+  const [listingUrl, setListingUrl] = useState(entry?.listing_url ?? seen?.listing_url ?? '')
   const [errors, setErrors] = useState<{ id?: string; name?: string; reason?: string }>({})
 
-  const add = useMutation({
-    mutationFn: (body: ExtensionBlocklistCreate) =>
-      api.post('/api/platform/extension-blocklist', body) as unknown as Promise<ExtensionBlocklistEntry>,
+  const save = useMutation({
+    mutationFn: async () => {
+      if (entry) {
+        const body: ExtensionBlocklistUpdate = {
+          name: name.trim(),
+          category,
+          reason: reason.trim(),
+          listing_url: listingUrl.trim() || null,
+        }
+        return api.patch(`${BASE}/blocklist/${entry.id}`, body)
+      }
+      if (seen) {
+        // The server builds the entry from what it observed, so the id cannot be swapped.
+        return api.post(`${BASE}/observed/${seen.id}/add-to-blocklist`, {
+          category,
+          reason: reason.trim() || null,
+        })
+      }
+      const body: ExtensionBlocklistCreate = {
+        extension_id: extensionId.trim().toLowerCase(),
+        name: name.trim(),
+        category,
+        reason: reason.trim(),
+        listing_url: listingUrl.trim() || null,
+      }
+      return api.post(`${BASE}/blocklist`, body)
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: BLOCKLIST_KEY })
       void queryClient.invalidateQueries({ queryKey: POLICY_KEY })
-      // It is on the list now, so it leaves the "seen" list.
+      // Added from a seen extension, or any add: it is on the list now, so it leaves "seen".
       void queryClient.invalidateQueries({ queryKey: OBSERVED_KEY })
-      toast.success('Added to the blocklist')
+      toast.success(editing ? 'Saved' : 'Added to the blocklist')
       onDone()
     },
-    onError: (err) => toast.error(errorMessage(err, 'Could not add the extension')),
+    onError: (err) => toast.error(errorMessage(err, editing ? 'Could not save the changes' : 'Could not add the extension')),
   })
 
   // The dialog blocks closing while the request runs.
   useEffect(() => {
-    onPendingChange(add.isPending)
-  }, [add.isPending, onPendingChange])
+    onPendingChange(save.isPending)
+  }, [save.isPending, onPendingChange])
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault()
     const next = {
-      id: validateExtensionId(extensionId) ?? undefined,
+      id: editing || seen ? undefined : (validateExtensionId(extensionId) ?? undefined),
       name: name.trim() ? undefined : 'Name is required',
-      reason: reason.trim() ? undefined : 'Reason is required',
+      // A seen extension gets a sensible default reason from the server.
+      reason: reason.trim() || seen ? undefined : 'Reason is required',
     }
     setErrors(next)
     if (next.id || next.name || next.reason) return
-    add.mutate({
-      extension_id: extensionId.trim().toLowerCase(),
-      name: name.trim(),
-      category,
-      reason: reason.trim(),
-      listing_url: listingUrl.trim() || null,
-    })
+    save.mutate()
   }
+
+  const idLocked = editing || Boolean(seen)
 
   return (
     <form onSubmit={onSubmit} noValidate>
@@ -134,7 +180,7 @@ function AddEntryForm({
         <div className="sm:col-span-2">
           <label htmlFor="ext-id" className="mb-1.5 block text-xs font-medium text-ink-muted">
             Extension ID
-            <RequiredMark />
+            {!idLocked && <RequiredMark />}
           </label>
           <input
             id="ext-id"
@@ -143,8 +189,17 @@ function AddEntryForm({
             placeholder="32 letters, from the Chrome Web Store URL"
             autoComplete="off"
             spellCheck={false}
-            className={`${INPUT} font-mono`}
+            readOnly={idLocked}
+            aria-describedby={idLocked ? 'ext-id-note' : undefined}
+            className={`${INPUT} font-mono ${idLocked ? 'bg-surface-2 text-ink-muted' : ''}`}
           />
+          {idLocked && (
+            <p id="ext-id-note" className="mt-1.5 text-[12px] text-ink-subtle">
+              {editing
+                ? 'The ID cannot be changed. To track a different extension, add it as a new entry.'
+                : 'Taken from the extension that was seen.'}
+            </p>
+          )}
           <FieldError message={errors.id} />
         </div>
         <div>
@@ -157,7 +212,8 @@ function AddEntryForm({
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={255}
-            className={INPUT}
+            readOnly={Boolean(seen)}
+            className={`${INPUT} ${seen ? 'bg-surface-2 text-ink-muted' : ''}`}
           />
           <FieldError message={errors.name} />
         </div>
@@ -181,64 +237,69 @@ function AddEntryForm({
         <div className="sm:col-span-2">
           <label htmlFor="ext-reason" className="mb-1.5 block text-xs font-medium text-ink-muted">
             Reason shown to candidates
-            <RequiredMark />
+            {!seen && <RequiredMark />}
           </label>
           <input
             id="ext-reason"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            maxLength={500}
+            maxLength={REASON_MAX}
+            placeholder={seen ? 'Leave blank to use a standard explanation' : undefined}
             className={INPUT}
           />
-          <FieldError message={errors.reason} />
+          <div className="mt-1 flex items-start justify-between gap-3">
+            <FieldError message={errors.reason} />
+            <CharCount value={reason} max={REASON_MAX} />
+          </div>
         </div>
-        <div className="sm:col-span-2">
-          <label htmlFor="ext-url" className="mb-1.5 block text-xs font-medium text-ink-muted">
-            Chrome Web Store listing (optional)
-          </label>
-          <input
-            id="ext-url"
-            value={listingUrl}
-            onChange={(e) => setListingUrl(e.target.value)}
-            placeholder="https://chromewebstore.google.com/detail/…"
-            className={INPUT}
-          />
-        </div>
+        {!seen && (
+          <div className="sm:col-span-2">
+            <label htmlFor="ext-url" className="mb-1.5 block text-xs font-medium text-ink-muted">
+              Chrome Web Store listing (optional)
+            </label>
+            <input
+              id="ext-url"
+              value={listingUrl}
+              onChange={(e) => setListingUrl(e.target.value)}
+              placeholder="https://chromewebstore.google.com/detail/…"
+              className={INPUT}
+            />
+          </div>
+        )}
       </div>
       <div className="flex justify-end gap-2 border-t border-line bg-surface-2 px-5 py-3">
-        <button type="button" className={BTN_GHOST} onClick={onCancel} disabled={add.isPending}>
+        <button type="button" className={BTN_GHOST} onClick={onCancel} disabled={save.isPending}>
           Cancel
         </button>
-        <button type="submit" className={BTN_PRIMARY} disabled={add.isPending}>
-          {add.isPending ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-          Add to blocklist
+        <button type="submit" className={BTN_PRIMARY} disabled={save.isPending}>
+          {save.isPending ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : editing ? null : (
+            <Plus size={14} />
+          )}
+          {editing ? 'Save changes' : 'Add to blocklist'}
         </button>
       </div>
     </form>
   )
 }
 
-function AddEntryDialog({
-  initial,
-  onClose,
-}: {
-  initial: AddEntryInitial
-  onClose: () => void
-}) {
+function EntryDialog({ state, onClose }: { state: EntryDialogState; onClose: () => void }) {
   const [busy, setBusy] = useState(false)
-  const fromSeen = Boolean(initial.extension_id)
   return (
     <Modal
-      title="Add to the blocklist"
+      title={state.entry ? 'Edit extension' : 'Add to the blocklist'}
       description={
-        fromSeen
-          ? 'Seen on a candidate’s browser. Check the details, then add a reason candidates will see.'
-          : 'Candidates with this extension enabled are stopped until they turn it off.'
+        state.entry
+          ? 'Changes apply to every job in your organization on the next check.'
+          : state.seen
+            ? 'Seen on a candidate’s browser. Check the details, then add a reason candidates will see.'
+            : 'Candidates with this extension enabled are stopped until they turn it off.'
       }
       onClose={onClose}
       busy={busy}
     >
-      <AddEntryForm initial={initial} onDone={onClose} onCancel={onClose} onPendingChange={setBusy} />
+      <EntryForm state={state} onDone={onClose} onCancel={onClose} onPendingChange={setBusy} />
     </Modal>
   )
 }
@@ -331,12 +392,17 @@ function ViewTabs({
 
 function BlocklistView({
   entries,
+  readOnly,
   onAdd,
+  onEdit,
 }: {
   entries: ExtensionBlocklistEntry[]
+  readOnly: boolean
   onAdd: () => void
+  onEdit: (entry: ExtensionBlocklistEntry) => void
 }) {
   const queryClient = useQueryClient()
+  const [removing, setRemoving] = useState<ExtensionBlocklistEntry | null>(null)
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: BLOCKLIST_KEY })
     void queryClient.invalidateQueries({ queryKey: POLICY_KEY })
@@ -344,17 +410,17 @@ function BlocklistView({
 
   const toggle = useMutation({
     mutationFn: (entry: ExtensionBlocklistEntry) =>
-      api.patch(`/api/platform/extension-blocklist/${entry.id}`, {
+      api.patch(`${BASE}/blocklist/${entry.id}`, {
         status: entry.status === 'active' ? 'inactive' : 'active',
       }),
     onSuccess: refresh,
     onError: (err) => toast.error(errorMessage(err, 'Could not update the entry')),
   })
   const remove = useMutation({
-    mutationFn: (entry: ExtensionBlocklistEntry) =>
-      api.delete(`/api/platform/extension-blocklist/${entry.id}`),
+    mutationFn: (entry: ExtensionBlocklistEntry) => api.delete(`${BASE}/blocklist/${entry.id}`),
     onSuccess: () => {
       refresh()
+      setRemoving(null)
       toast.success('Removed')
     },
     onError: (err) => toast.error(errorMessage(err, 'Could not remove the entry')),
@@ -366,12 +432,18 @@ function BlocklistView({
         <EmptyState
           icon={<ShieldAlert className="h-6 w-6" />}
           title="Nothing on the blocklist yet"
-          body="Add the extensions you want blocked, or review the ones already seen on candidates’ browsers."
+          body={
+            readOnly
+              ? 'An Admin can add the extensions that should be blocked.'
+              : 'Add the extensions you want blocked, restore the starting list, or review the ones already seen on candidates’ browsers.'
+          }
           action={
-            <button type="button" className={BTN_GHOST} onClick={onAdd}>
-              <Plus size={14} />
-              Add extension
-            </button>
+            readOnly ? undefined : (
+              <button type="button" className={BTN_GHOST} onClick={onAdd}>
+                <Plus size={14} />
+                Add extension
+              </button>
+            )
           }
         />
       </Card>
@@ -383,7 +455,8 @@ function BlocklistView({
   return (
     <Card className="overflow-hidden">
       <div className="border-b border-line px-5 py-3 text-[13px] text-ink-muted">
-        Blocked for every candidate while on. Changes apply on the next check, with no release.{' '}
+        Blocked for every candidate of every job that has the check on. Changes apply on the next
+        check, with no release.{' '}
         <span className="text-ink-subtle">
           <Num>{active}</Num> blocking · <Num>{entries.length - active}</Num> off
         </span>
@@ -395,14 +468,17 @@ function BlocklistView({
               <th className="px-5 py-2.5 font-semibold">Extension</th>
               <th className="py-2.5 pr-3 font-semibold">Category</th>
               <th className="py-2.5 pr-3 font-semibold">Status</th>
-              <th className="px-5 py-2.5 text-right font-semibold">Actions</th>
+              {!readOnly && <th className="px-5 py-2.5 text-right font-semibold">Actions</th>}
             </tr>
           </thead>
           <tbody>
             {entries.map((entry) => (
               <tr key={entry.id} className="border-b border-line/60 align-top last:border-0">
                 <td className="px-5 py-3.5">
-                  <p className="font-medium text-ink">{entry.name}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium text-ink">{entry.name}</p>
+                    {entry.origin === 'default' && <Badge tone="neutral">Starting list</Badge>}
+                  </div>
                   <p className="mt-0.5 font-mono text-[11px] text-ink-subtle">{entry.extension_id}</p>
                   <p className="mt-1 text-[12px] text-ink-muted">{entry.reason}</p>
                   {entry.listing_url && (
@@ -422,36 +498,57 @@ function BlocklistView({
                     {entry.status === 'active' ? 'Blocking' : 'Off'}
                   </Badge>
                 </td>
-                <td className="px-5 py-3.5 text-right">
-                  <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      className={BTN_GHOST}
-                      disabled={toggle.isPending}
-                      onClick={() => toggle.mutate(entry)}
-                    >
-                      {entry.status === 'active' ? 'Turn off' : 'Turn on'}
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Remove ${entry.name}`}
-                      className={BTN_DANGER}
-                      disabled={remove.isPending}
-                      onClick={() => {
-                        if (window.confirm(`Remove ${entry.name} from the blocklist?`)) {
-                          remove.mutate(entry)
-                        }
-                      }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </td>
+                {!readOnly && (
+                  <td className="px-5 py-3.5 text-right">
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        aria-label={`Edit ${entry.name}`}
+                        className={BTN_GHOST}
+                        onClick={() => onEdit(entry)}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className={BTN_GHOST}
+                        disabled={toggle.isPending}
+                        onClick={() => toggle.mutate(entry)}
+                      >
+                        {entry.status === 'active' ? 'Turn off' : 'Turn on'}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${entry.name}`}
+                        className={BTN_DANGER}
+                        disabled={remove.isPending}
+                        onClick={() => setRemoving(entry)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {removing && (
+        <ConfirmDialog
+          open
+          tone="danger"
+          title={`Remove ${removing.name}?`}
+          message={
+            'Candidates with this extension enabled will no longer be stopped by it.\nYou can add it again later, or use Restore starting list if it came with the defaults.'
+          }
+          confirmLabel="Remove"
+          busy={remove.isPending}
+          onConfirm={() => remove.mutate(removing)}
+          onCancel={() => setRemoving(null)}
+        />
+      )}
     </Card>
   )
 }
@@ -474,15 +571,17 @@ function formatSeen(iso: string): string {
 
 function SeenRow({
   ext,
+  readOnly,
   onAdd,
 }: {
   ext: ObservedExtension
-  onAdd: (initial: AddEntryInitial) => void
+  readOnly: boolean
+  onAdd: (seen: ObservedExtension) => void
 }) {
   const queryClient = useQueryClient()
   const change = useMutation({
     mutationFn: (action: 'dismiss' | 'restore') =>
-      api.post(`/api/platform/observed-extensions/${ext.id}/${action}`, {}),
+      api.post(`${BASE}/observed/${ext.id}/${action}`, {}),
     onSuccess: (_data, action) => {
       void queryClient.invalidateQueries({ queryKey: OBSERVED_KEY })
       toast.success(action === 'dismiss' ? 'Dismissed' : 'Restored')
@@ -529,18 +628,12 @@ function SeenRow({
 
         {/* Ghost, not primary: a list of ten rows must not carry ten accent buttons. */}
         <div className="flex shrink-0 gap-2">
-          {ext.status === 'new' ? (
+          {readOnly ? null : ext.status === 'new' ? (
             <>
               <button
                 type="button"
                 className={BTN_GHOST}
-                onClick={() =>
-                  onAdd({
-                    extension_id: ext.extension_id,
-                    name: ext.name,
-                    listing_url: ext.listing_url,
-                  })
-                }
+                onClick={() => onAdd(ext)}
               >
                 <Plus size={14} />
                 Add to blocklist
@@ -570,7 +663,13 @@ function SeenRow({
   )
 }
 
-function SeenView({ onAdd }: { onAdd: (initial: AddEntryInitial) => void }) {
+function SeenView({
+  readOnly,
+  onAdd,
+}: {
+  readOnly: boolean
+  onAdd: (seen: ObservedExtension) => void
+}) {
   const [status, setStatus] = useState<ObservedStatus>('new')
   const [page, setPage] = useState(0)
   const offset = page * OBSERVED_PAGE_SIZE
@@ -579,7 +678,7 @@ function SeenView({ onAdd }: { onAdd: (initial: AddEntryInitial) => void }) {
     queryKey: [...OBSERVED_KEY, status, page],
     queryFn: () =>
       api.get(
-        `/api/platform/observed-extensions?status=${status}&limit=${OBSERVED_PAGE_SIZE}&offset=${offset}`,
+        `${BASE}/observed?status=${status}&limit=${OBSERVED_PAGE_SIZE}&offset=${offset}`,
       ) as unknown as Promise<ObservedExtensionPage>,
     placeholderData: (previous) => previous,
   })
@@ -601,7 +700,7 @@ function SeenView({ onAdd }: { onAdd: (initial: AddEntryInitial) => void }) {
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
         <p className="max-w-2xl text-[13px] leading-relaxed text-ink-muted">
-          Check the listing, then add the ones that are AI assistants; they move to the Blocklist.
+          Extensions flagged on your candidates’ browsers. {readOnly ? 'An Admin can add the ones that are AI assistants to the blocklist.' : 'Check the listing, then add the ones that are AI assistants; they move to the Blocklist.'}{' '}
           Nothing here is blocked automatically, and no candidate information is shown.
         </p>
         {/*
@@ -661,7 +760,7 @@ function SeenView({ onAdd }: { onAdd: (initial: AddEntryInitial) => void }) {
         <>
           <ul className="divide-y divide-line">
             {data.items.map((ext) => (
-              <SeenRow key={ext.id} ext={ext} onAdd={onAdd} />
+              <SeenRow key={ext.id} ext={ext} readOnly={readOnly} onAdd={onAdd} />
             ))}
           </ul>
           {totalPages > 1 && (
@@ -693,37 +792,55 @@ function SeenView({ onAdd }: { onAdd: (initial: AddEntryInitial) => void }) {
   )
 }
 
-// ── Detection mode: rarely changed, so it stays folded away ──────────────────
+// ── Organization defaults ────────────────────────────────────────────────────
 
-function DetectionSettings({ policy }: { policy: ExtensionPolicy }) {
+/**
+ * What new jobs start with, the look-alike switch that applies to every job, and the way
+ * back to the starting list. Each control saves as it is changed; there is no form to submit.
+ * HR sees the same card with the controls off.
+ */
+function OrgDefaults({ policy }: { policy: ExtensionOrgPolicy }) {
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
-  const [mode, setMode] = useState<ExtensionPolicyMode>(policy.mode)
-
-  // A refreshed policy (after saving, or another admin's edit) replaces the draft.
-  useEffect(() => {
-    setMode(policy.mode)
-  }, [policy])
+  const [confirm, setConfirm] = useState<'heuristics' | 'restore' | null>(null)
+  const readOnly = !policy.can_edit
 
   const save = useMutation({
-    mutationFn: (body: { mode: ExtensionPolicyMode }) =>
-      api.put('/api/platform/extension-policy', body) as unknown as Promise<ExtensionPolicy>,
+    mutationFn: (body: ExtensionOrgPolicyUpdate) =>
+      api.put(BASE, body) as unknown as Promise<ExtensionOrgPolicy>,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: POLICY_KEY })
-      toast.success('Mode saved')
+      setConfirm(null)
+      toast.success('Saved')
     },
-    onError: (err) => toast.error(errorMessage(err, 'Could not save the mode')),
+    onError: (err) => toast.error(errorMessage(err, 'Could not save the change')),
   })
 
-  const dirty = mode !== policy.mode
+  const restore = useMutation({
+    mutationFn: () => api.post(`${BASE}/restore-defaults`, {}) as unknown as Promise<RestoreDefaultsResult>,
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: BLOCKLIST_KEY })
+      void queryClient.invalidateQueries({ queryKey: POLICY_KEY })
+      void queryClient.invalidateQueries({ queryKey: OBSERVED_KEY })
+      setConfirm(null)
+      toast.success(
+        result.added + result.reset === 0
+          ? 'The starting list was already complete'
+          : `Restored: ${result.added} added, ${result.reset} turned back on`,
+      )
+    },
+    onError: (err) => toast.error(errorMessage(err, 'Could not restore the starting list')),
+  })
+
+  const missing = policy.defaults_total - policy.defaults_present
 
   return (
     <Card className="overflow-hidden">
-      {/* The current mode stays readable while folded: it decides who gets blocked. */}
+      {/* The settings stay readable while folded: they decide what a new job does. */}
       <button
         type="button"
         aria-expanded={open}
-        aria-controls="detection-mode-body"
+        aria-controls="org-defaults-body"
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40"
       >
@@ -731,70 +848,127 @@ function DetectionSettings({ policy }: { policy: ExtensionPolicy }) {
           <ShieldAlert className="h-4 w-4" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[13px] font-semibold text-ink">Detection mode</span>
+          <span className="block text-[13px] font-semibold text-ink">Defaults for new jobs</span>
           <span className="block text-[12px] leading-relaxed text-ink-muted">
-            {MODE_COPY[policy.mode].summary}
+            {policy.default_enabled
+              ? `Check on, ${MODE_COPY[policy.default_mode].title.toLowerCase()} mode. ${MODE_COPY[policy.default_mode].summary}`
+              : 'Check off. Each job can still turn it on.'}
           </span>
         </span>
-        {dirty && <span className="shrink-0 text-[12px] text-ink-muted">Unsaved change</span>}
-        <Badge tone="neutral">{MODE_COPY[policy.mode].title}</Badge>
+        <Badge tone="neutral">{policy.default_enabled ? MODE_COPY[policy.default_mode].title : 'Off'}</Badge>
         <ChevronDown
           className={`h-4 w-4 shrink-0 text-ink-subtle transition-transform ${open ? 'rotate-180' : ''}`}
         />
       </button>
 
       {open && (
-        <div id="detection-mode-body" className="border-t border-line px-5 py-5">
-          <fieldset>
-            <legend className="mb-2 text-[13px] font-semibold text-ink">Mode</legend>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {(Object.keys(MODE_COPY) as ExtensionPolicyMode[]).map((value) => (
-                <label
-                  key={value}
-                  className={`cursor-pointer rounded-card border p-4 transition-colors ${
-                    mode === value ? 'border-accent bg-accent-soft' : 'border-line bg-surface hover:bg-surface-2'
-                  }`}
-                >
-                  <span className="flex items-center gap-2 text-[14px] font-semibold text-ink">
-                    <input
-                      type="radio"
-                      name="policy-mode"
-                      checked={mode === value}
-                      onChange={() => setMode(value)}
-                    />
-                    {MODE_COPY[value].title}
-                  </span>
-                  <span className="mt-1.5 block text-[12px] leading-relaxed text-ink-muted">
-                    {MODE_COPY[value].body}
-                  </span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-
-          <div className="mt-4 flex items-center justify-end gap-3">
-            <span className="mr-auto text-[12px] text-ink-subtle">
-              Version <Num>{policy.version}</Num> · takes effect on the next check
-            </span>
-            <button
-              type="button"
-              className={BTN_GHOST}
-              disabled={!dirty || save.isPending}
-              onClick={() => setMode(policy.mode)}
-            >
-              Discard
-            </button>
-            <button
-              type="button"
-              className={BTN_PRIMARY}
-              disabled={!dirty || save.isPending}
-              onClick={() => save.mutate({ mode })}
-            >
-              {save.isPending && <Loader2 size={14} className="animate-spin" />}
-              Save mode
-            </button>
+        <div id="org-defaults-body" className="space-y-6 border-t border-line px-5 py-5">
+          <div className="space-y-4">
+            <Toggle
+              label="Check new jobs by default"
+              description="A job’s own switch, next to Voice screening on the job page, always wins. Changing this does not touch existing jobs."
+              checked={policy.default_enabled}
+              disabled={readOnly || save.isPending}
+              onChange={(next) => save.mutate({ default_enabled: next })}
+            />
+            <fieldset disabled={readOnly || save.isPending}>
+              <legend className="mb-2 text-[13px] font-semibold text-ink">Default mode</legend>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {(Object.keys(MODE_COPY) as ExtensionPolicyMode[]).map((value) => (
+                  <label
+                    key={value}
+                    className={`rounded-card border p-4 transition-colors ${
+                      policy.default_mode === value
+                        ? 'border-accent bg-accent-soft'
+                        : 'border-line bg-surface hover:bg-surface-2'
+                    } ${readOnly ? 'cursor-default' : 'cursor-pointer'}`}
+                  >
+                    <span className="flex items-center gap-2 text-[14px] font-semibold text-ink">
+                      <input
+                        type="radio"
+                        name="default-mode"
+                        checked={policy.default_mode === value}
+                        onChange={() => save.mutate({ default_mode: value })}
+                      />
+                      {MODE_COPY[value].title}
+                    </span>
+                    <span className="mt-1.5 block text-[12px] leading-relaxed text-ink-muted">
+                      {MODE_COPY[value].body}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
           </div>
+
+          <div className="border-t border-line pt-5">
+            <Toggle
+              label="Also flag extensions that look like AI assistants"
+              description="Beyond the blocklist, extensions whose name, description or permissions look like an AI assistant are recorded for HR (and blocked in Enforce mode). Turn off to check the blocklist only. Applies to every job."
+              checked={policy.heuristics_enabled}
+              disabled={readOnly || save.isPending}
+              onChange={(next) =>
+                next ? save.mutate({ heuristics_enabled: true }) : setConfirm('heuristics')
+              }
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
+            <div className="min-w-0 text-[13px] text-ink-muted">
+              <p className="font-semibold text-ink">Starting list</p>
+              <p className="mt-0.5 leading-relaxed">
+                <Num>{policy.defaults_present}</Num> of <Num>{policy.defaults_total}</Num> starting
+                extensions on your list
+                {missing > 0 ? ', some deleted.' : '.'} Restoring adds back any that are missing and
+                turns back on any you switched off. Your own entries and edits stay as they are.
+              </p>
+            </div>
+            {!readOnly && (
+              <button
+                type="button"
+                className={BTN_GHOST}
+                disabled={restore.isPending}
+                onClick={() => setConfirm('restore')}
+              >
+                <RotateCcw size={14} />
+                Restore starting list
+              </button>
+            )}
+          </div>
+
+          <p className="text-[12px] text-ink-subtle">
+            <Num>{policy.entry_count}</Num> of <Num>{policy.entry_cap}</Num> entries · version{' '}
+            <Num>{policy.version}</Num> · takes effect on the next check
+          </p>
         </div>
+      )}
+
+      {confirm === 'heuristics' && (
+        <ConfirmDialog
+          open
+          tone="warning"
+          title="Stop flagging look-alike extensions?"
+          message={
+            'Only extensions on your blocklist will be checked, for every job in your organization.\nAI assistants that are not on the list will no longer be recorded for HR or blocked.'
+          }
+          confirmLabel="Turn off"
+          busy={save.isPending}
+          onConfirm={() => save.mutate({ heuristics_enabled: false })}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
+      {confirm === 'restore' && (
+        <ConfirmDialog
+          open
+          title="Restore the starting list?"
+          message={
+            'Starting extensions that are missing are added back, and any you switched off are turned back on.\nYour own entries and any wording you changed are left alone.'
+          }
+          confirmLabel="Restore"
+          busy={restore.isPending}
+          onConfirm={() => restore.mutate()}
+          onCancel={() => setConfirm(null)}
+        />
       )}
     </Card>
   )
@@ -802,7 +976,7 @@ function DetectionSettings({ policy }: { policy: ExtensionPolicy }) {
 
 // ── Panel ────────────────────────────────────────────────────────────────────
 
-export default function ExtensionPolicyPanel() {
+export default function ExtensionCheckPanel() {
   const [params, setParams] = useSearchParams()
   // In the URL so a list can be linked to and survives a refresh.
   const view: View = params.get('view') === 'blocklist' ? 'blocklist' : 'seen'
@@ -813,24 +987,23 @@ export default function ExtensionPolicyPanel() {
     setParams(updated, { replace: true })
   }
 
-  // null = closed, {} = a blank form, anything else = prefilled from a seen extension.
-  const [adding, setAdding] = useState<AddEntryInitial | null>(null)
+  // null = closed; otherwise a blank form, an entry being edited, or a seen extension being added.
+  const [dialog, setDialog] = useState<EntryDialogState | null>(null)
 
-  const policy = useQuery<ExtensionPolicy>({
+  const policy = useQuery<ExtensionOrgPolicy>({
     queryKey: POLICY_KEY,
-    queryFn: () => api.get('/api/platform/extension-policy') as unknown as Promise<ExtensionPolicy>,
+    queryFn: () => api.get(BASE) as unknown as Promise<ExtensionOrgPolicy>,
   })
   const blocklist = useQuery<ExtensionBlocklistEntry[]>({
     queryKey: BLOCKLIST_KEY,
-    queryFn: () =>
-      api.get('/api/platform/extension-blocklist') as unknown as Promise<ExtensionBlocklistEntry[]>,
+    queryFn: () => api.get(`${BASE}/blocklist`) as unknown as Promise<ExtensionBlocklistEntry[]>,
   })
   // Only the total is wanted, so the tab can show it from the other view too.
   const seenCount = useQuery<number>({
     queryKey: [...OBSERVED_KEY, 'new-count'],
     queryFn: async () => {
       const page = (await api.get(
-        '/api/platform/observed-extensions?status=new&limit=1&offset=0',
+        `${BASE}/observed?status=new&limit=1&offset=0`,
       )) as unknown as ObservedExtensionPage
       return page.total
     },
@@ -850,16 +1023,40 @@ export default function ExtensionPolicyPanel() {
     )
   }
 
+  const readOnly = !policy.data.can_edit
+  const atCap = policy.data.entry_count >= policy.data.entry_cap
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-2xl text-[13px] leading-relaxed text-ink-muted">
-          Candidates are checked for AI-assistant browser extensions before an interview starts.
-        </p>
-        <button type="button" className={BTN_PRIMARY} onClick={() => setAdding({})}>
-          <Plus size={14} />
-          Add extension
-        </button>
+        <div className="max-w-2xl space-y-1.5">
+          <p className="text-[13px] leading-relaxed text-ink-muted">
+            Candidates are checked for AI-assistant browser extensions before an interview starts.
+            This list applies to every job in your organization; each job turns the check on or off
+            and picks its mode on the job page.
+          </p>
+          {readOnly && (
+            <p className="flex items-center gap-2 text-[12px] text-ink-subtle">
+              <Badge tone="neutral">
+                <Eye className="h-3 w-3" aria-hidden />
+                View only
+              </Badge>
+              Only an Admin can change this list.
+            </p>
+          )}
+        </div>
+        {!readOnly && (
+          <button
+            type="button"
+            className={BTN_PRIMARY}
+            disabled={atCap}
+            title={atCap ? `The list is full (${policy.data.entry_cap} extensions)` : undefined}
+            onClick={() => setDialog({})}
+          >
+            <Plus size={14} />
+            Add extension
+          </button>
+        )}
       </div>
 
       <ViewTabs
@@ -871,20 +1068,25 @@ export default function ExtensionPolicyPanel() {
 
       <div id="ext-view" role="tabpanel" aria-labelledby={`ext-tab-${view}`}>
         {view === 'seen' ? (
-          <SeenView onAdd={setAdding} />
+          <SeenView readOnly={readOnly} onAdd={(seen) => setDialog({ seen })} />
         ) : (
-          <BlocklistView entries={blocklist.data} onAdd={() => setAdding({})} />
+          <BlocklistView
+            entries={blocklist.data}
+            readOnly={readOnly}
+            onAdd={() => setDialog({})}
+            onEdit={(entry) => setDialog({ entry })}
+          />
         )}
       </div>
 
-      <DetectionSettings policy={policy.data} />
+      <OrgDefaults policy={policy.data} />
 
       <p className="px-1 text-[12px] leading-relaxed text-ink-subtle">
         Detection runs in the candidate&rsquo;s own browser, so a result is evidence for HR to weigh,
         not proof. It cannot see desktop applications, other browsers or profiles, or a second device.
       </p>
 
-      {adding && <AddEntryDialog initial={adding} onClose={() => setAdding(null)} />}
+      {dialog && <EntryDialog state={dialog} onClose={() => setDialog(null)} />}
     </div>
   )
 }

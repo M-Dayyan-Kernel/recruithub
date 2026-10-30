@@ -16,6 +16,7 @@ import { ProctorEngine } from './engine'
 import { ProctorTransport } from './transport'
 import {
   MANDATORY_PRECONDITIONS,
+  mandatoryPreconditions,
   VOLATILE_PRECONDITIONS,
   type PreconditionAttempt,
   type PreconditionRecord,
@@ -73,6 +74,11 @@ export class ProctorSession {
   private listeners = new Set<Listener>()
   /** Set by the room when its start-time check failed; consumed by the final gate. */
   private finalRecheckRequested = false
+  /**
+   * False when the job has no extension check (or it could not be loaded): the gate is then
+   * not part of what must pass. Set by the landing page once the policy is known.
+   */
+  private extensionCheckRequired = true
 
   constructor(token: string) {
     this.token = token
@@ -156,8 +162,16 @@ export class ProctorSession {
     this.notify()
   }
 
+  isExtensionCheckRequired(): boolean {
+    return this.extensionCheckRequired
+  }
+
+  setExtensionCheckRequired(required: boolean): void {
+    this.extensionCheckRequired = required
+  }
+
   missingPreconditions(): PreconditionType[] {
-    return MANDATORY_PRECONDITIONS.filter((type) => !this.isPassed(type))
+    return mandatoryPreconditions(this.extensionCheckRequired).filter((type) => !this.isPassed(type))
   }
 
   /**

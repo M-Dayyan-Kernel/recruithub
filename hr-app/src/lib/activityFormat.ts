@@ -139,6 +139,11 @@ const FIELD_LABELS: Record<string, string> = {
   screening_call_to: 'Call window end',
   screening_timezone: 'Timezone',
   voice_screening_enabled: 'Voice screening',
+  extension_check_enabled: 'Extension check',
+  extension_check_mode: 'Extension check mode',
+  default_enabled: 'Check new jobs by default',
+  default_mode: 'Default extension mode',
+  heuristics_enabled: 'Look-alike detection',
   screening_enabled: 'Phone screening',
   enforce_phone_geography: 'Phone geography',
   allowed_phone_regions: 'Phone regions',
@@ -259,6 +264,8 @@ export function formatValue(field: string, value: unknown): string | null {
       case 'hr_feedback_type':
         return FEEDBACK[lower] ?? titleCase(value)
       case 'mode':
+      case 'extension_check_mode':
+      case 'default_mode':
         return MODES[lower] ?? titleCase(value)
       case 'work_mode':
         return WORK_MODES[lower] ?? titleCase(value)
@@ -573,7 +580,33 @@ export function describeActivity(row: ActivityRowInput): ActivityView {
     case 'settings.email_template_restored':
       return { ...base, event: 'Email template restored', change: { kind: 'chip', chip: chip('Restored', 'muted') }, details: [['Settings', 'Email templates']], note: 'The template went back to the default wording.' }
 
-    // ── platform (visible only when the platform's own activity is open) ──
+    // ── an organization's AI extension check ──
+    case 'settings.extension_policy_updated': {
+      const field = row.feature ?? 'default_mode'
+      const from = formatValue(field, before?.[field]) ?? '—'
+      const to = formatValue(field, after?.[field]) ?? '—'
+      return { ...base, event: `${fieldLabel(field)} changed`, change: transition(from, to, () => 'plain'), details: [who, ['Setting', fieldLabel(field)], ['From', from], ['To', to]] }
+    }
+    case 'settings.extension_blocklist_added':
+      return { ...base, event: 'Blocklist entry added', change: { kind: 'chip', chip: chip('Added', 'pos') }, details: [who, ['Extension', subject]] }
+    case 'settings.extension_blocklist_deleted':
+      return { ...base, event: 'Blocklist entry removed', change: { kind: 'chip', chip: chip('Removed', 'neg') }, details: [who, ['Extension', subject]] }
+    case 'settings.extension_blocklist_updated': {
+      const from = formatValue('status', before?.status)
+      const to = formatValue('status', after?.status)
+      return { ...base, event: 'Blocklist entry changed', change: from && to && from !== to ? transition(from, to, () => 'plain') : { kind: 'chip', chip: chip('Edited', 'muted') }, details: [who, ['Extension', subject]] }
+    }
+    case 'settings.extension_defaults_restored': {
+      const added = typeof after?.added === 'number' ? after.added : 0
+      const reset = typeof after?.reset === 'number' ? after.reset : 0
+      return { ...base, event: 'Starting blocklist restored', change: { kind: 'chip', chip: chip('Restored', 'muted') }, details: [who, ['Added back', String(added)], ['Turned back on', String(reset)]] }
+    }
+    case 'settings.extension_observed_dismissed':
+      return { ...base, event: 'Seen extension dismissed', change: { kind: 'chip', chip: chip('Dismissed', 'muted') }, details: [who, ['Extension', subject]] }
+    case 'settings.extension_observed_restored':
+      return { ...base, event: 'Seen extension restored', change: { kind: 'chip', chip: chip('Restored', 'muted') }, details: [who, ['Extension', subject]] }
+
+    // ── earlier platform-wide events (kept so old rows still read well) ──
     case 'extension_policy.updated': {
       const from = formatValue('mode', before?.mode) ?? '—'
       const to = formatValue('mode', after?.mode) ?? '—'

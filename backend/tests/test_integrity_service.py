@@ -1,4 +1,4 @@
-"""Extension detection: policy, blocklist administration, scan evidence."""
+"""Extension detection: per-organization blocklist and policy, per-job switch, scan evidence."""
 
 import unittest
 import uuid
@@ -10,18 +10,25 @@ from fastapi import HTTPException
 from pydantic import ValidationError as PydanticValidationError
 
 from app.exceptions import ConflictError, NotFoundError
-from app.models.models import ExtensionBlocklistEntry, ExtensionPolicy, User
+from app.models.models import ExtensionBlocklistEntry, ExtensionOrgPolicy, Job, User
 from app.schemas.integrity import (
     BlocklistEntryCreate,
     BlocklistEntryUpdate,
     FlaggedExtensionIn,
     IntegrityScanIn,
     PolicyRules,
-    PolicyUpdateRequest,
+    AddObservedToBlocklist,
+    OrgPolicyUpdate,
+    MAX_BLOCKLIST_ENTRIES,
     Thresholds,
 )
 from app.services.integrity_defaults import DEFAULT_RULES, SEED_BLOCKLIST
-from app.services.integrity_service import IntegrityService, build_summary, compute_outcome
+from app.services.integrity_service import (
+    POLICY_UNAVAILABLE,
+    IntegrityService,
+    build_summary,
+    compute_outcome,
+)
 
 NOW = datetime(2026, 10, 13, 12, 0, tzinfo=timezone.utc)
 VALID_ID = "abcdefghijklmnopabcdefghijklmnop"
@@ -53,13 +60,14 @@ class OutcomeTests(unittest.TestCase):
         )
 
 
-def _scan(phase, outcome, flagged, minutes, mode="shadow"):
+def _scan(phase, outcome, flagged, minutes, mode="shadow", error_code=None):
     return SimpleNamespace(
         phase=phase,
         outcome=outcome,
         flagged=flagged,
         flagged_count=len(flagged),
         mode=mode,
+        error_code=error_code,
         created_at=NOW + timedelta(minutes=minutes),
     )
 
@@ -183,174 +191,423 @@ class SchemaTests(unittest.TestCase):
 # ── service ──────────────────────────────────────────────────────────────────
 
 
-def _service(*, session_status="pending", policy=None, entries=None):
-    session = AsyncMock()
-    repo = MagicMock()
-    repo.get_policy = AsyncMock(return_value=policy)
-    repo.add_policy = MagicMock()
-    repo.add_entry = MagicMock(side_effect=lambda e: e)
-    repo.flush = AsyncMock()
-    repo.count_blocklist = AsyncMock(return_value=(len(entries or []), len(entries or [])))
-    repo.list_blocklist = AsyncMock(return_value=entries or [])
-    repo.get_entry_by_extension_id = AsyncMock(return_value=None)
-    repo.get_entry = AsyncMock(return_value=None)
-    repo.delete_entry = AsyncMock()
-    repo.add_scan = MagicMock(side_effect=lambda s: s)
-    repo.list_scans = AsyncMock(return_value=[])
+class FakeRepo:
+    """In-memory stand-in that keeps the real repository's tenant scoping."""
 
+    def __init__(self):
+        self.policies: dict[uuid.UUID, ExtensionOrgPolicy] = {}
+        self.entries: list[ExtensionBlocklistEntry] = []
+        self.scans: list = []
+
+    async def get_org_policy(self, tenant_id, *, for_update=False):
+        return self.policies.get(tenant_id)
+
+    async def ensure_org_policy_row(self, tenant_id):
+        self.policies.setdefault(
+            tenant_id,
+            ExtensionOrgPolicy(
+                tenant_id=tenant_id, default_enabled=True, default_mode="shadow",
+                heuristics_enabled=True, version=1, blocklist_seeded_at=None, updated_at=NOW,
+            ),
+        )
+
+    async def list_blocklist(self, tenant_id, *, active_only=False):
+        return [
+            e for e in self.entries
+            if e.tenant_id == tenant_id and (not active_only or e.status == "active")
+        ]
+
+    async def count_blocklist(self, tenant_id):
+        mine = [e for e in self.entries if e.tenant_id == tenant_id]
+        return sum(1 for e in mine if e.status == "active"), len(mine)
+
+    async def get_entry(self, tenant_id, entry_id):
+        return next((e for e in self.entries if e.tenant_id == tenant_id and e.id == entry_id), None)
+
+    async def get_entry_by_extension_id(self, tenant_id, extension_id):
+        return next(
+            (e for e in self.entries if e.tenant_id == tenant_id and e.extension_id == extension_id),
+            None,
+        )
+
+    def add_entry(self, entry):
+        if entry.id is None:
+            entry.id = uuid.uuid4()
+        if entry.status is None:
+            entry.status = "active"
+        self.entries.append(entry)
+        return entry
+
+    async def delete_entry(self, entry):
+        self.entries.remove(entry)
+
+    def add_scan(self, scan):
+        self.scans.append(scan)
+        return scan
+
+    async def list_scans(self, interview_session_id, *, limit=100):
+        return [s for s in self.scans if s.interview_session_id == interview_session_id]
+
+    async def flush(self):
+        pass
+
+
+class _Savepoint:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+def _entry(tenant_id, extension_id=VALID_ID, status="active", name="Monica"):
+    return ExtensionBlocklistEntry(
+        id=uuid.uuid4(), tenant_id=tenant_id, extension_id=extension_id, name=name,
+        category="ai_assistant", reason="AI", listing_url=None, status=status, origin="custom",
+        created_at=NOW, updated_at=NOW,
+    )
+
+
+def _service(*, enabled=True, mode="shadow", session_status="pending", tenant_id=None):
+    """A service wired to a fake repo, one job and one interview."""
+    tenant_id = tenant_id or uuid.uuid4()
+    session = AsyncMock()
+    job = Job(
+        id=uuid.uuid4(), tenant_id=tenant_id, extension_check_enabled=enabled,
+        extension_check_mode=mode,
+    )
+    interview = SimpleNamespace(
+        id=uuid.uuid4(), status=session_status, unique_token="tok", job_id=job.id,
+        extension_check_enabled=None, extension_check_mode=None, extension_policy_version=None,
+    )
+    session.get = AsyncMock(return_value=job)
+    session.begin_nested = MagicMock(return_value=_Savepoint())
+    repo = FakeRepo()
     interviews = MagicMock()
-    interview = SimpleNamespace(id=uuid.uuid4(), status=session_status, unique_token="tok")
     interviews.get_session_by_token = AsyncMock(
         return_value=None if session_status is None else interview
     )
     audit = AsyncMock()
-    return IntegrityService(session, repo=repo, interviews=interviews, audit=audit), session, repo, audit
-
-
-def _policy(version=3, mode="shadow"):
-    return ExtensionPolicy(
-        id=1, version=version, mode=mode, rules=dict(DEFAULT_RULES), updated_at=NOW
+    observed = MagicMock()
+    observed.record = AsyncMock()
+    observed.require = AsyncMock()
+    service = IntegrityService(
+        session, repo=repo, interviews=interviews, audit=audit, observed=observed
+    )
+    return SimpleNamespace(
+        service=service, session=session, repo=repo, audit=audit, observed=observed,
+        job=job, interview=interview, tenant_id=tenant_id,
     )
 
 
-def _admin():
+def _admin(tenant_id):
     return User(
-        id=uuid.uuid4(), tenant_id=uuid.uuid4(), email="root@p.example.com",
-        full_name="Root", hashed_password="x", role="superadmin", is_active=True,
+        id=uuid.uuid4(), tenant_id=tenant_id, email="admin@org.example.com",
+        full_name="Admin", hashed_password="x", role="admin", is_active=True,
     )
 
 
-class DefaultsTests(unittest.IsolatedAsyncioTestCase):
-    async def test_first_use_seeds_policy_and_blocklist(self):
-        service, session, repo, _ = _service(policy=None, entries=[])
-        repo.count_blocklist = AsyncMock(return_value=(0, 0))
-        policy = await service.ensure_defaults()
-        self.assertEqual(policy.mode, "shadow")
-        self.assertEqual(policy.version, 1)
-        self.assertEqual(repo.add_entry.call_count, len(SEED_BLOCKLIST))
-        session.commit.assert_awaited_once()
+class SeedingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_first_use_copies_the_defaults_into_the_organization(self):
+        t = _service()
+        policy = await t.service.ensure_defaults(t.tenant_id)
+        entries = await t.repo.list_blocklist(t.tenant_id)
+        self.assertEqual(len(entries), len(SEED_BLOCKLIST))
+        self.assertTrue(all(e.origin == "default" for e in entries))
+        self.assertIsNotNone(policy.blocklist_seeded_at)
 
-    async def test_existing_policy_is_left_alone(self):
-        service, session, repo, _ = _service(policy=_policy())
-        await service.ensure_defaults()
-        repo.add_entry.assert_not_called()
-        session.commit.assert_not_awaited()
+    async def test_an_emptied_list_is_not_seeded_again(self):
+        t = _service()
+        await t.service.ensure_defaults(t.tenant_id)
+        t.repo.entries.clear()
+        await t.service.ensure_defaults(t.tenant_id)
+        self.assertEqual(t.repo.entries, [])
 
-    async def test_does_not_reseed_a_populated_blocklist(self):
-        service, _, repo, _ = _service(policy=None, entries=[])
-        repo.count_blocklist = AsyncMock(return_value=(2, 2))
-        await service.ensure_defaults()
-        repo.add_entry.assert_not_called()
+    async def test_each_organization_gets_its_own_copy(self):
+        a, b = _service(), _service()
+        b.repo = a.repo
+        b.service._repo = a.repo
+        await a.service.ensure_defaults(a.tenant_id)
+        await b.service.ensure_defaults(b.tenant_id)
+        self.assertEqual(len(a.repo.entries), 2 * len(SEED_BLOCKLIST))
+        self.assertEqual(len(await a.repo.list_blocklist(a.tenant_id)), len(SEED_BLOCKLIST))
+        self.assertNotEqual({e.id for e in a.repo.entries if e.tenant_id == a.tenant_id},
+                            {e.id for e in a.repo.entries if e.tenant_id == b.tenant_id})
+
+    async def test_a_new_organization_is_seeded_inside_its_own_transaction(self):
+        t = _service()
+        await t.service.seed_new_organization(t.tenant_id)
+        self.assertEqual(len(t.repo.entries), len(SEED_BLOCKLIST))
+        t.session.commit.assert_not_awaited()
 
 
-class PublicFlowTests(unittest.IsolatedAsyncioTestCase):
-    async def test_policy_lists_only_active_entries_with_rules_and_version(self):
-        entry = ExtensionBlocklistEntry(
-            id=uuid.uuid4(), extension_id=VALID_ID, name="Monica", category="ai_assistant",
-            reason="AI", listing_url=None, status="active", created_at=NOW, updated_at=NOW,
-        )
-        service, _, repo, _ = _service(policy=_policy(version=7, mode="enforce"), entries=[entry])
-        result = await service.policy_for_interview("tok")
-        repo.list_blocklist.assert_awaited_with(active_only=True)
+class PolicyForJobTests(unittest.IsolatedAsyncioTestCase):
+    async def _seeded(self, **kw):
+        t = _service(**kw)
+        await t.service.ensure_defaults(t.tenant_id)
+        t.repo.entries.clear()
+        t.repo.entries.append(_entry(t.tenant_id))
+        t.repo.entries.append(_entry(t.tenant_id, "b" * 32, status="inactive", name="Off"))
+        return t
+
+    async def test_on_lists_only_active_entries_with_the_jobs_mode_and_org_version(self):
+        t = await self._seeded(mode="enforce")
+        t.repo.policies[t.tenant_id].version = 7
+        result = await t.service.policy_for_interview("tok")
+        self.assertTrue(result.enabled)
         self.assertEqual((result.version, result.mode), (7, "enforce"))
-        self.assertEqual(result.blocklist[0].id, VALID_ID)
-        self.assertEqual(result.rules.thresholds.intent_strong, 4)
+        self.assertEqual([b.id for b in result.blocklist], [VALID_ID])
+        self.assertGreater(len(result.rules.intent.keywords), 0)
+
+    async def test_two_jobs_of_one_org_share_the_list_but_not_the_mode(self):
+        shadow = await self._seeded(mode="shadow")
+        enforce = _service(mode="enforce", tenant_id=shadow.tenant_id)
+        enforce.repo = shadow.repo
+        enforce.service._repo = shadow.repo
+        a = await shadow.service.policy_for_interview("tok")
+        b = await enforce.service.policy_for_interview("tok")
+        self.assertEqual([x.id for x in a.blocklist], [x.id for x in b.blocklist])
+        self.assertEqual((a.mode, b.mode), ("shadow", "enforce"))
+
+    async def test_off_sends_nothing_to_check(self):
+        t = await self._seeded(enabled=False)
+        result = await t.service.policy_for_interview("tok")
+        self.assertFalse(result.enabled)
+        self.assertEqual(result.blocklist, [])
+
+    async def test_heuristics_off_empties_only_the_lookalike_terms(self):
+        t = await self._seeded()
+        t.repo.policies[t.tenant_id].heuristics_enabled = False
+        result = await t.service.policy_for_interview("tok")
+        self.assertEqual(result.rules.intent.keywords, [])
+        self.assertEqual(result.rules.intent.vendor_hosts, [])
+        self.assertEqual([b.id for b in result.blocklist], [VALID_ID])
+
+    async def test_the_policy_fetch_stamps_the_interview(self):
+        t = await self._seeded(mode="enforce")
+        await t.service.policy_for_interview("tok")
+        self.assertEqual(
+            (t.interview.extension_check_enabled, t.interview.extension_check_mode), (True, "enforce")
+        )
+        self.assertIsNotNone(t.interview.extension_policy_version)
+
+    async def test_start_stamps_the_job_settings(self):
+        t = _service(enabled=False, mode="enforce")
+        await t.service.stamp_interview(t.interview, t.job)
+        self.assertEqual(
+            (t.interview.extension_check_enabled, t.interview.extension_check_mode), (False, "enforce")
+        )
 
     async def test_unknown_expired_and_finished_interviews_are_refused(self):
-        service, _, _, _ = _service(session_status=None, policy=_policy())
+        t = _service(session_status=None)
         with self.assertRaises(NotFoundError):
-            await service.policy_for_interview("nope")
+            await t.service.policy_for_interview("nope")
+        for status, code in (("expired", 410), ("cancelled", 410), ("completed", 409)):
+            t = _service(session_status=status)
+            with self.assertRaises(HTTPException) as ctx:
+                await t.service.record_scan("tok", IntegrityScanIn(phase="final", scan_completed=True))
+            self.assertEqual(ctx.exception.status_code, code, status)
 
-        service, _, _, _ = _service(session_status="expired", policy=_policy())
-        with self.assertRaises(HTTPException) as ctx:
-            await service.record_scan("tok", IntegrityScanIn(phase="final", scan_completed=True))
-        self.assertEqual(ctx.exception.status_code, 410)
+    async def test_a_missing_job_is_not_found_not_a_crash(self):
+        t = _service()
+        t.session.get = AsyncMock(return_value=None)
+        with self.assertRaises(NotFoundError):
+            await t.service.policy_for_interview("tok")
 
-        service, _, _, _ = _service(session_status="completed", policy=_policy())
-        with self.assertRaises(HTTPException) as ctx:
-            await service.record_scan("tok", IntegrityScanIn(phase="final", scan_completed=True))
-        self.assertEqual(ctx.exception.status_code, 409)
 
+class RecordScanTests(unittest.IsolatedAsyncioTestCase):
     async def test_outcome_is_computed_server_side(self):
-        service, session, repo, _ = _service(policy=_policy())
+        t = _service()
         body = IntegrityScanIn(
             phase="preflight", scan_completed=True, policy_version=3, mode="shadow",
             flagged=[_flagged(blocked=True, reason_code="known_id")],
         )
-        ack = await service.record_scan("tok", body)
-        stored = repo.add_scan.call_args.args[0]
-        self.assertEqual(ack.outcome, "blocked")
-        self.assertEqual(stored.outcome, "blocked")
-        self.assertEqual(stored.flagged_count, 1)
-        self.assertEqual(stored.phase, "preflight")
-        session.commit.assert_awaited_once()
+        ack = await t.service.record_scan("tok", body)
+        stored = t.repo.scans[0]
+        self.assertEqual((ack.outcome, stored.outcome), ("blocked", "blocked"))
+        self.assertEqual((stored.flagged_count, stored.phase, stored.policy_version), (1, "preflight", 3))
+        t.session.commit.assert_awaited()
+
+    async def test_flagged_extensions_reach_this_orgs_catalog_only(self):
+        t = _service()
+        body = IntegrityScanIn(phase="final", scan_completed=True, flagged=[_flagged()])
+        await t.service.record_scan("tok", body)
+        args = t.observed.record.await_args.args
+        self.assertEqual(args[0], t.tenant_id)
+
+    async def test_a_scan_without_a_version_records_the_orgs_current_one(self):
+        t = _service(mode="enforce")
+        await t.service.ensure_defaults(t.tenant_id)
+        t.repo.policies[t.tenant_id].version = 9
+        await t.service.record_scan("tok", IntegrityScanIn(phase="final", scan_completed=True))
+        self.assertEqual((t.repo.scans[0].policy_version, t.repo.scans[0].mode), (9, "enforce"))
 
     async def test_failed_scan_is_recorded_as_unavailable(self):
-        service, _, repo, _ = _service(policy=_policy())
-        ack = await service.record_scan(
+        t = _service()
+        ack = await t.service.record_scan(
             "tok", IntegrityScanIn(phase="final", scan_completed=False, error_code="scan_failed")
         )
         self.assertEqual(ack.outcome, "unavailable")
-        self.assertEqual(repo.add_scan.call_args.args[0].error_code, "scan_failed")
+        self.assertEqual(t.repo.scans[0].error_code, "scan_failed")
 
-
-class AdminTests(unittest.IsolatedAsyncioTestCase):
-    async def test_every_list_edit_bumps_the_policy_version(self):
-        policy = _policy(version=3)
-        service, _, repo, audit = _service(policy=policy)
-        entry = await service.add_entry(
-            BlocklistEntryCreate(extension_id=VALID_ID, name="New AI", reason="AI assistant"), _admin()
+    async def test_policy_unavailable_is_could_not_be_checked_never_clear(self):
+        t = _service()
+        ack = await t.service.record_scan(
+            "tok",
+            IntegrityScanIn(phase="preflight", scan_completed=False, error_code=POLICY_UNAVAILABLE),
         )
-        self.assertEqual(policy.version, 4)
-        audit.log_change.assert_awaited()
-        self.assertEqual(entry.extension_id, VALID_ID)
+        self.assertEqual(ack.outcome, "unavailable")
+        summary = build_summary([SimpleNamespace(
+            phase=s.phase, outcome=s.outcome, flagged=s.flagged, flagged_count=s.flagged_count,
+            mode=s.mode, error_code=s.error_code, created_at=NOW) for s in t.repo.scans])
+        self.assertEqual(summary.latest_error_code, POLICY_UNAVAILABLE)
+        self.assertEqual(summary.unavailable_scans, 1)
 
-    async def test_duplicate_extension_id_is_a_conflict(self):
-        service, session, repo, _ = _service(policy=_policy())
-        repo.get_entry_by_extension_id = AsyncMock(return_value=object())
+    async def test_a_disabled_job_stores_nothing(self):
+        t = _service(enabled=False)
+        body = IntegrityScanIn(
+            phase="final", scan_completed=True, flagged=[_flagged(blocked=True)]
+        )
+        ack = await t.service.record_scan("tok", body)
+        self.assertFalse(ack.recorded)
+        self.assertEqual(t.repo.scans, [])
+        t.observed.record.assert_not_awaited()
+
+
+class OrgPolicyTests(unittest.IsolatedAsyncioTestCase):
+    async def _ready(self):
+        t = _service()
+        await t.service.ensure_defaults(t.tenant_id)
+        return t, _admin(t.tenant_id)
+
+    async def test_a_change_bumps_the_version_and_is_audited_with_old_and_new(self):
+        t, admin = await self._ready()
+        before = t.repo.policies[t.tenant_id].version
+        await t.service.update_org_policy(OrgPolicyUpdate(default_mode="enforce"), admin)
+        policy = t.repo.policies[t.tenant_id]
+        self.assertEqual((policy.default_mode, policy.version), ("enforce", before + 1))
+        kwargs = t.audit.log_field_changes.await_args.kwargs
+        self.assertEqual(kwargs["action"], "settings.extension_policy_updated")
+        self.assertEqual(kwargs["changes"], {"default_mode": ("shadow", "enforce")})
+
+    async def test_a_no_op_does_not_bump_the_version(self):
+        t, admin = await self._ready()
+        before = t.repo.policies[t.tenant_id].version
+        await t.service.update_org_policy(OrgPolicyUpdate(default_mode="shadow"), admin)
+        self.assertEqual(t.repo.policies[t.tenant_id].version, before)
+        t.audit.log_field_changes.assert_not_awaited()
+
+    async def test_the_summary_counts_defaults_and_carries_can_edit(self):
+        t, admin = await self._ready()
+        result = await t.service.get_org_policy(admin, can_edit=False)
+        self.assertFalse(result.can_edit)
+        self.assertEqual((result.entry_count, result.defaults_present), (len(SEED_BLOCKLIST),) * 2)
+        self.assertEqual(result.entry_cap, MAX_BLOCKLIST_ENTRIES)
+
+
+class BlocklistAdminTests(unittest.IsolatedAsyncioTestCase):
+    async def _ready(self):
+        t = _service()
+        await t.service.ensure_defaults(t.tenant_id)
+        return t, _admin(t.tenant_id)
+
+    async def test_add_creates_a_custom_entry_bumps_version_and_audits(self):
+        t, admin = await self._ready()
+        before = t.repo.policies[t.tenant_id].version
+        entry = await t.service.add_entry(
+            BlocklistEntryCreate(extension_id=VALID_ID, name="New AI", reason="AI assistant"), admin
+        )
+        self.assertEqual(entry.origin, "custom")
+        self.assertEqual(entry.tenant_id, t.tenant_id)
+        self.assertEqual(t.repo.policies[t.tenant_id].version, before + 1)
+        self.assertEqual(t.audit.log_change.await_args.kwargs["action"], "settings.extension_blocklist_added")
+
+    async def test_duplicate_id_in_the_same_org_is_a_conflict(self):
+        t, admin = await self._ready()
+        await t.service.add_entry(BlocklistEntryCreate(extension_id=VALID_ID, name="x", reason="y"), admin)
         with self.assertRaises(ConflictError):
-            await service.add_entry(
-                BlocklistEntryCreate(extension_id=VALID_ID, name="x", reason="y"), _admin()
-            )
-        session.commit.assert_not_awaited()
+            await t.service.add_entry(BlocklistEntryCreate(extension_id=VALID_ID, name="x", reason="y"), admin)
 
-    async def test_deactivating_removes_from_public_list_via_status(self):
-        entry = ExtensionBlocklistEntry(
-            id=uuid.uuid4(), extension_id=VALID_ID, name="Monica", category="ai_assistant",
-            reason="AI", status="active", created_at=NOW, updated_at=NOW,
+    async def test_the_same_id_can_exist_in_two_orgs(self):
+        a, admin_a = await self._ready()
+        b = _service()
+        b.repo, b.service._repo = a.repo, a.repo
+        await b.service.ensure_defaults(b.tenant_id)
+        await a.service.add_entry(BlocklistEntryCreate(extension_id=VALID_ID, name="x", reason="y"), admin_a)
+        await b.service.add_entry(
+            BlocklistEntryCreate(extension_id=VALID_ID, name="x", reason="y"), _admin(b.tenant_id)
         )
-        policy = _policy(version=3)
-        service, _, repo, _ = _service(policy=policy)
-        repo.get_entry = AsyncMock(return_value=entry)
-        await service.update_entry(entry.id, BlocklistEntryUpdate(status="inactive"), _admin())
+        self.assertEqual(sum(1 for e in a.repo.entries if e.extension_id == VALID_ID), 2)
+
+    async def test_the_list_has_a_cap(self):
+        t, admin = await self._ready()
+        t.repo.entries.extend(
+            _entry(t.tenant_id, f"{chr(97 + i % 16)}{i:031d}".translate(str.maketrans("0123456789", "abcdefghij")))
+            for i in range(MAX_BLOCKLIST_ENTRIES - len(t.repo.entries))
+        )
+        self.assertEqual(len(t.repo.entries), MAX_BLOCKLIST_ENTRIES)
+        with self.assertRaises(ConflictError):
+            await t.service.add_entry(
+                BlocklistEntryCreate(extension_id=VALID_ID, name="x", reason="y"), admin
+            )
+
+    async def test_deactivating_changes_status_and_audits_old_and_new(self):
+        t, admin = await self._ready()
+        entry = t.repo.entries[0]
+        await t.service.update_entry(entry.id, BlocklistEntryUpdate(status="inactive"), admin)
         self.assertEqual(entry.status, "inactive")
-        self.assertEqual(policy.version, 4)
+        kwargs = t.audit.log_change.await_args.kwargs
+        self.assertEqual((kwargs["before"]["status"], kwargs["after"]["status"]), ("active", "inactive"))
 
-    async def test_unknown_entry_is_not_found(self):
-        service, _, _, _ = _service(policy=_policy())
+    async def test_the_extension_id_cannot_be_edited(self):
+        with self.assertRaises(PydanticValidationError):
+            BlocklistEntryUpdate(extension_id=VALID_ID)
+
+    async def test_another_orgs_entry_is_not_found(self):
+        t, admin = await self._ready()
+        other = _entry(uuid.uuid4())
+        t.repo.entries.append(other)
         with self.assertRaises(NotFoundError):
-            await service.update_entry(uuid.uuid4(), BlocklistEntryUpdate(status="inactive"), _admin())
+            await t.service.update_entry(other.id, BlocklistEntryUpdate(status="inactive"), admin)
         with self.assertRaises(NotFoundError):
-            await service.delete_entry(uuid.uuid4(), _admin())
+            await t.service.delete_entry(other.id, admin)
+        self.assertIn(other, t.repo.entries)
 
-    async def test_policy_change_bumps_version_but_a_no_op_does_not(self):
-        policy = _policy(version=5, mode="shadow")
-        service, session, _, _ = _service(policy=policy)
-        session.refresh = AsyncMock()
-        await service.update_policy(PolicyUpdateRequest(mode="shadow"), _admin())
-        self.assertEqual(policy.version, 5)
-        await service.update_policy(PolicyUpdateRequest(mode="enforce"), _admin())
-        self.assertEqual((policy.version, policy.mode), (6, "enforce"))
+    async def test_delete_removes_and_audits(self):
+        t, admin = await self._ready()
+        entry = t.repo.entries[0]
+        await t.service.delete_entry(entry.id, admin)
+        self.assertNotIn(entry, t.repo.entries)
+        self.assertEqual(t.audit.log_change.await_args.kwargs["action"], "settings.extension_blocklist_deleted")
 
-    async def test_rules_edit_is_stored_and_versioned(self):
-        policy = _policy(version=1)
-        service, session, _, _ = _service(policy=policy)
-        session.refresh = AsyncMock()
-        rules = PolicyRules.model_validate(DEFAULT_RULES)
-        rules.thresholds.intent_strong = 6
-        await service.update_policy(PolicyUpdateRequest(rules=rules), _admin())
-        self.assertEqual(policy.rules["thresholds"]["intent_strong"], 6)
-        self.assertEqual(policy.version, 2)
+    async def test_restore_adds_back_missing_and_reenables_but_keeps_custom_and_edits(self):
+        t, admin = await self._ready()
+        custom = await t.service.add_entry(
+            BlocklistEntryCreate(extension_id=VALID_ID, name="Mine", reason="mine"), admin
+        )
+        deleted, switched_off, edited = t.repo.entries[0], t.repo.entries[1], t.repo.entries[2]
+        t.repo.entries.remove(deleted)
+        switched_off.status = "inactive"
+        edited.reason = "Our own wording"
+        result = await t.service.restore_defaults(admin)
+        self.assertEqual((result.added, result.reset), (1, 1))
+        self.assertEqual(result.unchanged, len(SEED_BLOCKLIST) - 2)
+        self.assertEqual(switched_off.status, "active")
+        self.assertEqual(edited.reason, "Our own wording")
+        self.assertIn(custom, t.repo.entries)
+        again = await t.service.restore_defaults(admin)
+        self.assertEqual((again.added, again.reset), (0, 0))
+
+    async def test_add_from_seen_uses_the_seen_name_and_the_orgs_list(self):
+        t, admin = await self._ready()
+        t.observed.require.return_value = SimpleNamespace(
+            extension_id=VALID_ID, name="Seen AI", strongest_reason="heuristic_strong"
+        )
+        entry = await t.service.add_observed_to_blocklist(
+            uuid.uuid4(), AddObservedToBlocklist(category="ai_assistant", reason=None), admin
+        )
+        self.assertEqual((entry.name, entry.tenant_id), ("Seen AI", t.tenant_id))
+        t.observed.require.assert_awaited_with(t.tenant_id, unittest.mock.ANY)
 
 
 if __name__ == "__main__":

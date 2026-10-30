@@ -5,10 +5,10 @@
  * testable and reusable by a future website-facing integration unchanged.
  *
  * This is the BUILT-IN FALLBACK. The live list is kept in the Recruit Hub
- * backend and edited by a Super Admin; the interview page hands it to the
+ * backend, one list per organization edited by its Admins; the interview page hands it to the
  * extension with each scan. This copy is used only when that is unavailable
- * (policy fetch failed, older page) and by the popup's local diagnostic scan.
- * It is a snapshot and is not updated by admin edits.
+ * (an older page that supplies no policy) and by the popup's local diagnostic scan.
+ * It is a snapshot and is not updated by organization edits.
  *
  * Matching rule: an extension blocks only when its ID is in the list AND it is
  * currently enabled. A disabled match or an unknown ID is allowed. IDs are the
@@ -35,8 +35,8 @@ const listing = (id) => `https://chromewebstore.google.com/detail/${id}`
 
 /**
  * @type {BlocklistEntry[]} Built-in fallback list: used when the page cannot supply
- * the live policy (older pages, policy fetch failed). The authoritative list is
- * the backend's, edited by a Super Admin.
+ * the live policy (older pages). The authoritative list is the backend's: one
+ * per organization, edited by its Admins.
  */
 export const BLOCKLIST = [
   {

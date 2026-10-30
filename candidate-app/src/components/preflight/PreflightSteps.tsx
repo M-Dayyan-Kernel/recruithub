@@ -605,7 +605,7 @@ export function EnvironmentStep({ session, onDone }: StepProps) {
       if (result.ok) {
         // Re-record only what had been invalidated, then close the gate.
         for (const type of [
-          'extension_check',
+          ...(session.isExtensionCheckRequired() ? (['extension_check'] as const) : []),
           'permission_camera',
           'permission_microphone',
           'screen_share',

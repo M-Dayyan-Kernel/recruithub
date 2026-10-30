@@ -43,8 +43,8 @@ extension's name, description, declared permissions and homepage locally. Only e
 that are blocked or flagged are returned to the page (with the signals that flagged them),
 and the page records them against the interview so the hiring team can review them. Each flagged
 extension is reported with its own name and description (public store text, trimmed to 300
-characters) so a platform administrator can decide whether to add it to the blocklist; that
-catalog holds no candidate, interview or organization information. The
+characters) so the hiring organization's administrators can decide whether to add it to their blocklist; that
+catalog is kept per organization and holds no candidate or interview information. The
 full list of installed extensions is never returned or stored.
 
 ## Website access

@@ -9,6 +9,7 @@ import {
   LogOut,
   Menu,
   Settings,
+  ShieldCheck,
   Users,
   X,
   Zap,
@@ -99,6 +100,7 @@ export default function Layout() {
     if (location.pathname === '/candidates' || location.pathname.startsWith('/candidates/')) {
       return 'Candidates'
     }
+    if (location.pathname === '/extension-check') return 'AI extension check'
     if (location.pathname === '/jobs/new') return 'Create Job'
     if (location.pathname === '/jobs/archived') return 'Archived jobs'
     if (location.pathname.match(/^\/jobs\/[^/]+\/screening/)) return PHONE_SCREENING_LABEL
@@ -216,6 +218,17 @@ export default function Layout() {
               <Contact className="h-[18px] w-[18px] shrink-0" />
               {collapsed ? null : 'Candidates'}
             </NavLink>
+            {(isAdmin || user?.role === 'hr') && (
+              <NavLink
+                to="/extension-check"
+                title={collapsed ? 'AI extension check' : undefined}
+                onClick={closeSidebar}
+                className={({ isActive }) => navLinkClass(isActive, collapsed)}
+              >
+                <ShieldCheck className="h-[18px] w-[18px] shrink-0" />
+                {collapsed ? null : 'AI extension check'}
+              </NavLink>
+            )}
           </div>
         </nav>
 

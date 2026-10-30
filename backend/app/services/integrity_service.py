@@ -1,15 +1,21 @@
-"""AI-assistant extension detection: policy, blocklist, scan evidence.
+"""AI-assistant extension detection: an organization's blocklist and policy, per-job settings, and
+the scan evidence.
 
-The browser extension does the classifying; this service owns the data it
-needs (a versioned policy), records what it reports, and summarises it for HR.
-It never receives a candidate's full extension inventory, only the extensions
-that were flagged or blocked.
+The browser extension does the classifying; this service owns the data it needs (a versioned
+policy for the interview's job and organization), records what it reports, and summarises it
+for HR. It never receives a candidate's full extension inventory, only the extensions that were
+flagged or blocked.
+
+Who controls what: an organization's Admins edit its blocklist and defaults; HR can view them.
+Each job has its own on/off switch and mode (Admins and HR). The heuristic rules are the
+platform's own, in code, and an organization can only switch them off.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
@@ -20,14 +26,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions import ConflictError, NotFoundError
 from app.models.models import (
     ExtensionBlocklistEntry,
-    ExtensionPolicy,
+    ExtensionOrgPolicy,
     InterviewIntegrityScan,
     InterviewSession,
+    Job,
     User,
 )
 from app.repositories.integrity_repository import IntegrityRepository
 from app.repositories.interview_repository import InterviewRepository
 from app.schemas.integrity import (
+    MAX_BLOCKLIST_ENTRIES,
+    AddObservedToBlocklist,
     BlocklistEntryCreate,
     BlocklistEntryUpdate,
     IntegrityFlaggedExtension,
@@ -36,24 +45,32 @@ from app.schemas.integrity import (
     IntegrityScanIn,
     IntegritySummary,
     IntegrityTimelineEntry,
-    PolicyAdminResponse,
+    OrgPolicyResponse,
+    OrgPolicyUpdate,
     PolicyRules,
-    PolicyUpdateRequest,
     PublicBlocklistItem,
+    RestoreDefaultsResult,
 )
 from app.services.audit_service import AuditService
-from app.services.observed_extension_service import ObservedExtensionService
-from app.services.integrity_defaults import (
-    DEFAULT_MODE,
-    DEFAULT_RULES,
-    POLICY_ID,
-    SEED_BLOCKLIST,
-)
+from app.services.integrity_defaults import DEFAULT_MODE, SEED_BLOCKLIST, rules_for
+from app.services.observed_extension_service import ObservedExtensionService, listing_url
 
 logger = logging.getLogger(__name__)
 
-_POLICY_ENTITY_ID = uuid.UUID(int=POLICY_ID)
 _TIMELINE_LIMIT = 30
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+#: Recorded when the interview page could not fetch the policy and let the candidate in.
+POLICY_UNAVAILABLE = "policy_unavailable"
+_SEED_IDS = frozenset(item["extension_id"] for item in SEED_BLOCKLIST)
+_DEFAULT_REASON = {
+    "heuristic_strong": "Looks like an AI assistant that can read the page or capture audio.",
+    "heuristic_weak": "May be an AI-related extension.",
+}
 
 
 # ── pure helpers (unit tested without a database) ───────────────────────────
@@ -129,6 +146,7 @@ def build_summary(scans: list[Any]) -> IntegritySummary | None:
         flagged_extensions=flagged_sorted,
         timeline=timeline,
         note=_note_for(flagged_sorted),
+        latest_error_code=latest.error_code,
     )
 
 
@@ -143,6 +161,27 @@ def _note_for(flagged: list[IntegrityFlaggedExtension]) -> str | None:
 
 
 # ── service ──────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class InterviewPolicy:
+    """What applies to one interview: its job's switch, its organization's list and version."""
+
+    interview: InterviewSession
+    job: Job
+    org: ExtensionOrgPolicy
+
+    @property
+    def tenant_id(self) -> uuid.UUID:
+        return self.job.tenant_id
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.job.extension_check_enabled)
+
+    @property
+    def mode(self) -> str:
+        return self.job.extension_check_mode or DEFAULT_MODE
 
 
 class IntegrityService:
@@ -161,44 +200,101 @@ class IntegrityService:
         self._audit = audit or AuditService(session)
         self._observed = observed or ObservedExtensionService(session, audit=self._audit)
 
-    # ── defaults ──────────────────────────────────────────────────────────
+    # ── organization defaults ─────────────────────────────────────────────
 
-    async def ensure_defaults(self) -> ExtensionPolicy:
-        """Create the policy row and seed the blocklist on first use. Idempotent."""
-        policy = await self._repo.get_policy()
-        if policy is not None:
+    async def ensure_defaults(self, tenant_id: uuid.UUID) -> ExtensionOrgPolicy:
+        """The organization's policy row, created and seeded with the default blocklist on first
+        use. Idempotent and safe under concurrent first requests.
+
+        Seeded once: `blocklist_seeded_at` records it, so an organization that deletes every
+        entry is not given the defaults back (that is "restore defaults", chosen by an Admin).
+        """
+        policy = await self._repo.get_org_policy(tenant_id)
+        if policy is not None and policy.blocklist_seeded_at is not None:
             return policy
 
-        policy = ExtensionPolicy(
-            id=POLICY_ID, version=1, mode=DEFAULT_MODE, rules=dict(DEFAULT_RULES)
-        )
-        self._repo.add_policy(policy)
-        try:
-            await self._repo.flush()
-            active, total = await self._repo.count_blocklist()
-            if total == 0:
-                for item in SEED_BLOCKLIST:
-                    self._repo.add_entry(ExtensionBlocklistEntry(**item))
-                await self._repo.flush()
-            await self._session.commit()
-        except IntegrityError:
-            # Another request seeded first: use theirs.
-            await self._session.rollback()
-            existing = await self._repo.get_policy()
-            if existing is None:
-                raise
-            return existing
+        await self._repo.ensure_org_policy_row(tenant_id)
+        policy = await self._repo.get_org_policy(tenant_id, for_update=True)
+        if policy is None:  # the organization itself is gone
+            raise NotFoundError(public_message="Organization not found")
+        if policy.blocklist_seeded_at is None:
+            await self._seed_defaults(tenant_id)
+            policy.blocklist_seeded_at = _now()
+            await self._session.flush()
+        await self._session.commit()
+        await self._session.refresh(policy)
+        return policy
+
+    async def _seed_defaults(self, tenant_id: uuid.UUID) -> int:
+        """Copy the platform's default entries into an organization that has none of them."""
+        added = 0
+        for item in SEED_BLOCKLIST:
+            if await self._repo.get_entry_by_extension_id(tenant_id, item["extension_id"]):
+                continue
+            self._repo.add_entry(ExtensionBlocklistEntry(tenant_id=tenant_id, **item))
+            added += 1
+        await self._repo.flush()
+        return added
+
+    async def seed_new_organization(self, tenant_id: uuid.UUID) -> None:
+        """Called when an organization is created, inside its creating transaction (no commit)."""
+        await self._repo.ensure_org_policy_row(tenant_id)
+        policy = await self._repo.get_org_policy(tenant_id, for_update=True)
+        if policy is not None and policy.blocklist_seeded_at is None:
+            await self._seed_defaults(tenant_id)
+            policy.blocklist_seeded_at = _now()
+            await self._session.flush()
+
+    async def _locked_policy(self, tenant_id: uuid.UUID) -> ExtensionOrgPolicy:
+        """The organization's policy row, locked until this transaction ends. Edits take it so
+        two Admins cannot race past the entry cap or bump the version out of step."""
+        await self.ensure_defaults(tenant_id)
+        policy = await self._repo.get_org_policy(tenant_id, for_update=True)
+        if policy is None:
+            raise NotFoundError(public_message="Organization not found")
         return policy
 
     # ── public (interview page) ───────────────────────────────────────────
 
+    async def _resolve(self, token: str) -> InterviewPolicy:
+        interview = await self._require_open_session(token)
+        job = await self._session.get(Job, interview.job_id)
+        if job is None:
+            raise NotFoundError(public_message="Interview session not found")
+        org = await self.ensure_defaults(job.tenant_id)
+        return InterviewPolicy(interview=interview, job=job, org=org)
+
+    @staticmethod
+    def _stamp(ctx: InterviewPolicy) -> None:
+        """Record on the interview what the check is set to right now (the report reads it)."""
+        ctx.interview.extension_check_enabled = ctx.enabled
+        ctx.interview.extension_check_mode = ctx.mode
+        ctx.interview.extension_policy_version = ctx.org.version
+
+    async def stamp_interview(self, interview: InterviewSession, job: Job) -> None:
+        """Stamp an interview as it starts. Joins the caller's transaction (no commit)."""
+        org = await self.ensure_defaults(job.tenant_id)
+        interview.extension_check_enabled = bool(job.extension_check_enabled)
+        interview.extension_check_mode = job.extension_check_mode or DEFAULT_MODE
+        interview.extension_policy_version = org.version
+
     async def policy_for_interview(self, token: str) -> IntegrityPolicyResponse:
-        await self._require_open_session(token)
-        policy = await self.ensure_defaults()
-        entries = await self._repo.list_blocklist(active_only=True)
+        ctx = await self._resolve(token)
+        self._stamp(ctx)
+        await self._session.commit()
+        if not ctx.enabled:
+            return IntegrityPolicyResponse(
+                enabled=False,
+                version=ctx.org.version,
+                mode=ctx.mode,  # type: ignore[arg-type]
+                blocklist=[],
+                rules=PolicyRules.model_validate(rules_for(False)),
+            )
+        entries = await self._repo.list_blocklist(ctx.tenant_id, active_only=True)
         return IntegrityPolicyResponse(
-            version=policy.version,
-            mode=policy.mode,  # type: ignore[arg-type]
+            enabled=True,
+            version=ctx.org.version,
+            mode=ctx.mode,  # type: ignore[arg-type]
             blocklist=[
                 PublicBlocklistItem(
                     id=e.extension_id,
@@ -209,11 +305,18 @@ class IntegrityService:
                 )
                 for e in entries
             ],
-            rules=PolicyRules.model_validate(policy.rules or DEFAULT_RULES),
+            rules=PolicyRules.model_validate(rules_for(ctx.org.heuristics_enabled)),
         )
 
     async def record_scan(self, token: str, body: IntegrityScanIn) -> IntegrityScanAck:
-        interview = await self._require_open_session(token)
+        ctx = await self._resolve(token)
+        if not ctx.enabled:
+            # The job's check is off. A page that is out of date (or a direct call) must not
+            # leave evidence of a check that does not apply to this interview.
+            self._stamp(ctx)
+            await self._session.commit()
+            return IntegrityScanAck(outcome="clear", recorded=False)
+
         outcome = compute_outcome(body.scan_completed, body.flagged)
         # The description belongs to the extension, not to this interview: it is
         # kept once in the catalog, so the per-interview evidence stays small.
@@ -222,25 +325,28 @@ class IntegrityService:
         if client_time is not None and client_time.tzinfo is None:
             client_time = client_time.replace(tzinfo=timezone.utc)
 
+        self._stamp(ctx)
         self._repo.add_scan(
             InterviewIntegrityScan(
-                interview_session_id=interview.id,
+                interview_session_id=ctx.interview.id,
                 phase=body.phase,
                 outcome=outcome,
                 flagged=flagged,
                 flagged_count=len(flagged),
-                policy_version=body.policy_version,
-                mode=body.mode,
+                # A page that could not fetch the policy has no version or mode to report: the
+                # scan then records what the interview was set to.
+                policy_version=body.policy_version if body.policy_version is not None else ctx.org.version,
+                mode=body.mode or ctx.mode,
                 error_code=body.error_code,
                 client_checked_at=client_time,
             )
         )
-        await self._record_observed(body)
+        await self._record_observed(ctx.tenant_id, body)
         await self._session.commit()
         return IntegrityScanAck(outcome=outcome)  # type: ignore[arg-type]
 
-    async def _record_observed(self, body: IntegrityScanIn) -> None:
-        """Fold flagged extensions into the Super Admin catalog.
+    async def _record_observed(self, tenant_id: uuid.UUID, body: IntegrityScanIn) -> None:
+        """Fold flagged extensions into the organization's catalog.
 
         Isolated in a savepoint: the catalog is a convenience, the scan is
         evidence. A catalog failure must never cost the interview its record.
@@ -249,7 +355,7 @@ class IntegrityService:
             return
         try:
             async with self._session.begin_nested():
-                await self._observed.record(body.flagged)
+                await self._observed.record(tenant_id, body.flagged)
         except Exception:  # noqa: BLE001 - deliberately broad, see docstring
             logger.exception("Could not update the observed-extensions catalog")
 
@@ -268,73 +374,99 @@ class IntegrityService:
             raise HTTPException(status_code=409, detail="Interview already completed.")
         return interview
 
-    # ── Super Admin ───────────────────────────────────────────────────────
+    # ── organization settings (Admins edit, HR views) ─────────────────────
 
-    async def admin_policy(self) -> PolicyAdminResponse:
-        policy = await self.ensure_defaults()
-        # Server-generated columns (updated_at) are not loaded on a row this
-        # request just inserted, and async sessions cannot lazy-load them.
-        await self._session.refresh(policy)
-        active, total = await self._repo.count_blocklist()
-        return self._admin_response(policy, active, total)
+    async def get_org_policy(self, actor: User, *, can_edit: bool) -> OrgPolicyResponse:
+        policy = await self.ensure_defaults(actor.tenant_id)
+        active, total = await self._repo.count_blocklist(actor.tenant_id)
+        entries = await self._repo.list_blocklist(actor.tenant_id)
+        return OrgPolicyResponse(
+            default_enabled=policy.default_enabled,
+            default_mode=policy.default_mode,  # type: ignore[arg-type]
+            heuristics_enabled=policy.heuristics_enabled,
+            version=policy.version,
+            entry_count=total,
+            active_count=active,
+            defaults_present=sum(1 for e in entries if e.extension_id in _SEED_IDS),
+            defaults_total=len(_SEED_IDS),
+            can_edit=can_edit,
+            updated_at=policy.updated_at or _now(),
+        )
 
-    async def update_policy(self, body: PolicyUpdateRequest, admin: User) -> PolicyAdminResponse:
-        policy = await self.ensure_defaults()
-        before = {"mode": policy.mode, "version": policy.version}
-        changed = False
-        if body.mode is not None and body.mode != policy.mode:
-            policy.mode = body.mode
-            changed = True
-        if body.rules is not None:
-            new_rules = body.rules.model_dump()
-            if new_rules != policy.rules:
-                policy.rules = new_rules
-                changed = True
-        if changed:
+    async def update_org_policy(self, body: OrgPolicyUpdate, admin: User) -> OrgPolicyResponse:
+        policy = await self._locked_policy(admin.tenant_id)
+        changes: dict[str, tuple[Any, Any]] = {}
+        for field in ("default_enabled", "default_mode", "heuristics_enabled"):
+            value = getattr(body, field)
+            if value is not None and value != getattr(policy, field):
+                changes[field] = (getattr(policy, field), value)
+                setattr(policy, field, value)
+        if changes:
             policy.version += 1
             policy.updated_by_user_id = admin.id
-            await self._audit.log_change(
+            await self._audit.log_field_changes(
                 actor=admin,
-                action="extension_policy.updated",
-                entity_type="extension_policy",
-                entity_id=_POLICY_ENTITY_ID,
-                subject_label="Extension policy",
-                feature="platform",
-                before=before,
-                after={"mode": policy.mode, "version": policy.version},
+                action="settings.extension_policy_updated",
+                entity_type="settings",
+                entity_id=None,
+                subject_label="AI extension check",
+                changes=changes,
             )
         await self._session.commit()
-        await self._session.refresh(policy)
-        active, total = await self._repo.count_blocklist()
-        return self._admin_response(policy, active, total)
+        return await self.get_org_policy(admin, can_edit=True)
 
-    async def list_blocklist(self) -> list[ExtensionBlocklistEntry]:
-        await self.ensure_defaults()
-        return await self._repo.list_blocklist()
+    async def list_blocklist(self, tenant_id: uuid.UUID) -> list[ExtensionBlocklistEntry]:
+        await self.ensure_defaults(tenant_id)
+        return await self._repo.list_blocklist(tenant_id)
 
-    async def add_entry(
-        self, body: BlocklistEntryCreate, admin: User
+    async def _add_locked(
+        self,
+        policy: ExtensionOrgPolicy,
+        admin: User,
+        fields: dict[str, Any],
     ) -> ExtensionBlocklistEntry:
-        policy = await self.ensure_defaults()
-        if await self._repo.get_entry_by_extension_id(body.extension_id):
+        """Add one entry while the policy row is locked: the cap and the duplicate check are
+        decided against a list nobody else can change."""
+        tenant_id = admin.tenant_id
+        _, total = await self._repo.count_blocklist(tenant_id)
+        if total >= MAX_BLOCKLIST_ENTRIES:
+            raise ConflictError(
+                public_message=f"The list is full ({MAX_BLOCKLIST_ENTRIES} extensions). Delete one to add another."
+            )
+        if await self._repo.get_entry_by_extension_id(tenant_id, fields["extension_id"]):
             raise ConflictError(public_message="That extension is already on the list")
-        entry = self._repo.add_entry(ExtensionBlocklistEntry(**body.model_dump()))
+        entry = self._repo.add_entry(
+            ExtensionBlocklistEntry(
+                tenant_id=tenant_id,
+                created_by_user_id=admin.id,
+                updated_by_user_id=admin.id,
+                **fields,
+            )
+        )
         try:
             await self._repo.flush()
-        except IntegrityError as exc:  # concurrent add of the same ID
+        except IntegrityError as exc:  # the unique constraint, as a last line of defence
             await self._session.rollback()
             raise ConflictError(public_message="That extension is already on the list") from exc
         policy.version += 1
+        policy.updated_by_user_id = admin.id
         await self._audit.log_change(
             actor=admin,
-            action="extension_blocklist.added",
+            action="settings.extension_blocklist_added",
             entity_type="extension_blocklist",
             entity_id=entry.id,
             subject_label=entry.name,
-            feature="platform",
+            feature="extension_check",
             before=None,
             after={"extension_id": entry.extension_id, "status": entry.status},
         )
+        return entry
+
+    async def add_entry(self, body: BlocklistEntryCreate, admin: User) -> ExtensionBlocklistEntry:
+        policy = await self._locked_policy(admin.tenant_id)
+        fields = body.model_dump()
+        fields["origin"] = "custom"
+        entry = await self._add_locked(policy, admin, fields)
         await self._session.commit()
         await self._session.refresh(entry)
         return entry
@@ -342,56 +474,134 @@ class IntegrityService:
     async def update_entry(
         self, entry_id: uuid.UUID, body: BlocklistEntryUpdate, admin: User
     ) -> ExtensionBlocklistEntry:
-        policy = await self.ensure_defaults()
-        entry = await self._repo.get_entry(entry_id)
+        policy = await self._locked_policy(admin.tenant_id)
+        entry = await self._repo.get_entry(admin.tenant_id, entry_id)
         if entry is None:
             raise NotFoundError(public_message="Blocklist entry not found")
-        before = {"name": entry.name, "status": entry.status, "category": entry.category}
+        before = {
+            "name": entry.name,
+            "status": entry.status,
+            "category": entry.category,
+            "reason": entry.reason,
+        }
         for field, value in body.model_dump(exclude_unset=True).items():
             if value is not None or field in ("listing_url", "verified_on"):
                 setattr(entry, field, value)
-        policy.version += 1
-        await self._audit.log_change(
-            actor=admin,
-            action="extension_blocklist.updated",
-            entity_type="extension_blocklist",
-            entity_id=entry.id,
-            subject_label=entry.name,
-            feature="platform",
-            before=before,
-            after={"name": entry.name, "status": entry.status, "category": entry.category},
-        )
+        after = {
+            "name": entry.name,
+            "status": entry.status,
+            "category": entry.category,
+            "reason": entry.reason,
+        }
+        if before != after or body.model_fields_set & {"listing_url", "verified_on"}:
+            entry.updated_by_user_id = admin.id
+            policy.version += 1
+            policy.updated_by_user_id = admin.id
+            await self._audit.log_change(
+                actor=admin,
+                action="settings.extension_blocklist_updated",
+                entity_type="extension_blocklist",
+                entity_id=entry.id,
+                subject_label=entry.name,
+                feature="extension_check",
+                before=before,
+                after=after,
+            )
         await self._session.commit()
         await self._session.refresh(entry)
         return entry
 
     async def delete_entry(self, entry_id: uuid.UUID, admin: User) -> None:
-        policy = await self.ensure_defaults()
-        entry = await self._repo.get_entry(entry_id)
+        policy = await self._locked_policy(admin.tenant_id)
+        entry = await self._repo.get_entry(admin.tenant_id, entry_id)
         if entry is None:
             raise NotFoundError(public_message="Blocklist entry not found")
         label, ext_id = entry.name, entry.extension_id
         await self._repo.delete_entry(entry)
         policy.version += 1
+        policy.updated_by_user_id = admin.id
         await self._audit.log_change(
             actor=admin,
-            action="extension_blocklist.deleted",
+            action="settings.extension_blocklist_deleted",
             entity_type="extension_blocklist",
             entity_id=entry_id,
             subject_label=label,
-            feature="platform",
+            feature="extension_check",
             before={"extension_id": ext_id},
             after=None,
         )
         await self._session.commit()
 
-    @staticmethod
-    def _admin_response(policy: ExtensionPolicy, active: int, total: int) -> PolicyAdminResponse:
-        return PolicyAdminResponse(
-            version=policy.version,
-            mode=policy.mode,  # type: ignore[arg-type]
-            rules=PolicyRules.model_validate(policy.rules or DEFAULT_RULES),
-            updated_at=policy.updated_at or datetime.now(timezone.utc),
-            blocklist_active=active,
-            blocklist_total=total,
+    async def restore_defaults(self, admin: User) -> RestoreDefaultsResult:
+        """Bring back what is missing from the platform's default list.
+
+        Re-adds a default that was deleted and turns back on one that was switched off. Custom
+        entries, and any wording an Admin changed on a default, are left alone.
+        """
+        policy = await self._locked_policy(admin.tenant_id)
+        tenant_id = admin.tenant_id
+        added = reset = unchanged = 0
+        _, total = await self._repo.count_blocklist(tenant_id)
+        for item in SEED_BLOCKLIST:
+            existing = await self._repo.get_entry_by_extension_id(tenant_id, item["extension_id"])
+            if existing is None:
+                if total >= MAX_BLOCKLIST_ENTRIES:
+                    raise ConflictError(
+                        public_message="The list is too full to restore every default. Delete some entries first."
+                    )
+                self._repo.add_entry(
+                    ExtensionBlocklistEntry(
+                        tenant_id=tenant_id,
+                        created_by_user_id=admin.id,
+                        updated_by_user_id=admin.id,
+                        **item,
+                    )
+                )
+                total += 1
+                added += 1
+            elif existing.status != "active":
+                existing.status = "active"
+                existing.updated_by_user_id = admin.id
+                reset += 1
+            else:
+                unchanged += 1
+        if added or reset:
+            await self._repo.flush()
+            policy.version += 1
+            policy.updated_by_user_id = admin.id
+            await self._audit.log_change(
+                actor=admin,
+                action="settings.extension_defaults_restored",
+                entity_type="settings",
+                entity_id=None,
+                subject_label="AI extension blocklist",
+                feature="extension_check",
+                before=None,
+                after={"added": added, "reset": reset},
+            )
+        await self._session.commit()
+        return RestoreDefaultsResult(added=added, reset=reset, unchanged=unchanged)
+
+    async def add_observed_to_blocklist(
+        self, row_id: uuid.UUID, body: AddObservedToBlocklist, admin: User
+    ) -> ExtensionBlocklistEntry:
+        """Put a seen extension on the blocklist, in one transaction."""
+        policy = await self._locked_policy(admin.tenant_id)
+        row = await self._observed.require(admin.tenant_id, row_id)
+        entry = await self._add_locked(
+            policy,
+            admin,
+            {
+                "extension_id": row.extension_id,
+                "name": row.name,
+                "category": body.category,
+                "reason": body.reason or _DEFAULT_REASON.get(row.strongest_reason, _DEFAULT_REASON["heuristic_weak"]),
+                "listing_url": listing_url(row.extension_id),
+                "status": "active",
+                "origin": "custom",
+            },
         )
+        await self._session.commit()
+        await self._session.refresh(entry)
+        return entry
+

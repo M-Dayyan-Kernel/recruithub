@@ -54,6 +54,26 @@ export const MOCK_HR_USER = {
   tenant_name: 'Acme Corp',
 }
 
+/** A plain HR user: `MOCK_HR_USER` above has the admin role. */
+export const MOCK_PLAIN_HR_USER = {
+  ...MOCK_HR_USER,
+  id: 'ffffffff-0000-0000-0000-000000000098',
+  email: 'recruiter@example.com',
+  full_name: 'Plain HR',
+  role: 'hr' as const,
+}
+
+/** A platform Super Admin, who is confined to the console and owns no extension list. */
+export const MOCK_SUPERADMIN_USER = {
+  ...MOCK_HR_USER,
+  id: 'ffffffff-0000-0000-0000-000000000097',
+  tenant_id: 'eeeeeeee-0000-0000-0000-0000000000ff',
+  email: 'root@example.com',
+  full_name: 'Platform Admin',
+  role: 'superadmin' as const,
+  tenant_name: 'Platform',
+}
+
 export const MOCK_AUTH_TOKEN = 'e2e-mock-access-token'
 
 /** Seed localStorage token and mock GET /api/auth/me for protected routes */

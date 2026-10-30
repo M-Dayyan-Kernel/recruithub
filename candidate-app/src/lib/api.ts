@@ -63,7 +63,8 @@ api.interceptors.response.use(
       error.message ??
       'An unexpected error occurred'
 
-    return Promise.reject(new Error(detail))
+    // The status survives so callers can tell a client error (do not retry) from a server one.
+    return Promise.reject(Object.assign(new Error(detail), { status: error.response?.status }))
   },
 )
 

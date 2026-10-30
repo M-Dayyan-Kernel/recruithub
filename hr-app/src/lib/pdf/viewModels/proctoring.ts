@@ -8,7 +8,12 @@
  * Left out on purpose: the recording URL and key, the raw analysis error (it can hold exception
  * text), extension ids, the heuristic scores, raw signal strings and the policy mode.
  */
-import type { IntegritySummary } from '../../../types/integrity.ts'
+import type { ExtensionCheckStamp, IntegritySummary } from '../../../types/integrity.ts'
+import {
+  EXTENSION_CHECK_OFF_MESSAGE,
+  POLICY_UNAVAILABLE_MESSAGE,
+  extensionCheckState,
+} from '../../extensionCheckState.ts'
 import type { VideoProctoringSummary } from '../../../types/api.ts'
 import { describeSignal } from '../../integritySignals.ts'
 import { isHard, toTimedFlags } from '../../proctoringFlags.ts'
@@ -65,6 +70,7 @@ export interface ExtensionItem {
 
 export type ExtensionSection =
   | { state: 'not_recorded'; message: string }
+  | { state: 'off'; message: string }
   | {
       state: 'clear' | 'flagged' | 'blocked' | 'unavailable'
       tone: VerdictTone
@@ -164,7 +170,13 @@ function buildVideo(video: VideoProctoringSummary | null | undefined): VideoSect
   }
 }
 
-function buildExtension(integrity: IntegritySummary | null | undefined): ExtensionSection {
+function buildExtension(
+  integrity: IntegritySummary | null | undefined,
+  stamp?: ExtensionCheckStamp | null,
+): ExtensionSection {
+  if (extensionCheckState(integrity, stamp) === 'off') {
+    return { state: 'off', message: EXTENSION_CHECK_OFF_MESSAGE }
+  }
   if (!integrity) {
     // No scan on record is not a clean result, so it never reads as one.
     return { state: 'not_recorded', message: 'The browser extension check was not recorded for this interview.' }
@@ -183,8 +195,10 @@ function buildExtension(integrity: IntegritySummary | null | undefined): Extensi
     firstSeen: PHASE_LABEL[ext.first_seen_phase] ?? ext.first_seen_phase ?? null,
   }))
 
-  const message =
-    integrity.note?.trim() ||
+  const couldNotRun = extensionCheckState(integrity, stamp) === 'unavailable'
+  const message = couldNotRun
+    ? POLICY_UNAVAILABLE_MESSAGE
+    : integrity.note?.trim() ||
     (items.length === 0
       ? `No AI-related extensions were detected across ${plural(integrity.scans, 'check')}.`
       : `Browser extensions were flagged for review across ${plural(integrity.scans, 'check')}.`)
@@ -205,10 +219,11 @@ function buildExtension(integrity: IntegritySummary | null | undefined): Extensi
 export function buildProctoringModel(
   video: VideoProctoringSummary | null | undefined,
   integrity: IntegritySummary | null | undefined,
+  extensionCheck?: ExtensionCheckStamp | null,
 ): ProctoringModel {
   return {
     video: buildVideo(video),
-    extension: buildExtension(integrity),
+    extension: buildExtension(integrity, extensionCheck),
     reviewNote: REVIEW_NOTE,
     disclaimer: EXTENSION_DISCLAIMER,
   }

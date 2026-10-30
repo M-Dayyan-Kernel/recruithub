@@ -4,6 +4,8 @@ export type ExtensionPolicyMode = 'shadow' | 'enforce'
 export type BlocklistCategory = 'ai_assistant' | 'interview_assistant'
 export type BlocklistStatus = 'active' | 'inactive'
 
+export type BlocklistOrigin = 'default' | 'custom'
+
 export interface ExtensionBlocklistEntry {
   id: string
   extension_id: string
@@ -12,6 +14,8 @@ export interface ExtensionBlocklistEntry {
   reason: string
   listing_url: string | null
   status: BlocklistStatus
+  /** `default` entries came from the starting list; `custom` ones were added here. */
+  origin: BlocklistOrigin
   verified_on: string | null
   created_at: string
   updated_at: string
@@ -26,31 +30,43 @@ export interface ExtensionBlocklistCreate {
   status?: BlocklistStatus
 }
 
-export interface ExtensionPolicyRules {
-  intent: {
-    keywords: Array<{ term: string; weight: number }>
-    vendor_hosts: string[]
-    vendor_host_weight: number
-    homepage_weight: number
-  }
-  capability: {
-    permissions: Record<string, number>
-    broad_host_weight: number
-  }
-  thresholds: {
-    intent_strong: number
-    capability_strong: number
-    intent_weak: number
-  }
+/** Everything but the id, which is fixed once an entry exists. */
+export type ExtensionBlocklistUpdate = Partial<Omit<ExtensionBlocklistCreate, 'extension_id'>>
+
+/** An organization's extension-check settings. Admins edit; HR sees `can_edit: false`. */
+export interface ExtensionOrgPolicy {
+  /** What a new job starts with. */
+  default_enabled: boolean
+  default_mode: ExtensionPolicyMode
+  /** Whether extensions that look like AI assistants are flagged, beyond the blocklist. */
+  heuristics_enabled: boolean
+  version: number
+  entry_count: number
+  active_count: number
+  entry_cap: number
+  defaults_present: number
+  defaults_total: number
+  can_edit: boolean
+  updated_at: string
 }
 
-export interface ExtensionPolicy {
-  version: number
-  mode: ExtensionPolicyMode
-  rules: ExtensionPolicyRules
-  updated_at: string
-  blocklist_active: number
-  blocklist_total: number
+export interface ExtensionOrgPolicyUpdate {
+  default_enabled?: boolean
+  default_mode?: ExtensionPolicyMode
+  heuristics_enabled?: boolean
+}
+
+export interface RestoreDefaultsResult {
+  added: number
+  reset: number
+  unchanged: number
+}
+
+/** What a report shows about the check an interview ran under. `enabled` null = before this existed. */
+export interface ExtensionCheckStamp {
+  enabled: boolean | null
+  mode: ExtensionPolicyMode | null
+  policy_version: number | null
 }
 
 // ── per-interview evidence (HR report) ──────────────────────────────────────
@@ -84,9 +100,11 @@ export interface IntegritySummary {
   flagged_extensions: IntegrityFlaggedExtension[]
   timeline: IntegrityTimelineEntry[]
   note: string | null
+  /** Set to `policy_unavailable` when the latest scan could not load the policy. */
+  latest_error_code?: string | null
 }
 
-// ── observed extensions (Super Admin catalog) ───────────────────────────────
+// ── seen extensions (one catalog per organization) ───────────────────────────────
 
 export type ObservedStatus = 'new' | 'dismissed'
 export type ObservedReopenReason = 'content_changed' | 'stronger_match'

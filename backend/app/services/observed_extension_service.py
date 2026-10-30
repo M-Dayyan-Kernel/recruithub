@@ -1,8 +1,8 @@
-"""The observed-extensions catalog: what the Super Admin reviews.
+"""The observed-extensions catalog: what an organization's Admins review.
 
-Every flagged extension that is not already a known-list match is recorded once,
-with how often and when it was seen. Nothing here refers to a candidate,
-interview, job or organization.
+Every flagged extension that is not already a known-list match is recorded once per
+organization, with how often and when it was seen there. Nothing here refers to a candidate,
+interview, job or user.
 
 Dismissal is a judgement about *that* extension as it looked then, so a
 dismissed row reopens when something meaningful changes (see `observe`), and
@@ -152,8 +152,8 @@ class ObservedExtensionService:
         self._repo = repo or ObservedExtensionRepository(session)
         self._audit = audit or AuditService(session)
 
-    async def record(self, flagged: Iterable[FlaggedExtensionIn]) -> None:
-        """Fold one scan's flagged extensions into the catalog.
+    async def record(self, tenant_id: uuid.UUID, flagged: Iterable[FlaggedExtensionIn]) -> None:
+        """Fold one scan's flagged extensions into the organization's catalog.
 
         Runs in the caller's transaction. Rows are created if missing, then
         locked in id order and updated, so concurrent scans neither lose counts
@@ -168,6 +168,7 @@ class ObservedExtensionService:
             [
                 {
                     "id": uuid.uuid4(),
+                    "tenant_id": tenant_id,
                     "extension_id": ext_id,
                     "name": item.name,
                     "description": item.description,
@@ -182,7 +183,7 @@ class ObservedExtensionService:
                 for ext_id, item in items.items()
             ]
         )
-        for row in await self._repo.lock_many(list(items)):
+        for row in await self._repo.lock_many(tenant_id, list(items)):
             item = items[row.extension_id]
             observe(
                 row,
@@ -192,16 +193,18 @@ class ObservedExtensionService:
                 now=now,
             )
 
-    # ── Super Admin ───────────────────────────────────────────────────────
+    # ── organization Admins (and HR, read-only) ───────────────────────────
 
-    async def list_page(self, *, status: str, limit: int, offset: int) -> ObservedExtensionPage:
-        rows, total = await self._repo.page(status=status, limit=limit, offset=offset)
+    async def list_page(
+        self, tenant_id: uuid.UUID, *, status: str, limit: int, offset: int
+    ) -> ObservedExtensionPage:
+        rows, total = await self._repo.page(tenant_id, status=status, limit=limit, offset=offset)
         return ObservedExtensionPage(
             items=[to_response(r) for r in rows], total=total, limit=limit, offset=offset
         )
 
     async def dismiss(self, row_id: uuid.UUID, admin: User) -> ObservedExtensionResponse:
-        row = await self._require(row_id)
+        row = await self.require(admin.tenant_id, row_id)
         if row.status != "dismissed":
             row.status = "dismissed"
             row.dismissed_hash = row.content_hash
@@ -209,12 +212,12 @@ class ObservedExtensionService:
             row.dismissed_at = datetime.now(timezone.utc)
             row.dismissed_by_user_id = admin.id
             row.reopened_reason = None
-            await self._log(admin, "extension_observed.dismissed", row)
+            await self._log(admin, "settings.extension_observed_dismissed", row)
         await self._session.commit()
         return to_response(row)
 
     async def restore(self, row_id: uuid.UUID, admin: User) -> ObservedExtensionResponse:
-        row = await self._require(row_id)
+        row = await self.require(admin.tenant_id, row_id)
         if row.status != "new":
             row.status = "new"
             row.dismissed_hash = None
@@ -222,12 +225,13 @@ class ObservedExtensionService:
             row.dismissed_at = None
             row.dismissed_by_user_id = None
             row.reopened_reason = None
-            await self._log(admin, "extension_observed.restored", row)
+            await self._log(admin, "settings.extension_observed_restored", row)
         await self._session.commit()
         return to_response(row)
 
-    async def _require(self, row_id: uuid.UUID) -> ObservedExtension:
-        row = await self._repo.get(row_id)
+    async def require(self, tenant_id: uuid.UUID, row_id: uuid.UUID) -> ObservedExtension:
+        """A catalog row of this organization; another organization's id is simply not found."""
+        row = await self._repo.get(tenant_id, row_id)
         if row is None:
             raise NotFoundError(public_message="Extension not found")
         return row
@@ -239,7 +243,7 @@ class ObservedExtensionService:
             entity_type="observed_extension",
             entity_id=row.id,
             subject_label=row.name,
-            feature="platform",
+            feature="extension_check",
             before=None,
             after={"extension_id": row.extension_id, "status": row.status},
         )
