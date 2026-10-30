@@ -1,4 +1,4 @@
-import type { IntegritySummary } from '@/types/integrity'
+import type { ExtensionCheckStamp, IntegritySummary } from '@/types/integrity'
 
 export interface PaginatedResponse<T> {
   items: T[]
@@ -79,6 +79,9 @@ export interface Job {
   screening_call_to?: string | null
   screening_timezone?: string
   voice_screening_enabled?: boolean
+  /** Whether candidates are checked for AI-assistant browser extensions. */
+  extension_check_enabled?: boolean
+  extension_check_mode?: 'shadow' | 'enforce'
   status: 'open' | 'closed' | 'paused' | 'active' | 'draft'
   created_at: string
   updated_at: string
@@ -369,6 +372,8 @@ export interface InterviewReport {
   video_proctoring?: VideoProctoringSummary | null
   /** Extension-scan evidence; absent when no scan was recorded for this interview. */
   integrity?: IntegritySummary | null
+  /** What the check was set to when this interview ran. */
+  extension_check?: ExtensionCheckStamp | null
   created_at: string
 }
 

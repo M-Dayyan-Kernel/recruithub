@@ -22,8 +22,8 @@ def _user(role: str) -> User:
 class _FakeIntegrity:
     def __init__(self):
         self.record_scan = AsyncMock(return_value=IntegrityScanAck(outcome="clear"))
-        self.admin_policy = AsyncMock()
         self.list_blocklist = AsyncMock(return_value=[])
+        self.delete_entry = AsyncMock()
 
 
 class IntegrityEndpointTests(unittest.TestCase):
@@ -36,26 +36,57 @@ class IntegrityEndpointTests(unittest.TestCase):
         app.dependency_overrides[get_integrity_service] = lambda: fake or _FakeIntegrity()
         return TestClient(app)
 
-    def test_platform_policy_and_blocklist_are_super_admin_only(self):
-        for role in ("hr", "admin"):
-            client = self._client(role)
-            self.assertEqual(client.get("/api/platform/extension-policy").status_code, 403, role)
-            self.assertEqual(client.get("/api/platform/extension-blocklist").status_code, 403, role)
-            self.assertEqual(
-                client.post(
-                    "/api/platform/extension-blocklist",
-                    json={"extension_id": "a" * 32, "name": "x", "reason": "y"},
-                ).status_code,
-                403,
-                role,
-            )
-            app.dependency_overrides.clear()
+    def test_the_platform_extension_routes_are_gone(self):
+        client = self._client("superadmin")
+        for method, path in (
+            ("get", "/api/platform/extension-policy"),
+            ("get", "/api/platform/extension-blocklist"),
+            ("get", "/api/platform/observed-extensions"),
+        ):
+            self.assertEqual(getattr(client, method)(path).status_code, 404, path)
+
+    def test_hr_can_read_but_not_write_the_org_blocklist(self):
+        fake = _FakeIntegrity()
+        client = self._client("hr", fake)
+        self.assertEqual(client.get("/api/extension-policy/blocklist").status_code, 200)
+        entry = uuid.uuid4()
+        writes = (
+            ("put", "/api/extension-policy", {"default_mode": "enforce"}),
+            ("post", "/api/extension-policy/blocklist", {"extension_id": "a" * 32, "name": "x", "reason": "y"}),
+            ("patch", f"/api/extension-policy/blocklist/{entry}", {"status": "inactive"}),
+            ("delete", f"/api/extension-policy/blocklist/{entry}", None),
+            ("post", "/api/extension-policy/restore-defaults", None),
+            ("post", f"/api/extension-policy/observed/{entry}/dismiss", None),
+            ("post", f"/api/extension-policy/observed/{entry}/restore", None),
+            ("post", f"/api/extension-policy/observed/{entry}/add-to-blocklist", {"category": "ai_assistant"}),
+        )
+        for method, path, body in writes:
+            kwargs = {"json": body} if body is not None else {}
+            self.assertEqual(getattr(client, method)(path, **kwargs).status_code, 403, f"{method} {path}")
+
+    def test_admin_may_write_and_hr_cannot_reach_it_unauthenticated(self):
+        fake = _FakeIntegrity()
+        client = self._client("admin", fake)
+        response = client.delete(f"/api/extension-policy/blocklist/{uuid.uuid4()}")
+        self.assertEqual(response.status_code, 204)
+        fake.delete_entry.assert_awaited_once()
+
+    def test_candidate_style_roles_are_refused_everywhere(self):
+        client = self._client("viewer")
+        self.assertEqual(client.get("/api/extension-policy").status_code, 403)
 
     def test_blocklist_entry_with_a_malformed_id_is_a_422(self):
-        client = self._client("superadmin")
+        client = self._client("admin")
         response = client.post(
-            "/api/platform/extension-blocklist",
+            "/api/extension-policy/blocklist",
             json={"extension_id": "not-an-id", "name": "x", "reason": "y"},
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_editing_the_extension_id_is_a_422(self):
+        client = self._client("admin")
+        response = client.patch(
+            f"/api/extension-policy/blocklist/{uuid.uuid4()}", json={"extension_id": "a" * 32}
         )
         self.assertEqual(response.status_code, 422)
 

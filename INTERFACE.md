@@ -985,20 +985,39 @@ VITE_API_URL=http://localhost:8080
 *Written by Forge — Sprint 7 — 2026-06-22*
 *Updated by Forge after Sprint 7 on 2026-06-22*
 
-### Platform (Super Admin): AI-extension detection
+### Organization: AI-extension check
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/api/platform/extension-policy` | Current mode (`shadow`/`enforce`), version, heuristic rules, list counts |
-| PUT | `/api/platform/extension-policy` | Update mode and/or rules (validated; bumps the version) |
-| GET | `/api/platform/extension-blocklist` | All blocklist entries |
-| POST | `/api/platform/extension-blocklist` | Add an entry (`extension_id` must be the 32-letter Chrome ID) |
-| PATCH | `/api/platform/extension-blocklist/{id}` | Edit an entry or turn it on/off |
-| DELETE | `/api/platform/extension-blocklist/{id}` | Remove an entry |
-| GET | `/api/platform/observed-extensions?status=new\|dismissed&limit&offset` | Extensions flagged on candidates' browsers that are not on the blocklist: id, name, description, times seen, first/last seen. No candidate, interview or organization data. |
-| POST | `/api/platform/observed-extensions/{id}/dismiss` | Hide it (audit-logged). It reopens on its own if its name/description is a variant never seen before, or the match became stronger. |
-| POST | `/api/platform/observed-extensions/{id}/restore` | Bring a dismissed extension back |
+Each organization owns one blocklist and one set of defaults. Admins edit; HR can read all of
+it. A cross-organization id is a 404. Every change bumps the organization's policy `version`
+and is audited (`settings.extension_*`) with who, old and new.
 
-`GET /api/candidates/{id}/report` gains an optional `integrity` object (scan count,
-latest outcome, flagged extensions with reasons, check timeline). It is evidence only
-and is never an input to the interview score.
+| Method | Path | Who | Description |
+|---|---|---|---|
+| GET | `/api/extension-policy` | Admin, HR | Defaults for new jobs (`default_enabled`, `default_mode`), `heuristics_enabled`, `version`, entry counts and the 200-entry cap, how many starting entries are present, `can_edit` |
+| PUT | `/api/extension-policy` | Admin | Edit the defaults and the look-alike switch |
+| GET | `/api/extension-policy/blocklist` | Admin, HR | The organization's entries (`origin` is `default` or `custom`) |
+| POST | `/api/extension-policy/blocklist` | Admin | Add an entry (`extension_id` is the 32-letter Chrome ID; 409 on a duplicate or a full list) |
+| PATCH | `/api/extension-policy/blocklist/{id}` | Admin | Edit name, reason (up to 500), category, listing URL or status. The id cannot change (422). |
+| DELETE | `/api/extension-policy/blocklist/{id}` | Admin | Remove an entry |
+| POST | `/api/extension-policy/restore-defaults` | Admin | Add back missing starting entries and turn back on any switched off; custom entries and edited wording stay. Returns `{added, reset, unchanged}` |
+| GET | `/api/extension-policy/observed?status=new\|dismissed&limit&offset` | Admin, HR | Extensions flagged on this organization's candidates that are not on its blocklist: id, name, description, times seen, first/last seen. No candidate, interview or job data. |
+| POST | `/api/extension-policy/observed/{id}/add-to-blocklist` | Admin | Put a seen extension on the blocklist in one step |
+| POST | `/api/extension-policy/observed/{id}/dismiss` | Admin | Hide it (audit-logged). It reopens if its name/description is a variant never seen before, or the match became stronger. |
+| POST | `/api/extension-policy/observed/{id}/restore` | Admin | Bring a dismissed extension back |
+
+The per-job switch is not a separate route: `extension_check_enabled` (bool) and
+`extension_check_mode` (`shadow` or `enforce`) are fields of `POST /api/jobs` and
+`PATCH /api/jobs/{id}` (Admin or HR) and of the job response. A new job without them starts from
+the organization's defaults.
+
+The public interview routes keep their paths. `GET /api/interview/{token}/integrity-policy`
+returns `enabled: false` with an empty list when the job has the check off. `POST
+/api/interview/{token}/integrity-scan` answers `{outcome: "clear", recorded: false}` and stores
+nothing for such a job, and accepts `error_code: "policy_unavailable"` (stored as "could not be
+checked").
+
+`GET /api/candidates/{id}/report` carries an optional `integrity` object (scan count, latest
+outcome, `latest_error_code`, flagged extensions with reasons, check timeline) and an
+`extension_check` object (`enabled`, `mode`, `policy_version` the interview ran under; `enabled`
+is null for interviews that predate it). It is evidence only and is never an input to the
+interview score.

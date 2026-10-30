@@ -1,4 +1,4 @@
-"""Persistence for the observed-extensions catalog."""
+"""Persistence for the observed-extensions catalog: one catalog per organization."""
 
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ class ObservedExtensionRepository:
         self._session = session
 
     async def ensure_rows(self, rows: list[dict[str, Any]]) -> None:
-        """Create any missing rows (idempotent, safe under concurrent scans).
+        """Create any missing rows (idempotent, safe under concurrent scans). Each row carries its
+        organization's `tenant_id`; the same extension is a separate row in every organization.
 
         Rows are created with ``times_seen = 0``; the caller then locks and
         updates each one, so a first sighting and a repeat go through one path.
@@ -26,12 +27,14 @@ class ObservedExtensionRepository:
         if not rows:
             return
         stmt = pg_insert(ObservedExtension).values(rows).on_conflict_do_nothing(
-            index_elements=["extension_id"]
+            index_elements=["tenant_id", "extension_id"]
         )
         await self._session.execute(stmt)
 
-    async def lock_many(self, extension_ids: list[str]) -> list[ObservedExtension]:
-        """Row-lock the given extensions in a stable order.
+    async def lock_many(
+        self, tenant_id: uuid.UUID, extension_ids: list[str]
+    ) -> list[ObservedExtension]:
+        """Row-lock the given extensions of one organization in a stable order.
 
         Ordering by extension_id means two scans touching overlapping sets always
         acquire locks in the same sequence, so they cannot deadlock each other.
@@ -40,25 +43,44 @@ class ObservedExtensionRepository:
             return []
         result = await self._session.execute(
             select(ObservedExtension)
-            .where(ObservedExtension.extension_id.in_(extension_ids))
+            .where(
+                ObservedExtension.tenant_id == tenant_id,
+                ObservedExtension.extension_id.in_(extension_ids),
+            )
             .order_by(ObservedExtension.extension_id.asc())
             .with_for_update()
             .execution_options(populate_existing=True)
         )
         return list(result.scalars().all())
 
-    async def get(self, row_id: uuid.UUID) -> ObservedExtension | None:
-        return await self._session.get(ObservedExtension, row_id)
+    async def get(self, tenant_id: uuid.UUID, row_id: uuid.UUID) -> ObservedExtension | None:
+        result = await self._session.execute(
+            select(ObservedExtension).where(
+                ObservedExtension.tenant_id == tenant_id, ObservedExtension.id == row_id
+            )
+        )
+        return result.scalars().first()
+
+    @staticmethod
+    def _on_blocklist():
+        """True for a catalog row whose extension is already on ITS OWN organization's blocklist
+        (whatever its on/off state). Matching on the tenant as well matters: another
+        organization's list must never hide this one's seen extensions."""
+        return exists().where(
+            ExtensionBlocklistEntry.tenant_id == ObservedExtension.tenant_id,
+            ExtensionBlocklistEntry.extension_id == ObservedExtension.extension_id,
+        )
 
     async def page(
-        self, *, status: str, limit: int, offset: int
+        self, tenant_id: uuid.UUID, *, status: str, limit: int, offset: int
     ) -> tuple[list[ObservedExtension], int]:
-        """One page of the catalog, newest sighting first, excluding anything
-        that is already on the blocklist (whatever its on/off state)."""
-        listed = exists().where(
-            ExtensionBlocklistEntry.extension_id == ObservedExtension.extension_id
+        """One page of an organization's catalog, newest sighting first, excluding anything
+        that is already on its blocklist."""
+        base = (
+            ObservedExtension.tenant_id == tenant_id,
+            ObservedExtension.status == status,
+            ~self._on_blocklist(),
         )
-        base = (ObservedExtension.status == status, ~listed)
 
         total = (
             await self._session.execute(
@@ -78,16 +100,17 @@ class ObservedExtensionRepository:
         ).scalars().all()
         return list(rows), int(total or 0)
 
-    async def count_new(self) -> int:
-        listed = exists().where(
-            ExtensionBlocklistEntry.extension_id == ObservedExtension.extension_id
-        )
+    async def count_new(self, tenant_id: uuid.UUID) -> int:
         return int(
             (
                 await self._session.execute(
                     select(func.count())
                     .select_from(ObservedExtension)
-                    .where(ObservedExtension.status == "new", ~listed)
+                    .where(
+                        ObservedExtension.tenant_id == tenant_id,
+                        ObservedExtension.status == "new",
+                        ~self._on_blocklist(),
+                    )
                 )
             ).scalar_one()
             or 0

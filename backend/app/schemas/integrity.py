@@ -1,4 +1,4 @@
-"""Schemas for AI-assistant extension detection (policy, blocklist, scans, report)."""
+"""Schemas for AI-assistant extension detection (org policy, blocklist, scans, report)."""
 
 from __future__ import annotations
 
@@ -11,9 +11,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 _CHROME_EXTENSION_ID = re.compile(r"^[a-p]{32}$")
 
+#: Entries one organization can keep. The list is sent to every candidate's browser.
+MAX_BLOCKLIST_ENTRIES = 200
+
 Mode = Literal["shadow", "enforce"]
 BlocklistCategory = Literal["ai_assistant", "interview_assistant"]
 BlocklistStatus = Literal["active", "inactive"]
+BlocklistOrigin = Literal["default", "custom"]
 ScanPhase = Literal["preflight", "final", "start"]
 ScanOutcome = Literal["clear", "flagged", "blocked", "unavailable"]
 ReasonCode = Literal["known_id", "heuristic_strong", "heuristic_weak"]
@@ -133,6 +137,9 @@ class BlocklistEntryCreate(BaseModel):
 
 
 class BlocklistEntryUpdate(BaseModel):
+    # The extension ID is what the entry is: to change it, delete the entry and add another.
+    model_config = ConfigDict(extra="forbid")
+
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     category: Optional[BlocklistCategory] = None
     reason: Optional[str] = Field(None, min_length=1, max_length=500)
@@ -161,6 +168,7 @@ class BlocklistEntryResponse(BaseModel):
     reason: str
     listing_url: Optional[str] = None
     status: str
+    origin: BlocklistOrigin = "custom"
     verified_on: Optional[date] = None
     created_at: datetime
     updated_at: datetime
@@ -178,26 +186,47 @@ class PublicBlocklistItem(BaseModel):
 
 
 class IntegrityPolicyResponse(BaseModel):
-    """What the interview page hands to the extension: active list + rules."""
+    """What the interview page hands to the extension: active list + rules.
 
+    `enabled` is false when the job's check is off: the page then skips the check altogether
+    (the blocklist is empty and the rules are neutral, so a page that ignores the flag still
+    parses a valid policy and finds nothing).
+    """
+
+    enabled: bool = True
     version: int
     mode: Mode
     blocklist: list[PublicBlocklistItem]
     rules: PolicyRules
 
 
-class PolicyUpdateRequest(BaseModel):
-    mode: Optional[Mode] = None
-    rules: Optional[PolicyRules] = None
+class OrgPolicyResponse(BaseModel):
+    """An organization's extension-check settings, for its Admins (edit) and HR (view)."""
 
-
-class PolicyAdminResponse(BaseModel):
+    default_enabled: bool
+    default_mode: Mode
+    heuristics_enabled: bool
     version: int
-    mode: Mode
-    rules: PolicyRules
+    entry_count: int
+    active_count: int
+    entry_cap: int = MAX_BLOCKLIST_ENTRIES
+    #: How many of the platform's default entries this list currently has, of how many exist.
+    defaults_present: int
+    defaults_total: int
+    can_edit: bool
     updated_at: datetime
-    blocklist_active: int
-    blocklist_total: int
+
+
+class OrgPolicyUpdate(BaseModel):
+    default_enabled: Optional[bool] = None
+    default_mode: Optional[Mode] = None
+    heuristics_enabled: Optional[bool] = None
+
+
+class RestoreDefaultsResult(BaseModel):
+    added: int
+    reset: int
+    unchanged: int
 
 
 # ── scans ────────────────────────────────────────────────────────────────────
@@ -291,17 +320,20 @@ class IntegritySummary(BaseModel):
     timeline: list[IntegrityTimelineEntry]
     #: One neutral, factual sentence for the report (never fed to scoring).
     note: Optional[str] = None
+    #: The error code of the latest scan, e.g. "policy_unavailable" when the interview page could
+    #: not fetch the policy and let the candidate in. Null for a normal scan.
+    latest_error_code: Optional[str] = None
 
 
-# ── observed extensions (Super Admin catalog) ────────────────────────────────
+# ── observed extensions (one catalog per organization) ───────────────────────
 
 ObservedStatus = Literal["new", "dismissed"]
 ObservedReopenReason = Literal["content_changed", "stronger_match"]
 
 
 class ObservedExtensionResponse(BaseModel):
-    """What the Super Admin sees. Facts about the extension only: no candidate,
-    interview, job or organization information exists on this row."""
+    """What an organization's Admins and HR see. Facts about the extension only: no candidate,
+    interview, job or user information exists on this row."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -323,3 +355,20 @@ class ObservedExtensionPage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class AddObservedToBlocklist(BaseModel):
+    """Optional wording for the entry made from a seen extension; defaults come from the row."""
+
+    category: BlocklistCategory = "ai_assistant"
+    reason: Optional[str] = Field(None, min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _strip(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        value = v.strip()
+        if not value:
+            raise ValueError("Cannot be blank")
+        return value

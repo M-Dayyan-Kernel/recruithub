@@ -281,6 +281,11 @@ class InterviewPublicService:
                 status_code=409,
                 detail="Interview already started or not in pending state.",
             )
+        # Record which extension-check settings this interview ran under, in the same
+        # transaction as the status change.
+        from app.services.integrity_service import IntegrityService
+
+        await IntegrityService(self._session).stamp_interview(session, job)
         await self._session.commit()
 
         logger.info(

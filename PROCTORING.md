@@ -102,6 +102,34 @@ Everything else still follows the PRD:
    are append-only and are never rewritten when a signal deduplicates or
    escalates.
 
+## Extension check (per organization, per job)
+
+The extension gate is the first pre-flight step, and only when the interview's job has it on.
+
+- **Who controls what.** An organization has one blocklist, edited by its Admins (HR sees it
+  read-only) on the *AI extension check* page. Each job has its own switch and mode, edited by
+  Admins and HR next to *Voice screening*. The Super Admin has no part in either.
+- **Modes.** *Shadow* blocks extensions on the blocklist and only records ones that look like
+  AI assistants. *Enforce* also blocks the strong look-alikes. *Off* is no check at all. Look-alike
+  detection can also be turned off for the whole organization, which leaves only the blocklist.
+- **Starting point.** A new organization gets a copy of the ten starting entries; later changes to
+  the defaults in code do not reach existing organizations. Restoring the starting list adds back
+  what is missing and leaves custom entries and edited wording alone. A new job starts from the
+  organization's defaults (on, Shadow unless an Admin changed them).
+- **Off.** The candidate app asks for the policy before it renders the steps. With the check off
+  there is no extension step, nothing is scanned or posted, and the server ignores scans for such a
+  job. The report says "Extension check was turned off for this job".
+- **Policy cannot be loaded.** The page retries (three attempts, 5 s timeout each, waiting 500 ms
+  then 1.5 s, no retry on a 4xx). If it still fails, the candidate is let in rather than stranded,
+  and a scan with `error_code = policy_unavailable` is recorded. The report shows it as "could not
+  be checked", never as clean. A candidate who blocks the request skips the check by design; the
+  report is where that shows.
+- **What an interview ran under.** `/start` stamps the interview with the job's setting and the
+  organization's policy version; each scan also keeps its own mode and version. Edits made while an
+  interview is running apply from its next scan.
+- **Seen extensions** are kept per organization (counts only, no candidate, interview or job).
+  Every interview stands alone: nothing links a candidate's flags across jobs.
+
 ## Layout
 
 | File | Role |

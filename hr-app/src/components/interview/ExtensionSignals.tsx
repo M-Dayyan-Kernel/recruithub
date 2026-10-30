@@ -1,11 +1,17 @@
 import { Puzzle } from 'lucide-react'
 import type {
+  ExtensionCheckStamp,
   IntegrityFlaggedExtension,
   IntegritySummary,
   IntegrityTimelineEntry,
 } from '@/types/integrity'
 import { Badge, Card, type Tone } from '@/components/ui/Surface'
 import { describeSignal } from '@/lib/integritySignals'
+import {
+  EXTENSION_CHECK_OFF_MESSAGE,
+  POLICY_UNAVAILABLE_MESSAGE,
+  extensionCheckState,
+} from '@/lib/extensionCheckState'
 
 /**
  * Browser-extension evidence for one interview.
@@ -85,7 +91,31 @@ function TimelineRow({ entry }: { entry: IntegrityTimelineEntry }) {
   )
 }
 
-export default function ExtensionSignals({ summary }: { summary: IntegritySummary }) {
+export default function ExtensionSignals({
+  summary,
+  stamp,
+}: {
+  summary: IntegritySummary | null | undefined
+  stamp?: ExtensionCheckStamp | null
+}) {
+  const state = extensionCheckState(summary, stamp)
+
+  // Nothing on record for an interview that predates the check: say nothing, as before.
+  if (state === 'not_recorded' || !summary) return null
+
+  if (state === 'off') {
+    return (
+      <Card className="p-5">
+        <div className="mb-3 flex items-center gap-2">
+          <Puzzle className="h-4 w-4 text-ink-subtle" aria-hidden />
+          <h3 className="text-[15px] font-semibold text-ink">Browser extension checks</h3>
+          <Badge tone="neutral">Off</Badge>
+        </div>
+        <p className="text-[13px] text-ink-muted">{EXTENSION_CHECK_OFF_MESSAGE}</p>
+      </Card>
+    )
+  }
+
   const { flagged_extensions: flagged } = summary
 
   return (
@@ -98,7 +128,9 @@ export default function ExtensionSignals({ summary }: { summary: IntegritySummar
         </Badge>
       </div>
 
-      {summary.note ? (
+      {state === 'unavailable' ? (
+        <p className="mb-3 text-[13px] text-ink">{POLICY_UNAVAILABLE_MESSAGE}</p>
+      ) : summary.note ? (
         <p className="mb-3 text-[13px] text-ink">{summary.note}</p>
       ) : (
         <p className="mb-3 text-[13px] text-ink-muted">

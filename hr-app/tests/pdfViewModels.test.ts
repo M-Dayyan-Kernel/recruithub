@@ -185,6 +185,33 @@ test('no extension check on record is never reported as clear', () => {
   assert.ok(!/clear|no ai-related/i.test(JSON.stringify(ext)))
 })
 
+test('a job with the check off says so, and a stamp never hides recorded evidence', () => {
+  const off = buildProctoringModel(null, null, { enabled: false, mode: 'shadow', policy_version: 3 }).extension
+  assert.deepEqual(off, { state: 'off', message: 'Extension check was turned off for this job.' })
+
+  // Switched off after scans were already recorded: the evidence still shows.
+  const kept = buildProctoringModel(null, clearIntegrity, { enabled: false, mode: 'shadow', policy_version: 3 }).extension
+  assert.equal(kept.state, 'clear')
+
+  // An interview from before the stamp existed is "not recorded", never off.
+  assert.equal(buildProctoringModel(null, null, { enabled: null, mode: null, policy_version: null }).extension.state, 'not_recorded')
+})
+
+test('a check that could not load its settings reads as could-not-be-checked, not clean', () => {
+  const ext = buildProctoringModel(null, {
+    ...clearIntegrity,
+    latest_outcome: 'unavailable',
+    unavailable_scans: 1,
+    scans: 1,
+    latest_error_code: 'policy_unavailable',
+  }).extension
+  assert.equal(ext.state, 'unavailable')
+  if (ext.state !== 'unavailable') return
+  assert.match(ext.message, /could not run/i)
+  assert.match(ext.message, /not a clean result/i)
+  assert.ok(!/no ai-related/i.test(ext.message))
+})
+
 test('extension outcomes: clear, flagged, blocked and unavailable', () => {
   const clear = buildProctoringModel(null, clearIntegrity).extension
   assert.equal(clear.state === 'clear' && clear.tone, 'ok')

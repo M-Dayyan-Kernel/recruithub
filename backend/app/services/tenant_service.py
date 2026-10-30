@@ -26,6 +26,7 @@ from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.repositories.tenant_invite_repository import TenantInviteRepository
 from app.repositories.tenant_repository import TenantRepository
 from app.repositories.user_repository import UserRepository
+from app.services.integrity_service import IntegrityService
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +40,14 @@ class TenantService:
         user_repo: UserRepository | None = None,
         settings_repo: SystemSettingsRepository | None = None,
         invite_repo: TenantInviteRepository | None = None,
+        integrity_service: IntegrityService | None = None,
     ) -> None:
         self._session = session
         self._tenants = tenant_repo or TenantRepository(session)
         self._users = user_repo or UserRepository(session)
         self._settings = settings_repo or SystemSettingsRepository(session)
         self._invites = invite_repo or TenantInviteRepository(session)
+        self._integrity = integrity_service or IntegrityService(session)
 
     async def ensure_platform_tenant(self) -> Tenant:
         tenant = await self._tenants.get_by_slug(PLATFORM_TENANT_SLUG)
@@ -107,6 +110,8 @@ class TenantService:
             verification_status.replace("_", " "),
         )
         await self._settings.get_or_create(tenant.id, company_name=name)
+        # Every organization starts with its own copy of the default blocklist.
+        await self._integrity.seed_new_organization(tenant.id)
         hashed = await run_sync(hash_password, password)
         admin = User(
             tenant_id=tenant.id,

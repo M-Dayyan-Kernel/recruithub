@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Loader2, AlertCircle, CheckCircle2, Clock } from 'lucide-react'
 import { api } from '@/lib/api'
+import { extensionCheckApplies } from '@/lib/extensionGate'
 import InterviewBusyScreen from '@/components/InterviewBusyScreen'
 import Preflight from '@/components/preflight/Preflight'
 import { Screen, StatusScreen } from '@/components/Shell'
@@ -48,6 +49,8 @@ export default function InterviewLandingPage() {
   const [is404, setIs404] = useState(false)
   const [mockCompleting, setMockCompleting] = useState(false)
   const [refreshingCapacity, setRefreshingCapacity] = useState(false)
+  // Whether the job has an extension check; null until the policy is known.
+  const [extensionCheck, setExtensionCheck] = useState<boolean | null>(null)
 
   const fetchInterviewInfo = async () => {
     if (!token) {
@@ -88,6 +91,19 @@ export default function InterviewLandingPage() {
       cancelled = true
     }
   }, [token])
+
+  // Resolved once the interview is known to be joinable, before any step renders.
+  const joinable = info?.status === 'pending' || info?.status === 'in_progress'
+  useEffect(() => {
+    if (!token || !joinable) return
+    let cancelled = false
+    void extensionCheckApplies(token).then((applies) => {
+      if (!cancelled) setExtensionCheck(applies)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [token, joinable])
 
   const handleRetryCapacity = async () => {
     if (!token) return
@@ -195,6 +211,17 @@ export default function InterviewLandingPage() {
   }
 
   // ── Pre-flight (§8) - pending, or rejoining an in-progress session ─────────
+  if (extensionCheck === null) {
+    return (
+      <Screen>
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 size={22} className="animate-spin text-accent" aria-hidden />
+          <p className="text-[0.92rem] text-ink-muted">Loading your interview</p>
+        </div>
+      </Screen>
+    )
+  }
+
   return (
     <div className="relative flex flex-1 flex-col">
       {info.mock_mode && (
@@ -221,6 +248,7 @@ export default function InterviewLandingPage() {
           scheduled_interview_at: info.scheduled_interview_at,
           expires_at: info.expires_at,
         }}
+        extensionCheck={extensionCheck}
         onReady={handleReady}
       />
     </div>

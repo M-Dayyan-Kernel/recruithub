@@ -16,6 +16,7 @@ import ArchivedJobsPage from '@/pages/ArchivedJobsPage'
 import SettingsPage from '@/pages/SettingsPage'
 import UsersPage from '@/pages/UsersPage'
 import ActivityPage from '@/pages/ActivityPage'
+import ExtensionCheckPage from '@/pages/ExtensionCheckPage'
 import ReportPage from '@/pages/ReportPage'
 import ShortlistReportPage from '@/pages/ShortlistReportPage'
 import NotFoundPage from '@/pages/NotFoundPage'
@@ -27,7 +28,7 @@ import ForgotPasswordPage from '@/pages/ForgotPasswordPage'
 import ResetPasswordPage from '@/pages/ResetPasswordPage'
 import OrganizationsPage from '@/pages/OrganizationsPage'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { AdminRoute, AppShellRoute, ProtectedRoute } from '@/components/ProtectedRoute'
+import { AdminOrHrRoute, AdminRoute, AppShellRoute, ProtectedRoute } from '@/components/ProtectedRoute'
 
 export default function App() {
   return (
@@ -75,6 +76,10 @@ export default function App() {
             <Route path="account" element={<AccountPage />} />
             <Route path="candidates" element={<CandidatesPage />} />
             <Route path="candidates/:candidateId" element={<CandidateProfilePage />} />
+
+            <Route element={<AdminOrHrRoute />}>
+              <Route path="extension-check" element={<ExtensionCheckPage />} />
+            </Route>
 
             <Route element={<AdminRoute />}>
               <Route path="activity" element={<ActivityPage />} />

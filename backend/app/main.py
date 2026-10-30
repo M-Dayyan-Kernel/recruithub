@@ -15,6 +15,7 @@ from app.routers import (
     audit,
     auth,
     candidates,
+    extension_policy,
     interviews,
     jobs,
     platform,
@@ -195,6 +196,9 @@ app.include_router(platform.router, prefix="/api/platform", tags=["platform"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(audit.router, prefix="/api/audit-logs", tags=["audit"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
+app.include_router(
+    extension_policy.router, prefix="/api/extension-policy", tags=["extension-policy"]
+)
 app.include_router(candidates.router, prefix="/api", tags=["candidates"])
 app.include_router(shortlist.router, prefix="/api", tags=["shortlist"])
 app.include_router(rejected.router, prefix="/api", tags=["rejected"])

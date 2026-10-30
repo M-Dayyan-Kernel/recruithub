@@ -7,12 +7,14 @@ import {
   isDesktopChromium,
   isGateEnabled,
   needsReloadToConnect,
+  policyUnavailablePayload,
   requestScan,
+  resolvePolicyState,
   runGate,
   type GateResult,
   type RuntimeLike,
 } from '../src/lib/extensionCheck.ts'
-import { MANDATORY_PRECONDITIONS } from '../src/proctoring/types.ts'
+import { MANDATORY_PRECONDITIONS, mandatoryPreconditions } from '../src/proctoring/types.ts'
 
 const NOW = Date.parse('2026-10-12T10:00:00.000Z')
 const NONCE = 'nonce-1'
@@ -309,6 +311,95 @@ test('runGate does not call the extension when explicitly disabled (dev only)', 
 
 test('the extension check is a mandatory precondition for entering the room', () => {
   assert.ok(MANDATORY_PRECONDITIONS.includes('extension_check'))
+})
+
+test('a job with the check off does not need that precondition, and nothing else changes', () => {
+  assert.ok(mandatoryPreconditions(true).includes('extension_check'))
+  const off = mandatoryPreconditions(false)
+  assert.ok(!off.includes('extension_check'))
+  assert.deepEqual(off, MANDATORY_PRECONDITIONS.filter((t) => t !== 'extension_check'))
+})
+
+// ── loading the policy ────────────────────────────────────────────────────────
+
+const POLICY = { version: 3, mode: 'shadow', blocklist: [], rules: {} }
+const noWait = async () => undefined
+
+test('a policy is returned as it is', async () => {
+  const state = await resolvePolicyState(async () => POLICY, { sleep: noWait })
+  assert.deepEqual(state, { kind: 'policy', policy: POLICY })
+})
+
+test('a policy with enabled:false means the job has the check off', async () => {
+  const state = await resolvePolicyState(async () => ({ ...POLICY, enabled: false }), { sleep: noWait })
+  assert.deepEqual(state, { kind: 'disabled' })
+})
+
+test('a policy without `enabled` (an older server) is treated as on', async () => {
+  const state = await resolvePolicyState(async () => POLICY, { sleep: noWait })
+  assert.equal(state.kind, 'policy')
+})
+
+test('a failing fetch is retried twice with 500 ms then 1.5 s waits, then given up on', async () => {
+  let calls = 0
+  const waits: number[] = []
+  const state = await resolvePolicyState(
+    async () => {
+      calls += 1
+      throw new Error('network down')
+    },
+    { sleep: async (ms) => void waits.push(ms) },
+  )
+  assert.equal(calls, 3)
+  assert.deepEqual(waits, [500, 1500])
+  assert.deepEqual(state, { kind: 'failed' })
+})
+
+test('a fetch that recovers on a retry is used', async () => {
+  let calls = 0
+  const state = await resolvePolicyState(
+    async () => {
+      calls += 1
+      if (calls < 3) throw new Error('timeout')
+      return POLICY
+    },
+    { sleep: noWait },
+  )
+  assert.equal(calls, 3)
+  assert.equal(state.kind, 'policy')
+})
+
+test('a client error is final: no retry', async () => {
+  let calls = 0
+  const state = await resolvePolicyState(
+    async () => {
+      calls += 1
+      throw Object.assign(new Error('not found'), { status: 404 })
+    },
+    { sleep: noWait },
+  )
+  assert.equal(calls, 1)
+  assert.deepEqual(state, { kind: 'failed' })
+})
+
+test('a malformed body is retried like any other failure', async () => {
+  let calls = 0
+  const state = await resolvePolicyState(
+    async () => {
+      calls += 1
+      return { nonsense: true }
+    },
+    { sleep: noWait },
+  )
+  assert.equal(calls, 3)
+  assert.equal(state.kind, 'failed')
+})
+
+test('an unreachable policy is recorded as could-not-be-checked, never as a clean scan', () => {
+  const payload = policyUnavailablePayload('preflight')
+  assert.equal(payload.scan_completed, false)
+  assert.equal(payload.error_code, 'policy_unavailable')
+  assert.deepEqual(payload.flagged, [])
 })
 
 // ── reload needed to connect to an extension installed after the page loaded ──

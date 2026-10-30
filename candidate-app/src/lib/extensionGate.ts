@@ -6,7 +6,10 @@ import {
   toScanPayload,
   type GateConfig,
   type GateResult,
-  type IntegrityPolicy,
+  policyUnavailablePayload,
+  resolvePolicyState,
+  type IntegrityScanPayload,
+  type PolicyState,
   type ScanPhase,
 } from './extensionCheck'
 import { resolveInstallMode } from './extensionInstall'
@@ -43,45 +46,48 @@ export const installMode = resolveInstallMode(extensionInstallUrl)
 
 const POLICY_TTL_MS = 60_000
 const POLICY_TIMEOUT_MS = 5_000
-const policyCache = new Map<string, { policy: IntegrityPolicy; at: number }>()
+const policyCache = new Map<string, { state: PolicyState; at: number }>()
+/** Tokens whose "policy unavailable" evidence is already sent: once per interview is enough. */
+const unavailableRecorded = new Set<string>()
 
 /**
- * The live detection policy for this interview, or null when it cannot be
- * fetched. Null is not an error: the scan then runs against the extension's
- * built-in list, so a backend hiccup never lets a candidate through unchecked
- * and never strands one either. A recent copy is reused for a minute so the
- * gate's repeated scans do not each cost a request.
+ * What this interview's extension check is set to: a live policy, off for the job, or
+ * unreachable. Retried before giving up (see resolvePolicyState). A policy or "off" answer is
+ * reused for a minute so the gate's repeated scans do not each cost a request; a failure is
+ * not cached, so the next scan tries again.
  */
-async function loadPolicy(token: string): Promise<IntegrityPolicy | null> {
+export async function loadPolicyState(token: string): Promise<PolicyState> {
   const cached = policyCache.get(token)
-  if (cached && Date.now() - cached.at < POLICY_TTL_MS) return cached.policy
-  try {
-    const policy = (await api.get(`/api/interview/${encodeURIComponent(token)}/integrity-policy`, {
+  if (cached && Date.now() - cached.at < POLICY_TTL_MS) return cached.state
+  const state = await resolvePolicyState(() =>
+    api.get(`/api/interview/${encodeURIComponent(token)}/integrity-policy`, {
       timeout: POLICY_TIMEOUT_MS,
-    })) as unknown as IntegrityPolicy
-    if (policy && typeof policy.version === 'number' && Array.isArray(policy.blocklist)) {
-      policyCache.set(token, { policy, at: Date.now() })
-      return policy
-    }
-  } catch {
-    // fall through to a stale copy, then to the built-in list
-  }
-  return cached?.policy ?? null
+    }),
+  )
+  if (state.kind !== 'failed') policyCache.set(token, { state, at: Date.now() })
+  return state
 }
 
 /** Best-effort evidence for the HR report. Never throws and never delays the gate. */
-function recordScan(token: string, phase: ScanPhase, result: GateResult): void {
+function post(token: string, payload: IntegrityScanPayload): void {
   void api
-    .post(`/api/interview/${encodeURIComponent(token)}/integrity-scan`, toScanPayload(phase, result))
+    .post(`/api/interview/${encodeURIComponent(token)}/integrity-scan`, payload)
     .catch(() => undefined)
+}
+
+function recordScan(token: string, phase: ScanPhase, result: GateResult): void {
+  post(token, toScanPayload(phase, result))
 }
 
 /**
  * A fresh scan under the gate policy. Never rejects, never cached.
  *
- * Uses the live policy when available and records the outcome for the HR
- * report. With the gate switched off (development only) nothing is scanned or
- * recorded.
+ *  - Check on: scans against the live policy and records the outcome for the HR report.
+ *  - Check off for this job: clear, with no scan and nothing recorded.
+ *  - Policy unreachable after retries: the candidate is let in rather than stranded by a
+ *    backend problem, and "policy_unavailable" is recorded so the report says the check
+ *    could not run (never that it was clean).
+ *  - Gate switched off (development only): clear, nothing scanned or recorded.
  */
 export async function scanForGate(options: {
   token: string
@@ -90,8 +96,31 @@ export async function scanForGate(options: {
   const { token, phase } = options
   if (!gateConfig.enabled) return { status: 'clear', checkedAt: 'gate-disabled' }
 
-  const policy = await loadPolicy(token)
+  const state = await loadPolicyState(token)
+  if (state.kind === 'disabled') return { status: 'clear', checkedAt: 'check-off' }
+  if (state.kind === 'failed') {
+    if (!unavailableRecorded.has(token)) {
+      unavailableRecorded.add(token)
+      post(token, policyUnavailablePayload(phase))
+    }
+    return { status: 'clear', checkedAt: 'policy-unavailable' }
+  }
+
+  const { policy } = state
   const result = await runGate(gateConfig, (extensionId) => requestScan({ extensionId, policy }))
   recordScan(token, phase, result)
   return result
+}
+
+/**
+ * Whether the candidate has an extension step at all. Asked once before the pre-flight
+ * renders, so the step list never flashes a check that does not apply. "Off" and "could not
+ * load" both skip the step (the latter after recording that the check could not run).
+ */
+export async function extensionCheckApplies(token: string): Promise<boolean> {
+  if (!gateConfig.enabled) return false
+  const state = await loadPolicyState(token)
+  if (state.kind === 'policy') return true
+  if (state.kind === 'failed') await scanForGate({ token, phase: 'preflight' })
+  return false
 }

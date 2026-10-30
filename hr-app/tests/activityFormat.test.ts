@@ -207,6 +207,8 @@ test('platform events read as sentences too', () => {
 const BACKEND_ACTIONS = [
   'candidate.view_detail', 'candidate.updated', 'candidate.deleted', 'candidate.retry_processing', 'candidate.gdpr_erase', 'candidate.uploaded',
   'extension_policy.updated', 'extension_blocklist.updated', 'extension_blocklist.deleted', 'extension_blocklist.added',
+  'settings.extension_policy_updated', 'settings.extension_blocklist_added', 'settings.extension_blocklist_updated', 'settings.extension_blocklist_deleted',
+  'settings.extension_defaults_restored', 'settings.extension_observed_dismissed', 'settings.extension_observed_restored',
   'interview.queued', 'interview.scheduled', 'interview.link_sent', 'interview.decision_set', 'interview.email_resent', 'interview.rescheduled', 'interview.retry_assessment', 'interview.cancelled',
   'job.created', 'job.updated', 'job.deleted',
   'tenant.created', 'tenant.updated', 'tenant.approved', 'tenant.rejected', 'tenant.deleted',
@@ -315,4 +317,19 @@ test('days are grouped and labelled relative to today', () => {
   assert.equal(dayKey(new Date(2026, 9, 3)), '2026-10-03')
   assert.equal(formatClock(new Date(2026, 9, 13, 15, 33)), '3:33 PM')
   assert.equal(formatClock(new Date(2026, 9, 13, 9, 5)), '9:05 AM')
+})
+
+test('a job\'s extension check switch and mode read as plain words', () => {
+  const on = describeActivity(row({ action: 'job.updated', entity_type: 'job', feature: 'extension_check_enabled', before_state: { extension_check_enabled: true }, after_state: { extension_check_enabled: false } }))
+  assert.equal(on.event, 'Extension check changed')
+  assert.deepEqual(on.change, { kind: 'transition', from: { text: 'On', tone: 'plain' }, to: { text: 'Off', tone: 'accent' } })
+  const mode = describeActivity(row({ action: 'job.updated', entity_type: 'job', feature: 'extension_check_mode', before_state: { extension_check_mode: 'enforce' }, after_state: { extension_check_mode: 'shadow' } }))
+  assert.equal(mode.event, 'Extension check mode changed')
+  assert.ok(visible(mode).includes('Enforce') && visible(mode).includes('Shadow'))
+})
+
+test('an organization\'s extension settings change names the setting, not a code', () => {
+  const v = describeActivity(row({ action: 'settings.extension_policy_updated', entity_type: 'settings', feature: 'heuristics_enabled', before_state: { heuristics_enabled: true }, after_state: { heuristics_enabled: false } }))
+  assert.equal(v.event, 'Look-alike detection changed')
+  assert.ok(visible(v).includes('On') && visible(v).includes('Off'))
 })

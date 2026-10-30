@@ -89,6 +89,8 @@ class InterviewQuestion(InterviewQuestionPublic):
 
 
 WorkMode = Literal["remote", "hybrid", "onsite"]
+#: Per job: shadow blocks blocklisted extensions and only records look-alikes; enforce also blocks strong look-alikes.
+ExtensionCheckMode = Literal["shadow", "enforce"]
 
 
 class ScreeningQuestion(BaseModel):
@@ -225,6 +227,9 @@ class JobCreate(BaseModel):
     screening_questions: Optional[List[ScreeningQuestion]] = None
     interview_questions: List[InterviewQuestion] = []
     voice_screening_enabled: bool = True
+    # Not sent: the job starts with the organization's defaults (see JobService.create).
+    extension_check_enabled: Optional[bool] = None
+    extension_check_mode: Optional[ExtensionCheckMode] = None
     status: str = "active"
 
     @field_validator("experience_min", "experience_max", mode="before")
@@ -272,6 +277,8 @@ class JobUpdate(BaseModel):
     screening_call_to: Optional[time] = None
     screening_timezone: Optional[str] = None
     voice_screening_enabled: Optional[bool] = None
+    extension_check_enabled: Optional[bool] = None
+    extension_check_mode: Optional[ExtensionCheckMode] = None
     status: Optional[str] = None
 
     @model_validator(mode="before")
@@ -315,6 +322,8 @@ class JobResponse(BaseModel):
     screening_call_to: Optional[time] = None
     screening_timezone: str = "Asia/Kolkata"
     voice_screening_enabled: bool = True
+    extension_check_enabled: bool = True
+    extension_check_mode: str = "shadow"
     status: str
     created_at: datetime
     updated_at: datetime
@@ -1047,6 +1056,18 @@ class InterviewReportResponse(BaseModel):
     video_proctoring: Optional[VideoProctoringSummary] = None
     # Extension-scan evidence for HR; None when no scan was recorded.
     integrity: Optional[IntegritySummary] = None
+    # What the interview ran under. `enabled` is None for interviews that predate the
+    # per-job check (no stamp), which the report treats as "not recorded".
+    extension_check: Optional["ExtensionCheckStamp"] = None
+
+
+class ExtensionCheckStamp(BaseModel):
+    enabled: Optional[bool] = None
+    mode: Optional[str] = None
+    policy_version: Optional[int] = None
+
+
+InterviewReportResponse.model_rebuild()
 
 
 # ---------------------------------------------------------------------------

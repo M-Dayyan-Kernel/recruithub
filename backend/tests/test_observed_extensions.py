@@ -1,4 +1,4 @@
-"""Observed-extensions catalog: sightings, dismissal memory, isolation."""
+"""Observed-extensions catalog: sightings, dismissal memory, per-organization isolation."""
 
 import unittest
 import uuid
@@ -26,6 +26,7 @@ from app.services.observed_extension_service import (
 NOW = datetime(2026, 10, 13, 12, 0, tzinfo=timezone.utc)
 LATER = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
 EXT = "a" * 32
+TENANT = uuid.uuid4()
 
 
 def _row(**over):
@@ -172,17 +173,17 @@ def _service(rows=None):
     return ObservedExtensionService(session, repo=repo, audit=audit), repo, audit, session
 
 
-def _admin():
+def _admin(tenant_id=TENANT):
     return User(
-        id=uuid.uuid4(), tenant_id=uuid.uuid4(), email="root@p.example.com",
-        full_name="Root", hashed_password="x", role="superadmin", is_active=True,
+        id=uuid.uuid4(), tenant_id=tenant_id, email="admin@org.example.com",
+        full_name="Admin", hashed_password="x", role="admin", is_active=True,
     )
 
 
 class RecordTests(unittest.IsolatedAsyncioTestCase):
     async def test_known_list_matches_never_enter_the_catalog(self):
         service, repo, _, _ = _service()
-        await service.record([_flagged(reason="known_id")])
+        await service.record(TENANT, [_flagged(reason="known_id")])
         repo.ensure_rows.assert_not_awaited()
         repo.lock_many.assert_not_awaited()
 
@@ -190,7 +191,7 @@ class RecordTests(unittest.IsolatedAsyncioTestCase):
         row = _row(extension_id=EXT)
         service, repo, _, _ = _service([row])
         await service.record(
-            [_flagged(reason="heuristic_weak"), _flagged(reason="heuristic_strong")]
+            TENANT, [_flagged(reason="heuristic_weak"), _flagged(reason="heuristic_strong")]
         )
         created = repo.ensure_rows.await_args.args[0]
         self.assertEqual(len(created), 1)
@@ -200,25 +201,27 @@ class RecordTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rows_are_locked_by_id_in_one_call(self):
         service, repo, _, _ = _service([])
-        await service.record([_flagged("b" * 32), _flagged("a" * 32)])
-        locked = repo.lock_many.await_args.args[0]
+        await service.record(TENANT, [_flagged("b" * 32), _flagged("a" * 32)])
+        self.assertEqual(repo.lock_many.await_args.args[0], TENANT)
+        locked = repo.lock_many.await_args.args[1]
         self.assertEqual(sorted(locked), ["a" * 32, "b" * 32])
 
     async def test_the_catalog_row_carries_no_candidate_or_interview_fields(self):
         service, repo, _, _ = _service([])
-        await service.record([_flagged()])
+        await service.record(TENANT, [_flagged()])
         created = repo.ensure_rows.await_args.args[0][0]
-        self.assertFalse(
-            {k for k in created if any(t in k for t in ("candidate", "interview", "tenant", "job", "session"))}
-        )
+        # The organization is the only thing a row may point at.
+        self.assertEqual(created["tenant_id"], TENANT)
+        forbidden = ("candidate", "interview", "job", "session", "user")
+        self.assertFalse({k for k in created if any(t in k for t in forbidden)})
         self.assertFalse(
             {c for c in ObservedExtension.__table__.columns.keys()
-             if any(t in c for t in ("candidate", "interview", "tenant", "job", "session"))}
+             if any(t in c for t in forbidden if t != "user")}
         )
 
     async def test_nothing_flagged_is_a_no_op(self):
         service, repo, _, _ = _service()
-        await service.record([])
+        await service.record(TENANT, [])
         repo.ensure_rows.assert_not_awaited()
 
 
@@ -231,6 +234,7 @@ class AdminActionTests(unittest.IsolatedAsyncioTestCase):
         admin = _admin()
 
         result = await service.dismiss(row.id, admin)
+        repo.get.assert_awaited_with(admin.tenant_id, row.id)
 
         self.assertEqual(row.status, "dismissed")
         self.assertEqual((row.dismissed_hash, row.dismissed_reason), ("h1", "heuristic_strong"))
@@ -279,8 +283,18 @@ def _integrity(*, observed):
     repo = MagicMock()
     repo.add_scan = MagicMock(side_effect=lambda s: s)
     interviews = MagicMock()
-    interviews.get_session_by_token = AsyncMock(
-        return_value=SimpleNamespace(id=uuid.uuid4(), status="in_progress")
+    interview = SimpleNamespace(
+        id=uuid.uuid4(), status="in_progress", job_id=uuid.uuid4(),
+        extension_check_enabled=None, extension_check_mode=None, extension_policy_version=None,
+    )
+    interviews.get_session_by_token = AsyncMock(return_value=interview)
+    job = SimpleNamespace(
+        id=interview.job_id, tenant_id=TENANT, extension_check_enabled=True,
+        extension_check_mode="shadow",
+    )
+    session.get = AsyncMock(return_value=job)
+    repo.get_org_policy = AsyncMock(
+        return_value=SimpleNamespace(version=4, blocklist_seeded_at=NOW, heuristics_enabled=True)
     )
     service = IntegrityService(
         session, repo=repo, interviews=interviews, audit=AsyncMock(), observed=observed
@@ -298,9 +312,10 @@ class ScanRecordingTests(unittest.IsolatedAsyncioTestCase):
         await service.record_scan("tok", body)
 
         observed.record.assert_awaited_once()
+        self.assertEqual(observed.record.await_args.args[0], TENANT)
         stored = repo.add_scan.call_args.args[0]
         self.assertNotIn("description", stored.flagged[0])
-        session.commit.assert_awaited_once()
+        session.commit.assert_awaited()
 
     async def test_a_catalog_failure_never_costs_the_interview_its_scan(self):
         observed = MagicMock()
@@ -313,7 +328,7 @@ class ScanRecordingTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(ack.outcome, "flagged")
         repo.add_scan.assert_called_once()
-        session.commit.assert_awaited_once()
+        session.commit.assert_awaited()
 
     async def test_clean_scans_do_not_touch_the_catalog(self):
         observed = MagicMock()
@@ -342,40 +357,52 @@ class EndpointTests(unittest.TestCase):
             id=uuid.uuid4(), tenant_id=uuid.uuid4(), email=f"{role}@example.com",
             full_name=role, hashed_password="x", role=role, is_active=True,
         )
+        self.user = user
         app.dependency_overrides[get_current_user] = lambda: user
         app.dependency_overrides[get_observed_extension_service] = lambda: fake or _FakeCatalog()
         return TestClient(app)
 
-    def test_only_super_admins_may_use_it(self):
+    def test_hr_may_read_but_only_admins_may_act(self):
         row = uuid.uuid4()
-        for role in ("hr", "admin"):
-            client = self._client(role)
-            self.assertEqual(client.get("/api/platform/observed-extensions").status_code, 403, role)
+        fake = _FakeCatalog()
+        from app.schemas.integrity import ObservedExtensionPage
+
+        fake.list_page.return_value = ObservedExtensionPage(items=[], total=0, limit=20, offset=0)
+        client = self._client("hr", fake)
+        self.assertEqual(client.get("/api/extension-policy/observed").status_code, 200)
+        for action in ("dismiss", "restore"):
             self.assertEqual(
-                client.post(f"/api/platform/observed-extensions/{row}/dismiss").status_code, 403, role
+                client.post(f"/api/extension-policy/observed/{row}/{action}").status_code, 403, action
             )
-            self.assertEqual(
-                client.post(f"/api/platform/observed-extensions/{row}/restore").status_code, 403, role
-            )
-            app.dependency_overrides.clear()
+
+    def test_list_is_scoped_to_the_callers_organization(self):
+        from app.schemas.integrity import ObservedExtensionPage
+
+        fake = _FakeCatalog()
+        fake.list_page.return_value = ObservedExtensionPage(items=[], total=0, limit=20, offset=0)
+        client = self._client("admin", fake)
+        client.get("/api/extension-policy/observed")
+        self.assertEqual(fake.list_page.await_args.args[0], self.user.tenant_id)
 
     def test_list_validates_its_query(self):
-        client = self._client("superadmin")
-        self.assertEqual(client.get("/api/platform/observed-extensions?status=bogus").status_code, 422)
-        self.assertEqual(client.get("/api/platform/observed-extensions?limit=0").status_code, 422)
-        self.assertEqual(client.get("/api/platform/observed-extensions?limit=101").status_code, 422)
-        self.assertEqual(client.get("/api/platform/observed-extensions?offset=-1").status_code, 422)
+        client = self._client("admin")
+        base = "/api/extension-policy/observed"
+        self.assertEqual(client.get(f"{base}?status=bogus").status_code, 422)
+        self.assertEqual(client.get(f"{base}?limit=0").status_code, 422)
+        self.assertEqual(client.get(f"{base}?limit=101").status_code, 422)
+        self.assertEqual(client.get(f"{base}?offset=-1").status_code, 422)
 
     def test_list_passes_filters_through(self):
         from app.schemas.integrity import ObservedExtensionPage
 
         fake = _FakeCatalog()
         fake.list_page.return_value = ObservedExtensionPage(items=[], total=0, limit=5, offset=10)
-        client = self._client("superadmin", fake)
-        response = client.get("/api/platform/observed-extensions?status=dismissed&limit=5&offset=10")
+        client = self._client("admin", fake)
+        response = client.get("/api/extension-policy/observed?status=dismissed&limit=5&offset=10")
         self.assertEqual(response.status_code, 200)
-        fake.list_page.assert_awaited_once_with(status="dismissed", limit=5, offset=10)
-
+        fake.list_page.assert_awaited_once_with(
+            self.user.tenant_id, status="dismissed", limit=5, offset=10
+        )
 
 if __name__ == "__main__":
     unittest.main()

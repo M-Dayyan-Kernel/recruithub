@@ -38,6 +38,19 @@ test('a known ID is blocked regardless of mode', () => {
   }
 })
 
+test('an organization with look-alike detection off still blocks by ID and flags nothing else', () => {
+  // The backend turns the heuristics off by sending empty keyword and vendor-host lists.
+  const noHeuristics = {
+    ...rules,
+    intent: { ...rules.intent, keywords: [], vendor_hosts: [] },
+  }
+  const p = policy({ rules: noHeuristics })
+  assert.deepEqual(classifyInstalled([ext(STRONG), ext(WEAK)], p), [])
+  const [hit] = classifyInstalled([ext({ id: MONICA, name: 'Monica' })], p)
+  assert.equal(hit.reason_code, 'known_id')
+  assert.equal(hit.blocked, true)
+})
+
 test('a disabled extension is ignored, even a known one', () => {
   assert.deepEqual(classifyInstalled([ext({ id: MONICA, enabled: false })], policy()), [])
   assert.deepEqual(classifyInstalled([ext({ ...STRONG, enabled: false })], policy()), [])
@@ -101,7 +114,7 @@ test('malformed inventory entries are skipped, not fatal', () => {
   assert.doesNotThrow(() => classifyInstalled([null, undefined, {}, { id: 5 }, ext(WEAK)], policy()))
 })
 
-// ── description reporting (feeds the Super Admin's "seen extensions" list) ──
+// ── description reporting (feeds an organization's "seen extensions" list) ──
 
 import { DESCRIPTION_MAX, trimDescription } from '../classify.js'
 

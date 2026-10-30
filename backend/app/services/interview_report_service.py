@@ -100,6 +100,11 @@ class InterviewReportService:
 
             summary = await IntegrityService(self._session).summary_for_session(session.id)
             report_dict["integrity"] = summary.model_dump() if summary else None
+            report_dict["extension_check"] = {
+                "enabled": session.extension_check_enabled,
+                "mode": session.extension_check_mode,
+                "policy_version": session.extension_policy_version,
+            }
 
         return InterviewReportResponse.model_validate(report_dict)
 

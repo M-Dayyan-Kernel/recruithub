@@ -108,7 +108,7 @@ function VideoBlock({ video }: { video: VideoSection }) {
 
 function ExtensionBlock({ model }: { model: ProctoringModel }) {
   const ext = model.extension
-  if (ext.state === 'not_recorded') {
+  if (ext.state === 'not_recorded' || ext.state === 'off') {
     return (
       <Callout tone="neutral" title="Browser extension checks">
         <Text style={{ fontSize: TYPE.small, color: COLORS.ink700 }}>{ext.message}</Text>
