@@ -141,6 +141,7 @@ const FIELD_LABELS: Record<string, string> = {
   voice_screening_enabled: 'Voice screening',
   extension_check_enabled: 'Extension check',
   extension_check_mode: 'Extension check mode',
+  extension_enabled: 'AI extension check (organization)',
   default_enabled: 'Check new jobs by default',
   default_mode: 'Default extension mode',
   heuristics_enabled: 'Look-alike detection',

@@ -1,4 +1,4 @@
-"""An organization's AI-extension check: its blocklist and seen extensions.
+"""An organization's AI-extension check: its master switch, blocklist and seen extensions.
 
 Admins edit; HR can read everything here (they need to see what is being checked and why a
 candidate was stopped). The per-job switch is not here: it is a field on the job, edited with it.
@@ -26,6 +26,7 @@ from app.schemas.integrity import (
     ObservedExtensionPage,
     ObservedExtensionResponse,
     OrgPolicyResponse,
+    OrgPolicyUpdate,
     RestoreDefaultsResult,
 )
 from app.services.integrity_service import IntegrityService
@@ -44,6 +45,15 @@ async def get_extension_policy(
     service: IntegrityService = Depends(get_integrity_service),
 ):
     return await service.get_org_policy(actor, can_edit=_can_edit(actor))
+
+
+@router.put("", response_model=OrgPolicyResponse)
+async def update_extension_policy(
+    body: OrgPolicyUpdate,
+    admin: RequireAdmin,
+    service: IntegrityService = Depends(get_integrity_service),
+):
+    return await service.update_org_policy(body, admin)
 
 
 @router.get("/blocklist", response_model=List[BlocklistEntryResponse])

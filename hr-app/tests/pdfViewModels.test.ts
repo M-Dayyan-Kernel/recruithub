@@ -189,6 +189,10 @@ test('a job with the check off says so, and a stamp never hides recorded evidenc
   const off = buildProctoringModel(null, null, { enabled: false, mode: 'shadow', policy_version: 3 }).extension
   assert.deepEqual(off, { state: 'off', message: 'Extension check was turned off for this job.' })
 
+  // Turned off by the organization's Admin: the report says who.
+  const org = buildProctoringModel(null, null, { enabled: false, mode: 'shadow', policy_version: 3, disabled_by: 'org' }).extension
+  assert.deepEqual(org, { state: 'off', message: 'Extension check was turned off for the organization.' })
+
   // Switched off after scans were already recorded: the evidence still shows.
   const kept = buildProctoringModel(null, clearIntegrity, { enabled: false, mode: 'shadow', policy_version: 3 }).extension
   assert.equal(kept.state, 'clear')

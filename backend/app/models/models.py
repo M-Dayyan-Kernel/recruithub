@@ -312,6 +312,8 @@ class InterviewSession(Base):
     extension_check_enabled: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     extension_check_mode: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     extension_policy_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Why the check was off for this interview: "org" (the Admin's master switch) or "job".
+    extension_check_disabled_by: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     video_proctoring_job_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     video_proctoring_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     video_proctoring_result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -429,11 +431,14 @@ class ExtensionBlocklistEntry(Base):
 
 
 class ExtensionOrgPolicy(Base):
-    """One organization's extension-check state: a version that changes whenever its blocklist
-    does, and the marker that its starting entries were copied in.
+    """One organization's extension-check state: the organization-wide master switch, a version
+    that changes whenever its blocklist or that switch does, and the marker that its starting
+    entries were copied in.
 
-    The on/off switch and mode live on each job; there are no organization-wide defaults for
-    them. `blocklist_seeded_at` records that the default entries were copied in, so an
+    The master switch is the Admin's: while it is off the check does not run for any job and
+    recruiters cannot change a job's own switch or mode. The job's own on/off and mode live on
+    the job and are kept while the master switch is off. There are no other organization-wide
+    defaults. `blocklist_seeded_at` records that the default entries were copied in, so an
     organization that deletes them all is not seeded again. The heuristic rules are platform
     defaults in code, not stored here.
     """
@@ -443,6 +448,7 @@ class ExtensionOrgPolicy(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True
     )
+    extension_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     blocklist_seeded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(

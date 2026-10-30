@@ -46,6 +46,7 @@ from app.schemas.integrity import (
     IntegritySummary,
     IntegrityTimelineEntry,
     OrgPolicyResponse,
+    OrgPolicyUpdate,
     PolicyRules,
     PublicBlocklistItem,
     RestoreDefaultsResult,
@@ -164,7 +165,8 @@ def _note_for(flagged: list[IntegrityFlaggedExtension]) -> str | None:
 
 @dataclass(frozen=True)
 class InterviewPolicy:
-    """What applies to one interview: its job's switch, its organization's list and version."""
+    """What applies to one interview: its organization's master switch, list and version, and its
+    job's own switch and mode."""
 
     interview: InterviewSession
     job: Job
@@ -176,7 +178,14 @@ class InterviewPolicy:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.job.extension_check_enabled)
+        return self.org.extension_enabled and bool(self.job.extension_check_enabled)
+
+    @property
+    def disabled_by(self) -> str | None:
+        """Why the check is off, when it is: the organization's switch outranks the job's."""
+        if not self.org.extension_enabled:
+            return "org"
+        return None if self.job.extension_check_enabled else "job"
 
     @property
     def mode(self) -> str:
@@ -269,13 +278,17 @@ class IntegrityService:
         ctx.interview.extension_check_enabled = ctx.enabled
         ctx.interview.extension_check_mode = ctx.mode
         ctx.interview.extension_policy_version = ctx.org.version
+        ctx.interview.extension_check_disabled_by = ctx.disabled_by
 
     async def stamp_interview(self, interview: InterviewSession, job: Job) -> None:
         """Stamp an interview as it starts. Joins the caller's transaction (no commit)."""
         org = await self.ensure_defaults(job.tenant_id)
-        interview.extension_check_enabled = bool(job.extension_check_enabled)
-        interview.extension_check_mode = job.extension_check_mode or DEFAULT_MODE
-        interview.extension_policy_version = org.version
+        ctx = InterviewPolicy(interview=interview, job=job, org=org)
+        self._stamp(ctx)
+
+    async def org_enabled(self, tenant_id: uuid.UUID) -> bool:
+        """Whether the organization's master switch is on (it is, until an Admin turns it off)."""
+        return (await self.ensure_defaults(tenant_id)).extension_enabled
 
     async def policy_for_interview(self, token: str) -> IntegrityPolicyResponse:
         ctx = await self._resolve(token)
@@ -380,6 +393,7 @@ class IntegrityService:
         active, total = await self._repo.count_blocklist(actor.tenant_id)
         entries = await self._repo.list_blocklist(actor.tenant_id)
         return OrgPolicyResponse(
+            enabled=policy.extension_enabled,
             version=policy.version,
             entry_count=total,
             active_count=active,
@@ -388,6 +402,25 @@ class IntegrityService:
             can_edit=can_edit,
             updated_at=policy.updated_at or _now(),
         )
+
+    async def update_org_policy(self, body: OrgPolicyUpdate, admin: User) -> OrgPolicyResponse:
+        policy = await self._locked_policy(admin.tenant_id)
+        if body.enabled is not None and body.enabled != policy.extension_enabled:
+            before = policy.extension_enabled
+            policy.extension_enabled = body.enabled
+            # The check candidates get changes with this switch, so the version moves with it.
+            policy.version += 1
+            policy.updated_by_user_id = admin.id
+            await self._audit.log_field_changes(
+                actor=admin,
+                action="settings.extension_policy_updated",
+                entity_type="settings",
+                entity_id=None,
+                subject_label="AI extension check",
+                changes={"extension_enabled": (before, body.enabled)},
+            )
+        await self._session.commit()
+        return await self.get_org_policy(admin, can_edit=True)
 
     async def list_blocklist(self, tenant_id: uuid.UUID) -> list[ExtensionBlocklistEntry]:
         await self.ensure_defaults(tenant_id)

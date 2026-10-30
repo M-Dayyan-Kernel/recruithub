@@ -987,13 +987,14 @@ VITE_API_URL=http://localhost:8080
 
 ### Organization: AI-extension check
 
-Each organization owns one blocklist. Admins edit; HR can read all of
+Each organization owns one blocklist and one master switch. Admins edit; HR can read all of
 it. A cross-organization id is a 404. Every change bumps the organization's policy `version`
 and is audited (`settings.extension_*`) with who, old and new.
 
 | Method | Path | Who | Description |
 |---|---|---|---|
-| GET | `/api/extension-policy` | Admin, HR | `version`, entry counts and the 200-entry cap, how many starting entries are present, `can_edit` |
+| GET | `/api/extension-policy` | Admin, HR | `enabled` (the master switch), `version`, entry counts and the 200-entry cap, how many starting entries are present, `can_edit` |
+| PUT | `/api/extension-policy` | Admin | Body `{enabled}`: turn the check on or off for the whole organization. Bumps `version` and is audited (`settings.extension_policy_updated`, field `extension_enabled`). |
 | GET | `/api/extension-policy/blocklist` | Admin, HR | The organization's entries (`origin` is `default` or `custom`) |
 | POST | `/api/extension-policy/blocklist` | Admin | Add an entry (`extension_id` is the 32-letter Chrome ID; 409 on a duplicate or a full list) |
 | PATCH | `/api/extension-policy/blocklist/{id}` | Admin | Edit name, reason (up to 500), category, listing URL or status. The id cannot change (422). |
@@ -1007,7 +1008,9 @@ and is audited (`settings.extension_*`) with who, old and new.
 The per-job switch is not a separate route: `extension_check_enabled` (bool) and
 `extension_check_mode` (`shadow` or `enforce`) are fields of `POST /api/jobs` and
 `PATCH /api/jobs/{id}` (Admin or HR) and of the job response. A new job that does not send them
-starts with the check on, in `shadow` mode.
+starts with the check on, in `shadow` mode. While the organization's master switch is off, a
+request that sets either field to something other than the job's current value (or, on create,
+other than on/shadow) is refused with 403 and the message that an Admin turned the check off.
 
 The public interview routes keep their paths. `GET /api/interview/{token}/integrity-policy`
 returns `enabled: false` with an empty list when the job has the check off. `POST
@@ -1017,6 +1020,6 @@ checked").
 
 `GET /api/candidates/{id}/report` carries an optional `integrity` object (scan count, latest
 outcome, `latest_error_code`, flagged extensions with reasons, check timeline) and an
-`extension_check` object (`enabled`, `mode`, `policy_version` the interview ran under; `enabled`
-is null for interviews that predate it). It is evidence only and is never an input to the
+`extension_check` object (`enabled`, `mode`, `policy_version` the interview ran under, and `disabled_by`, `org` or `job`,
+when it was off; `enabled` is null for interviews that predate it). It is evidence only and is never an input to the
 interview score.

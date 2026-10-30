@@ -6,11 +6,8 @@ import type { Job } from '@/types/api'
 import type { ExtensionPolicyMode } from '@/types/integrity'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { VoiceScreeningSwitch } from '@/components/screening/VoiceScreeningSwitch'
-
-const MODES: Array<{ id: ExtensionPolicyMode; label: string; hint: string }> = [
-  { id: 'shadow', label: 'Shadow', hint: 'Block listed extensions; only record look-alikes' },
-  { id: 'enforce', label: 'Enforce', hint: 'Also block extensions that clearly look like AI assistants' },
-]
+import { useExtensionOrgEnabled } from '@/components/extensions/useExtensionOrgPolicy'
+import { EXTENSION_MODES, ExtensionOrgOffHelp } from '@/components/job/extensionCheckCopy'
 
 interface Change {
   enabled?: boolean
@@ -25,11 +22,13 @@ function weakens(change: Change, current: { enabled: boolean; mode: ExtensionPol
 
 /**
  * The job's AI-extension check: on or off, and which mode. Admins and HR can both change it
- * (the organization's blocklist stays Admin-only). Each change is audited with who and the old
- * and new value; weakening asks for confirmation.
+ * (the organization's blocklist stays Admin-only) while the organization's master switch is on.
+ * When an Admin has turned that off, the controls are greyed out and a "?" explains why. Each
+ * change is audited with who and the old and new value; weakening asks for confirmation.
  */
 export function ExtensionCheckToggle({ job }: { job: Job }) {
   const queryClient = useQueryClient()
+  const orgEnabled = useExtensionOrgEnabled()
   const enabled = job.extension_check_enabled !== false
   const mode: ExtensionPolicyMode = job.extension_check_mode === 'enforce' ? 'enforce' : 'shadow'
   const [pending, setPending] = useState<Change | null>(null)
@@ -58,35 +57,42 @@ export function ExtensionCheckToggle({ job }: { job: Job }) {
   }
 
   const turningOff = pending?.enabled === false
+  const locked = !orgEnabled
 
   return (
     <>
       <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
-        <VoiceScreeningSwitch
-          label="Extension check"
-          checked={enabled}
-          disabled={save.isPending || pending !== null}
-          onChange={(next) => request({ enabled: next })}
-        />
-        {enabled && (
-          <label className="inline-flex items-center gap-2 text-xs text-slate-600 sm:text-sm">
-            <span className="sr-only">Extension check mode</span>
-            <select
-              aria-label="Extension check mode"
-              value={mode}
-              disabled={save.isPending || pending !== null}
-              onChange={(e) => request({ mode: e.target.value as ExtensionPolicyMode })}
-              title={MODES.find((m) => m.id === mode)?.hint}
-              className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 sm:text-sm"
-            >
-              {MODES.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        <span
+          className="inline-flex flex-wrap items-center gap-x-3 gap-y-1"
+          title={locked ? 'Turned off by your organization' : undefined}
+        >
+          <VoiceScreeningSwitch
+            label="Extension check"
+            checked={enabled}
+            disabled={locked || save.isPending || pending !== null}
+            onChange={(next) => request({ enabled: next })}
+          />
+          {enabled && (
+            <label className="inline-flex items-center gap-2 text-xs text-slate-600 sm:text-sm">
+              <span className="sr-only">Extension check mode</span>
+              <select
+                aria-label="Extension check mode"
+                value={mode}
+                disabled={locked || save.isPending || pending !== null}
+                onChange={(e) => request({ mode: e.target.value as ExtensionPolicyMode })}
+                title={EXTENSION_MODES.find((m) => m.id === mode)?.summary}
+                className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 sm:text-sm"
+              >
+                {EXTENSION_MODES.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </span>
+        {locked && <ExtensionOrgOffHelp />}
       </span>
 
       {pending && (

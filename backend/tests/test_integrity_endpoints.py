@@ -19,11 +19,20 @@ def _user(role: str) -> User:
     )
 
 
+def _org_policy(enabled: bool) -> dict:
+    return {
+        "enabled": enabled, "version": 2, "entry_count": 10, "active_count": 10, "entry_cap": 200,
+        "defaults_present": 10, "defaults_total": 10, "can_edit": True,
+        "updated_at": "2026-10-30T10:00:00Z",
+    }
+
+
 class _FakeIntegrity:
     def __init__(self):
         self.record_scan = AsyncMock(return_value=IntegrityScanAck(outcome="clear"))
         self.list_blocklist = AsyncMock(return_value=[])
         self.delete_entry = AsyncMock()
+        self.update_org_policy = AsyncMock(return_value=_org_policy(False))
 
 
 class IntegrityEndpointTests(unittest.TestCase):
@@ -63,10 +72,23 @@ class IntegrityEndpointTests(unittest.TestCase):
             kwargs = {"json": body} if body is not None else {}
             self.assertEqual(getattr(client, method)(path, **kwargs).status_code, 403, f"{method} {path}")
 
-    def test_there_is_no_org_wide_defaults_route(self):
-        # The on/off switch and mode are per job; an organization has no defaults to edit.
-        client = self._client("admin", _FakeIntegrity())
-        self.assertEqual(client.put("/api/extension-policy", json={"default_mode": "enforce"}).status_code, 405)
+    def test_only_an_admin_can_change_the_org_switch(self):
+        fake = _FakeIntegrity()
+        self.assertEqual(
+            self._client("hr", fake).put("/api/extension-policy", json={"enabled": False}).status_code, 403
+        )
+        fake.update_org_policy.assert_not_awaited()
+        admin = self._client("admin", fake).put("/api/extension-policy", json={"enabled": False})
+        self.assertEqual(admin.status_code, 200)
+        self.assertFalse(admin.json()["enabled"])
+
+    def test_there_are_no_org_wide_mode_or_default_settings(self):
+        # The mode is per job; the only organization-wide setting is the master switch.
+        fake = _FakeIntegrity()
+        client = self._client("admin", fake)
+        client.put("/api/extension-policy", json={"default_mode": "enforce"})
+        body = fake.update_org_policy.await_args.args[0]
+        self.assertFalse(hasattr(body, "default_mode"))
 
     def test_admin_may_write_and_hr_cannot_reach_it_unauthenticated(self):
         fake = _FakeIntegrity()

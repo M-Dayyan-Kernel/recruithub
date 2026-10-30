@@ -107,19 +107,26 @@ Everything else still follows the PRD:
 The extension gate is the first pre-flight step, and only when the interview's job has it on.
 
 - **Who controls what.** An organization has one blocklist, edited by its Admins (HR sees it
-  read-only) on the *AI extension check* page. Each job has its own switch and mode, edited by
-  Admins and HR next to *Voice screening*. The Super Admin has no part in either.
+  read-only) on the *AI extension check* page, where an Admin also has the organization-wide
+  master switch. Each job has its own switch and mode, edited by Admins and HR in the *AI
+  extension check* section of the create-job form and next to *Voice screening* on the job page.
+  The Super Admin has no part in either.
+- **Master switch.** While an Admin has it off, the check runs for no job and nobody can change a
+  job's own switch or mode: the controls are greyed out with a "?" saying an Admin turned it off,
+  and the server refuses the change. Each job keeps its own settings and they apply again when the
+  switch is turned back on. It is on for every organization until an Admin turns it off.
 - **Modes.** *Shadow* blocks extensions on the blocklist and only records ones that look like
   AI assistants. *Enforce* also blocks the strong look-alikes. *Off* is no check at all. Look-alike
   detection is always on while a job's check is on; there is no switch for it.
 - **Starting point.** A new organization gets a copy of the ten starting entries; later changes to
   the defaults in code do not reach existing organizations. Restoring the starting list adds back
   what is missing and leaves custom entries and edited wording alone. There are no
-  organization-wide defaults for the switch or the mode: a new job starts with the check on, in
-  Shadow, and the recruiter can turn it off on the create form or change either on the job page.
+  organization-wide defaults for a job's switch or mode: a new job starts with the check on, in
+  Shadow, and the recruiter can change either on the create form or on the job page.
 - **Off.** The candidate app asks for the policy before it renders the steps. With the check off
   there is no extension step, nothing is scanned or posted, and the server ignores scans for such a
-  job. The report says "Extension check was turned off for this job".
+  job. The report says "Extension check was turned off for this job", or "…for the organization"
+  when the master switch was the reason.
 - **Policy cannot be loaded.** The page retries (three attempts, 5 s timeout each, waiting 500 ms
   then 1.5 s, no retry on a 4xx). If it still fails, the candidate is let in rather than stranded,
   and a scan with `error_code = policy_unavailable` is recorded. The report shows it as "could not

@@ -35,6 +35,8 @@ export type ExtensionBlocklistUpdate = Partial<Omit<ExtensionBlocklistCreate, 'e
 
 /** An organization's extension-check state. Admins edit the list; HR sees `can_edit: false`. */
 export interface ExtensionOrgPolicy {
+  /** The Admin's master switch. Off: no job is checked and a job's own switch is locked. */
+  enabled: boolean
   version: number
   entry_count: number
   active_count: number
@@ -43,6 +45,10 @@ export interface ExtensionOrgPolicy {
   defaults_total: number
   can_edit: boolean
   updated_at: string
+}
+
+export interface ExtensionOrgPolicyUpdate {
+  enabled?: boolean
 }
 
 export interface RestoreDefaultsResult {
@@ -56,6 +62,8 @@ export interface ExtensionCheckStamp {
   enabled: boolean | null
   mode: ExtensionPolicyMode | null
   policy_version: number | null
+  /** When `enabled` is false: the organization's master switch or the job's own. */
+  disabled_by?: 'org' | 'job' | null
 }
 
 // ── per-interview evidence (HR report) ──────────────────────────────────────

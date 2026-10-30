@@ -333,3 +333,9 @@ test('an organization\'s extension settings change names the setting, not a code
   assert.equal(v.event, 'Look-alike detection changed')
   assert.ok(visible(v).includes('On') && visible(v).includes('Off'))
 })
+
+test('the organization-wide extension switch reads as On and Off', () => {
+  const v = describeActivity(row({ action: 'settings.extension_policy_updated', entity_type: 'settings', feature: 'extension_enabled', before_state: { extension_enabled: true }, after_state: { extension_enabled: false } }))
+  assert.equal(v.event, 'AI extension check (organization) changed')
+  assert.ok(visible(v).includes('On') && visible(v).includes('Off'))
+})

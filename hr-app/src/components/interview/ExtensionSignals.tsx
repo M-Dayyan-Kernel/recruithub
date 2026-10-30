@@ -8,7 +8,7 @@ import type {
 import { Badge, Card, type Tone } from '@/components/ui/Surface'
 import { describeSignal } from '@/lib/integritySignals'
 import {
-  EXTENSION_CHECK_OFF_MESSAGE,
+  extensionCheckOffMessage,
   POLICY_UNAVAILABLE_MESSAGE,
   extensionCheckState,
 } from '@/lib/extensionCheckState'
@@ -101,8 +101,9 @@ export default function ExtensionSignals({
   const state = extensionCheckState(summary, stamp)
 
   // Nothing on record for an interview that predates the check: say nothing, as before.
-  if (state === 'not_recorded' || !summary) return null
+  if (state === 'not_recorded') return null
 
+  // Off means no scans, so there is no summary to show; the card says so instead.
   if (state === 'off') {
     return (
       <Card className="p-5">
@@ -111,11 +112,13 @@ export default function ExtensionSignals({
           <h3 className="text-[15px] font-semibold text-ink">Browser extension checks</h3>
           <Badge tone="neutral">Off</Badge>
         </div>
-        <p className="text-[13px] text-ink-muted">{EXTENSION_CHECK_OFF_MESSAGE}</p>
+        <p className="text-[13px] text-ink-muted">{extensionCheckOffMessage(stamp)}</p>
       </Card>
     )
   }
 
+  // `checked` and `unavailable` both come from recorded scans, so this is only for the types.
+  if (!summary) return null
   const { flagged_extensions: flagged } = summary
 
   return (

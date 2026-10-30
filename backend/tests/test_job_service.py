@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from pydantic import ValidationError as PydanticValidationError
 
-from app.exceptions import ConflictError, ValidationError
+from app.exceptions import AuthorizationError, ConflictError, ValidationError
 from app.models.models import User
 from app.schemas.schemas import (
     INTERVIEW_SCORE_MAX,
@@ -124,17 +124,20 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
 class ExtensionCheckDefaultsTests(unittest.IsolatedAsyncioTestCase):
     """A new job starts with the extension check on, in shadow mode."""
 
-    def _service(self):
+    def _service(self, org_enabled=True):
         job_repo = MagicMock()
         job_repo.flush = AsyncMock()
         job_repo.refresh = AsyncMock()
         job_repo.add.side_effect = lambda job: job
+        self.integrity = MagicMock()
+        self.integrity.org_enabled = AsyncMock(return_value=org_enabled)
         return JobService(
             AsyncMock(),
             job_repo=job_repo,
             audit_service=AsyncMock(),
             expected_answers=AsyncMock(),
             integrations_service=AsyncMock(),
+            integrity_service=self.integrity,
         )
 
     def _actor(self):
@@ -158,6 +161,56 @@ class ExtensionCheckDefaultsTests(unittest.IsolatedAsyncioTestCase):
             self._actor(), self._payload(extension_check_enabled=False)
         )
         self.assertEqual((job.extension_check_enabled, job.extension_check_mode), (False, "shadow"))
+
+    async def test_starting_values_need_no_lookup_even_while_the_org_switch_is_off(self):
+        # What the greyed-out create form sends: nothing different from the defaults.
+        job = await self._service(org_enabled=False).create(self._actor(), self._payload())
+        self.assertEqual((job.extension_check_enabled, job.extension_check_mode), (True, "shadow"))
+        self.integrity.org_enabled.assert_not_awaited()
+
+    async def test_a_different_choice_is_refused_while_the_org_switch_is_off(self):
+        service = self._service(org_enabled=False)
+        for extra in ({"extension_check_enabled": False}, {"extension_check_mode": "enforce"}):
+            with self.assertRaises(AuthorizationError):
+                await service.create(self._actor(), self._payload(**extra))
+
+    async def test_a_different_choice_is_kept_while_the_org_switch_is_on(self):
+        job = await self._service(org_enabled=True).create(
+            self._actor(), self._payload(extension_check_mode="enforce")
+        )
+        self.assertEqual(job.extension_check_mode, "enforce")
+
+    def _stored_job(self, **over):
+        job = MagicMock()
+        job.extension_check_enabled = True
+        job.extension_check_mode = "shadow"
+        job.work_mode = "remote"
+        job.work_location = None
+        job.screening_questions = []
+        job.title = "Backend Engineer"
+        for key, value in over.items():
+            setattr(job, key, value)
+        return job
+
+    async def test_the_job_switch_cannot_be_changed_while_the_org_switch_is_off(self):
+        service = self._service(org_enabled=False)
+        service._jobs.get_for_tenant = AsyncMock(return_value=self._stored_job())
+        for update in (JobUpdate(extension_check_enabled=False), JobUpdate(extension_check_mode="enforce")):
+            with self.assertRaises(AuthorizationError):
+                await service.update(self._actor(), uuid.uuid4(), update)
+
+    async def test_resending_the_current_value_is_not_a_change(self):
+        service = self._service(org_enabled=False)
+        service._jobs.get_for_tenant = AsyncMock(return_value=self._stored_job())
+        await service.update(self._actor(), uuid.uuid4(), JobUpdate(extension_check_enabled=True))
+        self.integrity.org_enabled.assert_not_awaited()
+
+    async def test_the_job_switch_changes_while_the_org_switch_is_on(self):
+        service = self._service(org_enabled=True)
+        job = self._stored_job()
+        service._jobs.get_for_tenant = AsyncMock(return_value=job)
+        await service.update(self._actor(), uuid.uuid4(), JobUpdate(extension_check_enabled=False))
+        self.assertFalse(job.extension_check_enabled)
 
     def test_the_mode_must_be_shadow_or_enforce(self):
         with self.assertRaises(PydanticValidationError):

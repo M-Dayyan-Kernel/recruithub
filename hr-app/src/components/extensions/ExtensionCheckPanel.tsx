@@ -22,6 +22,7 @@ import type {
   ExtensionBlocklistEntry,
   ExtensionBlocklistUpdate,
   ExtensionOrgPolicy,
+  ExtensionOrgPolicyUpdate,
   ObservedExtension,
   ObservedExtensionPage,
   ObservedStatus,
@@ -41,9 +42,10 @@ import Modal from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { CharCount, FieldError, RequiredMark } from '@/components/FieldError'
 import { BackendError } from '@/components/BackendError'
+import Toggle from '@/components/ui/Toggle'
+import { EXTENSION_POLICY_KEY as POLICY_KEY } from '@/components/extensions/useExtensionOrgPolicy'
 
 const BASE = '/api/extension-policy'
-const POLICY_KEY = ['extension-policy']
 const BLOCKLIST_KEY = ['extension-blocklist']
 const OBSERVED_KEY = ['extension-observed']
 const OBSERVED_PAGE_SIZE = 10
@@ -775,6 +777,63 @@ function SeenView({
   )
 }
 
+// ── Master switch ────────────────────────────────────────────────────────────
+
+/**
+ * The organization-wide switch. While it is off the check runs for no job, and recruiters cannot
+ * change a job's own switch or mode (their controls are greyed out with an explanation). A job's
+ * own settings are kept and apply again once this is turned back on. Only an Admin can change it.
+ */
+function MasterSwitch({ policy }: { policy: ExtensionOrgPolicy }) {
+  const queryClient = useQueryClient()
+  const [confirmingOff, setConfirmingOff] = useState(false)
+  const readOnly = !policy.can_edit
+
+  const save = useMutation({
+    mutationFn: (body: ExtensionOrgPolicyUpdate) =>
+      api.put(BASE, body) as unknown as Promise<ExtensionOrgPolicy>,
+    onSuccess: (_, body) => {
+      void queryClient.invalidateQueries({ queryKey: POLICY_KEY })
+      setConfirmingOff(false)
+      toast.success(body.enabled ? 'AI extension check turned on' : 'AI extension check turned off')
+    },
+    onError: (err) => {
+      setConfirmingOff(false)
+      toast.error(errorMessage(err, 'Could not change the AI extension check'))
+    },
+  })
+
+  return (
+    <Card className="px-5 py-4">
+      <Toggle
+        label="AI extension check for your organization"
+        description={
+          policy.enabled
+            ? 'On. Each job can turn its own check on or off and choose Shadow or Enforce. Turn this off to stop the check for every job.'
+            : 'Off. No job is checked, and recruiters cannot change a job’s extension check until this is turned back on. Each job keeps its own setting.'
+        }
+        checked={policy.enabled}
+        disabled={readOnly || save.isPending}
+        onChange={(next) => (next ? save.mutate({ enabled: true }) : setConfirmingOff(true))}
+      />
+      {confirmingOff && (
+        <ConfirmDialog
+          open
+          tone="warning"
+          title="Turn off the AI extension check?"
+          message={
+            'Candidates will not be checked for AI-assistant extensions on any job in your organization, and nothing will be recorded.\nRecruiters will not be able to change a job’s extension check until you turn this back on. Each job keeps its own setting.'
+          }
+          confirmLabel="Turn off"
+          busy={save.isPending}
+          onConfirm={() => save.mutate({ enabled: false })}
+          onCancel={() => setConfirmingOff(false)}
+        />
+      )}
+    </Card>
+  )
+}
+
 // ── Starting list ────────────────────────────────────────────────────────────
 
 /**
@@ -936,6 +995,8 @@ export default function ExtensionCheckPanel() {
           </button>
         )}
       </div>
+
+      <MasterSwitch policy={policy.data} />
 
       <ViewTabs
         view={view}
