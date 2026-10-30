@@ -30,10 +30,14 @@ export function RecoveryPrompts({
   prompts,
   onFullscreen,
   onScreenShare,
+  onMicrophone,
+  onCamera,
 }: {
   prompts: RecoveryPrompt[]
   onFullscreen: () => void
   onScreenShare: () => void
+  onMicrophone: () => void
+  onCamera: () => void
 }) {
   if (prompts.length === 0) return null
   const prompt = prompts[0]
@@ -43,7 +47,11 @@ export function RecoveryPrompts({
       ? onFullscreen
       : prompt.signal_type === 'SCREEN_SHARE_INTERRUPTED'
         ? onScreenShare
-        : null
+        : prompt.signal_type === 'MICROPHONE_INTERRUPTED'
+          ? onMicrophone
+          : prompt.signal_type === 'CAMERA_INTERRUPTED'
+            ? onCamera
+            : null
 
   return (
     <Sheet>

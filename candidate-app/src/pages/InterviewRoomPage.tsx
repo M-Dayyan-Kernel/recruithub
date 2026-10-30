@@ -311,6 +311,10 @@ function InterviewRoom({ token }: { token: string }) {
             prompts={proctor.snapshot.prompts}
             onFullscreen={() => void proctor.recoverFullscreen()}
             onScreenShare={() => void proctor.recoverScreenShare()}
+            // The overlay covers the action bar, so a muted mic or a stopped camera
+            // has to be recoverable from the prompt itself.
+            onMicrophone={() => void localParticipant?.setMicrophoneEnabled(true)}
+            onCamera={() => void localParticipant?.setCameraEnabled(true)}
           />
           {proctor.warning && proctor.snapshot.prompts.length === 0 && (
             <WarningNotice
