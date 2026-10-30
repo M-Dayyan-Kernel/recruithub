@@ -50,6 +50,8 @@ interface CreateJobPayload {
   screening_questions?: ScreeningQuestion[]
   interview_questions?: InterviewQuestion[]
   voice_screening_enabled?: boolean
+  /** The AI-extension check; the mode starts as shadow and is changed on the job page. */
+  extension_check_enabled?: boolean
 }
 
 interface FieldErrors {
@@ -139,6 +141,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
   const [extraQuestions, setExtraQuestions] = useState<ScreeningQuestion[]>([])
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([])
   const [voiceScreeningEnabled, setVoiceScreeningEnabled] = useState(true)
+  const [extensionCheckEnabled, setExtensionCheckEnabled] = useState(true)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -300,6 +303,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
       screening_questions: extraQuestions.map((q) => ({ ...q, question: q.question.trim() })),
       interview_questions: interviewQuestions,
       voice_screening_enabled: voiceScreeningEnabled,
+      extension_check_enabled: extensionCheckEnabled,
     })
   }
 
@@ -612,6 +616,14 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
             checked={voiceScreeningEnabled}
             disabled={isBusy}
             onChange={setVoiceScreeningEnabled}
+            className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5"
+          />
+
+          <VoiceScreeningSwitch
+            label="AI extension check"
+            checked={extensionCheckEnabled}
+            disabled={isBusy}
+            onChange={setExtensionCheckEnabled}
             className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5"
           />
 

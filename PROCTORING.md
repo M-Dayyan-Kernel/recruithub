@@ -111,11 +111,12 @@ The extension gate is the first pre-flight step, and only when the interview's j
   Admins and HR next to *Voice screening*. The Super Admin has no part in either.
 - **Modes.** *Shadow* blocks extensions on the blocklist and only records ones that look like
   AI assistants. *Enforce* also blocks the strong look-alikes. *Off* is no check at all. Look-alike
-  detection can also be turned off for the whole organization, which leaves only the blocklist.
+  detection is always on while a job's check is on; there is no switch for it.
 - **Starting point.** A new organization gets a copy of the ten starting entries; later changes to
   the defaults in code do not reach existing organizations. Restoring the starting list adds back
-  what is missing and leaves custom entries and edited wording alone. A new job starts from the
-  organization's defaults (on, Shadow unless an Admin changed them).
+  what is missing and leaves custom entries and edited wording alone. There are no
+  organization-wide defaults for the switch or the mode: a new job starts with the check on, in
+  Shadow, and the recruiter can turn it off on the create form or change either on the job page.
 - **Off.** The candidate app asks for the policy before it renders the steps. With the check off
   there is no extension step, nothing is scanned or posted, and the server ignores scans for such a
   job. The report says "Extension check was turned off for this job".

@@ -6,7 +6,7 @@ policy for the interview's job and organization), records what it reports, and s
 for HR. It never receives a candidate's full extension inventory, only the extensions that were
 flagged or blocked.
 
-Who controls what: an organization's Admins edit its blocklist and defaults; HR can view them.
+Who controls what: an organization's Admins edit its blocklist; HR can view it.
 Each job has its own on/off switch and mode (Admins and HR). The heuristic rules are the
 platform's own, in code, and an organization can only switch them off.
 """
@@ -46,13 +46,12 @@ from app.schemas.integrity import (
     IntegritySummary,
     IntegrityTimelineEntry,
     OrgPolicyResponse,
-    OrgPolicyUpdate,
     PolicyRules,
     PublicBlocklistItem,
     RestoreDefaultsResult,
 )
 from app.services.audit_service import AuditService
-from app.services.integrity_defaults import DEFAULT_MODE, SEED_BLOCKLIST, rules_for
+from app.services.integrity_defaults import DEFAULT_MODE, SEED_BLOCKLIST, default_rules, neutral_rules
 from app.services.observed_extension_service import ObservedExtensionService, listing_url
 
 logger = logging.getLogger(__name__)
@@ -288,7 +287,7 @@ class IntegrityService:
                 version=ctx.org.version,
                 mode=ctx.mode,  # type: ignore[arg-type]
                 blocklist=[],
-                rules=PolicyRules.model_validate(rules_for(False)),
+                rules=PolicyRules.model_validate(neutral_rules()),
             )
         entries = await self._repo.list_blocklist(ctx.tenant_id, active_only=True)
         return IntegrityPolicyResponse(
@@ -305,7 +304,7 @@ class IntegrityService:
                 )
                 for e in entries
             ],
-            rules=PolicyRules.model_validate(rules_for(ctx.org.heuristics_enabled)),
+            rules=PolicyRules.model_validate(default_rules()),
         )
 
     async def record_scan(self, token: str, body: IntegrityScanIn) -> IntegrityScanAck:
@@ -381,9 +380,6 @@ class IntegrityService:
         active, total = await self._repo.count_blocklist(actor.tenant_id)
         entries = await self._repo.list_blocklist(actor.tenant_id)
         return OrgPolicyResponse(
-            default_enabled=policy.default_enabled,
-            default_mode=policy.default_mode,  # type: ignore[arg-type]
-            heuristics_enabled=policy.heuristics_enabled,
             version=policy.version,
             entry_count=total,
             active_count=active,
@@ -392,28 +388,6 @@ class IntegrityService:
             can_edit=can_edit,
             updated_at=policy.updated_at or _now(),
         )
-
-    async def update_org_policy(self, body: OrgPolicyUpdate, admin: User) -> OrgPolicyResponse:
-        policy = await self._locked_policy(admin.tenant_id)
-        changes: dict[str, tuple[Any, Any]] = {}
-        for field in ("default_enabled", "default_mode", "heuristics_enabled"):
-            value = getattr(body, field)
-            if value is not None and value != getattr(policy, field):
-                changes[field] = (getattr(policy, field), value)
-                setattr(policy, field, value)
-        if changes:
-            policy.version += 1
-            policy.updated_by_user_id = admin.id
-            await self._audit.log_field_changes(
-                actor=admin,
-                action="settings.extension_policy_updated",
-                entity_type="settings",
-                entity_id=None,
-                subject_label="AI extension check",
-                changes=changes,
-            )
-        await self._session.commit()
-        return await self.get_org_policy(admin, can_edit=True)
 
     async def list_blocklist(self, tenant_id: uuid.UUID) -> list[ExtensionBlocklistEntry]:
         await self.ensure_defaults(tenant_id)

@@ -102,17 +102,17 @@ DEFAULT_RULES: dict[str, Any] = {
 _STORE = "https://chromewebstore.google.com/detail/"
 
 
-def rules_for(heuristics_enabled: bool) -> dict[str, Any]:
-    """The rules sent to the extension for an organization.
+def default_rules() -> dict[str, Any]:
+    """The rules sent to the extension: look-alike detection is always on."""
+    return copy.deepcopy(DEFAULT_RULES)
 
-    With heuristics off, the keyword and vendor-host lists are empty: the extension scores every
-    extension's intent at zero, so nothing is flagged as "looks like an AI assistant", while
-    exact-ID matches against the blocklist still work.
-    """
+
+def neutral_rules() -> dict[str, Any]:
+    """Rules that flag nothing heuristically, for a job whose check is off. The keyword and
+    vendor-host lists are empty, so the extension scores every extension's intent at zero."""
     rules = copy.deepcopy(DEFAULT_RULES)
-    if not heuristics_enabled:
-        rules["intent"]["keywords"] = []
-        rules["intent"]["vendor_hosts"] = []
+    rules["intent"]["keywords"] = []
+    rules["intent"]["vendor_hosts"] = []
     return rules
 
 

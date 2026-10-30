@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Ban,
   Check,
-  ChevronDown,
   ExternalLink,
   Eye,
   Inbox,
@@ -23,8 +22,6 @@ import type {
   ExtensionBlocklistEntry,
   ExtensionBlocklistUpdate,
   ExtensionOrgPolicy,
-  ExtensionOrgPolicyUpdate,
-  ExtensionPolicyMode,
   ObservedExtension,
   ObservedExtensionPage,
   ObservedStatus,
@@ -41,7 +38,6 @@ import {
   INPUT,
 } from '@/components/ui/Surface'
 import Modal from '@/components/ui/Modal'
-import Toggle from '@/components/ui/Toggle'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { CharCount, FieldError, RequiredMark } from '@/components/FieldError'
 import { BackendError } from '@/components/BackendError'
@@ -56,19 +52,6 @@ const REASON_MAX = 500
 const CATEGORY_LABEL: Record<BlocklistCategory, string> = {
   ai_assistant: 'AI assistant',
   interview_assistant: 'Interview assistant',
-}
-
-export const MODE_COPY: Record<ExtensionPolicyMode, { title: string; summary: string; body: string }> = {
-  shadow: {
-    title: 'Shadow',
-    summary: 'Only extensions on the blocklist are blocked. Others are recorded for HR.',
-    body: 'Extensions on the blocklist are blocked. Other suspicious extensions are only recorded for HR and never stop a candidate. Use this while you gather data.',
-  },
-  enforce: {
-    title: 'Enforce',
-    summary: 'The blocklist is blocked, and so are extensions that clearly look like AI assistants.',
-    body: 'Extensions on the blocklist are blocked, and so are other extensions that clearly look like AI assistants that can read the page or capture audio.',
-  },
 }
 
 type View = 'seen' | 'blocklist'
@@ -792,29 +775,17 @@ function SeenView({
   )
 }
 
-// ── Organization defaults ────────────────────────────────────────────────────
+// ── Starting list ────────────────────────────────────────────────────────────
 
 /**
- * What new jobs start with, the look-alike switch that applies to every job, and the way
- * back to the starting list. Each control saves as it is changed; there is no form to submit.
- * HR sees the same card with the controls off.
+ * The way back to the starting list, and how full the list is. There are no organization-wide
+ * switches: the check's on/off and mode are set on each job, and look-alike detection is always on.
+ * HR sees the same card without the button.
  */
-function OrgDefaults({ policy }: { policy: ExtensionOrgPolicy }) {
+function StartingList({ policy }: { policy: ExtensionOrgPolicy }) {
   const queryClient = useQueryClient()
-  const [open, setOpen] = useState(false)
-  const [confirm, setConfirm] = useState<'heuristics' | 'restore' | null>(null)
+  const [confirming, setConfirming] = useState(false)
   const readOnly = !policy.can_edit
-
-  const save = useMutation({
-    mutationFn: (body: ExtensionOrgPolicyUpdate) =>
-      api.put(BASE, body) as unknown as Promise<ExtensionOrgPolicy>,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: POLICY_KEY })
-      setConfirm(null)
-      toast.success('Saved')
-    },
-    onError: (err) => toast.error(errorMessage(err, 'Could not save the change')),
-  })
 
   const restore = useMutation({
     mutationFn: () => api.post(`${BASE}/restore-defaults`, {}) as unknown as Promise<RestoreDefaultsResult>,
@@ -822,7 +793,7 @@ function OrgDefaults({ policy }: { policy: ExtensionOrgPolicy }) {
       void queryClient.invalidateQueries({ queryKey: BLOCKLIST_KEY })
       void queryClient.invalidateQueries({ queryKey: POLICY_KEY })
       void queryClient.invalidateQueries({ queryKey: OBSERVED_KEY })
-      setConfirm(null)
+      setConfirming(false)
       toast.success(
         result.added + result.reset === 0
           ? 'The starting list was already complete'
@@ -835,129 +806,36 @@ function OrgDefaults({ policy }: { policy: ExtensionOrgPolicy }) {
   const missing = policy.defaults_total - policy.defaults_present
 
   return (
-    <Card className="overflow-hidden">
-      {/* The settings stay readable while folded: they decide what a new job does. */}
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls="org-defaults-body"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40"
-      >
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-3 text-ink-muted">
-          <ShieldAlert className="h-4 w-4" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[13px] font-semibold text-ink">Defaults for new jobs</span>
-          <span className="block text-[12px] leading-relaxed text-ink-muted">
-            {policy.default_enabled
-              ? `Check on, ${MODE_COPY[policy.default_mode].title.toLowerCase()} mode. ${MODE_COPY[policy.default_mode].summary}`
-              : 'Check off. Each job can still turn it on.'}
-          </span>
-        </span>
-        <Badge tone="neutral">{policy.default_enabled ? MODE_COPY[policy.default_mode].title : 'Off'}</Badge>
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 text-ink-subtle transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </button>
-
-      {open && (
-        <div id="org-defaults-body" className="space-y-6 border-t border-line px-5 py-5">
-          <div className="space-y-4">
-            <Toggle
-              label="Check new jobs by default"
-              description="A job’s own switch, next to Voice screening on the job page, always wins. Changing this does not touch existing jobs."
-              checked={policy.default_enabled}
-              disabled={readOnly || save.isPending}
-              onChange={(next) => save.mutate({ default_enabled: next })}
-            />
-            <fieldset disabled={readOnly || save.isPending}>
-              <legend className="mb-2 text-[13px] font-semibold text-ink">Default mode</legend>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {(Object.keys(MODE_COPY) as ExtensionPolicyMode[]).map((value) => (
-                  <label
-                    key={value}
-                    className={`rounded-card border p-4 transition-colors ${
-                      policy.default_mode === value
-                        ? 'border-accent bg-accent-soft'
-                        : 'border-line bg-surface hover:bg-surface-2'
-                    } ${readOnly ? 'cursor-default' : 'cursor-pointer'}`}
-                  >
-                    <span className="flex items-center gap-2 text-[14px] font-semibold text-ink">
-                      <input
-                        type="radio"
-                        name="default-mode"
-                        checked={policy.default_mode === value}
-                        onChange={() => save.mutate({ default_mode: value })}
-                      />
-                      {MODE_COPY[value].title}
-                    </span>
-                    <span className="mt-1.5 block text-[12px] leading-relaxed text-ink-muted">
-                      {MODE_COPY[value].body}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          </div>
-
-          <div className="border-t border-line pt-5">
-            <Toggle
-              label="Also flag extensions that look like AI assistants"
-              description="Beyond the blocklist, extensions whose name, description or permissions look like an AI assistant are recorded for HR (and blocked in Enforce mode). Turn off to check the blocklist only. Applies to every job."
-              checked={policy.heuristics_enabled}
-              disabled={readOnly || save.isPending}
-              onChange={(next) =>
-                next ? save.mutate({ heuristics_enabled: true }) : setConfirm('heuristics')
-              }
-            />
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
-            <div className="min-w-0 text-[13px] text-ink-muted">
-              <p className="font-semibold text-ink">Starting list</p>
-              <p className="mt-0.5 leading-relaxed">
-                <Num>{policy.defaults_present}</Num> of <Num>{policy.defaults_total}</Num> starting
-                extensions on your list
-                {missing > 0 ? ', some deleted.' : '.'} Restoring adds back any that are missing and
-                turns back on any you switched off. Your own entries and edits stay as they are.
-              </p>
-            </div>
-            {!readOnly && (
-              <button
-                type="button"
-                className={BTN_GHOST}
-                disabled={restore.isPending}
-                onClick={() => setConfirm('restore')}
-              >
-                <RotateCcw size={14} />
-                Restore starting list
-              </button>
-            )}
-          </div>
-
-          <p className="text-[12px] text-ink-subtle">
-            <Num>{policy.entry_count}</Num> of <Num>{policy.entry_cap}</Num> entries · version{' '}
-            <Num>{policy.version}</Num> · takes effect on the next check
+    <Card className="space-y-3 px-5 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 text-[13px] text-ink-muted">
+          <p className="font-semibold text-ink">Starting list</p>
+          <p className="mt-0.5 leading-relaxed">
+            <Num>{policy.defaults_present}</Num> of <Num>{policy.defaults_total}</Num> starting
+            extensions on your list
+            {missing > 0 ? ', some deleted.' : '.'} Restoring adds back any that are missing and
+            turns back on any you switched off. Your own entries and edits stay as they are.
           </p>
         </div>
-      )}
+        {!readOnly && (
+          <button
+            type="button"
+            className={BTN_GHOST}
+            disabled={restore.isPending}
+            onClick={() => setConfirming(true)}
+          >
+            <RotateCcw size={14} />
+            Restore starting list
+          </button>
+        )}
+      </div>
 
-      {confirm === 'heuristics' && (
-        <ConfirmDialog
-          open
-          tone="warning"
-          title="Stop flagging look-alike extensions?"
-          message={
-            'Only extensions on your blocklist will be checked, for every job in your organization.\nAI assistants that are not on the list will no longer be recorded for HR or blocked.'
-          }
-          confirmLabel="Turn off"
-          busy={save.isPending}
-          onConfirm={() => save.mutate({ heuristics_enabled: false })}
-          onCancel={() => setConfirm(null)}
-        />
-      )}
-      {confirm === 'restore' && (
+      <p className="text-[12px] text-ink-subtle">
+        <Num>{policy.entry_count}</Num> of <Num>{policy.entry_cap}</Num> entries · version{' '}
+        <Num>{policy.version}</Num> · takes effect on the next check
+      </p>
+
+      {confirming && (
         <ConfirmDialog
           open
           title="Restore the starting list?"
@@ -967,7 +845,7 @@ function OrgDefaults({ policy }: { policy: ExtensionOrgPolicy }) {
           confirmLabel="Restore"
           busy={restore.isPending}
           onConfirm={() => restore.mutate()}
-          onCancel={() => setConfirm(null)}
+          onCancel={() => setConfirming(false)}
         />
       )}
     </Card>
@@ -1079,7 +957,7 @@ export default function ExtensionCheckPanel() {
         )}
       </div>
 
-      <OrgDefaults policy={policy.data} />
+      <StartingList policy={policy.data} />
 
       <p className="px-1 text-[12px] leading-relaxed text-ink-subtle">
         Detection runs in the candidate&rsquo;s own browser, so a result is evidence for HR to weigh,

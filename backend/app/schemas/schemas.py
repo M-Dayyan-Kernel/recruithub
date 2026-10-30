@@ -227,9 +227,10 @@ class JobCreate(BaseModel):
     screening_questions: Optional[List[ScreeningQuestion]] = None
     interview_questions: List[InterviewQuestion] = []
     voice_screening_enabled: bool = True
-    # Not sent: the job starts with the organization's defaults (see JobService.create).
-    extension_check_enabled: Optional[bool] = None
-    extension_check_mode: Optional[ExtensionCheckMode] = None
+    # The AI-extension check starts on, in shadow mode; the recruiter can turn it off here and
+    # change the mode later on the job.
+    extension_check_enabled: bool = True
+    extension_check_mode: ExtensionCheckMode = "shadow"
     status: str = "active"
 
     @field_validator("experience_min", "experience_max", mode="before")
