@@ -365,15 +365,15 @@ export const RECOVERY_PROMPTS: Record<string, RecoveryPrompt> = {
     signal_type: 'CAMERA_INTERRUPTED',
     title: 'Camera interrupted',
     message:
-      'Your camera has stopped. Please reconnect your camera to continue your interview.',
-    action: 'Reconnect camera',
+      'Your camera is off or has stopped. Please turn it back on to continue your interview.',
+    action: 'Turn camera on',
   },
   MICROPHONE_INTERRUPTED: {
     signal_type: 'MICROPHONE_INTERRUPTED',
     title: 'Microphone interrupted',
     message:
-      'Your microphone has stopped. Please reconnect your microphone to continue your interview.',
-    action: 'Reconnect microphone',
+      'Your microphone is muted or has stopped. Please turn it back on to continue your interview.',
+    action: 'Turn microphone on',
   },
 }
 
