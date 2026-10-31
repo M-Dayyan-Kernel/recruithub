@@ -20,7 +20,9 @@ assumes.
 
 `rescheduled_from_session_id` is dropped: a reschedule now moves the same session instead of
 creating a successor. Sessions that had been superseded by a reschedule are voided so the
-round index holds, and the rest are numbered by creation order.
+round index holds, as are cancelled or expired links that a later link replaced; the rest are
+numbered by creation order. The upgrade stops with a clear message if a candidate has two
+shortlist rows for one job.
 
 Downgrade restores both dropped columns (approved again for finalists; the reschedule links
 are not recoverable) and drops the rest.
@@ -99,6 +101,20 @@ def upgrade() -> None:
             )
             """
         )
+    # A link that was cancelled or lapsed and then replaced by a new one was never a round: void it,
+    # so the replacement is round 1 and the old one does not count toward the cap.
+    op.execute(
+        """
+        UPDATE interview_sessions s SET voided_at = now(),
+            void_reason = 'Replaced by a later link before interview rounds existed'
+        WHERE s.voided_at IS NULL AND s.status IN ('cancelled', 'expired')
+          AND EXISTS (
+              SELECT 1 FROM interview_sessions later
+              WHERE later.candidate_id = s.candidate_id AND later.job_id = s.job_id
+                AND later.created_at > s.created_at
+          )
+        """
+    )
     op.execute(
         """
         UPDATE interview_sessions s SET round_number = n.rn
@@ -118,6 +134,16 @@ def upgrade() -> None:
         WHERE voided_at IS NULL
         """
     )
+    duplicates = op.get_bind().execute(
+        sa.text(
+            "SELECT count(*) FROM (SELECT 1 FROM shortlist_results GROUP BY job_id, candidate_id HAVING count(*) > 1) d"
+        )
+    ).scalar()
+    if duplicates:
+        raise RuntimeError(
+            f"{duplicates} candidates have more than one shortlist_results row for the same job. "
+            "Remove the duplicates (keep the newest) and run the upgrade again."
+        )
     op.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS uq_shortlist_results_job_candidate

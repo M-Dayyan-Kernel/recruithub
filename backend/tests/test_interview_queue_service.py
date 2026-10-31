@@ -143,6 +143,10 @@ class InterviewCapacityEnforcementTests(unittest.IsolatedAsyncioTestCase):
             "app.services.tenant_integrations_service.load_tenant_integrations",
             new=mock.AsyncMock(return_value=integrations),
         ), mock.patch(
+            "app.services.interview_public_service.ensure_plan", new=mock.AsyncMock(return_value=False),
+        ), mock.patch(
+            "app.services.interview_public_service.freeze_plan", new=mock.AsyncMock(return_value=False),
+        ), mock.patch(
             "app.services.interview_queue_service.has_live_interview_slot",
             new=mock.AsyncMock(return_value=False),
         ), mock.patch(

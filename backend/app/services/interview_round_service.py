@@ -33,6 +33,7 @@ from app.services.interview_status import (
     ASSESSMENT_FAILED,
     CANCELLED,
     EXPIRED,
+    IN_PROGRESS,
     PENDING,
     TAKEN,
     UNTAKEN,
@@ -187,8 +188,14 @@ def _refuse_untouchable(shortlist: Optional[ShortlistResult]) -> None:
 
 
 def _refuse_if_live(latest: InterviewSession) -> None:
+    """Nothing changes a round the candidate is in, or one that never closed: that is for the
+    sweeper to settle (completed on what was said, or expired), after which the rules apply."""
     if is_live(latest):
         raise ConflictError(public_message="Interview in progress. Try again when it ends.")
+    if latest.status == IN_PROGRESS:
+        raise ConflictError(
+            public_message="This interview did not finish and is being settled. Try again in a few minutes."
+        )
 
 
 def _refuse_if_past(scheduled_at: Optional[datetime]) -> None:

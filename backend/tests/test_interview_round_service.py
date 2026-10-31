@@ -141,8 +141,10 @@ class _Rounds:
     async def _call(self, fn, sessions, row=None, **kw):
         db = self._db()
         row = row if row is not None else _row()
+        self.ensure_plan = AsyncMock()
         with patch.object(rounds, "_shortlist", AsyncMock(return_value=row)), \
-             patch.object(rounds, "load_sessions", AsyncMock(return_value=sessions)):
+             patch.object(rounds, "load_sessions", AsyncMock(return_value=sessions)), \
+             patch.object(rounds, "ensure_plan", self.ensure_plan):
             out = await fn(db, candidate_id=uuid.uuid4(), job_id=uuid.uuid4(), **kw)
         return out, db
 
@@ -154,6 +156,7 @@ class PlaceFirstRoundTests(_Rounds, unittest.IsolatedAsyncioTestCase):
         self.assertTrue(session.unique_token)
         db.add.assert_called_once_with(session)
         db.flush.assert_awaited()
+        self.ensure_plan.assert_awaited_once_with(db, session)
 
     async def test_the_link_expires_from_the_slot(self):
         slot = datetime.now(timezone.utc) + timedelta(days=2)
@@ -174,6 +177,13 @@ class PlaceFirstRoundTests(_Rounds, unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ConflictError, "in progress"):
             await self._call(rounds.place_first_round, [live])
 
+    async def test_a_round_that_never_closed_is_not_reopened_over_its_recording(self):
+        stuck = _round("in_progress", started=datetime.now(timezone.utc) - timedelta(hours=3),
+                       transcript="partial", livekit_room_name="room")
+        with self.assertRaisesRegex(ConflictError, "being settled"):
+            await self._call(rounds.place_first_round, [stuck])
+        self.assertEqual((stuck.status, stuck.transcript, stuck.livekit_room_name), ("in_progress", "partial", "room"))
+
     async def test_a_cancelled_or_expired_round_is_reopened_not_duplicated(self):
         for status in ("cancelled", "expired"):
             with self.subTest(status):
@@ -187,6 +197,7 @@ class PlaceFirstRoundTests(_Rounds, unittest.IsolatedAsyncioTestCase):
                 self.assertIsNone(old.transcript)
                 self.assertIsNone(old.egress_id)
                 db.add.assert_not_called()
+                self.ensure_plan.assert_not_awaited()  # a reopened round keeps the plan it has
 
     async def test_a_rejected_or_finalist_application_is_refused(self):
         for row in (_row(hr_decision="rejected"), _row(finalist_at=NOW)):
@@ -221,6 +232,12 @@ class RescheduleRoundTests(_Rounds, unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ConflictError, "in progress"):
             await self._call(rounds.reschedule_round, [live])
 
+    async def test_a_round_that_never_closed_cannot_be_rescheduled(self):
+        stuck = _round("in_progress", started=datetime.now(timezone.utc) - timedelta(hours=3))
+        with self.assertRaisesRegex(ConflictError, "being settled"):
+            await self._call(rounds.reschedule_round, [stuck])
+        self.assertEqual(stuck.status, "in_progress")
+
     async def test_nothing_to_reschedule(self):
         with self.assertRaises(ValidationError):
             await self._call(rounds.reschedule_round, [])
@@ -252,6 +269,13 @@ class ScheduleNextRoundTests(_Rounds, unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ConflictError, "in progress"):
             await self._call(rounds.schedule_next_round, [live])
 
+    async def test_a_round_that_never_closed_blocks_the_next_round_and_a_void(self):
+        stuck = _round("in_progress", started=datetime.now(timezone.utc) - timedelta(hours=3))
+        for fn, kw in ((rounds.schedule_next_round, {}), (rounds.void_round, {"reason": "x", "actor_id": uuid.uuid4()})):
+            with self.subTest(fn.__name__), self.assertRaises(ConflictError):
+                await self._call(fn, [stuck], **kw)
+        self.assertEqual(stuck.status, "in_progress")
+
     async def test_needs_an_earlier_round(self):
         with self.assertRaises(ValidationError):
             await self._call(rounds.schedule_next_round, [])
@@ -260,6 +284,7 @@ class ScheduleNextRoundTests(_Rounds, unittest.IsolatedAsyncioTestCase):
         sessions = [_round(round_number=1, voided=True), _round(round_number=1, minutes=5)]
         session, _ = await self._call(rounds.schedule_next_round, sessions)
         self.assertEqual(session.round_number, 2)
+        self.ensure_plan.assert_awaited_once()
 
     async def test_a_finalist_or_rejected_application_is_refused(self):
         for row in (_row(hr_decision="rejected"), _row(finalist_at=NOW)):
@@ -281,6 +306,7 @@ class VoidRoundTests(_Rounds, unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(retake.unique_token, taken.unique_token)
         # The voided row is flushed before the retake is added, so the unique round index holds.
         self.assertEqual(db.flush.await_count, 2)
+        self.ensure_plan.assert_awaited_once_with(db, retake)
 
     async def test_needs_a_reason(self):
         for reason in ("", "   "):

@@ -158,10 +158,13 @@ class EnsurePlanTests(unittest.IsolatedAsyncioTestCase):
     def _session(self, status=PlanStatus.PENDING.value):
         return NS(id=uuid.uuid4(), candidate_id=uuid.uuid4(), job_id=uuid.uuid4(), plan_status=status)
 
-    def _db(self, topics):
+    def _db(self, topics, session):
         db = AsyncMock()
         db.add = MagicMock()
         db.get = AsyncMock(return_value=NS(id=uuid.uuid4(), interview_topics=topics))
+        lock = MagicMock()
+        lock.scalars.return_value.first.return_value = session
+        db.execute = AsyncMock(return_value=lock)
         return db
 
     async def _ensure(self, db, session):
@@ -170,7 +173,8 @@ class EnsurePlanTests(unittest.IsolatedAsyncioTestCase):
             return await plans.ensure_plan(db, session, rng=_rng())
 
     async def test_builds_the_plan_once(self):
-        db, session = self._db(_pool(15)), self._session()
+        session = self._session()
+        db = self._db(_pool(15), session)
         self.assertTrue(await self._ensure(db, session))
         self.assertEqual(db.add.call_count, 6)  # the introduction and five topics
         self.assertEqual(session.plan_status, PlanStatus.SEEDED.value)
@@ -178,7 +182,8 @@ class EnsurePlanTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.add.call_count, 6)
 
     async def test_the_items_belong_to_the_session_and_total_100(self):
-        db, session = self._db(_pool(15)), self._session()
+        session = self._session()
+        db = self._db(_pool(15), session)
         await self._ensure(db, session)
         items = [call.args[0] for call in db.add.call_args_list]
         self.assertTrue(all(i.session_id == session.id for i in items))
@@ -186,16 +191,62 @@ class EnsurePlanTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(items[0].section, "intro")
 
     async def test_a_job_with_no_topics_gets_no_plan(self):
-        db, session = self._db([]), self._session()
+        session = self._session()
+        db = self._db([], session)
         self.assertFalse(await self._ensure(db, session))
         db.add.assert_not_called()
         self.assertEqual(session.plan_status, PlanStatus.PENDING.value)
 
     async def test_an_interview_that_already_has_a_plan_is_left_alone(self):
-        for status in (PlanStatus.SEEDED.value, PlanStatus.GENERATED.value):
-            db, session = self._db(_pool(15)), self._session(status)
+        for status in (PlanStatus.SEEDED.value, PlanStatus.GENERATED.value, PlanStatus.FROZEN.value):
+            session = self._session(status)
+            db = self._db(_pool(15), session)
             self.assertFalse(await self._ensure(db, session))
             db.add.assert_not_called()
+
+
+    async def test_the_row_is_locked_so_two_requests_cannot_both_build_a_plan(self):
+        session = self._session()
+        db = self._db(_pool(15), session)
+        await self._ensure(db, session)
+        self.assertIn("FOR UPDATE", str(db.execute.await_args_list[0].args[0]))
+
+
+class FreezePlanTests(unittest.IsolatedAsyncioTestCase):
+    def _db(self, session):
+        db = AsyncMock()
+        lock = MagicMock()
+        lock.scalars.return_value.first.return_value = session
+        db.execute = AsyncMock(return_value=lock)
+        return db
+
+    async def test_a_seeded_plan_is_frozen_under_the_row_lock(self):
+        session = NS(id=uuid.uuid4(), plan_status=PlanStatus.SEEDED.value)
+        db = self._db(session)
+        self.assertTrue(await plans.freeze_plan(db, session))
+        self.assertEqual(session.plan_status, PlanStatus.FROZEN.value)
+        self.assertIn("FOR UPDATE", str(db.execute.await_args.args[0]))
+
+    async def test_any_other_plan_is_left_alone(self):
+        for status in (PlanStatus.PENDING.value, PlanStatus.GENERATED.value, PlanStatus.FROZEN.value):
+            session = NS(id=uuid.uuid4(), plan_status=status)
+            self.assertFalse(await plans.freeze_plan(self._db(session), session))
+            self.assertEqual(session.plan_status, status)
+
+
+class AlreadyAskedTests(unittest.IsolatedAsyncioTestCase):
+    async def test_it_leaves_out_this_session_and_plans_that_may_still_change(self):
+        from sqlalchemy.dialects import postgresql
+
+        db = AsyncMock()
+        result = MagicMock()
+        result.all.return_value = []
+        db.execute = AsyncMock(return_value=result)
+        await plans._already_asked(db, uuid.uuid4(), [uuid.uuid4()], uuid.uuid4())
+        sql = str(db.execute.await_args.args[0].compile(dialect=postgresql.dialect())).lower()
+        self.assertIn("interview_sessions.id !=", sql)
+        self.assertIn("interview_sessions.plan_status in", sql)
+        self.assertIn("interview_sessions.status !=", sql)
 
 
 class PlanAsRubricTests(unittest.TestCase):

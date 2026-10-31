@@ -24,7 +24,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional, Sequence
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import mocks, openai_client
@@ -185,29 +185,43 @@ async def _topic_usage(db: AsyncSession, job_id: uuid.UUID) -> dict[uuid.UUID, i
     return {topic_id: n for topic_id, n in rows.all()}
 
 
+async def _lock(db: AsyncSession, session: InterviewSession) -> Optional[InterviewSession]:
+    """The session row, locked and freshly read. Plan changes are decided under this lock."""
+    return (
+        await db.execute(
+            select(InterviewSession)
+            .where(InterviewSession.id == session.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalars().first()
+
+
 async def ensure_plan(
     db: AsyncSession, session: InterviewSession, *, rng: Optional[random.Random] = None
 ) -> bool:
-    """Give the interview its plan if it has none. Safe to call again: a built plan is kept.
+    """Give the interview its plan if it has none. Safe to call again, and safe to call at once
+    from two requests: the row is locked, so only one builds the plan and the other sees it.
 
     Returns whether a plan was built. A job with no topics gets none. The caller commits.
     """
-    if session.plan_status != PlanStatus.PENDING.value:
+    locked = await _lock(db, session)
+    if locked is None or locked.plan_status != PlanStatus.PENDING.value:
         return False
-    job = await db.get(Job, session.job_id)
+    job = await db.get(Job, locked.job_id)
     if job is None or not job.interview_topics:
         return False
 
     topics = select_topics(
         job.interview_topics,
-        prior_topic_ids=await _prior_topic_ids(db, session),
+        prior_topic_ids=await _prior_topic_ids(db, locked),
         usage=await _topic_usage(db, job.id),
         rng=rng,
     )
     for item in seeded_items(topics):
         db.add(
             InterviewPlanItem(
-                session_id=session.id,
+                session_id=locked.id,
                 position=item["position"],
                 section=item["section"].value,
                 topic_id=item["topic_id"],
@@ -217,9 +231,24 @@ async def ensure_plan(
                 points=item["points"],
             )
         )
-    session.plan_status = PlanStatus.SEEDED.value
+    locked.plan_status = PlanStatus.SEEDED.value
     await db.flush()
-    logger.info("Built interview plan for session=%s with %d topics", session.id, len(topics))
+    logger.info("Built interview plan for session=%s with %d topics", locked.id, len(topics))
+    return True
+
+
+async def freeze_plan(db: AsyncSession, session: InterviewSession) -> bool:
+    """Stop a seeded plan being rewritten, because the interview is about to start on it.
+
+    Done under the row lock before the agent is dispatched: either the rewrite committed first
+    (and the agent reads it) or it finds the plan frozen and gives up. Either way the agent asks
+    exactly what the assessment will score. Returns whether it changed anything; the caller commits.
+    """
+    locked = await _lock(db, session)
+    if locked is None or locked.plan_status != PlanStatus.SEEDED.value:
+        return False
+    locked.plan_status = PlanStatus.FROZEN.value
+    await db.flush()
     return True
 
 
@@ -258,20 +287,36 @@ async def load_rubric(db: AsyncSession, session_id: uuid.UUID) -> list[dict]:
 
 #: Most projects (or roles) from the resume offered to the question writer.
 _MAX_PROJECTS_OFFERED = 4
+# The resume is written by the candidate and goes into prompts, so what is taken from it is short,
+# flat text (no line breaks or markup to dress up as instructions) and is handed over as data.
+_MAX_NAME_CHARS = 100
+_MAX_DESCRIPTION_CHARS = 400
+_MAX_TECHNOLOGIES = 8
+_MAX_TECHNOLOGY_CHARS = 40
 _QUESTION_MAX_CHARS = 600
 _MAX_POINTS = 6
 _MIN_POINTS = 2
 _WORD = re.compile(r"[a-z0-9]+")
 
 
+def _flat(value: Any, limit: int) -> str:
+    """One line of plain text, cut to `limit` characters."""
+    return " ".join(str(value or "").split())[:limit]
+
+
 def project_material(parsed_data: Optional[dict]) -> list[dict]:
-    """What the candidate's resume gives to ask about: their projects, else their roles, else nothing."""
+    """What the candidate's resume gives to ask about: their projects, else their roles, else nothing.
+
+    Every field is shortened and flattened, since the candidate wrote it.
+    """
     parsed_data = parsed_data or {}
     projects = [
         {
-            "name": (p.get("name") or "").strip(),
-            "description": (p.get("description") or "").strip(),
-            "technologies": [str(t) for t in (p.get("technologies") or [])],
+            "name": _flat(p.get("name"), _MAX_NAME_CHARS),
+            "description": _flat(p.get("description"), _MAX_DESCRIPTION_CHARS),
+            "technologies": [
+                _flat(t, _MAX_TECHNOLOGY_CHARS) for t in (p.get("technologies") or [])[:_MAX_TECHNOLOGIES] if t
+            ],
         }
         for p in parsed_data.get("projects") or []
         if isinstance(p, dict) and (p.get("name") or p.get("description"))
@@ -283,10 +328,10 @@ def project_material(parsed_data: Optional[dict]) -> list[dict]:
     for entry in parsed_data.get("experience") or []:
         if not isinstance(entry, dict) or not (entry.get("description") or "").strip():
             continue
-        title, company = (entry.get("title") or "").strip(), (entry.get("company") or "").strip()
+        title, company = _flat(entry.get("title"), 60), _flat(entry.get("company"), 60)
         name = f"{title} at {company}" if title and company else title or company
         if name:
-            roles.append({"name": name, "description": entry["description"].strip(), "technologies": []})
+            roles.append({"name": name, "description": _flat(entry["description"], _MAX_DESCRIPTION_CHARS), "technologies": []})
     return roles[:_MAX_PROJECTS_OFFERED]
 
 
@@ -324,8 +369,14 @@ def _valid_question(raw: Any) -> Optional[str]:
     return question
 
 
-async def _already_asked(db: AsyncSession, job_id: uuid.UUID, topic_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[str]]:
-    """The latest questions put to candidates on each topic, newest first, for the writer to avoid."""
+async def _already_asked(
+    db: AsyncSession, job_id: uuid.UUID, topic_ids: list[uuid.UUID], exclude_session_id: uuid.UUID
+) -> dict[uuid.UUID, list[str]]:
+    """The latest questions put to candidates on each topic, newest first, for the writer to avoid.
+
+    Only questions that stand: from a rewritten plan, or from an interview that has begun. A plan
+    still waiting to be rewritten (this one included) has asked nobody anything yet.
+    """
     limit = config.interview.plan.avoid_history
     asked: dict[uuid.UUID, list[str]] = {topic_id: [] for topic_id in topic_ids}
     if not topic_ids or not limit:
@@ -333,7 +384,15 @@ async def _already_asked(db: AsyncSession, job_id: uuid.UUID, topic_ids: list[uu
     rows = await db.execute(
         select(InterviewPlanItem.topic_id, InterviewPlanItem.question)
         .join(InterviewSession, InterviewSession.id == InterviewPlanItem.session_id)
-        .where(InterviewSession.job_id == job_id, InterviewPlanItem.topic_id.in_(topic_ids))
+        .where(
+            InterviewSession.job_id == job_id,
+            InterviewSession.id != exclude_session_id,
+            InterviewPlanItem.topic_id.in_(topic_ids),
+            or_(
+                InterviewSession.plan_status.in_([PlanStatus.GENERATED.value, PlanStatus.FROZEN.value]),
+                InterviewSession.status != "pending",
+            ),
+        )
         .order_by(InterviewSession.created_at.desc(), InterviewPlanItem.position)
     )
     for topic_id, question in rows.all():
@@ -395,30 +454,27 @@ async def generate_plan(
     Each topic is put in a fresh angle and checked against what earlier candidates were asked on it
     (one retry when it repeats one); up to `project_questions` questions probe the candidate's own
     projects. Anything the writer gets wrong falls back to the seeded question, so the interview is
-    never left without one. Only an interview that has not started is touched, under a row lock, so
-    the agent never reads a plan that is changing underneath it.
+    never left without one.
+
+    The model is asked without holding any lock (it can take a while, and a candidate may be
+    starting). The plan is replaced only if, under the row lock, it is still seeded and the
+    interview still has not started: `freeze_plan` is what start takes first.
     """
     rng = rng or random.Random()
-    locked = (
-        await db.execute(
-            select(InterviewSession)
-            .where(InterviewSession.id == session.id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalars().first()
-    if locked is None or locked.status != "pending" or locked.plan_status != PlanStatus.SEEDED.value:
+    if session.status != "pending" or session.plan_status != PlanStatus.SEEDED.value:
         return False
 
-    job = await db.get(Job, locked.job_id)
-    candidate = await db.get(Candidate, locked.candidate_id)
-    items = await load_plan_items(db, locked.id)
+    job = await db.get(Job, session.job_id)
+    candidate = await db.get(Candidate, session.candidate_id)
+    items = await load_plan_items(db, session.id)
     by_topic = {t.id: t for t in (job.interview_topics if job else [])}
-    seeded_topics = [i for i in items if i.section == PlanSection.TOPIC.value and i.topic_id in by_topic]
+    seeded_topics = [i for i in items if i.section == PlanSection.TOPIC.value]
+    # A topic HR has since removed cannot be rewritten; its seeded question stays as it is.
+    writable = [i for i in seeded_topics if i.topic_id in by_topic]
     if not job or not seeded_topics:
         return False
 
-    asked = await _already_asked(db, job.id, [i.topic_id for i in seeded_topics])
+    asked = await _already_asked(db, job.id, [i.topic_id for i in writable], session.id)
     parsed = (candidate.parsed_data if candidate else None) or {}
     projects = project_material(parsed)
     wanted_projects = min(config.interview.plan.project_questions, len(projects))
@@ -431,17 +487,17 @@ async def generate_plan(
                 "angle": rng.choice(list(ANGLES)), "seed_question": by_topic[i.topic_id].seed_question,
                 "already_asked": asked[i.topic_id],
             }
-            for i in seeded_topics
+            for i in writable
         ],
         projects=projects,
         project_questions=wanted_projects,
-        skills=[str(s) for s in parsed.get("skills") or []][:20],
-        earlier_rounds=await _earlier_rounds(db, locked),
+        skills=[_flat(s, _MAX_TECHNOLOGY_CHARS) for s in (parsed.get("skills") or [])[:20]],
+        earlier_rounds=await _earlier_rounds(db, session),
     )
     try:
         answer = await _write_questions(api_key, **request)
     except Exception:
-        logger.exception("Could not write the questions for session=%s; keeping the seeded plan", locked.id)
+        logger.exception("Could not write the questions for session=%s; keeping the seeded plan", session.id)
         return False
 
     written = _topic_answers(answer.get("topics"))
@@ -456,7 +512,7 @@ async def generate_plan(
             )
             written.update(_topic_answers(retry.get("topics")))
         except Exception:
-            logger.exception("Retry for repeated questions failed for session=%s", locked.id)
+            logger.exception("Retry for repeated questions failed for session=%s", session.id)
 
     topic_items: list[dict] = []
     for item in seeded_topics:
@@ -489,6 +545,10 @@ async def generate_plan(
     ordered += project_items + topic_items
     points = allocate_points(dict(Counter(i["section"] for i in ordered)))
     cursor = {section: 0 for section in points}
+
+    locked = await _lock(db, session)
+    if locked is None or locked.status != "pending" or locked.plan_status != PlanStatus.SEEDED.value:
+        return False  # the interview began (or the plan changed) while the questions were being written
 
     await db.execute(delete(InterviewPlanItem).where(InterviewPlanItem.session_id == locked.id))
     for position, item in enumerate(ordered):

@@ -33,3 +33,5 @@ class PlanStatus(StrEnum):
     SEEDED = "seeded"
     #: Written for this candidate from their resume.
     GENERATED = "generated"
+    #: The interview is starting on the plan it has; it is no longer rewritten.
+    FROZEN = "frozen"

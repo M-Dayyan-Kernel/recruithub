@@ -82,6 +82,10 @@ def upgrade() -> None:
             sa.Column("points", sa.Integer(), nullable=False),
         )
         op.create_index("ix_interview_plan_items_session_id", "interview_plan_items", ["session_id"])
+        # A plan has one item at each position, so a plan built twice by mistake cannot be stored.
+        op.create_unique_constraint(
+            "uq_interview_plan_items_session_position", "interview_plan_items", ["session_id", "position"]
+        )
         op.create_check_constraint(
             "ck_interview_plan_items_section",
             "interview_plan_items",

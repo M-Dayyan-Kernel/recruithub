@@ -598,7 +598,7 @@ Each candidate is claimed atomically and in its own transaction, so two clicks o
 
 **Response `200`:** `{ results: [{ candidate_id, status: "sent" | "failed" | "no_email" | "skipped" }], sent, failed }` — `skipped` means already told, being sent, or no longer rejected; `failed` stays "not told" and can be retried.
 
-> Interview pipeline and Finalists exclude rejected candidates. Existing rejections are classified by `python -m scripts.backfill_rejections` (dry run by default; `--apply` to write).
+> Interview pipeline and Finalists exclude rejected candidates.
 
 ---
 
