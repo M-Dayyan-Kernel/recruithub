@@ -47,12 +47,15 @@ export interface InterviewQuestionScore extends InterviewQuestion {
   point_coverage?: PointCoverage[] | null
 }
 
+/** How senior a role is; sets interview question difficulty. Mirrors the API's `SeniorityLevel`. */
+export type SeniorityLevel = 'intern' | 'junior' | 'mid' | 'senior'
+
 export interface ParsedJobDescription {
   title: string
   description: string
   required_skills: string[]
-  experience_min?: number | null
-  experience_max?: number | null
+  /** The parser's suggestion; HR confirms it before the job is created. */
+  seniority_level: SeniorityLevel
   /** Null when the JD does not say how the work is done: HR chooses. */
   work_mode?: WorkMode | null
   work_location?: string | null
@@ -66,8 +69,7 @@ export interface Job {
   title: string
   description: string
   required_skills: string[] | null
-  experience_min?: number
-  experience_max?: number
+  seniority_level: SeniorityLevel
   /** Null on jobs created before work modes existed. */
   work_mode?: WorkMode | null
   work_location?: string | null

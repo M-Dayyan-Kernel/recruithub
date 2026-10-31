@@ -80,7 +80,7 @@ Web application used by candidates to:
 
 ### Job
 ```
-id, title, description, required_skills (array), experience_min, experience_max,
+id, title, description, required_skills (array), seniority_level,
 screening_criteria (text), interview_evaluation_criteria (text),
 status (draft/active/closed), created_at, updated_at
 ```

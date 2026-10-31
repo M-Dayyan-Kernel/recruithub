@@ -46,8 +46,7 @@ def build_jd_summary(job: Job) -> dict:
         "title": job.title,
         "description": (job.description or "")[: config.parsing.shortlist_jd_chars],
         "required_skills": job.required_skills or [],
-        "experience_min": job.experience_min,
-        "experience_max": job.experience_max,
+        "seniority_level": job.seniority_level,
         "screening_questions": job.screening_questions or [],
     }
 

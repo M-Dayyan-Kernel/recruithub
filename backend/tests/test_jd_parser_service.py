@@ -20,8 +20,7 @@ class JdParserServiceTests(unittest.IsolatedAsyncioTestCase):
             "title": "Engineer",
             "description": "Build things",
             "required_skills": ["Python"],
-            "experience_min": 2,
-            "experience_max": 5,
+            "seniority_level": "mid",
             "screening_questions": [{"question": "Are you available?"}],
             "interview_questions": [
                 {"question": "Explain REST APIs", "score": 10},

@@ -15,6 +15,7 @@ from pydantic import (
 )
 
 from app.core.screening_skipped import is_skipped_screening
+from app.models.enums import SeniorityLevel
 from app.schemas.integrity import IntegritySummary
 from app.services.screening_defaults import (
     MAX_SCREENING_QUESTION_CHARS,
@@ -102,28 +103,8 @@ class ScreeningQuestion(BaseModel):
     kind: Literal["standard", "role", "custom"] = "custom"
 
 
-#: Sanity cap for years-of-experience fields; mirrored in the web client.
+#: Sanity cap for a candidate's years of experience; mirrored in the web client.
 EXPERIENCE_MAX_YEARS = 60
-
-
-def validate_experience_range(
-    minimum: Optional[int], maximum: Optional[int]
-) -> None:
-    """Reject negative years and an upper bound below the lower one.
-
-    A maximum of ``None`` or ``0`` means "no upper bound" ("5+ years"): the
-    column is NOT NULL and 0 is how that is stored, so it is never compared
-    against the minimum.
-    """
-    for value, label in ((minimum, "experience_min"), (maximum, "experience_max")):
-        if value is None:
-            continue
-        if value < 0:
-            raise ValueError(f"{label} cannot be negative")
-        if value > EXPERIENCE_MAX_YEARS:
-            raise ValueError(f"{label} cannot exceed {EXPERIENCE_MAX_YEARS} years")
-    if minimum is not None and maximum and maximum < minimum:
-        raise ValueError("experience_max cannot be less than experience_min")
 
 
 def _normalize_screening_questions(questions: Optional[List]) -> List[dict]:
@@ -216,8 +197,8 @@ class JobCreate(BaseModel):
     title: str
     description: str
     required_skills: Optional[List[str]] = None
-    experience_min: int = 0
-    experience_max: int = 0
+    # Required: HR confirms the level the JD parser suggests. It sets question difficulty.
+    seniority_level: SeniorityLevel
     # Required: the screening call's location question is built from it. The location is required
     # for hybrid and on-site jobs and dropped for remote ones.
     work_mode: WorkMode
@@ -233,13 +214,6 @@ class JobCreate(BaseModel):
     extension_check_mode: ExtensionCheckMode = "shadow"
     status: str = "active"
 
-    @field_validator("experience_min", "experience_max", mode="before")
-    @classmethod
-    def blank_experience_is_zero(cls, value):
-        # An omitted bound already defaults to 0; an explicit null (a parsed JD
-        # that states only "5+ years") must mean the same, not fail as "not an int".
-        return 0 if value is None else value
-
     @model_validator(mode="before")
     @classmethod
     def normalize_questions(cls, data):
@@ -252,11 +226,6 @@ class JobCreate(BaseModel):
         return data
 
     @model_validator(mode="after")
-    def check_experience_range(self):
-        validate_experience_range(self.experience_min, self.experience_max)
-        return self
-
-    @model_validator(mode="after")
     def check_work_location(self):
         self.work_location = validate_work_location(self.work_mode, self.work_location)
         return self
@@ -266,8 +235,7 @@ class JobUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     required_skills: Optional[List[str]] = None
-    experience_min: Optional[int] = None
-    experience_max: Optional[int] = None
+    seniority_level: Optional[SeniorityLevel] = None
     # An explicit null work_mode is refused by JobService.update: a mode cannot be un-set. The
     # location is checked there too, against the mode the job will have.
     work_mode: Optional[WorkMode] = None
@@ -293,13 +261,6 @@ class JobUpdate(BaseModel):
                 data["screening_questions"] = _normalize_screening_questions(data.get("screening_questions"))
         return data
 
-    @model_validator(mode="after")
-    def check_experience_range(self):
-        # Only catches what this payload carries; a PATCH that moves one bound
-        # against the job's stored other bound is checked in JobService.update.
-        validate_experience_range(self.experience_min, self.experience_max)
-        return self
-
 
 class JobResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -308,8 +269,7 @@ class JobResponse(BaseModel):
     title: str
     description: str
     required_skills: Optional[List[str]] = None
-    experience_min: int
-    experience_max: int
+    seniority_level: SeniorityLevel
     work_mode: Optional[str] = None
     work_location: Optional[str] = None
     # Read from Job.effective_screening_questions, so a legacy job's list comes out as the
@@ -353,8 +313,8 @@ class JobParseResponse(BaseModel):
     title: str
     description: str
     required_skills: List[str] = []
-    experience_min: Optional[int] = None
-    experience_max: Optional[int] = None
+    # The parser's suggestion; HR confirms it before the job is created.
+    seniority_level: SeniorityLevel = SeniorityLevel.MID
     # Null when the JD does not say: HR chooses before the job can be created.
     work_mode: Optional[WorkMode] = None
     work_location: Optional[str] = None

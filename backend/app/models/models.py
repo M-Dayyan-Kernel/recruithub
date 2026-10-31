@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSON
 
 from app.core.constants import ORG_NAME_UNIQUE_INDEX
 from app.core.database import Base
+from app.models.enums import SeniorityLevel
 
 
 # Case- and whitespace-insensitive identity of a tenant name. One string is the
@@ -125,8 +126,10 @@ class Job(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     required_skills: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String), nullable=True)
-    experience_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    experience_max: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # intern | junior | mid | senior (SeniorityLevel). Sets question difficulty for the job.
+    seniority_level: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=SeniorityLevel.MID.value, server_default=SeniorityLevel.MID.value
+    )
     # remote | hybrid | onsite; NULL on jobs created before work modes existed.
     work_mode: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     # One short line; set for hybrid and onsite jobs only.

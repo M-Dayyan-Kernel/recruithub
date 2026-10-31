@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions import AuthorizationError, ConflictError, ValidationError
 from app.models.models import Job, User
 from app.repositories.job_repository import JobRepository
-from app.schemas.schemas import JobCreate, JobUpdate, validate_experience_range
+from app.schemas.schemas import JobCreate, JobUpdate
 from app.services.audit_service import AuditService
 from app.services.expected_answer_service import ExpectedAnswerService
 from app.services.live_work_guard import assert_job_not_live
@@ -24,8 +24,7 @@ _JOB_AUDIT_FIELDS = (
     "title",
     "description",
     "required_skills",
-    "experience_min",
-    "experience_max",
+    "seniority_level",
     "work_mode",
     "work_location",
     "screening_questions",
@@ -95,8 +94,7 @@ class JobService:
                     title=data["title"],
                     description=data["description"],
                     required_skills=data.get("required_skills"),
-                    experience_min=data.get("experience_min", 0),
-                    experience_max=data.get("experience_max", 0),
+                    seniority_level=data["seniority_level"],
                 ),
             )
         job = Job(**data, tenant_id=actor.tenant_id)
@@ -142,20 +140,9 @@ class JobService:
                 )
             )
 
-        # The columns are NOT NULL and 0 means "no bound": an explicit null from
-        # a client clearing the field is stored as 0, never written as NULL.
-        for field in ("experience_min", "experience_max"):
-            if field in updates and updates[field] is None:
-                updates[field] = 0
-        if "experience_min" in updates or "experience_max" in updates:
-            # Compare against the stored bound the request leaves untouched, so
-            # lowering only the max below the existing min is still caught.
-            effective_min = updates.get("experience_min", job.experience_min)
-            effective_max = updates.get("experience_max", job.experience_max)
-            try:
-                validate_experience_range(effective_min, effective_max)
-            except ValueError as exc:
-                raise ValidationError(public_message=str(exc)) from exc
+        if "seniority_level" in updates and updates["seniority_level"] is None:
+            raise ValidationError(public_message="Seniority level cannot be cleared.")
+
         self._apply_work_and_screening_updates(job, updates)
         if "interview_questions" in updates and updates["interview_questions"] is not None:
             updates["interview_questions"] = await self._enrich_interview_questions(

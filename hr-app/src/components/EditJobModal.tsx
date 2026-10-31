@@ -4,10 +4,11 @@ import { X, Loader2, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import { RequiredMark } from '@/components/FieldError'
-import type { Job, InterviewQuestion, ScreeningQuestion, WorkMode } from '@/types/api'
+import type { Job, InterviewQuestion, ScreeningQuestion, SeniorityLevel, WorkMode } from '@/types/api'
 import { InterviewQuestionsEditor } from '@/components/InterviewQuestionsEditor'
 import { ScreeningQuestionsEditor } from '@/components/ScreeningQuestionsEditor'
 import { VoiceScreeningToggle } from '@/components/screening/VoiceScreeningToggle'
+import { SeniorityField } from '@/components/SeniorityField'
 import { WorkModeFields } from '@/components/WorkModeFields'
 import { useStandardScreeningQuestions } from '@/hooks/useStandardScreeningQuestions'
 import { editableQuestions, needsWorkMode, questionKind } from '@/lib/screeningQuestions'
@@ -17,8 +18,6 @@ import {
   WORK_LOCATION_MAX_LENGTH,
   validateScreeningQuestionText,
   validateWorkLocation,
-  validateYearsText,
-  validateExperienceRange,
 } from '@/lib/validation'
 
 interface Props {
@@ -34,12 +33,7 @@ export function EditJobModal({ job, open, onClose }: Props) {
   const [description, setDescription] = useState(job.description)
   const [skills, setSkills] = useState<string[]>(job.required_skills ?? [])
   const [skillInput, setSkillInput] = useState('')
-  const [minExp, setMinExp] = useState(job.experience_min != null ? String(job.experience_min) : '')
-  // The API stores "no upper bound" as 0; show that as an empty field.
-  const [maxExp, setMaxExp] = useState(job.experience_max ? String(job.experience_max) : '')
-  // Flagged as typed, so a bad value is never hidden until (or past) submit.
-  const minExpError = validateYearsText(minExp, 'Min experience')
-  const maxExpError = validateYearsText(maxExp, 'Max experience')
+  const [seniority, setSeniority] = useState<SeniorityLevel>(job.seniority_level)
   const [workMode, setWorkMode] = useState<WorkMode | null>(job.work_mode ?? null)
   const [workLocation, setWorkLocation] = useState(job.work_location ?? '')
   // The role-specific and custom questions; the locked standard ones come from the API.
@@ -117,11 +111,6 @@ export function EditJobModal({ job, open, onClose }: Props) {
       setSubmitError('Description is required')
       return
     }
-    const expError = validateExperienceRange(minExp, maxExp)
-    if (expError) {
-      setSubmitError(expError.message)
-      return
-    }
     if (!workMode) {
       setSubmitError('Choose a work mode: remote, hybrid or on-site')
       return
@@ -160,10 +149,7 @@ export function EditJobModal({ job, open, onClose }: Props) {
     const origSkills = JSON.stringify(job.required_skills ?? [])
     if (origSkills !== JSON.stringify(finalSkills)) payload.required_skills = finalSkills
 
-    const newMin = minExp ? Number(minExp) : undefined
-    const newMax = maxExp ? Number(maxExp) : undefined
-    if (newMin !== job.experience_min) payload.experience_min = newMin ?? null
-    if (newMax !== (job.experience_max || undefined)) payload.experience_max = newMax ?? null
+    if (seniority !== job.seniority_level) payload.seniority_level = seniority
 
     if (workMode !== (job.work_mode ?? null)) payload.work_mode = workMode
     // Sent as an explicit null when cleared (a remote job has no location): the API drops an
@@ -305,43 +291,7 @@ export function EditJobModal({ job, open, onClose }: Props) {
             </p>
           </div>
 
-          {/* Experience Range */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                Min Experience (years)
-              </label>
-              <input
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
-                maxLength={4}
-                value={minExp}
-                onChange={(e) => setMinExp(e.target.value)}
-                placeholder="e.g. 3"
-                aria-invalid={Boolean(minExpError)}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-              {minExpError && <p className="mt-1.5 text-xs text-rose-600">{minExpError}</p>}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                Max Experience (years)
-              </label>
-              <input
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
-                maxLength={4}
-                value={maxExp}
-                onChange={(e) => setMaxExp(e.target.value)}
-                placeholder="e.g. 6"
-                aria-invalid={Boolean(maxExpError)}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-              {maxExpError && <p className="mt-1.5 text-xs text-rose-600">{maxExpError}</p>}
-            </div>
-          </div>
+          <SeniorityField value={seniority} onChange={setSeniority} />
 
           <div className="rounded-lg border border-line bg-surface-2 px-3 py-3">
             {legacyJob && (

@@ -8,22 +8,20 @@ from typing import Any, Optional
 
 from app.clients import mocks, openai_client
 from app.core.config_loader import config
-from app.prompts.common import format_experience_requirement
+from app.prompts.common import seniority_guidance, seniority_label
 from app.prompts.expected_answer import (
     EXPECTED_POINTS_SYSTEM_PROMPT,
     build_expected_points_user_prompt,
 )
-from app.services.interview_question_constraints import derive_difficulty_hint
 
 logger = logging.getLogger(__name__)
 
 
 def _job_context(job: Any) -> str:
     skills = ", ".join(job.required_skills or []) or "Not specified"
-    exp = format_experience_requirement(job.experience_min, job.experience_max)
     return f"""Title: {job.title}
 Required Skills: {skills}
-Experience: {exp}
+Seniority: {seniority_label(job.seniority_level)}
 Description:
 {(job.description or "")[: config.parsing.expected_answer_jd_chars]}"""
 
@@ -99,7 +97,7 @@ class ExpectedAnswerService:
 
         user_content = build_expected_points_user_prompt(
             _job_context(job),
-            derive_difficulty_hint(job),
+            seniority_guidance(job.seniority_level),
             question_text,
         )
 

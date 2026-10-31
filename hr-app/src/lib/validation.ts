@@ -149,7 +149,7 @@ export function isValid(errors: object): boolean {
   return (Object.values(errors) as Array<string | null | undefined>).every((e) => !e)
 }
 
-/** Upper bound for a years-of-experience field — a sanity cap, not a real limit. */
+/** Upper bound for a candidate's years of experience — a sanity cap, not a real limit. */
 export const EXPERIENCE_MAX_YEARS = 60
 
 /**
@@ -184,16 +184,6 @@ export function validateWholeNumberText(
   return null
 }
 
-/** Years-of-experience field: blank (not specified) or a whole 0..60. */
-export function validateYearsText(raw: string, label: string): string | null {
-  return validateWholeNumberText(raw, {
-    label,
-    min: 0,
-    max: EXPERIENCE_MAX_YEARS,
-    unit: 'years',
-  })
-}
-
 // Screening retry limits. Mirror `screening.validation` in backend config.yaml
 // (min/max retries; min/max retry delay seconds, shown here in minutes), which
 // the API enforces on save.
@@ -219,30 +209,6 @@ export function validateScreeningDelayText(raw: string): string | null {
     required: true,
     unit: 'minutes',
   })
-}
-
-/** Validates an experience range, returning the first problem found. */
-export function validateExperienceRange(
-  min: string,
-  max: string,
-): { field: 'min' | 'max'; message: string } | null {
-  const minError = validateYearsText(min, 'Min experience')
-  if (minError) return { field: 'min', message: minError }
-  const maxError = validateYearsText(max, 'Max experience')
-  if (maxError) return { field: 'max', message: maxError }
-
-  const minNum = min.trim() === '' ? null : Number(min)
-  const maxNum = max.trim() === '' ? null : Number(max)
-
-  // A maximum of 0 means "no upper bound" (the API stores a blank max as 0),
-  // so it is never compared with the minimum.
-  if (minNum !== null && maxNum !== null && maxNum > 0 && maxNum < minNum) {
-    return {
-      field: 'max',
-      message: 'Max experience cannot be less than min experience',
-    }
-  }
-  return null
 }
 
 // Phone-screening question limits. Mirror MAX_SCREENING_QUESTIONS, MAX_SCREENING_QUESTION_CHARS

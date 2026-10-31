@@ -60,7 +60,7 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
         )
 
         # Field omitted entirely -> the service seeds the defaults.
-        payload = JobCreate(
+        payload = JobCreate(seniority_level="mid", 
             work_mode="remote",
             title="Backend Engineer",
             description="Build services",
@@ -111,7 +111,7 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
             integrations_service=integrations,
         )
 
-        payload = JobCreate(
+        payload = JobCreate(seniority_level="mid", 
             work_mode="remote",
             title="Backend Engineer",
             description="Build services",
@@ -147,7 +147,7 @@ class ExtensionCheckDefaultsTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def _payload(self, **extra):
-        return JobCreate(
+        return JobCreate(seniority_level="mid", 
             work_mode="remote", title="Backend Engineer", description="Build services",
             interview_questions=[], **extra,
         )
@@ -267,7 +267,7 @@ class ScreeningQuestionRuleTests(unittest.IsolatedAsyncioTestCase):
         service = self._service()
         await service.create(
             self._actor(),
-            JobCreate(title="Backend Engineer", description="D", work_mode="onsite", work_location="Pune"),
+            JobCreate(seniority_level="mid", title="Backend Engineer", description="D", work_mode="onsite", work_location="Pune"),
         )
         stored = self._stored()
         self.assertEqual([q["kind"] for q in stored], ["standard"] * 6)
@@ -278,7 +278,7 @@ class ScreeningQuestionRuleTests(unittest.IsolatedAsyncioTestCase):
         service = self._service()
         await service.create(
             self._actor(),
-            JobCreate(
+            JobCreate(seniority_level="mid", 
                 title="T",
                 description="D",
                 work_mode="remote",
@@ -295,7 +295,7 @@ class ScreeningQuestionRuleTests(unittest.IsolatedAsyncioTestCase):
         service = self._service()
         await service.create(
             self._actor(),
-            JobCreate(
+            JobCreate(seniority_level="mid", 
                 title="T",
                 description="D",
                 work_mode="remote",
@@ -314,7 +314,7 @@ class ScreeningQuestionRuleTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValidationError) as ctx:
             await service.create(
                 self._actor(),
-                JobCreate(title="T", description="D", work_mode="remote", screening_questions=extra),
+                JobCreate(seniority_level="mid", title="T", description="D", work_mode="remote", screening_questions=extra),
             )
         self.assertIn("at most 10", ctx.exception.public_message)
         self.job_repo.add.assert_not_called()
@@ -324,7 +324,7 @@ class ScreeningQuestionRuleTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValidationError) as ctx:
             await service.create(
                 self._actor(),
-                JobCreate(
+                JobCreate(seniority_level="mid", 
                     title="T",
                     description="D",
                     work_mode="remote",
@@ -335,13 +335,13 @@ class ScreeningQuestionRuleTests(unittest.IsolatedAsyncioTestCase):
 
     def test_a_job_needs_a_work_mode(self):
         with self.assertRaises(PydanticValidationError):
-            JobCreate(title="T", description="D")
+            JobCreate(seniority_level="mid", title="T", description="D")
 
     def test_hybrid_and_onsite_need_a_location_and_remote_drops_it(self):
         for mode in ("hybrid", "onsite"):
             with self.subTest(mode=mode), self.assertRaises(PydanticValidationError):
-                JobCreate(title="T", description="D", work_mode=mode)
-        remote = JobCreate(title="T", description="D", work_mode="remote", work_location="Pune")
+                JobCreate(seniority_level="mid", title="T", description="D", work_mode=mode)
+        remote = JobCreate(seniority_level="mid", title="T", description="D", work_mode="remote", work_location="Pune")
         self.assertIsNone(remote.work_location)
 
     async def test_update_clearing_the_extra_questions_leaves_the_standard_ones(self):
@@ -415,8 +415,8 @@ class ScreeningQuestionRuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(job.voice_screening_enabled)
 
 
-class ExperienceRangeTests(unittest.IsolatedAsyncioTestCase):
-    """Years of experience must be non-negative, and max must not sit below min."""
+class SeniorityLevelTests(unittest.IsolatedAsyncioTestCase):
+    """Seniority is one of four levels, required on create, and never cleared on update."""
 
     def _actor(self):
         return User(
@@ -429,70 +429,11 @@ class ExperienceRangeTests(unittest.IsolatedAsyncioTestCase):
             is_active=True,
         )
 
-    def test_create_rejects_negative_experience(self):
-        with self.assertRaises(PydanticValidationError) as ctx:
-            JobCreate(work_mode="remote", title="T", description="D", experience_min=-1)
-        self.assertIn("cannot be negative", str(ctx.exception))
-
-    def test_create_rejects_max_below_min(self):
-        with self.assertRaises(PydanticValidationError) as ctx:
-            JobCreate(work_mode="remote", title="T", description="D", experience_min=6, experience_max=3)
-        self.assertIn("cannot be less than", str(ctx.exception))
-
-    def test_create_allows_equal_bounds(self):
-        payload = JobCreate(
-            work_mode="remote",
-            title="T", description="D", experience_min=4, experience_max=4
-        )
-        self.assertEqual(payload.experience_max, 4)
-
-    def test_update_rejects_negative_experience(self):
-        with self.assertRaises(PydanticValidationError):
-            JobUpdate(experience_max=-2)
-
-    # ── "5+ years": a missing or zero maximum means no upper bound ───────────
-
-    def test_create_allows_min_only(self):
-        payload = JobCreate(work_mode="remote", title="T", description="D", experience_min=5)
-        self.assertEqual(payload.experience_min, 5)
-        self.assertEqual(payload.experience_max, 0)
-
-    def test_create_treats_explicit_null_bounds_as_unset(self):
-        # A parsed JD stating only "5+ years" yields experience_max: null.
-        payload = JobCreate(
-            work_mode="remote",
-            title="T", description="D", experience_min=5, experience_max=None
-        )
-        self.assertEqual(payload.experience_max, 0)
-        payload = JobCreate(
-            work_mode="remote",
-            title="T", description="D", experience_min=None, experience_max=None
-        )
-        self.assertEqual((payload.experience_min, payload.experience_max), (0, 0))
-
-    def test_create_treats_zero_max_as_no_upper_bound(self):
-        payload = JobCreate(
-            work_mode="remote",
-            title="T", description="D", experience_min=5, experience_max=0
-        )
-        self.assertEqual(payload.experience_max, 0)
-
-    def test_create_still_rejects_real_max_below_min(self):
-        with self.assertRaises(PydanticValidationError):
-            JobCreate(work_mode="remote", title="T", description="D", experience_min=6, experience_max=3)
-
-    def test_create_still_rejects_negative_and_oversized(self):
-        with self.assertRaises(PydanticValidationError):
-            JobCreate(work_mode="remote", title="T", description="D", experience_min=5, experience_max=-1)
-        with self.assertRaises(PydanticValidationError):
-            JobCreate(work_mode="remote", title="T", description="D", experience_min=5, experience_max=61)
-
-    def _service_with_job(self, *, experience_min, experience_max):
+    def _service_with_job(self, *, seniority_level="mid"):
         session = AsyncMock()
         job_repo = MagicMock()
         job = MagicMock()
-        job.experience_min = experience_min
-        job.experience_max = experience_max
+        job.seniority_level = seniority_level
         job_repo.get_for_tenant = AsyncMock(return_value=job)
         job_repo.refresh = AsyncMock()
         service = JobService(
@@ -504,66 +445,33 @@ class ExperienceRangeTests(unittest.IsolatedAsyncioTestCase):
         )
         return service, job, session
 
-    async def test_update_min_only_against_stored_unbounded_max(self):
-        service, job, session = self._service_with_job(
-            experience_min=0, experience_max=0
-        )
-        await service.update(
-            self._actor(), uuid.uuid4(), JobUpdate(experience_min=5)
-        )
-        self.assertEqual(job.experience_min, 5)
-        session.commit.assert_awaited_once()
+    def test_create_requires_seniority(self):
+        with self.assertRaises(PydanticValidationError):
+            JobCreate(work_mode="remote", title="T", description="D")
 
-    async def test_update_zero_max_removes_the_upper_bound(self):
-        service, job, _ = self._service_with_job(experience_min=6, experience_max=8)
-        await service.update(
-            self._actor(), uuid.uuid4(), JobUpdate(experience_max=0)
-        )
-        self.assertEqual(job.experience_max, 0)
+    def test_create_accepts_every_level(self):
+        for level in ("intern", "junior", "mid", "senior"):
+            with self.subTest(level=level):
+                payload = JobCreate(work_mode="remote", title="T", description="D", seniority_level=level)
+                self.assertEqual(payload.seniority_level.value, level)
 
-    async def test_update_null_max_is_stored_as_zero_not_null(self):
-        # The column is NOT NULL; the edit form sends null when max is cleared.
-        service, job, _ = self._service_with_job(experience_min=6, experience_max=8)
-        await service.update(
-            self._actor(), uuid.uuid4(), JobUpdate(experience_max=None)
-        )
-        self.assertEqual(job.experience_max, 0)
+    def test_create_rejects_unknown_level(self):
+        with self.assertRaises(PydanticValidationError):
+            JobCreate(work_mode="remote", title="T", description="D", seniority_level="principal")
 
-    async def test_update_null_min_is_stored_as_zero_not_null(self):
-        service, job, _ = self._service_with_job(experience_min=6, experience_max=8)
-        await service.update(
-            self._actor(), uuid.uuid4(), JobUpdate(experience_min=None)
-        )
-        self.assertEqual(job.experience_min, 0)
+    def test_update_rejects_unknown_level(self):
+        with self.assertRaises(PydanticValidationError):
+            JobUpdate(seniority_level="expert")
 
-    async def test_update_min_above_stored_real_max_is_still_rejected(self):
-        service, _, session = self._service_with_job(experience_min=2, experience_max=4)
+    async def test_update_changes_level(self):
+        service, job, _ = self._service_with_job(seniority_level="mid")
+        await service.update(self._actor(), uuid.uuid4(), JobUpdate(seniority_level="senior"))
+        self.assertEqual(job.seniority_level.value, "senior")
+
+    async def test_update_refuses_to_clear_level(self):
+        service, _, session = self._service_with_job()
         with self.assertRaises(ValidationError):
-            await service.update(
-                self._actor(), uuid.uuid4(), JobUpdate(experience_min=9)
-            )
-        session.commit.assert_not_awaited()
-
-    async def test_update_compares_against_stored_bound(self):
-        """Lowering only the max below the job's existing min must be rejected."""
-        session = AsyncMock()
-        job_repo = MagicMock()
-        job = MagicMock()
-        job.experience_min = 6
-        job.experience_max = 8
-        job_repo.get_for_tenant = AsyncMock(return_value=job)
-        service = JobService(
-            session,
-            job_repo=job_repo,
-            audit_service=AsyncMock(),
-            expected_answers=AsyncMock(),
-            integrations_service=AsyncMock(),
-        )
-        with self.assertRaises(ValidationError) as ctx:
-            await service.update(
-                self._actor(), uuid.uuid4(), JobUpdate(experience_max=3)
-            )
-        self.assertIn("cannot be less than", ctx.exception.public_message)
+            await service.update(self._actor(), uuid.uuid4(), JobUpdate(seniority_level=None))
         session.commit.assert_not_awaited()
 
 
@@ -573,7 +481,7 @@ class InterviewScoreBoundsTests(unittest.TestCase):
     def _payload(self, **q):
         base = {"id": "q1", "question": "Walk me through a project you led", "score": 10}
         base.update(q)
-        return JobCreate(work_mode="remote", title="T", description="D", interview_questions=[base])
+        return JobCreate(seniority_level="mid", work_mode="remote", title="T", description="D", interview_questions=[base])
 
     def test_score_above_cap_rejected(self):
         with self.assertRaises(PydanticValidationError):
@@ -599,18 +507,20 @@ class InterviewScoreBoundsTests(unittest.TestCase):
         self.assertEqual(legacy.score, 250)
 
 
-class ExperienceRequirementFormatTests(unittest.TestCase):
-    """The text sent to the LLM must not read "5-0 years" for an open-ended range."""
+class SeniorityGuidanceTests(unittest.TestCase):
+    """The text sent to the LLM names the level and carries its difficulty guidance."""
 
-    def test_open_ended(self):
-        from app.prompts.common import format_experience_requirement
+    def test_label(self):
+        from app.prompts.common import seniority_label
 
-        self.assertEqual(format_experience_requirement(5, 0), "5+ years")
-        self.assertEqual(format_experience_requirement(5, None), "5+ years")
-        self.assertEqual(format_experience_requirement(None, None), "0+ years")
+        self.assertEqual(seniority_label("mid"), "Mid-level")
+        self.assertEqual(seniority_label("intern"), "Intern")
+        self.assertEqual(seniority_label(None), "Mid-level")
 
-    def test_bounded(self):
-        from app.prompts.common import format_experience_requirement
+    def test_guidance_covers_every_level(self):
+        from app.models.enums import SeniorityLevel
+        from app.prompts.common import SENIORITY_GUIDANCE, seniority_guidance
 
-        self.assertEqual(format_experience_requirement(3, 6), "3–6 years")
-        self.assertEqual(format_experience_requirement(4, 4), "4 years")
+        self.assertEqual(set(SENIORITY_GUIDANCE), set(SeniorityLevel))
+        self.assertIn("system design", seniority_guidance("senior"))
+        self.assertIn("fundamentals", seniority_guidance("junior"))

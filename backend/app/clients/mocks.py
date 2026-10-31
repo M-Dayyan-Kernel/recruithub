@@ -108,8 +108,7 @@ def mock_jd_parse(raw_text: str) -> dict:
         "title": title,
         "description": (raw_text or "Mock job description from uploaded file.")[:2000],
         "required_skills": ["Python", "SQL", "REST APIs", "Git"],
-        "experience_min": 2,
-        "experience_max": 6,
+        "seniority_level": "mid",
         # A JD that says nothing about where the work happens: HR picks the mode.
         "work_mode": None,
         "work_location": None,

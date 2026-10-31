@@ -12,8 +12,7 @@ class ExpectedAnswerServiceTests(unittest.IsolatedAsyncioTestCase):
         job.title = "Engineer"
         job.description = "Build APIs"
         job.required_skills = ["Python"]
-        job.experience_min = 2
-        job.experience_max = 5
+        job.seniority_level = "mid"
 
         incoming = [{"id": "q1", "question": "Explain REST", "score": 10}]
         existing = [{"id": "q1", "question": "Explain REST", "expected_points": ["stateless"]}]
@@ -29,8 +28,7 @@ class ExpectedAnswerServiceTests(unittest.IsolatedAsyncioTestCase):
         job.title = "Engineer"
         job.description = "Build APIs"
         job.required_skills = ["Python"]
-        job.experience_min = 2
-        job.experience_max = 5
+        job.seniority_level = "mid"
 
         incoming = [{"id": "q1", "question": "Explain GraphQL", "score": 10}]
         existing = [{"id": "q1", "question": "Explain REST", "expected_points": ["stateless"]}]

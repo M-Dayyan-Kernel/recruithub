@@ -246,8 +246,7 @@ def _build_user_content(transcript: str, job, candidate) -> str:
     return build_assessment_user_prompt(
         job_title=job.title,
         required_skills=job.required_skills or [],
-        experience_min=job.experience_min,
-        experience_max=job.experience_max,
+        seniority_level=job.seniority_level,
         job_description=job.description or "",
         candidate_name=candidate.name,
         candidate_summary=candidate_summary,

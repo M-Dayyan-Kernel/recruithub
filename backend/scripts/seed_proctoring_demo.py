@@ -159,8 +159,7 @@ async def _get_or_create_job(db: AsyncSession, tenant: Tenant, title: str) -> Jo
             "Builds FastAPI services backed by PostgreSQL, Celery, and Redis."
         ),
         required_skills=["Python", "FastAPI", "PostgreSQL", "Celery"],
-        experience_min=3,
-        experience_max=7,
+        seniority_level="mid",
         work_mode="hybrid",
         work_location="Bengaluru",
         interview_questions=INTERVIEW_QUESTIONS,

@@ -4,9 +4,9 @@ from typing import Any
 
 from app.prompts.common import (
     ORAL_ONLY_PROMPT_RULES,
+    seniority_guidance,
     TECHNICAL_ONLY_PROMPT_RULES,
 )
-from app.services.interview_question_constraints import derive_difficulty_hint
 
 
 def build_adaptive_followup_rules(max_follow_ups_per_topic: int) -> str:
@@ -64,7 +64,7 @@ def build_interview_structure(
 RUBRIC QUESTIONS (mandatory — ask in order):
 {rubric}"""
 
-    difficulty = derive_difficulty_hint(job)
+    difficulty = seniority_guidance(job.seniority_level)
     return f"""INTERVIEW STRUCTURE (follow this order):
 1. You have already greeted the candidate — move straight to asking for a brief self-introduction
 2. Ask 3-4 technical questions relevant to {job.title} and required skills — oral answers only (no live coding)

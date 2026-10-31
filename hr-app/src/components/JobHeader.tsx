@@ -19,6 +19,7 @@ import { VoiceScreeningToggle } from '@/components/screening/VoiceScreeningToggl
 import { ExtensionCheckToggle } from '@/components/job/ExtensionCheckToggle'
 import { cn } from '@/lib/utils'
 import { workArrangementLabel } from '@/lib/screeningQuestions'
+import { seniorityLabel } from '@/lib/seniority'
 
 const DESCRIPTION_PREVIEW_LINES = 3
 const SKILL_PREVIEW_COUNT = 8
@@ -64,21 +65,6 @@ function getStatusOptions(
   }
 }
 
-function experienceLabel(job: Job): string | null {
-  const { experience_min: min, experience_max: max } = job
-  const hasMin = min != null && min > 0
-  const hasMax = max != null && max > 0
-
-  if (hasMin && hasMax) {
-    if (min === max) return `${min} yrs experience`
-    if (min > max) return `${min}+ yrs experience`
-    return `${min}–${max} yrs experience`
-  }
-  if (hasMin) return `${min}+ yrs experience`
-  if (hasMax) return `Up to ${max} yrs experience`
-  return null
-}
-
 const btnSecondary =
   'inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50'
 
@@ -99,7 +85,7 @@ export function JobHeader({ job, showDelete = false }: Props) {
   const skills = job.required_skills ?? []
   const description = job.description?.trim() || 'No description provided.'
   const isLongDescription = description.length > 220 || description.split('\n').length > DESCRIPTION_PREVIEW_LINES
-  const expLabel = experienceLabel(job)
+  const levelLabel = seniorityLabel(job.seniority_level)
   const workLabel = workArrangementLabel(job.work_mode, job.work_location)
 
   useEffect(() => {
@@ -168,10 +154,10 @@ export function JobHeader({ job, showDelete = false }: Props) {
 
               <div className="mt-2.5 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                  {expLabel && (
+                  {levelLabel && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-1 ring-1 ring-slate-200/80">
                       <Briefcase className="h-3.5 w-3.5 text-slate-400" />
-                      {expLabel}
+                      {levelLabel}
                     </span>
                   )}
                   {workLabel && (

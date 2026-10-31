@@ -9,16 +9,7 @@ import { filterActiveJobs } from '@/lib/jobStatus'
 import { paletteFor } from '@/components/ui/OrgArt'
 import { PageHeader } from '@/components/ui/Surface'
 import { workArrangementLabel } from '@/lib/screeningQuestions'
-
-function experienceLabel(job: Job): string | null {
-  const { experience_min: min, experience_max: max } = job
-  // The API stores "no upper bound" as 0, so 0 is not a real maximum.
-  const hasMax = max != null && max > 0
-  if (min != null && hasMax) return `${min}–${max} years experience`
-  if (min != null && min > 0) return `${min}+ years experience`
-  if (hasMax) return `Up to ${max} years experience`
-  return null
-}
+import { seniorityLabel } from '@/lib/seniority'
 
 function matchesQuery(job: Job, query: string): boolean {
   const q = query.trim().toLowerCase()
@@ -39,7 +30,7 @@ function shortDate(iso?: string | null): string {
 }
 
 function JobCard({ job }: { job: Job }) {
-  const expLabel = experienceLabel(job)
+  const levelLabel = seniorityLabel(job.seniority_level)
   const workLabel = workArrangementLabel(job.work_mode, job.work_location)
   const tint = paletteFor(job.id)
   const skills = job.required_skills ?? []
@@ -70,7 +61,7 @@ function JobCard({ job }: { job: Job }) {
         <h2 className="break-words text-[19px] font-bold leading-snug tracking-tight text-ink">
           {job.title}
         </h2>
-        {expLabel && <p className="mt-1 text-[12px] font-medium text-ink-muted">{expLabel}</p>}
+        {levelLabel && <p className="mt-1 text-[12px] font-medium text-ink-muted">{levelLabel}</p>}
         {workLabel && <p className="mt-0.5 text-[12px] font-medium text-ink-muted">{workLabel}</p>}
 
         {skills.length > 0 && (

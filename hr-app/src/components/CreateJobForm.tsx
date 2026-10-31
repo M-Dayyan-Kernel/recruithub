@@ -19,6 +19,7 @@ import type {
   ParsedJobDescription,
   InterviewQuestion,
   ScreeningQuestion,
+  SeniorityLevel,
   SystemSettings,
   WorkMode,
 } from '@/types/api'
@@ -28,6 +29,7 @@ import { VoiceScreeningSwitch } from '@/components/screening/VoiceScreeningSwitc
 import { ExtensionCheckFields } from '@/components/job/ExtensionCheckFields'
 import { useExtensionOrgEnabled } from '@/components/extensions/useExtensionOrgPolicy'
 import type { ExtensionPolicyMode } from '@/types/integrity'
+import { SeniorityField } from '@/components/SeniorityField'
 import { WorkModeFields } from '@/components/WorkModeFields'
 import { useStandardScreeningQuestions } from '@/hooks/useStandardScreeningQuestions'
 import { remainingQuestionSlots } from '@/lib/screeningQuestions'
@@ -36,18 +38,15 @@ import {
   SCREENING_QUESTIONS_MAX_TOTAL,
   SCREENING_QUESTION_MAX_LENGTH,
   WORK_LOCATION_MAX_LENGTH,
-  validateExperienceRange,
   validateScreeningQuestionText,
   validateWorkLocation,
-  validateYearsText,
 } from '@/lib/validation'
 
 interface CreateJobPayload {
   title: string
   description: string
   required_skills: string[]
-  experience_min?: number
-  experience_max?: number
+  seniority_level: SeniorityLevel
   work_mode: WorkMode
   work_location?: string
   /** Only the role-specific and custom questions: the standard ones are the server's. */
@@ -63,8 +62,7 @@ interface FieldErrors {
   description?: string
   screeningQuestions?: string
   interviewQuestions?: string
-  minExp?: string
-  maxExp?: string
+  seniority?: string
 }
 
 interface Props {
@@ -134,8 +132,8 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
   const [description, setDescription] = useState('')
   const [skills, setSkills] = useState<string[]>([])
   const [skillInput, setSkillInput] = useState('')
-  const [minExp, setMinExp] = useState('')
-  const [maxExp, setMaxExp] = useState('')
+  // Suggested by the JD parser, confirmed by the recruiter. Null until one of those happens.
+  const [seniority, setSeniority] = useState<SeniorityLevel | null>(null)
   // How the work is done. The JD fills these when it says; a choice made by hand is never
   // overwritten by a later parse.
   const [workMode, setWorkMode] = useState<WorkMode | null>(null)
@@ -192,8 +190,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
       if (parsed.title) setTitle(parsed.title)
       if (parsed.description) setDescription(parsed.description)
       if (parsed.required_skills?.length) setSkills(parsed.required_skills)
-      setMinExp(parsed.experience_min != null ? String(parsed.experience_min) : '')
-      setMaxExp(parsed.experience_max != null ? String(parsed.experience_max) : '')
+      setSeniority(parsed.seniority_level)
       if (parsed.work_mode && !workEditedByHand.current.mode) setWorkMode(parsed.work_mode)
       if (parsed.work_location && !workEditedByHand.current.location) {
         setWorkLocation(parsed.work_location)
@@ -275,10 +272,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
     const errors: FieldErrors = {}
     if (!title.trim()) errors.title = 'Job title is required'
     if (!description.trim()) errors.description = 'Description is required'
-    const expError = validateExperienceRange(minExp, maxExp)
-    if (expError) {
-      errors[expError.field === 'min' ? 'minExp' : 'maxExp'] = expError.message
-    }
+    if (!seniority) errors.seniority = 'Choose the seniority level'
     // Blank rows used to be dropped silently, so half-typed questions disappeared on save.
     const questionError = firstQuestionError
     if (questionError) errors.screeningQuestions = questionError
@@ -304,8 +298,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
       title: title.trim(),
       description: description.trim(),
       required_skills: finalSkills,
-      experience_min: minExp ? Number(minExp) : undefined,
-      experience_max: maxExp ? Number(maxExp) : undefined,
+      seniority_level: seniority as SeniorityLevel,
       work_mode: workMode as WorkMode,
       work_location: workMode === 'remote' ? undefined : workLocation.trim(),
       screening_questions: extraQuestions.map((q) => ({ ...q, question: q.question.trim() })),
@@ -314,23 +307,6 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
       extension_check_enabled: extensionCheckEnabled,
       extension_check_mode: extensionCheckMode,
     })
-  }
-
-  /**
-   * Keeps exactly what was typed and flags a malformed value straight away
-   * (negative, decimal, over the cap). The min/max relationship is only
-   * checked on submit, so it does not flash while a number is half-typed.
-   */
-  const changeExperience = (field: 'minExp' | 'maxExp', value: string) => {
-    const nextMin = field === 'minExp' ? value : minExp
-    const nextMax = field === 'maxExp' ? value : maxExp
-    if (field === 'minExp') setMinExp(value)
-    else setMaxExp(value)
-    setFieldErrors((p) => ({
-      ...p,
-      minExp: validateYearsText(nextMin, 'Min experience') ?? undefined,
-      maxExp: validateYearsText(nextMax, 'Max experience') ?? undefined,
-    }))
   }
 
   const isParsing = parseMutation.isPending
@@ -527,62 +503,15 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <FieldLabel htmlFor="min-exp">Min experience</FieldLabel>
-              <div className="relative">
-                <input
-                  id="min-exp"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  maxLength={4}
-                  value={minExp}
-                  onChange={(e) => changeExperience('minExp', e.target.value)}
-                  placeholder="3"
-                  className={`${inputClass} ${
-                    fieldErrors.minExp ? 'border-rose-300 ring-rose-500/15' : ''
-                  }`}
-                />
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
-                  yrs
-                </span>
-              </div>
-              {fieldErrors.minExp && (
-                <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600">
-                  <AlertCircle size={11} />
-                  {fieldErrors.minExp}
-                </p>
-              )}
-            </div>
-            <div>
-              <FieldLabel htmlFor="max-exp">Max experience</FieldLabel>
-              <div className="relative">
-                <input
-                  id="max-exp"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  maxLength={4}
-                  value={maxExp}
-                  onChange={(e) => changeExperience('maxExp', e.target.value)}
-                  placeholder="6"
-                  className={`${inputClass} ${
-                    fieldErrors.maxExp ? 'border-rose-300 ring-rose-500/15' : ''
-                  }`}
-                />
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
-                  yrs
-                </span>
-              </div>
-              {fieldErrors.maxExp && (
-                <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600">
-                  <AlertCircle size={11} />
-                  {fieldErrors.maxExp}
-                </p>
-              )}
-            </div>
-          </div>
+          <SeniorityField
+            value={seniority}
+            onChange={(level) => {
+              setSeniority(level)
+              setFieldErrors((p) => ({ ...p, seniority: undefined }))
+            }}
+            error={fieldErrors.seniority}
+            hint={wasPrefilled ? 'Suggested from the job description. Change it if it is wrong.' : undefined}
+          />
         </FormSection>
 
         {/* Work arrangement */}

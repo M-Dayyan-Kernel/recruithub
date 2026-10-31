@@ -38,8 +38,7 @@ Create a new job posting.
   "title": "string (required)",
   "description": "string (required)",
   "required_skills": ["string"],
-  "experience_min": 0,
-  "experience_max": 5,
+  "seniority_level": "intern | junior | mid | senior (required)",
   "work_mode": "remote | hybrid | onsite (required)",
   "work_location": "string, one line, up to 80 chars (required for hybrid and onsite; dropped for remote)",
   "screening_questions": [
@@ -110,8 +109,7 @@ Upload a job description document (PDF or DOCX) and extract structured fields vi
   "title": "string",
   "description": "string",
   "required_skills": ["string"],
-  "experience_min": 0,
-  "experience_max": 5,
+  "seniority_level": "intern | junior | mid | senior (the parser's suggestion; mid when the document gives no hint)",
   "work_mode": "remote | hybrid | onsite | null (null when the document does not say)",
   "work_location": "string | null",
   "screening_questions": [
@@ -730,8 +728,7 @@ interface Job {
   title: string;
   description: string;
   required_skills: string[] | null;
-  experience_min: number;
-  experience_max: number;
+  seniority_level: "intern" | "junior" | "mid" | "senior";
   screening_questions: Array<{ id: string; question: string }>;
   interview_questions: Array<{ id: string; question: string; score: number }>;
   interview_total_score: number;        // computed: sum of question scores

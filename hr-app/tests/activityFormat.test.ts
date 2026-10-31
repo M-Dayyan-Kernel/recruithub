@@ -300,7 +300,7 @@ test('values: dates read as dates, counts as counts, ids are withheld', () => {
 test('helpers', () => {
   assert.ok(isUuid(ID) && !isUuid('not-a-uuid') && !isUuid(42))
   assert.equal(humanize('interview_questions'), 'Interview questions')
-  assert.equal(fieldLabel('experience_min'), 'Minimum experience')
+  assert.equal(fieldLabel('seniority_level'), 'Seniority level')
   assert.equal(fieldLabel('work_mode'), 'Work mode')
   assert.equal(fieldLabel('work_location'), 'Work location')
   assert.equal(fieldLabel('hiring_manager'), 'Hiring manager')

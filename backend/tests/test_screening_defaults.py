@@ -190,8 +190,8 @@ class EffectiveQuestionTests(unittest.TestCase):
     def test_the_job_response_reports_the_effective_list(self):
         now = datetime.now(timezone.utc)
         job = SimpleNamespace(
-            id=uuid.uuid4(), title="T", description="D", required_skills=None, experience_min=0,
-            experience_max=0, work_mode="onsite", work_location="Pune",
+            id=uuid.uuid4(), title="T", description="D", required_skills=None, seniority_level="mid",
+            work_mode="onsite", work_location="Pune",
             screening_questions=[{"id": "a", "question": "Extra?", "kind": "role"}],
             effective_screening_questions=effective_screening_questions(
                 SimpleNamespace(title="T", work_mode="onsite", work_location="Pune",
