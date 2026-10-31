@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions import InterviewCapacityError
 from app.models.models import Candidate, InterviewSession, Job
 from app.repositories.interview_repository import InterviewRepository
+from app.services.interview_plan_service import ensure_plan
 from app.services.interview_status import TERMINAL
 from app.schemas.schemas import InterviewSessionResponse, InterviewStartResponse
 
@@ -210,6 +211,12 @@ class InterviewPublicService:
                 token=candidate_token,
                 livekit_url=livekit_url,
             )
+
+        # A session made before plans existed (or before its job had topics) gets its plan now,
+        # so the agent never starts without one. Committed here, not with the start below: the
+        # agent is dispatched by create_room and reads the plan from its own connection.
+        if await ensure_plan(self._session, session):
+            await self._session.commit()
 
         if session.status != "pending":
             raise HTTPException(

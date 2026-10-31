@@ -27,18 +27,36 @@ export interface StandardScreeningQuestions {
   max_location_chars: number
 }
 
-export interface InterviewQuestion {
-  id: string
-  question: string
-  score: number
+/**
+ * One topic in a job's interview pool. A topic says what to probe: each interview asks a few of
+ * them, phrased fresh, and the example question is only what it falls back to.
+ */
+export interface InterviewTopic {
+  /** Absent on a topic that has not been saved yet. */
+  id?: string
+  name: string
+  scope: string
+  skill_tag: string
+  seed_question: string
+  /** Asked in every interview. */
+  is_mandatory: boolean
 }
+
+/** Which part of the interview a question belonged to. */
+export type PlanSection = 'intro' | 'project' | 'topic'
 
 export interface PointCoverage {
   point: string
   covered: boolean
 }
 
-export interface InterviewQuestionScore extends InterviewQuestion {
+export interface InterviewQuestionScore {
+  id: string
+  question: string
+  score: number
+  section?: PlanSection | null
+  /** The topic the question covered (when it was one). */
+  topic?: string | null
   earned_score?: number | null
   notes?: string | null
   candidate_answer?: string | null
@@ -61,7 +79,8 @@ export interface ParsedJobDescription {
   work_location?: string | null
   /** The parser's role-specific questions only (at most two). */
   screening_questions?: ScreeningQuestion[]
-  interview_questions?: InterviewQuestion[]
+  /** The topic pool the parser proposes; HR reviews it before the job is created. */
+  interview_topics?: InterviewTopic[]
 }
 
 export interface Job {
@@ -75,8 +94,7 @@ export interface Job {
   work_location?: string | null
   /** The standard questions first, then the role and custom ones. */
   screening_questions?: ScreeningQuestion[]
-  interview_questions?: InterviewQuestion[]
-  interview_total_score?: number
+  interview_topics?: InterviewTopic[]
   screening_call_from?: string | null
   screening_call_to?: string | null
   screening_timezone?: string

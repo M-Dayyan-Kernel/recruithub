@@ -9,9 +9,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions import AuthorizationError, ConflictError, ValidationError
 from app.models.models import Job, User
 from app.repositories.job_repository import JobRepository
-from app.schemas.schemas import JobCreate, JobUpdate
+from app.schemas.schemas import (
+    InterviewTopicRegenerateRequest,
+    InterviewTopicRegenerateResponse,
+    InterviewTopicsRequest,
+    InterviewTopicsResponse,
+    JobCreate,
+    JobUpdate,
+)
 from app.services.audit_service import AuditService
 from app.services.expected_answer_service import ExpectedAnswerService
+from app.services.interview_topic_service import generate_pool, regenerate_topic, replace_topics
 from app.services.live_work_guard import assert_job_not_live
 from app.services.screening_defaults import (
     normalize_screening_questions_for_write,
@@ -28,7 +36,6 @@ _JOB_AUDIT_FIELDS = (
     "work_mode",
     "work_location",
     "screening_questions",
-    "interview_questions",
     "screening_call_from",
     "screening_call_to",
     "screening_timezone",
@@ -85,21 +92,14 @@ class JobService:
             )
         except ValueError as exc:
             raise ValidationError(public_message=str(exc)) from exc
-        if data.get("interview_questions"):
-            data["interview_questions"] = await self._enrich_interview_questions(
-                actor.tenant_id,
-                data["interview_questions"],
-                existing=None,
-                context_job=Job(
-                    title=data["title"],
-                    description=data["description"],
-                    required_skills=data.get("required_skills"),
-                    seniority_level=data["seniority_level"],
-                ),
-            )
-        job = Job(**data, tenant_id=actor.tenant_id)
+        topics = data.pop("interview_topics")
+        # An empty pool, set here: a new job's collection would otherwise be lazy-loaded on first
+        # read, which the async session cannot do.
+        job = Job(**data, tenant_id=actor.tenant_id, interview_topics=[])
         self._jobs.add(job)
         await self._jobs.flush()
+        if topics:
+            await self._save_topics(actor.tenant_id, job, topics)
         await self._audit.log_change(
             actor=actor,
             action="job.created",
@@ -144,13 +144,7 @@ class JobService:
             raise ValidationError(public_message="Seniority level cannot be cleared.")
 
         self._apply_work_and_screening_updates(job, updates)
-        if "interview_questions" in updates and updates["interview_questions"] is not None:
-            updates["interview_questions"] = await self._enrich_interview_questions(
-                actor.tenant_id,
-                updates["interview_questions"],
-                existing=job.interview_questions,
-                context_job=job,
-            )
+        topics = updates.pop("interview_topics", None)
 
         changes = {}
         for field in _JOB_AUDIT_FIELDS:
@@ -162,6 +156,16 @@ class JobService:
 
         for field, value in updates.items():
             setattr(job, field, value)
+
+        if topics is not None:
+            # After the other fields, so a new answer key is written against the job as it will be.
+            before_topics = _topic_signature(job.interview_topics)
+            await self._save_topics(actor.tenant_id, job, topics)
+            if _topic_signature(job.interview_topics) != before_topics:
+                changes["interview_topics"] = (
+                    [name for name, *_ in before_topics],
+                    [t.name for t in job.interview_topics],
+                )
 
         await self._audit.log_field_changes(
             actor=actor,
@@ -232,22 +236,52 @@ class JobService:
         await self._jobs.delete(job)
         await self._session.commit()
 
-    async def _enrich_interview_questions(
-        self,
-        tenant_id: uuid.UUID,
-        incoming: list[dict],
-        *,
-        existing: list | None,
-        context_job: Job,
-    ) -> list[dict]:
+    async def _openai_key(self, tenant_id: uuid.UUID) -> str:
         integrations = await self._integrations.load(tenant_id)
         integrations.require("openai_api_key")
-        return await self._expected_answers.enrich(
-            incoming,
-            existing,
-            context_job,
-            integrations.openai_api_key,
+        return integrations.openai_api_key
+
+    async def generate_topics(self, actor: User, request: InterviewTopicsRequest) -> InterviewTopicsResponse:
+        """A fresh topic pool for a job that may not be saved yet. Nothing is stored."""
+        topics = await generate_pool(
+            title=request.title,
+            description=request.description,
+            required_skills=request.required_skills,
+            seniority_level=request.seniority_level.value,
+            api_key=await self._openai_key(actor.tenant_id),
         )
+        return InterviewTopicsResponse(topics=topics)
+
+    async def regenerate_topic(
+        self, actor: User, request: InterviewTopicRegenerateRequest
+    ) -> InterviewTopicRegenerateResponse:
+        """A replacement for one topic of the pool being edited. Nothing is stored."""
+        topic = await regenerate_topic(
+            title=request.title,
+            description=request.description,
+            required_skills=request.required_skills,
+            seniority_level=request.seniority_level.value,
+            pool=[t.model_dump() for t in request.topics],
+            index=request.topic_index,
+            api_key=await self._openai_key(actor.tenant_id),
+        )
+        return InterviewTopicRegenerateResponse(topic=topic)
+
+    async def _save_topics(self, tenant_id: uuid.UUID, job: Job, topics: list[dict]) -> None:
+        """Make the job's topic pool `topics`, writing answer keys for new and reworded ones."""
+        api_key = await self._openai_key(tenant_id) if topics else None
+        await replace_topics(
+            self._session,
+            job,
+            topics,
+            generate_points=self._expected_answers.generate,
+            api_key=api_key,
+        )
+
+
+def _topic_signature(topics) -> list[tuple]:
+    """What makes two pools the same, for deciding whether an edit changed anything."""
+    return [(t.name, t.scope, t.skill_tag, t.seed_question, bool(t.is_mandatory)) for t in topics]
 
 
 def _serialize_job_field(value):

@@ -35,7 +35,7 @@ function JobCard({ job }: { job: Job }) {
   const tint = paletteFor(job.id)
   const skills = job.required_skills ?? []
   const screeningCount = job.screening_questions?.length ?? 0
-  const interviewCount = job.interview_questions?.length ?? 0
+  const topicCount = job.interview_topics?.length ?? 0
 
   return (
     <article className="group relative flex h-full min-w-0 flex-col overflow-hidden rounded-card border border-line bg-surface shadow-e2 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-e3">
@@ -90,9 +90,9 @@ function JobCard({ job }: { job: Job }) {
             <span className="inline-flex items-center gap-1">
               <ListChecks className="h-3.5 w-3.5" />
               <span className="font-mono font-semibold tabular-nums text-ink">
-                {interviewCount}
+                {topicCount}
               </span>
-              interview
+              topics
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="font-mono font-semibold tabular-nums text-ink">
@@ -107,14 +107,6 @@ function JobCard({ job }: { job: Job }) {
               </span>
             )}
           </p>
-          {job.interview_total_score != null && interviewCount > 0 && (
-            <p className="mt-0.5 text-[11px] text-ink-subtle">
-              Rubric total{' '}
-              <span className="font-mono font-semibold tabular-nums text-ink-muted">
-                {job.interview_total_score}
-              </span>
-            </p>
-          )}
         </div>
 
         <Link

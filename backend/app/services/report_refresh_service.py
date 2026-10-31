@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from app.core.config_loader import config
+from app.services.interview_plan_service import load_rubric
 from app.services.assessment_service import (
     generate_assessment,
     rubric_has_expected_points,
@@ -60,20 +61,6 @@ def apply_assessment_to_report(report: Any, assessment: dict) -> None:
     report.raw_report = assessment
 
 
-async def ensure_job_expected_points(job: Any, db: Any, api_key: str) -> bool:
-    """Generate expected_points on the job rubric when missing. Returns True if job was updated."""
-    rubric = job.interview_questions or []
-    if not rubric or rubric_has_expected_points(rubric):
-        return False
-
-    from app.services.expected_answer_service import enrich_interview_questions
-
-    job.interview_questions = await enrich_interview_questions(rubric, rubric, job, api_key)
-    await db.flush()
-    logger.info("Generated expected_points for job %s rubric", job.id)
-    return True
-
-
 async def ensure_report_has_coverage(
     db: Any,
     report: Any,
@@ -83,7 +70,7 @@ async def ensure_report_has_coverage(
 ) -> bool:
     """
     Re-run rubric assessment when the stored report lacks point_coverage
-    but the job rubric has expected_points. Returns True if report was refreshed.
+    but the interview's plan has expected_points. Returns True if report was refreshed.
     """
     raw = report.raw_report or {}
     if raw.get("assessment_mode") != "rubric":
@@ -98,9 +85,7 @@ async def ensure_report_has_coverage(
     integrations.require("openai_api_key")
     api_key = integrations.openai_api_key
 
-    await ensure_job_expected_points(job, db, api_key)
-
-    rubric = job.interview_questions or []
+    rubric = await load_rubric(db, report.interview_session_id)
     if not rubric_has_expected_points(rubric):
         return False
 
@@ -118,6 +103,7 @@ async def ensure_report_has_coverage(
         job=job,
         candidate=candidate,
         api_key=api_key,
+        rubric=rubric,
     )
     apply_assessment_to_report(report, assessment)
     await db.commit()

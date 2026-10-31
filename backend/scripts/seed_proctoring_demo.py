@@ -25,16 +25,20 @@ import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config_loader import config
 from app.core.security import hash_password
+from app.models.enums import PlanStatus
+from app.services.interview_plan_service import ensure_plan
 from app.models.models import (
     Candidate,
+    InterviewPlanItem,
     InterviewReport,
     InterviewSession,
     Job,
+    JobInterviewTopic,
     ScreeningCall,
     SystemSettings,
     Tenant,
@@ -50,25 +54,33 @@ LEGACY_HR_EMAILS = ("hr@proctor-demo.local",)
 HR_PASSWORD = "Demo@12345"
 JOB_TITLE_BASE = "Backend Engineer (Proctoring Demo"
 
-INTERVIEW_QUESTIONS = [
-    {
-        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, "proctor-demo-q1")),
-        "question": "How would you design retries for a Celery worker that calls a flaky API?",
-        "score": 30,
-        "expected_points": ["exponential backoff", "idempotency", "dead-letter handling"],
-    },
-    {
-        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, "proctor-demo-q2")),
-        "question": "Walk me through how you would model a multi-tenant PostgreSQL schema.",
-        "score": 35,
-        "expected_points": ["tenant_id scoping", "indexes", "cascade deletes"],
-    },
-    {
-        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, "proctor-demo-q3")),
-        "question": "Describe how you would debug a FastAPI endpoint that intermittently times out.",
-        "score": 35,
-        "expected_points": ["tracing/logs", "DB query analysis", "async blocking calls"],
-    },
+# (name, skill tag, scope, example question, expected points). A pool bigger than one interview
+# asks, so seeded candidates get different topics.
+DEMO_TOPICS = [
+    ("Celery retries", "celery", "Retry policy for a worker calling a flaky API.",
+     "How would you design retries for a Celery worker that calls a flaky API?",
+     ["exponential backoff", "idempotency", "dead-letter handling"]),
+    ("Multi-tenant schema", "postgresql", "Isolating tenants in one PostgreSQL schema.",
+     "Walk me through how you would model a multi-tenant PostgreSQL schema.",
+     ["tenant_id scoping", "indexes", "cascade deletes"]),
+    ("Debugging slow endpoints", "fastapi", "Finding why an endpoint intermittently times out.",
+     "Describe how you would debug a FastAPI endpoint that intermittently times out.",
+     ["tracing and logs", "database query analysis", "blocking calls in async code"]),
+    ("Query performance", "postgresql", "Reading query plans and choosing indexes.",
+     "How do you find out why a PostgreSQL query is slow, and what would you change?",
+     ["explain analyze", "index selection", "avoiding sequential scans"]),
+    ("Async request handling", "fastapi", "Async versus sync handlers and where each fits.",
+     "When would you choose an async FastAPI handler over a sync one, and what can go wrong?",
+     ["io-bound versus cpu-bound work", "blocking the event loop", "thread pool for sync code"]),
+    ("Task queue design", "celery", "Queues, routing and backpressure for background work.",
+     "How would you separate fast and slow background jobs so one cannot starve the other?",
+     ["separate queues", "worker concurrency", "rate limiting"]),
+    ("Caching with Redis", "redis", "What to cache and how to keep it correct.",
+     "What would you cache in Redis for an API like this, and how do you handle invalidation?",
+     ["cache keys and expiry", "invalidation strategy", "stale data trade-offs"]),
+    ("API versioning", "api design", "Changing an API without breaking its clients.",
+     "How do you change a public API without breaking existing clients?",
+     ["versioning scheme", "deprecation period", "backwards-compatible changes"]),
 ]
 
 # (candidate name, email, session status)
@@ -141,6 +153,24 @@ async def _get_or_create_hr_user(db: AsyncSession, tenant: Tenant) -> User:
     return user
 
 
+def _ensure_topics(job: Job) -> None:
+    """Gives the demo job its topic pool, once. Edits made to it in the app are kept."""
+    if job.interview_topics:
+        return
+    job.interview_topics = [
+        JobInterviewTopic(
+            job_id=job.id,
+            position=position,
+            name=name,
+            skill_tag=skill,
+            scope=scope,
+            seed_question=question,
+            seed_expected_points=points,
+        )
+        for position, (name, skill, scope, question, points) in enumerate(DEMO_TOPICS)
+    ]
+
+
 async def _get_or_create_job(db: AsyncSession, tenant: Tenant, title: str) -> Job:
     job = (
         await db.execute(
@@ -148,7 +178,7 @@ async def _get_or_create_job(db: AsyncSession, tenant: Tenant, title: str) -> Jo
         )
     ).scalars().first()
     if job:
-        job.interview_questions = INTERVIEW_QUESTIONS
+        _ensure_topics(job)
         return job
 
     job = Job(
@@ -160,14 +190,15 @@ async def _get_or_create_job(db: AsyncSession, tenant: Tenant, title: str) -> Jo
         ),
         required_skills=["Python", "FastAPI", "PostgreSQL", "Celery"],
         seniority_level="mid",
+        interview_topics=[],
         work_mode="hybrid",
         work_location="Bengaluru",
-        interview_questions=INTERVIEW_QUESTIONS,
         voice_screening_enabled=False,
         status="active",
     )
     db.add(job)
     await db.flush()
+    _ensure_topics(job)
     return job
 
 
@@ -259,7 +290,6 @@ async def _seed_candidate(
     session.candidate_id = candidate.id
     session.job_id = job.id
     session.status = status
-    session.hr_decision = "pending"
     session.email_sent_at = now
     session.expires_at = now + timedelta(days=7)
     session.scheduled_interview_at = None
@@ -278,6 +308,10 @@ async def _seed_candidate(
         session.completed_at = now - timedelta(minutes=5)
 
     await db.flush()
+    # A fresh plan every run, so re-seeding shows different candidates getting different topics.
+    await db.execute(delete(InterviewPlanItem).where(InterviewPlanItem.session_id == session.id))
+    session.plan_status = PlanStatus.PENDING.value
+    await ensure_plan(db, session)
     return session
 
 

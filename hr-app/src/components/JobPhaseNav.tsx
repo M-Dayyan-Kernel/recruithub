@@ -19,7 +19,7 @@ import { isVoiceScreeningEffective } from '@/lib/voiceScreening'
 import { usePhoneScreeningVisible } from '@/hooks/usePhoneScreeningVisible'
 import { ScreeningStatusTabs } from '@/components/screening/ScreeningStatusTabs'
 import { ShortlistStatusTabs } from '@/components/shortlist/ShortlistStatusTabs'
-import { InterviewRubricPanel } from '@/components/InterviewRubricPanel'
+import { InterviewTopicsPanel } from '@/components/InterviewTopicsPanel'
 import { downloadFinalistsExcel } from '@/lib/finalistsExport'
 import { PHONE_SCREENING_LABEL, REJECTED_LABEL, RESUME_SCREENING_LABEL } from '@/lib/stageLabels'
 
@@ -212,7 +212,7 @@ export function JobPhaseNav({ job }: Props) {
 
   const toolbar =
     phase === 'interviews' ? (
-      <InterviewRubricPanel job={job} headerEnd={pipelineButton} />
+      <InterviewTopicsPanel job={job} headerEnd={pipelineButton} />
     ) : phase === 'shortlist' ? (
       <PhaseToolbar end={pipelineButton}>
         <ShortlistStatusTabs />

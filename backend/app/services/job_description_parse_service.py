@@ -15,7 +15,7 @@ from app.exceptions import (
     ValidationError,
 )
 from app.models.enums import SeniorityLevel
-from app.schemas.schemas import InterviewQuestionPublic, JobParseResponse, ScreeningQuestion
+from app.schemas.schemas import InterviewTopicIn, JobParseResponse, ScreeningQuestion
 from app.services.jd_parser_service import JdParserService
 from app.services.job_document_service import JobDocumentService
 from app.services.tenant_integrations_service import TenantIntegrationsService
@@ -96,7 +96,7 @@ class JobDescriptionParseService:
             screening_questions=[
                 ScreeningQuestion(**q) for q in (parsed.get("screening_questions") or [])
             ],
-            interview_questions=[
-                InterviewQuestionPublic(**q) for q in (parsed.get("interview_questions") or [])
+            interview_topics=[
+                InterviewTopicIn(**t) for t in (parsed.get("interview_topics") or [])
             ],
         )

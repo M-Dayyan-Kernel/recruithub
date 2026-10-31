@@ -6,7 +6,7 @@ models:
     provider: openai
     name: gpt-5.4-mini
     temperature: 0
-    max_tokens: 3000
+    max_tokens: 5000
     response_format: json_object
   combined_shortlist:
     provider: openai
@@ -19,6 +19,13 @@ models:
     name: gpt-5.4-mini
     temperature: 0
     max_tokens: 600
+    response_format: json_object
+  # Generates the topic pool for a job, or one replacement topic.
+  interview_topics:
+    provider: openai
+    name: gpt-5.4-mini
+    temperature: 0.3
+    max_tokens: 4000
     response_format: json_object
   screening_extraction:
     provider: openai
@@ -100,7 +107,12 @@ parsing:
   min_resume_chars: 50
   min_jd_chars: 50
   min_transcript_chars: 100
-  default_question_score: 10
+  # The topic pool an interview draws from. HR reviews it on the job.
+  topic_pool:
+    size: 15          # topics generated for a job
+    min: 8            # fewest a saved pool may have (an interview asks `interview.plan.topics_per_round`)
+    max: 20
+    max_mandatory: 2  # topics HR can mark as asked in every interview
 
 concurrency:
   max_shortlists: 30
@@ -160,6 +172,25 @@ interview:
   # room-finished webhook never arrived: it cannot reach localhost, and a dropped connection
   # can miss it). It is settled by tasks.settle_stale_interviews. Interviews run 20-30 minutes.
   stale_after_minutes: 60
+  # How long the AI interviewer is told the whole interview should take.
+  target_duration_minutes: 30
+  # What each interview asks. Points always total 100; a section with no items hands its
+  # weight to the topics (a candidate with no projects, for example).
+  plan:
+    topics_per_round: 5
+    max_per_skill: 2   # topics sharing a skill tag in one interview (mandatory ones excepted)
+    weights:
+      intro: 10
+      project: 25
+      topic: 65
+    intro_question: >-
+      Please introduce yourself: your background, what you work on now, and the
+      technologies you use day to day.
+    intro_expected_points:
+      - States their current or most recent role and what they are responsible for
+      - Names the languages, frameworks or tools they use
+      - Describes at least one piece of work in concrete terms
+      - Connects their background to this role
   # Suggested wait time shown when capacity is full.
   busy_retry_minutes: 45
   # Allow joining this many seconds before scheduled_interview_at (clock skew).

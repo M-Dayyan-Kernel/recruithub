@@ -17,13 +17,14 @@ import { api } from '@/lib/api'
 import type {
   Job,
   ParsedJobDescription,
-  InterviewQuestion,
+  InterviewTopic,
   ScreeningQuestion,
   SeniorityLevel,
   SystemSettings,
   WorkMode,
 } from '@/types/api'
-import { InterviewQuestionsEditor } from '@/components/InterviewQuestionsEditor'
+import { InterviewTopicsEditor } from '@/components/InterviewTopicsEditor'
+import { cleanTopics, validateTopicPool, withIds } from '@/lib/interviewTopics'
 import { ScreeningQuestionsEditor } from '@/components/ScreeningQuestionsEditor'
 import { VoiceScreeningSwitch } from '@/components/screening/VoiceScreeningSwitch'
 import { ExtensionCheckFields } from '@/components/job/ExtensionCheckFields'
@@ -51,7 +52,7 @@ interface CreateJobPayload {
   work_location?: string
   /** Only the role-specific and custom questions: the standard ones are the server's. */
   screening_questions?: ScreeningQuestion[]
-  interview_questions?: InterviewQuestion[]
+  interview_topics?: InterviewTopic[]
   voice_screening_enabled?: boolean
   extension_check_enabled?: boolean
   extension_check_mode?: ExtensionPolicyMode
@@ -61,7 +62,7 @@ interface FieldErrors {
   title?: string
   description?: string
   screeningQuestions?: string
-  interviewQuestions?: string
+  interviewTopics?: string
   seniority?: string
 }
 
@@ -141,7 +142,8 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
   const workEditedByHand = useRef({ mode: false, location: false })
   // The role-specific and custom screening questions; the locked standard ones come from the API.
   const [extraQuestions, setExtraQuestions] = useState<ScreeningQuestion[]>([])
-  const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([])
+  // The pool the interviews draw from. The JD parser proposes it; HR reviews it here.
+  const [interviewTopics, setInterviewTopics] = useState<InterviewTopic[]>([])
   const [voiceScreeningEnabled, setVoiceScreeningEnabled] = useState(true)
   const [extensionCheckEnabled, setExtensionCheckEnabled] = useState(true)
   const [extensionCheckMode, setExtensionCheckMode] = useState<ExtensionPolicyMode>('shadow')
@@ -202,7 +204,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
           return [...parsed.screening_questions!, ...prev.filter((q) => q.kind !== 'role')].slice(0, room)
         })
       }
-      if (parsed.interview_questions?.length) setInterviewQuestions(parsed.interview_questions)
+      if (parsed.interview_topics?.length) setInterviewTopics(withIds(parsed.interview_topics))
 
       toast.success('Fields extracted — review before creating')
     },
@@ -276,9 +278,8 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
     // Blank rows used to be dropped silently, so half-typed questions disappeared on save.
     const questionError = firstQuestionError
     if (questionError) errors.screeningQuestions = questionError
-    if (interviewQuestions.some((q) => !q.question.trim())) {
-      errors.interviewQuestions = 'Fill in or remove the empty interview question'
-    }
+    const topicError = validateTopicPool(interviewTopics)
+    if (topicError) errors.interviewTopics = topicError
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors)
@@ -302,7 +303,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
       work_mode: workMode as WorkMode,
       work_location: workMode === 'remote' ? undefined : workLocation.trim(),
       screening_questions: extraQuestions.map((q) => ({ ...q, question: q.question.trim() })),
-      interview_questions: interviewQuestions,
+      interview_topics: cleanTopics(interviewTopics),
       voice_screening_enabled: voiceScreeningEnabled,
       extension_check_enabled: extensionCheckEnabled,
       extension_check_mode: extensionCheckMode,
@@ -581,23 +582,19 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
           </div>
 
           <div>
-            <InterviewQuestionsEditor
-              questions={interviewQuestions}
+            <InterviewTopicsEditor
+              topics={interviewTopics}
               onChange={(next) => {
-                setInterviewQuestions(next)
-                if (fieldErrors.interviewQuestions) {
-                  setFieldErrors((p) => ({ ...p, interviewQuestions: undefined }))
+                setInterviewTopics(next)
+                if (fieldErrors.interviewTopics) {
+                  setFieldErrors((p) => ({ ...p, interviewTopics: undefined }))
                 }
               }}
+              job={{ title, description, required_skills: skills, seniority_level: seniority }}
               disabled={isBusy}
+              error={fieldErrors.interviewTopics}
               scrollable
             />
-            {fieldErrors.interviewQuestions && (
-              <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600">
-                <AlertCircle size={11} />
-                {fieldErrors.interviewQuestions}
-              </p>
-            )}
           </div>
         </FormSection>
 

@@ -57,6 +57,8 @@ def _empty_question_score_entry(q: dict) -> dict:
     entry = {
         "id": q.get("id", ""),
         "question": q.get("question", ""),
+        "section": q.get("section"),
+        "topic": q.get("topic"),
         "score": int(q.get("score") or 0),
         "earned_score": 0 if expected else None,
         "notes": "Not assessable — transcript too short.",
@@ -169,6 +171,8 @@ def _normalize_rubric_questions(raw: list | None) -> list[dict]:
             "question": question,
             "score": int(item.get("score") or 0),
             "expected_points": _coerce_expected_points(item.get("expected_points")) or None,
+            "section": item.get("section"),
+            "topic": item.get("topic"),
         })
     return [q for q in normalized if q["score"] > 0]
 
@@ -208,6 +212,8 @@ def _merge_rubric_scores(rubric: list[dict], gpt_scores: list[dict]) -> tuple[li
         merged.append({
             "id": qid,
             "question": q.get("question", ""),
+            "section": q.get("section"),
+            "topic": q.get("topic"),
             "score": max_score,
             "earned_score": earned,
             "notes": gpt.get("notes") or "",
@@ -254,14 +260,18 @@ def _build_user_content(transcript: str, job, candidate) -> str:
     )
 
 
-async def generate_assessment(transcript: str, job, candidate, api_key: str) -> dict:
+async def generate_assessment(
+    transcript: str, job, candidate, api_key: str, rubric: list[dict] | None = None
+) -> dict:
     """
     Generate a structured interview assessment using GPT-4o.
-    Uses rubric-based scoring when job.interview_questions is set; otherwise legacy 0-100 dimensions.
+
+    `rubric` is the interview's plan (interview_plan_service.plan_as_rubric): what this candidate
+    was asked, with each item's points. Without one, the legacy 0-100 dimensions are scored.
     """
     import openai
 
-    rubric = _normalize_rubric_questions(job.interview_questions)
+    rubric = _normalize_rubric_questions(rubric)
 
     if not transcript or len(transcript.strip()) < config.parsing.min_transcript_chars:
         logger.warning(
@@ -271,7 +281,7 @@ async def generate_assessment(transcript: str, job, candidate, api_key: str) -> 
         return _build_needs_review_report(rubric if rubric else None)
 
     if mocks.mock_openai_enabled():
-        return mocks.mock_interview_assessment(transcript, job, candidate)
+        return mocks.mock_interview_assessment(transcript, job, candidate, rubric)
 
     user_content = _build_user_content(transcript, job, candidate)
 

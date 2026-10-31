@@ -5,16 +5,11 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from pydantic import ValidationError as PydanticValidationError
+from sqlalchemy import inspect as sa_inspect
 
 from app.exceptions import AuthorizationError, ConflictError, ValidationError
 from app.models.models import User
-from app.schemas.schemas import (
-    INTERVIEW_SCORE_MAX,
-    INTERVIEW_SCORE_MIN,
-    InterviewQuestionPublic,
-    JobCreate,
-    JobUpdate,
-)
+from app.schemas.schemas import JobCreate, JobUpdate
 from app.services.job_service import JobService
 
 
@@ -64,61 +59,52 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
             work_mode="remote",
             title="Backend Engineer",
             description="Build services",
-            interview_questions=[],
+            interview_topics=[],
         )
         job = await service.create(actor, payload)
 
         self.assertIsNone(payload.screening_questions)
         stored = job_repo.add.call_args.args[0]
         self.assertGreater(len(stored.screening_questions), 0)
-        expected.enrich.assert_not_awaited()
+        # Initialised on the new job: left unset, the first read would lazy-load, and the async
+        # session cannot do that (it fails with MissingGreenlet in a real request).
+        self.assertIn("interview_topics", sa_inspect(stored).dict)
+        expected.generate.assert_not_awaited()
         audit.log_change.assert_awaited_once()
         session.commit.assert_awaited_once()
 
-    async def test_create_enriches_interview_questions_when_present(self):
+    async def test_create_saves_the_topic_pool_and_writes_an_answer_key_for_each(self):
         session = AsyncMock()
         job_repo = MagicMock()
         audit = AsyncMock()
         expected = AsyncMock()
+        expected.generate = AsyncMock(return_value=["point one", "point two"])
         integrations = AsyncMock()
-        integrations.load = AsyncMock(
-            return_value=MagicMock(
-                openai_api_key="key",
-                require=MagicMock(),
-            )
-        )
-        expected.enrich = AsyncMock(return_value=[{"id": "q1", "question": "Q", "score": 5}])
+        integrations.load = AsyncMock(return_value=MagicMock(openai_api_key="key", require=MagicMock()))
 
         job_repo.add = MagicMock(side_effect=lambda j: j)
         job_repo.flush = AsyncMock()
         job_repo.refresh = AsyncMock()
 
         actor = User(
-            id=uuid.uuid4(),
-            tenant_id=uuid.uuid4(),
-            email="hr@example.com",
-            full_name="HR",
-            hashed_password="x",
-            role="hr",
-            is_active=True,
+            id=uuid.uuid4(), tenant_id=uuid.uuid4(), email="hr@example.com", full_name="HR",
+            hashed_password="x", role="hr", is_active=True,
         )
-
         service = JobService(
-            session,
-            job_repo=job_repo,
-            audit_service=audit,
-            expected_answers=expected,
+            session, job_repo=job_repo, audit_service=audit, expected_answers=expected,
             integrations_service=integrations,
         )
 
-        payload = JobCreate(seniority_level="mid", 
-            work_mode="remote",
-            title="Backend Engineer",
-            description="Build services",
-            interview_questions=[{"id": "q1", "question": "Q", "score": 5}],
+        payload = JobCreate(
+            seniority_level="mid", work_mode="remote", title="Backend Engineer", description="Build services",
+            interview_topics=_pool(8),
         )
         await service.create(actor, payload)
-        expected.enrich.assert_awaited_once()
+
+        saved = job_repo.add.call_args.args[0].interview_topics
+        self.assertEqual([t.position for t in saved], list(range(8)))
+        self.assertEqual(expected.generate.await_count, 8)
+        self.assertTrue(all(t.seed_expected_points == ["point one", "point two"] for t in saved))
 
 
 class ExtensionCheckDefaultsTests(unittest.IsolatedAsyncioTestCase):
@@ -149,7 +135,7 @@ class ExtensionCheckDefaultsTests(unittest.IsolatedAsyncioTestCase):
     def _payload(self, **extra):
         return JobCreate(seniority_level="mid", 
             work_mode="remote", title="Backend Engineer", description="Build services",
-            interview_questions=[], **extra,
+            interview_topics=[], **extra,
         )
 
     async def test_a_new_job_starts_with_the_check_on_in_shadow_mode(self):
@@ -475,36 +461,78 @@ class SeniorityLevelTests(unittest.IsolatedAsyncioTestCase):
         session.commit.assert_not_awaited()
 
 
-class InterviewScoreBoundsTests(unittest.TestCase):
-    """Rubric points must stay within 1..100, and questions cannot be blank."""
+def _topic(n, **extra):
+    return {
+        "name": f"Topic {n}", "scope": "What to probe.", "skill_tag": f"skill {n % 4}",
+        "seed_question": f"Explain how you would approach topic {n} on a real project.", **extra,
+    }
 
-    def _payload(self, **q):
-        base = {"id": "q1", "question": "Walk me through a project you led", "score": 10}
-        base.update(q)
-        return JobCreate(seniority_level="mid", work_mode="remote", title="T", description="D", interview_questions=[base])
 
-    def test_score_above_cap_rejected(self):
+def _pool(size, **mandatory):
+    return [_topic(n, is_mandatory=n in mandatory.get("mandatory", ())) for n in range(size)]
+
+
+class InterviewTopicPoolTests(unittest.TestCase):
+    """A job's topic pool: big enough to vary interviews, small enough to review, no repeats."""
+
+    def _create(self, topics):
+        return JobCreate(
+            seniority_level="mid", work_mode="remote", title="T", description="D", interview_topics=topics
+        )
+
+    def test_no_topics_is_allowed(self):
+        self.assertEqual(self._create([]).interview_topics, [])
+
+    def test_the_pool_has_a_minimum_and_a_maximum_size(self):
+        self.assertEqual(len(self._create(_pool(8)).interview_topics), 8)
+        self.assertEqual(len(self._create(_pool(20)).interview_topics), 20)
+        for size in (1, 7, 21):
+            with self.subTest(size=size), self.assertRaises(PydanticValidationError):
+                self._create(_pool(size))
+
+    def test_at_most_two_topics_can_be_mandatory(self):
+        self.assertEqual(sum(t.is_mandatory for t in self._create(_pool(10, mandatory=(0, 1))).interview_topics), 2)
         with self.assertRaises(PydanticValidationError):
-            self._payload(score=INTERVIEW_SCORE_MAX + 1)
+            self._create(_pool(10, mandatory=(0, 1, 2)))
 
-    def test_negative_and_zero_scores_rejected(self):
-        for score in (0, -5):
-            with self.subTest(score=score), self.assertRaises(PydanticValidationError):
-                self._payload(score=score)
-
-    def test_bounds_are_inclusive(self):
-        for score in (INTERVIEW_SCORE_MIN, INTERVIEW_SCORE_MAX):
-            with self.subTest(score=score):
-                self.assertEqual(self._payload(score=score).interview_questions[0].score, score)
-
-    def test_blank_question_text_rejected(self):
+    def test_topic_names_cannot_repeat(self):
+        topics = _pool(8)
+        topics[1]["name"] = topics[0]["name"].upper()
         with self.assertRaises(PydanticValidationError):
-            self._payload(question="   ")
+            self._create(topics)
 
-    def test_stored_out_of_range_score_still_serialises(self):
-        """Legacy rows above the cap must stay readable — the cap is input-only."""
-        legacy = InterviewQuestionPublic(id="q1", question="Old question", score=250)
-        self.assertEqual(legacy.score, 250)
+    def test_new_topics_get_an_id_and_existing_ones_keep_theirs(self):
+        keep = uuid.uuid4()
+        topics = _pool(8)
+        topics[0]["id"] = str(keep)
+        saved = self._create(topics).interview_topics
+        self.assertEqual(saved[0].id, keep)
+        self.assertTrue(all(t.id for t in saved))
+
+    def test_the_example_question_must_be_spoken_and_technical(self):
+        for question in ("Write a function that reverses a list", "Tell me about a time you handled conflict"):
+            topics = _pool(8)
+            topics[0]["seed_question"] = question
+            with self.subTest(question), self.assertRaises(PydanticValidationError):
+                self._create(topics)
+
+    def test_blank_and_oversized_fields_are_rejected(self):
+        for field, value in (("name", "  "), ("scope", ""), ("skill_tag", " "), ("name", "x" * 121)):
+            topics = _pool(8)
+            topics[0][field] = value
+            with self.subTest(field=field, value=value[:5]), self.assertRaises(PydanticValidationError):
+                self._create(topics)
+
+    def test_skill_tags_are_lowercased(self):
+        topics = _pool(8)
+        topics[0]["skill_tag"] = "  PostgreSQL "
+        self.assertEqual(self._create(topics).interview_topics[0].skill_tag, "postgresql")
+
+    def test_an_update_checks_the_pool_too(self):
+        self.assertEqual(len(JobUpdate(interview_topics=_pool(8)).interview_topics), 8)
+        with self.assertRaises(PydanticValidationError):
+            JobUpdate(interview_topics=_pool(3))
+        self.assertIsNone(JobUpdate().interview_topics)  # not sent: the pool is left alone
 
 
 class SeniorityGuidanceTests(unittest.TestCase):

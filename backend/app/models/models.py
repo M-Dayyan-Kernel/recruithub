@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSON
 
 from app.core.constants import ORG_NAME_UNIQUE_INDEX
 from app.core.database import Base
-from app.models.enums import SeniorityLevel
+from app.models.enums import PlanStatus, SeniorityLevel
 
 
 # Case- and whitespace-insensitive identity of a tenant name. One string is the
@@ -135,7 +135,6 @@ class Job(Base):
     # One short line; set for hybrid and onsite jobs only.
     work_location: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     screening_questions: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
-    interview_questions: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     screening_call_from: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     screening_call_to: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     screening_timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Kolkata", server_default="Asia/Kolkata")
@@ -167,6 +166,42 @@ class Job(Base):
     shortlist_results: Mapped[List["ShortlistResult"]] = relationship("ShortlistResult", back_populates="job", cascade="all, delete-orphan")
     screening_calls: Mapped[List["ScreeningCall"]] = relationship("ScreeningCall", back_populates="job", cascade="all, delete-orphan")
     interview_sessions: Mapped[List["InterviewSession"]] = relationship("InterviewSession", back_populates="job", cascade="all, delete-orphan")
+    # The pool every interview for this job draws its topics from, in the order HR set.
+    # Loaded with the job: the async session cannot lazy-load it when a response is built.
+    interview_topics: Mapped[List["JobInterviewTopic"]] = relationship(
+        "JobInterviewTopic",
+        back_populates="job",
+        cascade="all, delete-orphan",
+        order_by="JobInterviewTopic.position",
+        lazy="selectin",
+    )
+
+
+class JobInterviewTopic(Base):
+    """One topic in a job's pool. A topic is what to probe, not a fixed question: each interview
+    phrases it afresh. The seed question and its expected points are what an interview falls back
+    to, and what the question is calibrated against."""
+
+    __tablename__ = "job_interview_topics"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    # What to probe, in a sentence or two. Shown to HR and given to the question writer.
+    scope: Mapped[str] = mapped_column(Text, nullable=False)
+    # The skill this topic tests; an interview avoids drawing several topics on one skill.
+    skill_tag: Mapped[str] = mapped_column(String(60), nullable=False)
+    seed_question: Mapped[str] = mapped_column(Text, nullable=False)
+    # Hidden from the API, like any answer key.
+    seed_expected_points: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    # Asked in every interview. At most parsing.topic_pool.max_mandatory per job.
+    is_mandatory: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    job: Mapped["Job"] = relationship("Job", back_populates="interview_topics")
 
 
 class Candidate(Base):
@@ -309,6 +344,9 @@ class InterviewSession(Base):
     # session per application and round is not voided (uq_interview_sessions_round_per_application).
     round_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     # Set when HR voids a taken round so the candidate can retake it. The report stays viewable.
+    # pending | seeded | generated (PlanStatus): where this interview's question plan stands.
+    plan_status: Mapped[str] = mapped_column(String(16), nullable=False, default=PlanStatus.PENDING.value, server_default=PlanStatus.PENDING.value)
+    plan_generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     voided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     voided_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     void_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -339,6 +377,31 @@ class InterviewSession(Base):
     candidate: Mapped["Candidate"] = relationship("Candidate", back_populates="interview_sessions")
     job: Mapped["Job"] = relationship("Job", back_populates="interview_sessions")
     report: Mapped[Optional["InterviewReport"]] = relationship("InterviewReport", back_populates="session", uselist=False, cascade="all, delete-orphan")
+
+
+class InterviewPlanItem(Base):
+    """One thing an interview asks and scores: the introduction, a project question, or a topic.
+
+    The plan is this interview's rubric. The agent asks from it, and the assessment scores
+    against it, so the report shows exactly what this candidate was asked."""
+
+    __tablename__ = "interview_plan_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("interview_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    # intro | project | topic (PlanSection)
+    section: Mapped[str] = mapped_column(String(16), nullable=False)
+    topic_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("job_interview_topics.id", ondelete="SET NULL"), nullable=True
+    )
+    # Copied from the topic so the report still names it after HR edits or removes the topic.
+    topic_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_points: Mapped[list] = mapped_column(JSON, nullable=False)
+    points: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class InterviewReport(Base):

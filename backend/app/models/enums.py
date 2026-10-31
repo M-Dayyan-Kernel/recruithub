@@ -13,3 +13,23 @@ class SeniorityLevel(StrEnum):
 
 
 SENIORITY_VALUES: tuple[str, ...] = tuple(level.value for level in SeniorityLevel)
+
+
+class PlanSection(StrEnum):
+    """What a plan item is for. Items are asked in this order and carry their section's points."""
+
+    INTRO = "intro"
+    PROJECT = "project"
+    TOPIC = "topic"
+
+
+class PlanStatus(StrEnum):
+    """Where an interview's question plan stands."""
+
+    #: Not built yet.
+    PENDING = "pending"
+    #: Built from the job's seed questions. Valid to interview on; also what a failed
+    #: personalisation falls back to.
+    SEEDED = "seeded"
+    #: Written for this candidate from their resume.
+    GENERATED = "generated"

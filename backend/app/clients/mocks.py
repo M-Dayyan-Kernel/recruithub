@@ -102,8 +102,6 @@ def mock_jd_parse(raw_text: str) -> dict:
         if stripped and len(stripped) < 80:
             title = stripped[:80]
             break
-    qid = str(uuid.uuid4())
-    iid = str(uuid.uuid4())
     return {
         "title": title,
         "description": (raw_text or "Mock job description from uploaded file.")[:2000],
@@ -122,19 +120,37 @@ def mock_jd_parse(raw_text: str) -> dict:
                 "question": "Have you worked with REST APIs and relational databases in production?",
             },
         ],
-        "interview_questions": [
-            {
-                "id": iid,
-                "question": "Walk me through how you would design a REST API for a recruitment workflow.",
-                "score": 50,
-            },
-            {
-                "id": qid,
-                "question": "Describe a production bug you diagnosed and how you fixed it.",
-                "score": 50,
-            },
-        ],
+        "interview_topics": mock_interview_topics(),
     }
+
+
+_MOCK_TOPICS: tuple[tuple[str, str, str], ...] = (
+    ("REST API design", "api design", "Resource modelling, status codes, pagination and versioning."),
+    ("Relational schema design", "sql", "Normalisation, keys, and when to denormalise."),
+    ("Query performance", "sql", "Reading query plans and choosing indexes."),
+    ("Background job processing", "python", "Queues, retries, idempotency and failure handling."),
+    ("Testing strategy", "testing", "What to unit test, what to integration test, and why."),
+    ("Debugging production issues", "debugging", "Logs, metrics and narrowing down a failure."),
+    ("Authentication and sessions", "security", "Tokens, expiry, storage and common attacks."),
+    ("Caching", "performance", "What to cache, invalidation and consistency."),
+    ("Git workflow", "git", "Branching, review and resolving conflicts."),
+    ("Concurrency in Python", "python", "Threads, processes and async, and when each fits."),
+)
+
+
+def mock_interview_topics(count: int | None = None) -> list[dict]:
+    """A valid topic pool without calling OpenAI."""
+    log_mock_usage("openai", "interview topic pool (gpt-4o)")
+    topics = [
+        {
+            "name": name,
+            "scope": scope,
+            "skill_tag": skill,
+            "seed_question": f"Explain how you would approach {name.lower()} on a real project.",
+        }
+        for name, skill, scope in _MOCK_TOPICS
+    ]
+    return topics[:count] if count else topics
 
 
 def mock_combined_shortlist(raw_text: str = ""):
@@ -190,9 +206,9 @@ def mock_screening_extraction() -> dict:
     }
 
 
-def mock_interview_assessment(transcript: str, job, candidate) -> dict:
+def mock_interview_assessment(transcript: str, job, candidate, rubric: list | None = None) -> dict:
     log_mock_usage("openai", "interview assessment (gpt-4o)")
-    rubric = getattr(job, "interview_questions", None) or []
+    rubric = rubric or []
     if rubric:
         question_scores = []
         total = 0
@@ -208,6 +224,8 @@ def mock_interview_assessment(transcript: str, job, candidate) -> dict:
             entry = {
                 "id": str(q.get("id") or ""),
                 "question": q.get("question", ""),
+                "section": q.get("section"),
+                "topic": q.get("topic"),
                 "score": max_score,
                 "earned_score": earned,
                 "notes": "Mock rubric assessment — 75% coverage.",

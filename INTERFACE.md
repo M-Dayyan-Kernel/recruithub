@@ -44,12 +44,29 @@ Create a new job posting.
   "screening_questions": [
     { "id": "uuid", "question": "string, up to 200 chars", "kind": "role | custom" }
   ],
-  "interview_questions": [
-    { "id": "uuid", "question": "string", "score": 25 }
+  "interview_topics": [
+    {
+      "id": "uuid (omit for a new topic)",
+      "name": "string, up to 120 chars",
+      "scope": "string, what to probe, up to 500 chars",
+      "skill_tag": "string, up to 60 chars (stored lowercase)",
+      "seed_question": "string, one spoken technical question, up to 600 chars",
+      "is_mandatory": false
+    }
   ],
   "status": "active | closed | draft | paused (default: active)"
 }
 ```
+
+`interview_topics` is the job's **topic pool**. A topic says what to probe, not a fixed question: each
+interview asks an introduction and `interview.plan.topics_per_round` (5) topics drawn from the pool, each
+phrased from the topic's `seed_question`, so candidates on one job do not all get the same list. The pool
+is empty (a job with no topics interviews with the generic prompt and the 0-100 dimension scoring) or has
+`parsing.topic_pool.min`-`max` (8-20) distinct topics, of which at most `max_mandatory` (2) have
+`is_mandatory` (asked in every interview). Every `seed_question` must be answerable aloud and technical
+(no live coding, no behavioural questions). The server writes a hidden answer key for each new or
+reworded `seed_question`; if one cannot be written the save fails with `502` and nothing is stored.
+On `PATCH`, sending `interview_topics` replaces the whole pool (matched by `id`); omitting it leaves it.
 
 `screening_questions` holds only the role-specific and custom questions. The six **standard**
 questions (availability, employment, experience, current CTC, expected CTC, and a location question
@@ -115,13 +132,21 @@ Upload a job description document (PDF or DOCX) and extract structured fields vi
   "screening_questions": [
     { "id": "uuid", "question": "string", "kind": "role" }
   ],
-  "interview_questions": [
-    { "id": "uuid", "question": "string", "score": 25 }
+  "interview_topics": [
+    {
+      "id": "uuid (omit for a new topic)",
+      "name": "string, up to 120 chars",
+      "scope": "string, what to probe, up to 500 chars",
+      "skill_tag": "string, up to 60 chars (stored lowercase)",
+      "seed_question": "string, one spoken technical question, up to 600 chars",
+      "is_mandatory": false
+    }
   ]
 }
 ```
 
-`screening_questions` are the AI's role-specific questions only, at most two. The standard ones come
+`interview_topics` is the pool the parser proposes (about 15, never mandatory, no ids); HR reviews it
+before creating the job. `screening_questions` are the AI's role-specific questions only, at most two. The standard ones come
 from `GET /api/jobs/standard-screening-questions`.
 
 **Errors:**
@@ -130,6 +155,21 @@ from `GET /api/jobs/standard-screening-questions`.
 - `500` — AI parsing failure
 
 ---
+
+#### `POST /api/jobs/topics/generate`
+Write a topic pool for a job from its description. Works for a job that is not saved yet; **nothing is
+stored**.
+
+**Request:** `{ title, description, required_skills: [string], seniority_level }`
+**Response `200`:** `{ topics: [{ name, scope, skill_tag, seed_question, is_mandatory: false }] }` (about 15; none has an id)
+**Errors:** `502` — no usable topic came back, or OpenAI is unavailable.
+
+#### `POST /api/jobs/topics/regenerate`
+Replace one topic of the pool being edited with a fresh one on the same skill area but a different angle.
+**Nothing is stored.**
+
+**Request:** the fields above plus `topics` (the pool, every topic complete) and `topic_index` (the one to replace).
+**Response `200`:** `{ topic }` — keeps the replaced topic's `id` and `is_mandatory`, and a name no other topic has.
 
 #### `GET /api/jobs/standard-screening-questions`
 The locked screening questions for the given job details, so the create and edit forms can show them
@@ -765,8 +805,10 @@ interface Job {
   required_skills: string[] | null;
   seniority_level: "intern" | "junior" | "mid" | "senior";
   screening_questions: Array<{ id: string; question: string }>;
-  interview_questions: Array<{ id: string; question: string; score: number }>;
-  interview_total_score: number;        // computed: sum of question scores
+  interview_topics: Array<{
+    id: string; name: string; scope: string; skill_tag: string;
+    seed_question: string; is_mandatory: boolean;
+  }>;                                   // the answer keys are never returned
   screening_call_from: string | null;   // "HH:MM:SS" local job timezone
   screening_call_to: string | null;
   screening_timezone: string;         // IANA tz, default Asia/Kolkata
@@ -895,15 +937,17 @@ interface InterviewReport {
   // Enriched (joined by backend)
   candidate_name: string | null;
   job_title: string | null;
-  // Rubric-based assessment (when job had interview_questions)
+  // Rubric-based assessment (when the interview had a plan: the job has topics)
   question_scores: Array<{
     id: string;
     question: string;
+    section: "intro" | "project" | "topic" | null;
+    topic: string | null;                // the topic's name, for section "topic"
     score: number;
     earned_score: number | null;
     notes: string | null;
   }> | null;
-  rubric_total: number | null;           // sum of rubric question weights
+  rubric_total: number | null;           // 100: the plan's points always total 100
 }
 ```
 

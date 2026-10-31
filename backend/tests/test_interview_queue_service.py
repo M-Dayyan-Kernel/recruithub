@@ -103,6 +103,7 @@ class InterviewCapacityEnforcementTests(unittest.IsolatedAsyncioTestCase):
             unique_token="tok",
             id=uuid.uuid4(),
             livekit_room_name=None,
+            plan_status="seeded",
         )
         candidate = SimpleNamespace(name="Test Candidate")
         job = SimpleNamespace(tenant_id=uuid.uuid4(), title="Engineer")

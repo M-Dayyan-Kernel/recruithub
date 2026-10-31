@@ -264,7 +264,7 @@ test('Back to Job link navigates to correct job detail page', async ({ page }) =
       work_mode: 'hybrid',
       work_location: 'Bengaluru',
       screening_questions: [],
-      interview_questions: [],
+      interview_topics: [],
       status: 'active',
       created_at: '2026-06-01T10:00:00.000Z',
       updated_at: '2026-06-01T10:00:00.000Z',

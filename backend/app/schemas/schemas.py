@@ -70,23 +70,67 @@ def strip_optional_text(value: Optional[str]) -> Optional[str]:
 # Job schemas
 # ---------------------------------------------------------------------------
 
-#: Points a single rubric question can carry. Keep in sync with the web client.
-INTERVIEW_SCORE_MIN = 1
-INTERVIEW_SCORE_MAX = 100
+#: Limits on a topic's text. Keep in sync with the web client.
+TOPIC_NAME_MAX = 120
+TOPIC_SCOPE_MAX = 500
+TOPIC_SKILL_MAX = 60
+TOPIC_QUESTION_MAX = 600
 
 
-class InterviewQuestionPublic(BaseModel):
-    id: str
-    question: str
-    # Deliberately only lower-bounded here: this model also serialises stored
-    # rows, and a legacy score above the cap must still be readable. The
-    # 1..INTERVIEW_SCORE_MAX range is enforced on input by
-    # _normalize_interview_questions.
-    score: int = Field(gt=0)
+def _clean_topic_text(value: str, label: str, max_length: int) -> str:
+    text = " ".join((value or "").split())
+    if not text:
+        raise ValueError(f"Each interview topic needs a {label}")
+    if len(text) > max_length:
+        raise ValueError(f"A topic's {label} can be at most {max_length} characters")
+    return text
 
 
-class InterviewQuestion(InterviewQuestionPublic):
-    expected_points: Optional[List[str]] = None
+class InterviewTopicIn(BaseModel):
+    """A topic as HR edits it. A new topic has no id yet."""
+
+    id: Optional[uuid.UUID] = None
+    name: str
+    scope: str
+    skill_tag: str
+    seed_question: str
+    is_mandatory: bool = False
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, value: str) -> str:
+        return _clean_topic_text(value, "name", TOPIC_NAME_MAX)
+
+    @field_validator("scope")
+    @classmethod
+    def _scope(cls, value: str) -> str:
+        return _clean_topic_text(value, "scope", TOPIC_SCOPE_MAX)
+
+    @field_validator("skill_tag")
+    @classmethod
+    def _skill_tag(cls, value: str) -> str:
+        return _clean_topic_text(value, "skill", TOPIC_SKILL_MAX).lower()
+
+    @field_validator("seed_question")
+    @classmethod
+    def _seed_question(cls, value: str) -> str:
+        from app.services.interview_question_constraints import (
+            validate_oral_interview_question,
+            validate_technical_interview_question,
+        )
+
+        question = _clean_topic_text(value, "example question", TOPIC_QUESTION_MAX)
+        validate_oral_interview_question(question)
+        validate_technical_interview_question(question)
+        return question
+
+
+class InterviewTopic(InterviewTopicIn):
+    """A saved topic, as the API returns it (never with its answer key)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
 
 
 WorkMode = Literal["remote", "hybrid", "onsite"]
@@ -129,68 +173,38 @@ def _normalize_screening_questions(questions: Optional[List]) -> List[dict]:
     return normalized
 
 
-def _normalize_interview_questions(questions: Optional[List]) -> List[dict]:
-    """Assign UUIDs to questions missing ids; validate non-empty text and score >= 1."""
-    if not questions:
+def _normalize_interview_topics(topics: Optional[List]) -> List[dict]:
+    """Check a job's topic pool as a whole: size, mandatory limit, and no repeated topic.
+
+    An empty pool is allowed (the job then has no topics to interview on); a non-empty one has
+    to be big enough that different candidates really get different interviews.
+    """
+    if not topics:
         return []
+    from app.core.config_loader import config
+
+    pool = config.parsing.topic_pool
     normalized: List[dict] = []
-    for item in questions:
-        expected_points: Optional[List[str]] = None
-        if isinstance(item, InterviewQuestion):
-            q = item
-            expected_points = q.expected_points
-        elif isinstance(item, dict):
-            raw_points = item.get("expected_points")
-            if isinstance(raw_points, list):
-                expected_points = [str(p).strip() for p in raw_points if str(p).strip()]
-            q = InterviewQuestion(
-                id=item.get("id") or str(uuid.uuid4()),
-                question=(item.get("question") or "").strip(),
-                score=int(item.get("score") or 0),
-                expected_points=expected_points or None,
-            )
-        else:
-            continue
-        if not q.question:
-            raise ValueError("Each interview question must have non-empty question text")
-        if q.score < INTERVIEW_SCORE_MIN or q.score > INTERVIEW_SCORE_MAX:
-            raise ValueError(
-                f"Each interview question must have a score between "
-                f"{INTERVIEW_SCORE_MIN} and {INTERVIEW_SCORE_MAX}"
-            )
-        from app.services.interview_question_constraints import (
-            validate_oral_interview_question,
-            validate_technical_interview_question,
-        )
-
-        validate_oral_interview_question(q.question)
-        validate_technical_interview_question(q.question)
-        dumped = q.model_dump()
-        normalized.append(dumped)
+    seen_ids: set = set()
+    seen_names: set = set()
+    for item in topics:
+        topic = item if isinstance(item, InterviewTopicIn) else InterviewTopicIn.model_validate(item)
+        topic_id = topic.id or uuid.uuid4()
+        if topic_id in seen_ids:
+            raise ValueError("The same interview topic appears twice")
+        seen_ids.add(topic_id)
+        key = topic.name.lower()
+        if key in seen_names:
+            raise ValueError(f"The interview topic '{topic.name}' appears twice")
+        seen_names.add(key)
+        normalized.append({**topic.model_dump(), "id": topic_id})
+    if len(normalized) < pool.min:
+        raise ValueError(f"An interview topic pool needs at least {pool.min} topics")
+    if len(normalized) > pool.max:
+        raise ValueError(f"An interview topic pool can have at most {pool.max} topics")
+    if sum(1 for t in normalized if t["is_mandatory"]) > pool.max_mandatory:
+        raise ValueError(f"At most {pool.max_mandatory} topics can be marked as asked in every interview")
     return normalized
-
-
-def _strip_expected_points_from_questions(questions: Optional[List]) -> List[dict]:
-    """Return interview questions without expected_points for public API responses."""
-    if not questions:
-        return []
-    result: List[dict] = []
-    for item in questions:
-        if isinstance(item, InterviewQuestionPublic):
-            result.append(item.model_dump())
-        elif isinstance(item, InterviewQuestion):
-            result.append(InterviewQuestionPublic(**item.model_dump()).model_dump())
-        elif isinstance(item, dict):
-            result.append(
-                InterviewQuestionPublic(
-                    id=str(item.get("id") or ""),
-                    question=(item.get("question") or "").strip(),
-                    score=int(item.get("score") or 0),
-                ).model_dump()
-            )
-        else:
-            continue
-    return result
 
 
 class JobCreate(BaseModel):
@@ -206,7 +220,7 @@ class JobCreate(BaseModel):
     # Only the role and custom questions: the standard ones are the server's, so they are never
     # taken from here. None or [] both mean "no extra questions".
     screening_questions: Optional[List[ScreeningQuestion]] = None
-    interview_questions: List[InterviewQuestion] = []
+    interview_topics: List[InterviewTopicIn] = []
     voice_screening_enabled: bool = True
     # The AI-extension check starts on, in shadow mode; the recruiter can turn it off here and
     # change the mode later on the job.
@@ -219,8 +233,8 @@ class JobCreate(BaseModel):
     def normalize_questions(cls, data):
         if isinstance(data, dict):
             data = dict(data)
-            if "interview_questions" in data:
-                data["interview_questions"] = _normalize_interview_questions(data.get("interview_questions"))
+            if "interview_topics" in data:
+                data["interview_topics"] = _normalize_interview_topics(data.get("interview_topics"))
             if data.get("screening_questions") is not None:
                 data["screening_questions"] = _normalize_screening_questions(data.get("screening_questions"))
         return data
@@ -241,7 +255,7 @@ class JobUpdate(BaseModel):
     work_mode: Optional[WorkMode] = None
     work_location: Optional[str] = None
     screening_questions: Optional[List[ScreeningQuestion]] = None
-    interview_questions: Optional[List[InterviewQuestion]] = None
+    interview_topics: Optional[List[InterviewTopicIn]] = None
     screening_call_from: Optional[time] = None
     screening_call_to: Optional[time] = None
     screening_timezone: Optional[str] = None
@@ -255,8 +269,8 @@ class JobUpdate(BaseModel):
     def normalize_questions(cls, data):
         if isinstance(data, dict):
             data = dict(data)
-            if data.get("interview_questions") is not None:
-                data["interview_questions"] = _normalize_interview_questions(data.get("interview_questions"))
+            if data.get("interview_topics") is not None:
+                data["interview_topics"] = _normalize_interview_topics(data.get("interview_topics"))
             if data.get("screening_questions") is not None:
                 data["screening_questions"] = _normalize_screening_questions(data.get("screening_questions"))
         return data
@@ -278,7 +292,7 @@ class JobResponse(BaseModel):
         default=[],
         validation_alias=AliasChoices("effective_screening_questions", "screening_questions"),
     )
-    interview_questions: List[InterviewQuestionPublic] = []
+    interview_topics: List[InterviewTopic] = []
     screening_call_from: Optional[time] = None
     screening_call_to: Optional[time] = None
     screening_timezone: str = "Asia/Kolkata"
@@ -296,18 +310,6 @@ class JobResponse(BaseModel):
             return []
         return value
 
-    @field_validator("interview_questions", mode="before")
-    @classmethod
-    def coerce_interview_questions(cls, value):
-        if value is None:
-            return []
-        return _strip_expected_points_from_questions(value)
-
-    @computed_field
-    @property
-    def interview_total_score(self) -> int:
-        return sum(q.score for q in self.interview_questions)
-
 
 class JobParseResponse(BaseModel):
     title: str
@@ -321,7 +323,39 @@ class JobParseResponse(BaseModel):
     # The JD parser's role-specific questions only (at most two); the standard ones come from
     # the standard-questions preview.
     screening_questions: List[ScreeningQuestion] = []
-    interview_questions: List[InterviewQuestionPublic] = []
+    # The topic pool the parser proposes; HR reviews it before the job is created.
+    interview_topics: List[InterviewTopicIn] = []
+
+
+class InterviewTopicsRequest(BaseModel):
+    """What the topic writer needs to know about a job, saved or not."""
+
+    title: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    required_skills: List[str] = []
+    seniority_level: SeniorityLevel
+
+
+class InterviewTopicsResponse(BaseModel):
+    topics: List[InterviewTopicIn]
+
+
+class InterviewTopicRegenerateRequest(InterviewTopicsRequest):
+    """Replace one topic of the pool being edited with a fresh one on the same skill area."""
+
+    topics: List[InterviewTopicIn] = Field(min_length=1)
+    #: Position of the topic to replace in `topics`.
+    topic_index: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def index_in_range(self):
+        if self.topic_index >= len(self.topics):
+            raise ValueError("topic_index is outside the topic list")
+        return self
+
+
+class InterviewTopicRegenerateResponse(BaseModel):
+    topic: InterviewTopicIn
 
 
 class StandardScreeningQuestionsResponse(BaseModel):
@@ -956,6 +990,9 @@ class InterviewQuestionScore(BaseModel):
     expected_points: Optional[List[str]] = None
     candidate_points: Optional[List[str]] = None
     point_coverage: Optional[List[PointCoverage]] = None
+    # Which part of the interview this was, and the topic it covered (when it was one).
+    section: Optional[Literal["intro", "project", "topic"]] = None
+    topic: Optional[str] = None
 
 
 class TranscriptSegment(BaseModel):

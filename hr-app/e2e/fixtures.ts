@@ -96,26 +96,23 @@ export async function mockAuthenticatedSession(
 }
 
 // ---------------------------------------------------------------------------
-// Sample interview rubric
+// Sample interview topic pool
 // ---------------------------------------------------------------------------
 
-export const MOCK_INTERVIEW_QUESTIONS = [
-  {
-    id: 'q1111111-0000-0000-0000-000000000001',
-    question: 'Explain React reconciliation and the virtual DOM.',
-    score: 30,
-  },
-  {
-    id: 'q1111111-0000-0000-0000-000000000002',
-    question: 'How would you design a scalable frontend architecture?',
-    score: 40,
-  },
-  {
-    id: 'q1111111-0000-0000-0000-000000000003',
-    question: 'Describe a challenging project and your role.',
-    score: 30,
-  },
+const TOPIC_NAMES = [
+  ['React rendering', 'react'], ['State management', 'react'], ['TypeScript types', 'typescript'],
+  ['Frontend architecture', 'architecture'], ['Performance', 'performance'], ['Testing', 'testing'],
+  ['Accessibility', 'accessibility'], ['API integration', 'api design'],
 ]
+
+export const MOCK_INTERVIEW_TOPICS = TOPIC_NAMES.map(([name, skill], n) => ({
+  id: `a1111111-0000-0000-0000-00000000000${n + 1}`,
+  name,
+  scope: `What to probe about ${name.toLowerCase()}.`,
+  skill_tag: skill,
+  seed_question: `Explain how you approach ${name.toLowerCase()} on a real project.`,
+  is_mandatory: n === 0,
+}))
 
 /** What the API returns for a job: the locked standard questions first, then role and custom ones. */
 export function standardQuestionsFor(title = 'Senior Frontend Engineer', workMode = 'hybrid', workLocation = 'Bengaluru') {
@@ -166,8 +163,7 @@ export const MOCK_JOBS_SAFE = [
     work_mode: 'hybrid',
     work_location: 'Bengaluru',
     screening_questions: MOCK_SCREENING_QUESTIONS,
-    interview_questions: MOCK_INTERVIEW_QUESTIONS,
-    interview_total_score: 100,
+    interview_topics: MOCK_INTERVIEW_TOPICS,
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',
     screening_timezone: 'Asia/Kolkata',
@@ -185,7 +181,7 @@ export const MOCK_JOBS_SAFE = [
     work_mode: 'hybrid',
     work_location: 'Bengaluru',
     screening_questions: [],
-    interview_questions: [],
+    interview_topics: [],
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',
     screening_timezone: 'Asia/Kolkata',
@@ -203,7 +199,7 @@ export const MOCK_JOBS_SAFE = [
     work_mode: 'hybrid',
     work_location: 'Bengaluru',
     screening_questions: [],
-    interview_questions: [],
+    interview_topics: [],
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',
     screening_timezone: 'Asia/Kolkata',
@@ -224,8 +220,7 @@ export const MOCK_JOBS = [
     work_mode: 'hybrid',
     work_location: 'Bengaluru',
     screening_questions: MOCK_SCREENING_QUESTIONS,
-    interview_questions: MOCK_INTERVIEW_QUESTIONS,
-    interview_total_score: 100,
+    interview_topics: MOCK_INTERVIEW_TOPICS,
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',
     screening_timezone: 'Asia/Kolkata',
@@ -243,7 +238,7 @@ export const MOCK_JOBS = [
     work_mode: 'hybrid',
     work_location: 'Bengaluru',
     screening_questions: [],
-    interview_questions: [],
+    interview_topics: [],
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',
     screening_timezone: 'Asia/Kolkata',
@@ -261,7 +256,7 @@ export const MOCK_JOBS = [
     work_mode: 'hybrid',
     work_location: 'Bengaluru',
     screening_questions: [],
-    interview_questions: [],
+    interview_topics: [],
     screening_call_from: '09:00:00',
     screening_call_to: '18:00:00',
     screening_timezone: 'Asia/Kolkata',

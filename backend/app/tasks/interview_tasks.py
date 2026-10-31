@@ -216,6 +216,7 @@ async def _async_generate_report(task_self, interview_session_id: str) -> None:
     """Async inner: load records, run assessment, persist InterviewReport."""
     from app.models.models import InterviewSession, Candidate, Job, InterviewReport
     from app.services.assessment_service import generate_assessment
+    from app.services.interview_plan_service import load_rubric
 
     session_uuid = uuid.UUID(interview_session_id)
 
@@ -295,6 +296,7 @@ async def _async_generate_report(task_self, interview_session_id: str) -> None:
             job=job,
             candidate=candidate,
             api_key=integrations.openai_api_key,
+            rubric=await load_rubric(db, session_uuid),
         )
 
         # Check for an existing report (idempotent — don't double-create)

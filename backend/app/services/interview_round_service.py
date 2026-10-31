@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config_loader import config
 from app.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models.models import InterviewSession, ShortlistResult
+from app.services.interview_plan_service import ensure_plan
 from app.services.interview_status import (
     ASSESSMENT_FAILED,
     CANCELLED,
@@ -218,6 +219,7 @@ async def place_first_round(
         )
         db.add(session)
         await db.flush()
+        await ensure_plan(db, session)
         return session
     _refuse_if_live(latest)
     if latest.status == PENDING:
@@ -303,6 +305,7 @@ async def schedule_next_round(
     )
     db.add(session)
     await db.flush()
+    await ensure_plan(db, session)
     return session
 
 
@@ -340,6 +343,8 @@ async def void_round(
     )
     db.add(retake)
     await db.flush()
+    # Planned after the voided round is flushed, so the retake avoids the topics already asked.
+    await ensure_plan(db, retake)
     return latest, retake
 
 

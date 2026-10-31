@@ -134,6 +134,7 @@ const FIELD_LABELS: Record<string, string> = {
   last_working_day: 'Last working day',
   screening_questions: 'Screening questions',
   interview_questions: 'Interview questions',
+  interview_topics: 'Interview topics',
   screening_call_from: 'Call window start',
   screening_call_to: 'Call window end',
   screening_timezone: 'Timezone',
@@ -280,6 +281,7 @@ export function formatValue(field: string, value: unknown): string | null {
     if (field === 'interview_questions' || field === 'screening_questions') {
       return plural(value.length, 'question')
     }
+    if (field === 'interview_topics') return plural(value.length, 'topic')
     // A list of references or of objects is a count, not a readout.
     if (value.some((v) => typeof v === 'object' || isUuid(v))) return plural(value.length, 'item')
     return value.map((v) => String(v)).join(', ')
@@ -292,7 +294,7 @@ export function formatValue(field: string, value: unknown): string | null {
 }
 
 /** Whether a row's change is a list edit we can only summarise (the stored value is the whole list). */
-const LIST_FIELDS = new Set(['interview_questions', 'screening_questions'])
+const LIST_FIELDS = new Set(['interview_questions', 'interview_topics', 'screening_questions'])
 
 function categoryOf(action: string): string {
   return action.includes('.') ? action.slice(0, action.indexOf('.')) : action

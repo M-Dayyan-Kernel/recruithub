@@ -18,6 +18,7 @@ MODEL_WORKLOADS = frozenset({
     "jd_parse",
     "combined_shortlist",
     "expected_answer",
+    "interview_topics",
     "screening_extraction",
     "interview_assessment",
 })

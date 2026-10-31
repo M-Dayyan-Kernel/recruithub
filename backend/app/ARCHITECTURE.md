@@ -642,8 +642,7 @@ Package marker only.
 ### Question helpers
 
 - `_normalize_screening_questions`: accepts schema/dict items, generates missing UUIDs, trims and rejects empty text. Unknown item types are silently skipped.
-- `_normalize_interview_questions`: generates IDs, converts scores, normalizes expected points, requires score ≥1, and runs oral/technical constraints.
-- `_strip_expected_points_from_questions`: prevents expected-answer guidance leaking through public job responses.
+- `_normalize_interview_topics`: checks a job's topic pool as a whole (size `parsing.topic_pool.min`-`max`, at most `max_mandatory` mandatory, no repeated name) and gives new topics ids. Each `InterviewTopicIn` trims its text, lowercases the skill tag, and runs the oral/technical constraints on its example question. The answer key is never in `InterviewTopic`, the response model.
 
 ### Job schemas
 
@@ -1043,11 +1042,22 @@ Functions use mock mode or synchronous Gmail helpers and return `True/False` rat
 ## `expected_answer_service.py`
 
 - `_job_context`: compact job context.
-- `generate_expected_points`: asks OpenAI for expected answer points for one question.
-- `_existing_by_id`: maps existing questions.
-- `enrich_interview_questions`: retains existing expected points where possible and generates missing ones.
+- `generate_expected_points` / `ExpectedAnswerService.generate`: asks OpenAI for expected answer points for one question.
 
-Question enrichment makes job create/update dependent on OpenAI availability.
+## `interview_topic_service.py`
+
+- `normalize_generated_topics`: the usable topics from a model answer (valid, distinct names, never mandatory); a bad one is dropped, not fatal.
+- `generate_pool` / `regenerate_topic`: write a pool, or one replacement topic (workload `interview_topics`). Stateless; nothing is stored.
+- `replace_topics`: makes a job's pool exactly the given list, matched by id. A new or reworded example question gets a fresh answer key (written concurrently); a topic whose key cannot be written fails the whole save.
+
+Saving a pool makes job create/update dependent on OpenAI availability.
+
+## `interview_plan_service.py`
+
+- `select_topics`: mandatory topics, then topics not asked in this candidate's earlier rounds, least used across the job first, at most `interview.plan.max_per_skill` per skill tag (relaxed only to fill the interview), in random order.
+- `allocate_points`: the 100 points over the sections present (`interview.plan.weights`); an absent section's weight goes to the topics; the last item in a section takes the remainder.
+- `seeded_items` / `ensure_plan`: the interview's `InterviewPlanItem`s (introduction, then topics as their seed questions). Called when a session is created and again at interview start for older sessions. A job with no topics gets no plan.
+- `plan_as_rubric` / `load_rubric`: the plan in the shape the assessment scores against.
 
 ## `failed_screening_email_service.py`
 

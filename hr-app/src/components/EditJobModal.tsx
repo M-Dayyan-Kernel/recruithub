@@ -4,8 +4,9 @@ import { X, Loader2, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import { RequiredMark } from '@/components/FieldError'
-import type { Job, InterviewQuestion, ScreeningQuestion, SeniorityLevel, WorkMode } from '@/types/api'
-import { InterviewQuestionsEditor } from '@/components/InterviewQuestionsEditor'
+import type { Job, InterviewTopic, ScreeningQuestion, SeniorityLevel, WorkMode } from '@/types/api'
+import { InterviewTopicsEditor } from '@/components/InterviewTopicsEditor'
+import { cleanTopics, validateTopicPool } from '@/lib/interviewTopics'
 import { ScreeningQuestionsEditor } from '@/components/ScreeningQuestionsEditor'
 import { VoiceScreeningToggle } from '@/components/screening/VoiceScreeningToggle'
 import { SeniorityField } from '@/components/SeniorityField'
@@ -40,9 +41,7 @@ export function EditJobModal({ job, open, onClose }: Props) {
   const [extraQuestions, setExtraQuestions] = useState<ScreeningQuestion[]>(() =>
     editableQuestions(job.screening_questions),
   )
-  const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>(
-    job.interview_questions ?? [],
-  )
+  const [interviewTopics, setInterviewTopics] = useState<InterviewTopic[]>(job.interview_topics ?? [])
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   const { data: standardData } = useStandardScreeningQuestions(title, workMode, workLocation)
@@ -128,8 +127,9 @@ export function EditJobModal({ job, open, onClose }: Props) {
       setSubmitError(`A call can have at most ${maxTotalQuestions} questions. Remove some to save.`)
       return
     }
-    if (interviewQuestions.some((q) => !q.question.trim())) {
-      setSubmitError('Fill in or remove the empty interview question')
+    const topicError = validateTopicPool(interviewTopics)
+    if (topicError) {
+      setSubmitError(topicError)
       return
     }
     setSubmitError(null)
@@ -164,10 +164,9 @@ export function EditJobModal({ job, open, onClose }: Props) {
       payload.screening_questions = nextScreening
     }
 
-    const origQuestions = JSON.stringify(job.interview_questions ?? [])
-    const nextQuestions = interviewQuestions
-    if (origQuestions !== JSON.stringify(nextQuestions)) {
-      payload.interview_questions = nextQuestions
+    const nextTopics = cleanTopics(interviewTopics)
+    if (JSON.stringify(cleanTopics(job.interview_topics ?? [])) !== JSON.stringify(nextTopics)) {
+      payload.interview_topics = nextTopics
     }
 
     if (Object.keys(payload).length === 0) {
@@ -342,10 +341,17 @@ export function EditJobModal({ job, open, onClose }: Props) {
             )}
           </div>
 
-          <InterviewQuestionsEditor
-            questions={interviewQuestions}
-            onChange={setInterviewQuestions}
+          <InterviewTopicsEditor
+            topics={interviewTopics}
+            onChange={setInterviewTopics}
+            job={{
+              title,
+              description,
+              required_skills: skills,
+              seniority_level: seniority,
+            }}
             disabled={mutation.isPending}
+            scrollable
           />
         </div>
 

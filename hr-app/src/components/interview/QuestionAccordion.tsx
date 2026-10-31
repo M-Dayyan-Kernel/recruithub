@@ -44,6 +44,15 @@ const TINTS = [
   },
 ]
 
+const SECTION_LABELS = { intro: 'Introduction', project: 'Projects', topic: 'Technical' } as const
+
+/** Where in the interview a question was: "Introduction", or "Technical · Database indexing". */
+function sectionLabel(qs: InterviewQuestionScore): string | null {
+  if (!qs.section) return null
+  const label = SECTION_LABELS[qs.section]
+  return qs.section === 'topic' && qs.topic ? `${label} · ${qs.topic}` : label
+}
+
 function coverage(qs: InterviewQuestionScore) {
   const pc = qs.point_coverage ?? []
   return { covered: pc.filter((p) => p.covered).length, total: pc.length }
@@ -144,6 +153,11 @@ function QuestionCard({
         </span>
 
         <span className="min-w-0 flex-1">
+          {sectionLabel(qs) && (
+            <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              {sectionLabel(qs)}
+            </span>
+          )}
           <span className="block text-[13px] font-medium leading-snug text-slate-800">
             {qs.question}
           </span>

@@ -12,6 +12,10 @@ from app.dependencies import (
 )
 from app.exceptions import DomainError
 from app.schemas.schemas import (
+    InterviewTopicRegenerateRequest,
+    InterviewTopicRegenerateResponse,
+    InterviewTopicsRequest,
+    InterviewTopicsResponse,
     JobCreate,
     JobParseResponse,
     JobResponse,
@@ -64,6 +68,32 @@ async def parse_jd(
     """Extract and parse a job description from an uploaded PDF or DOCX file."""
     try:
         return await service.parse_upload(file, actor.tenant_id)
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
+@router.post("/topics/generate", response_model=InterviewTopicsResponse)
+async def generate_interview_topics(
+    payload: InterviewTopicsRequest,
+    actor: RequireAdminOrHr,
+    service: JobService = Depends(get_job_service),
+):
+    """Write a topic pool for a job from its description (saved or not). Nothing is stored."""
+    try:
+        return await service.generate_topics(actor, payload)
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
+@router.post("/topics/regenerate", response_model=InterviewTopicRegenerateResponse)
+async def regenerate_interview_topic(
+    payload: InterviewTopicRegenerateRequest,
+    actor: RequireAdminOrHr,
+    service: JobService = Depends(get_job_service),
+):
+    """Write a replacement for one topic of the pool being edited. Nothing is stored."""
+    try:
+        return await service.regenerate_topic(actor, payload)
     except DomainError as exc:
         _raise_domain(exc)
 
