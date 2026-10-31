@@ -21,8 +21,8 @@ def _call(status="completed", result=None, vapi="v1", minutes=0, outcome=None, t
                            created_at=created or (NOW + timedelta(minutes=minutes)))
 
 
-def _session(status="pending", decision="pending", at=None, minutes=0, started=None, expires=None, transcript=None):
-    return SimpleNamespace(status=status, hr_decision=decision, scheduled_interview_at=at,
+def _session(status="pending", at=None, minutes=0, started=None, expires=None, transcript=None, round_number=1):
+    return SimpleNamespace(status=status, round_number=round_number, voided_at=None, scheduled_interview_at=at,
                            created_at=NOW + timedelta(minutes=minutes), started_at=started,
                            expires_at=expires or (NOW + timedelta(days=30)), transcript=transcript)
 
@@ -34,8 +34,8 @@ def _settings(enforce=False, regions=("IN",), retries=3):
 PHONE = "+91 98765 43210"
 
 
-def _stage(decision="approved", calls=(), sessions=(), phone=PHONE, settings=None, effective=True, now=NOW + timedelta(hours=1), report=False):
-    s = resolve_shortlist_stage(decision, list(calls), list(sessions), has_report=report, phone=phone,
+def _stage(decision="approved", calls=(), sessions=(), phone=PHONE, settings=None, effective=True, now=NOW + timedelta(hours=1), report=False, finalist=False):
+    s = resolve_shortlist_stage(decision, list(calls), list(sessions), has_report=report, finalist=finalist, phone=phone,
                                 settings=settings or _settings(), screening_effective=effective, now=now)
     return None if s is None else (s.kind, s.state)
 
@@ -153,7 +153,7 @@ class StageTests(unittest.TestCase):
         self.assertEqual(_stage(sessions=[_session("in_progress", started=started)]), ("interview", "live"))
         for status in ("completed", "assessed", "assessment_failed"):
             self.assertEqual(_stage(sessions=[_session(status, started=started)]), ("interview", "completed"), status)
-        self.assertEqual(_stage(sessions=[_session("completed", "approved", started=started)]), ("interview", "finalist"))
+        self.assertEqual(_stage(sessions=[_session("completed", started=started)], finalist=True), ("interview", "finalist"))
 
     def test_sessions_the_interviews_tab_flags_are_flagged_here_too(self):
         # status "expired" and a pending link past its expiry, neither ever joined
@@ -174,8 +174,8 @@ class StageTests(unittest.TestCase):
         stage = resolve_shortlist_stage("approved", [], [_session("pending", at=at)], phone=PHONE)
         self.assertEqual(stage.scheduled_at, at)
 
-    def test_newest_session_wins_and_beats_any_call(self):
-        sessions = [_session("expired", minutes=0), _session("pending", minutes=9)]
+    def test_current_round_wins_and_beats_any_call(self):
+        sessions = [_session("completed", minutes=0), _session("pending", minutes=9, round_number=2)]
         self.assertEqual(_stage(calls=[_call("completed", "fail")], sessions=sessions), ("interview", "link_sent"))
 
 
@@ -187,7 +187,7 @@ def _record(decision, **extra):
         match_score=80.0, recommendation="shortlisted", strengths=[], gaps=[], reason="ok",
         hr_feedback_type=None, hr_comments=None, model_name="m", prompt_version="v", created_at=NOW,
         rejected_from=None, rejected_at=None, rejected_by=None, rejection_email_claimed_at=None,
-        rejection_emailed_at=None, reconsider_state=None,
+        rejection_emailed_at=None, reconsider_state=None, finalist_at=None,
     )
     fields.update(extra)
     return SimpleNamespace(**fields)
@@ -309,12 +309,12 @@ class ListStageTests(unittest.IsolatedAsyncioTestCase):
 
 
 class LoadStagesReportTests(unittest.IsolatedAsyncioTestCase):
-    async def test_has_report_is_about_the_latest_interview_only(self):
+    async def test_has_report_is_about_the_current_round_only(self):
         from app.services.shortlist_stage_service import load_stages
 
         cand = uuid.uuid4()
-        old = SimpleNamespace(id=uuid.uuid4(), candidate_id=cand, created_at=NOW - timedelta(days=3))
-        new = SimpleNamespace(id=uuid.uuid4(), candidate_id=cand, created_at=NOW)
+        old = SimpleNamespace(id=uuid.uuid4(), candidate_id=cand, created_at=NOW - timedelta(days=3), round_number=1, voided_at=None)
+        new = SimpleNamespace(id=uuid.uuid4(), candidate_id=cand, created_at=NOW, round_number=2, voided_at=None)
 
         def _r(rows):
             r = MagicMock()
@@ -325,7 +325,7 @@ class LoadStagesReportTests(unittest.IsolatedAsyncioTestCase):
         # calls, sessions, then the ids of sessions that have a report (only the old one)
         db.execute = AsyncMock(side_effect=[_r([]), _r([old, new]), _r([old.id])])
         out = await load_stages(db, uuid.uuid4(), [cand])
-        self.assertFalse(out[cand][2], "a report on an earlier interview must not count for the new link")
+        self.assertFalse(out[cand][2], "a report on an earlier round must not count for the new link")
 
         db.execute = AsyncMock(side_effect=[_r([]), _r([old, new]), _r([new.id])])
         out = await load_stages(db, uuid.uuid4(), [cand])

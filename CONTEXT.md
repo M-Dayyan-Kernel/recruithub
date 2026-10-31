@@ -348,7 +348,7 @@ All Sprint 3 frontend tasks complete. Real API calls wired to backend.
   - Empty state: icon + copy + "Create Job" CTA button
   - Error state: rose banner + retry button
 - `src/components/CreateJobModal.tsx` - Full job creation modal:
-  - Fields: title*, description*, required skills (tag chip input), min/max experience years, screening criteria, interview evaluation criteria
+  - Fields: title*, description*, required skills (tag chip input), seniority level (intern / junior / mid / senior), screening criteria, interview evaluation criteria
   - Skill tag input: Enter/comma adds chip, Backspace removes last chip, X button removes individual chips
   - `useMutation` → `POST /api/jobs`; invalidates `['jobs']` queryKey on success
   - Toast: success "Job created successfully" / error "Failed to create job"

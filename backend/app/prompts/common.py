@@ -1,5 +1,7 @@
 """Shared instruction blocks composed into multiple interview prompts."""
 
+from app.models.enums import SeniorityLevel
+
 ORAL_ONLY_PROMPT_RULES = """
 ORAL / VOICE-ONLY INTERVIEW RULES (mandatory):
 - This platform is a spoken voice interview only. There is NO code editor, compiler, interpreter, whiteboard, or screen share.
@@ -18,25 +20,36 @@ TECHNICAL-ONLY RULES (mandatory):
 - Each question must have a technically assessable answer (concepts, decisions, trade-offs, tools, patterns).
 """
 
-DIFFICULTY_TIER_GUIDANCE = """
-DIFFICULTY CALIBRATION (match role and JD experience):
-- Junior (0–2 years): fundamentals, definitions, basic usage, simple trade-offs, small-scope examples
-- Mid-level (3–5 years): applied experience, component design, debugging real scenarios, tool/framework choices, moderate depth
-- Senior (5+ years or lead/architect/principal titles): system design, scalability, reliability, ownership, cross-service trade-offs, deep expertise in core stack
-"""
+SENIORITY_GUIDANCE: dict[SeniorityLevel, str] = {
+    SeniorityLevel.INTERN: (
+        "Intern: core fundamentals and concepts, basic tool usage, learning attitude shown through "
+        "small-scope examples. Do not expect production experience."
+    ),
+    SeniorityLevel.JUNIOR: (
+        "Junior: fundamentals, definitions, basic usage, simple trade-offs, small-scope examples."
+    ),
+    SeniorityLevel.MID: (
+        "Mid-level: applied experience, component design, debugging real scenarios, "
+        "tool/framework choices, moderate depth."
+    ),
+    SeniorityLevel.SENIOR: (
+        "Senior: system design, scalability, reliability, ownership, cross-service trade-offs, "
+        "deep expertise in the core stack."
+    ),
+}
+
+DIFFICULTY_TIER_GUIDANCE = "DIFFICULTY CALIBRATION (match the role's seniority level):\n" + "\n".join(
+    f"- {text}" for text in SENIORITY_GUIDANCE.values()
+)
 
 
-def format_experience_requirement(
-    experience_min: int | None, experience_max: int | None
-) -> str:
-    """Human/LLM-readable experience requirement.
+def seniority_label(level: str | SeniorityLevel | None) -> str:
+    """Human/LLM-readable seniority, e.g. "Mid-level"."""
+    value = SeniorityLevel(level) if level else SeniorityLevel.MID
+    return "Mid-level" if value is SeniorityLevel.MID else value.value.capitalize()
 
-    A maximum of None or 0 means "no upper bound", so it reads "5+ years"
-    rather than "5–0 years".
-    """
-    low = experience_min or 0
-    if experience_max and experience_max > 0:
-        if experience_max == low:
-            return f"{low} years"
-        return f"{low}–{experience_max} years"
-    return f"{low}+ years"
+
+def seniority_guidance(level: str | SeniorityLevel | None) -> str:
+    """One line of difficulty guidance for the job's seniority, for user-message prompts."""
+    value = SeniorityLevel(level) if level else SeniorityLevel.MID
+    return f"Difficulty tier: {SENIORITY_GUIDANCE[value]}"

@@ -43,7 +43,8 @@ from app.schemas.schemas import (
 from app.services.audit_service import AuditService
 from app.services.candidate_contact_service import resolve_candidate_email, resolve_candidate_name
 from app.core.screening_skipped import is_skipped_call
-from app.services.live_work_guard import interview_is_live
+from app.services.interview_round_service import latest_round
+from app.services.interview_status import is_live as interview_is_live
 from app.services.screening_trigger_service import call_is_on_its_way, cancel_undialled_calls
 from app.services.shortlist_stage_service import is_successful_call
 
@@ -143,8 +144,8 @@ class RejectService:
                 candidate_id=candidate_id, rejected_from=row.rejected_from or "resume", changed=False
             )
 
-        latest_session = sessions[0] if sessions else None
-        if latest_session is not None and latest_session.hr_decision == "approved":
+        latest_session = latest_round(sessions)
+        if row.finalist_at is not None:
             await self._refuse("This candidate is a finalist and can no longer be rejected from here.")
         if any(call_is_on_its_way(c) for c in calls):
             await self._refuse("A call is in progress for this candidate. Wait for it to end.")
@@ -180,7 +181,6 @@ class RejectService:
                     await cancel_pending_session(self._session, candidate_id=candidate_id, job_id=job.id)
                 except (NotFoundError, ConflictError):
                     pass  # lapsed already: nothing left to cancel
-            latest_session.hr_decision = "rejected"
 
         now = datetime.now(timezone.utc)
         row.hr_decision = "rejected"
@@ -235,8 +235,6 @@ class RejectService:
                         reached[0].result = "needs_review"
                 elif state != _PHONE_COMPLETED:
                     redial = True  # rejected before any call finished: a fresh call
-            elif sessions:
-                sessions[0].hr_decision = "pending"
 
         row.rejected_from = None
         row.rejected_at = None

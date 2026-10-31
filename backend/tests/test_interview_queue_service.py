@@ -103,6 +103,7 @@ class InterviewCapacityEnforcementTests(unittest.IsolatedAsyncioTestCase):
             unique_token="tok",
             id=uuid.uuid4(),
             livekit_room_name=None,
+            plan_status="seeded",
         )
         candidate = SimpleNamespace(name="Test Candidate")
         job = SimpleNamespace(tenant_id=uuid.uuid4(), title="Engineer")
@@ -141,6 +142,10 @@ class InterviewCapacityEnforcementTests(unittest.IsolatedAsyncioTestCase):
         ), mock.patch(
             "app.services.tenant_integrations_service.load_tenant_integrations",
             new=mock.AsyncMock(return_value=integrations),
+        ), mock.patch(
+            "app.services.interview_public_service.ensure_plan", new=mock.AsyncMock(return_value=False),
+        ), mock.patch(
+            "app.services.interview_public_service.freeze_plan", new=mock.AsyncMock(return_value=False),
         ), mock.patch(
             "app.services.interview_queue_service.has_live_interview_slot",
             new=mock.AsyncMock(return_value=False),

@@ -44,11 +44,11 @@ function visible(v: ActivityView): string {
 
 // ── the rows from the dev Activity page ──────────────────────────────────────
 
-test('a reschedule without a time says a new link was issued and shows no id', () => {
+test('a reschedule without a time says the link was sent again and shows no id', () => {
   const v = describeActivity(row({ action: 'interview.rescheduled', entity_type: 'interview', feature: 'interview_session', after_state: { session_id: ID } }))
   assert.equal(v.event, 'Interview rescheduled')
   assert.equal(v.change?.kind, 'chip')
-  if (v.change?.kind === 'chip') assert.equal(v.change.chip.text, 'New link issued')
+  if (v.change?.kind === 'chip') assert.equal(v.change.chip.text, 'Link sent again')
   assert.ok(!UUID_RE.test(visible(v)), visible(v))
   assert.ok(v.tech.includes(ID), 'the reference is kept, but only in the technical line')
   assert.equal(v.note, '')
@@ -61,7 +61,7 @@ test('a reschedule with a time shows the new and previous time', () => {
     after_state: { session_id: ID, scheduled_interview_at: '2026-10-24T09:30:00+00:00', timezone: 'Asia/Kolkata' },
   }))
   assert.equal(v.change?.kind, 'chip')
-  if (v.change?.kind === 'chip') assert.notEqual(v.change.chip.text, 'New link issued')
+  if (v.change?.kind === 'chip') assert.notEqual(v.change.chip.text, 'Link sent again')
   assert.ok(v.details.some(([k]) => k === 'Previous time'))
   assert.ok(v.details.some(([k]) => k === 'New time'))
   assert.ok(!UUID_RE.test(visible(v)), visible(v))
@@ -210,6 +210,7 @@ const BACKEND_ACTIONS = [
   'settings.extension_policy_updated', 'settings.extension_blocklist_added', 'settings.extension_blocklist_updated', 'settings.extension_blocklist_deleted',
   'settings.extension_defaults_restored', 'settings.extension_observed_dismissed', 'settings.extension_observed_restored',
   'interview.queued', 'interview.scheduled', 'interview.link_sent', 'interview.decision_set', 'interview.email_resent', 'interview.rescheduled', 'interview.retry_assessment', 'interview.cancelled',
+  'interview.round_scheduled', 'interview.voided', 'interview.finalist',
   'job.created', 'job.updated', 'job.deleted',
   'tenant.created', 'tenant.updated', 'tenant.approved', 'tenant.rejected', 'tenant.deleted',
   'screening.result_set', 'screening.triggered', 'screening.call_cancelled', 'screening.advanced_without_call', 'screening.rejected',
@@ -300,7 +301,7 @@ test('values: dates read as dates, counts as counts, ids are withheld', () => {
 test('helpers', () => {
   assert.ok(isUuid(ID) && !isUuid('not-a-uuid') && !isUuid(42))
   assert.equal(humanize('interview_questions'), 'Interview questions')
-  assert.equal(fieldLabel('experience_min'), 'Minimum experience')
+  assert.equal(fieldLabel('seniority_level'), 'Seniority level')
   assert.equal(fieldLabel('work_mode'), 'Work mode')
   assert.equal(fieldLabel('work_location'), 'Work location')
   assert.equal(fieldLabel('hiring_manager'), 'Hiring manager')

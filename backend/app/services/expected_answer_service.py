@@ -1,88 +1,36 @@
-"""Generate and merge hidden expected answer points for interview rubric questions."""
+"""Generate hidden expected answer points for interview questions."""
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from app.clients import mocks, openai_client
 from app.core.config_loader import config
-from app.prompts.common import format_experience_requirement
+from app.prompts.common import seniority_guidance, seniority_label
 from app.prompts.expected_answer import (
     EXPECTED_POINTS_SYSTEM_PROMPT,
     build_expected_points_user_prompt,
 )
-from app.services.interview_question_constraints import derive_difficulty_hint
 
 logger = logging.getLogger(__name__)
 
 
 def _job_context(job: Any) -> str:
     skills = ", ".join(job.required_skills or []) or "Not specified"
-    exp = format_experience_requirement(job.experience_min, job.experience_max)
     return f"""Title: {job.title}
 Required Skills: {skills}
-Experience: {exp}
+Seniority: {seniority_label(job.seniority_level)}
 Description:
 {(job.description or "")[: config.parsing.expected_answer_jd_chars]}"""
 
 
-def _existing_by_id(existing: Optional[list[dict]]) -> dict[str, dict]:
-    if not existing:
-        return {}
-    return {
-        str(q.get("id")): q
-        for q in existing
-        if isinstance(q, dict) and q.get("id")
-    }
-
-
 class ExpectedAnswerService:
-    async def enrich(
-        self,
-        incoming: list[dict],
-        existing: Optional[list[dict]],
-        job: Any,
-        api_key: str,
-    ) -> list[dict]:
-        prior = _existing_by_id(existing)
-        enriched: list[dict] = []
+    """Writes the hidden answer key (expected points) for one interview question."""
 
-        for item in incoming:
-            if not isinstance(item, dict):
-                continue
-            qid = str(item.get("id") or "")
-            question = (item.get("question") or "").strip()
-            score = int(item.get("score") or 0)
-            if not question or score < 1:
-                continue
-
-            old = prior.get(qid)
-            question_changed = not old or (old.get("question") or "").strip() != question
-            is_new = qid not in prior
-
-            if is_new or question_changed:
-                expected_points = await self._generate_expected_points(
-                    question, job, api_key
-                )
-            else:
-                raw_points = old.get("expected_points") if old else None
-                if isinstance(raw_points, list):
-                    expected_points = [str(p).strip() for p in raw_points if str(p).strip()]
-                else:
-                    expected_points = await self._generate_expected_points(
-                        question, job, api_key
-                    )
-
-            enriched.append({
-                "id": qid,
-                "question": question,
-                "score": score,
-                "expected_points": expected_points or None,
-            })
-
-        return enriched
+    async def generate(self, question_text: str, job: Any, api_key: str) -> list[str]:
+        return await self._generate_expected_points(question_text, job, api_key)
 
     async def _generate_expected_points(
         self, question_text: str, job: Any, api_key: str
@@ -99,7 +47,7 @@ class ExpectedAnswerService:
 
         user_content = build_expected_points_user_prompt(
             _job_context(job),
-            derive_difficulty_hint(job),
+            seniority_guidance(job.seniority_level),
             question_text,
         )
 
@@ -122,15 +70,6 @@ class ExpectedAnswerService:
         except Exception:
             logger.exception("Failed to generate expected_points for question")
             return []
-
-
-async def enrich_interview_questions(
-    incoming: list[dict],
-    existing: Optional[list[dict]],
-    job: Any,
-    api_key: str,
-) -> list[dict]:
-    return await ExpectedAnswerService().enrich(incoming, existing, job, api_key)
 
 
 async def generate_expected_points(question_text: str, job: Any, api_key: str) -> list[str]:

@@ -38,19 +38,35 @@ Create a new job posting.
   "title": "string (required)",
   "description": "string (required)",
   "required_skills": ["string"],
-  "experience_min": 0,
-  "experience_max": 5,
+  "seniority_level": "intern | junior | mid | senior (required)",
   "work_mode": "remote | hybrid | onsite (required)",
   "work_location": "string, one line, up to 80 chars (required for hybrid and onsite; dropped for remote)",
   "screening_questions": [
     { "id": "uuid", "question": "string, up to 200 chars", "kind": "role | custom" }
   ],
-  "interview_questions": [
-    { "id": "uuid", "question": "string", "score": 25 }
+  "interview_topics": [
+    {
+      "id": "uuid (omit for a new topic)",
+      "name": "string, up to 120 chars",
+      "scope": "string, what to probe, up to 500 chars",
+      "skill_tag": "string, up to 60 chars (stored lowercase)",
+      "seed_question": "string, one spoken technical question, up to 600 chars",
+      "is_mandatory": false
+    }
   ],
   "status": "active | closed | draft | paused (default: active)"
 }
 ```
+
+`interview_topics` is the job's **topic pool**. A topic says what to probe, not a fixed question: each
+interview asks an introduction and `interview.plan.topics_per_round` (5) topics drawn from the pool, each
+phrased from the topic's `seed_question`, so candidates on one job do not all get the same list. The pool
+is empty (a job with no topics interviews with the generic prompt and the 0-100 dimension scoring) or has
+`parsing.topic_pool.min`-`max` (8-20) distinct topics, of which at most `max_mandatory` (2) have
+`is_mandatory` (asked in every interview). Every `seed_question` must be answerable aloud and technical
+(no live coding, no behavioural questions). The server writes a hidden answer key for each new or
+reworded `seed_question`; if one cannot be written the save fails with `502` and nothing is stored.
+On `PATCH`, sending `interview_topics` replaces the whole pool (matched by `id`); omitting it leaves it.
 
 `screening_questions` holds only the role-specific and custom questions. The six **standard**
 questions (availability, employment, experience, current CTC, expected CTC, and a location question
@@ -110,20 +126,27 @@ Upload a job description document (PDF or DOCX) and extract structured fields vi
   "title": "string",
   "description": "string",
   "required_skills": ["string"],
-  "experience_min": 0,
-  "experience_max": 5,
+  "seniority_level": "intern | junior | mid | senior (the parser's suggestion; mid when the document gives no hint)",
   "work_mode": "remote | hybrid | onsite | null (null when the document does not say)",
   "work_location": "string | null",
   "screening_questions": [
     { "id": "uuid", "question": "string", "kind": "role" }
   ],
-  "interview_questions": [
-    { "id": "uuid", "question": "string", "score": 25 }
+  "interview_topics": [
+    {
+      "id": "uuid (omit for a new topic)",
+      "name": "string, up to 120 chars",
+      "scope": "string, what to probe, up to 500 chars",
+      "skill_tag": "string, up to 60 chars (stored lowercase)",
+      "seed_question": "string, one spoken technical question, up to 600 chars",
+      "is_mandatory": false
+    }
   ]
 }
 ```
 
-`screening_questions` are the AI's role-specific questions only, at most two. The standard ones come
+`interview_topics` is the pool the parser proposes (about 15, never mandatory, no ids); HR reviews it
+before creating the job. `screening_questions` are the AI's role-specific questions only, at most two. The standard ones come
 from `GET /api/jobs/standard-screening-questions`.
 
 **Errors:**
@@ -132,6 +155,21 @@ from `GET /api/jobs/standard-screening-questions`.
 - `500` — AI parsing failure
 
 ---
+
+#### `POST /api/jobs/topics/generate`
+Write a topic pool for a job from its description. Works for a job that is not saved yet; **nothing is
+stored**.
+
+**Request:** `{ title, description, required_skills: [string], seniority_level }`
+**Response `200`:** `{ topics: [{ name, scope, skill_tag, seed_question, is_mandatory: false }] }` (about 15; none has an id)
+**Errors:** `502` — no usable topic came back, or OpenAI is unavailable.
+
+#### `POST /api/jobs/topics/regenerate`
+Replace one topic of the pool being edited with a fresh one on the same skill area but a different angle.
+**Nothing is stored.**
+
+**Request:** the fields above plus `topics` (the pool, every topic complete) and `topic_index` (the one to replace).
+**Response `200`:** `{ topic }` — keeps the replaced topic's `id` and `is_mandatory`, and a name no other topic has.
 
 #### `GET /api/jobs/standard-screening-questions`
 The locked screening questions for the given job details, so the create and edit forms can show them
@@ -544,7 +582,7 @@ Reject from whichever stage the candidate is in (derived on the server: an inter
 **Errors:** `409` — a call is in progress / an interview is in progress (live work is never stopped, so try again when it ends) / the candidate is a finalist / the candidate has no shortlist result yet.
 
 #### `POST /api/jobs/{job_id}/rejected/{candidate_id}/reconsider`
-Put a rejected candidate back where they were rejected from: `resume` → pending on Resume Screening; `phone` → approved (a call that already finished is **not** redialled: a "fail" result goes back to "needs review"; with no finished call, a fresh call is queued, or with screening off they move to Interviews); `interview` → approved with the interview decision pending (a link cancelled by the rejection stays cancelled; HR sends a new one).
+Put a rejected candidate back where they were rejected from: `resume` → pending on Resume Screening; `phone` → approved (a call that already finished is **not** redialled: a "fail" result goes back to "needs review"; with no finished call, a fresh call is queued, or with screening off they move to Interviews); `interview` → approved again (a link cancelled by the rejection stays cancelled; HR reschedules it; taken rounds are untouched).
 
 **Response `200`:** `{ candidate_id, restored_to }`
 
@@ -560,7 +598,7 @@ Each candidate is claimed atomically and in its own transaction, so two clicks o
 
 **Response `200`:** `{ results: [{ candidate_id, status: "sent" | "failed" | "no_email" | "skipped" }], sent, failed }` — `skipped` means already told, being sent, or no longer rejected; `failed` stays "not told" and can be retried.
 
-> Interview pipeline and Finalists exclude rejected candidates. Existing rejections are classified by `python -m scripts.backfill_rejections` (dry run by default; `--apply` to write).
+> Interview pipeline and Finalists exclude rejected candidates.
 
 ---
 
@@ -577,8 +615,43 @@ HR view: list all interview sessions for a job, enriched with `candidate_name` a
 
 ---
 
-#### `PATCH /api/candidates/{candidate_id}/interview/decision`
-`approved` moves a finished interview to Finalists (refused for a rejected candidate, and a finalist cannot be changed). `rejected` is carried out by the Rejected stage and works for any candidate with an interview session, not only a finished one (an unstarted link is cancelled; a live interview is refused with `409`); no email is sent.
+#### Interview rounds
+
+An application (a candidate on a job) has up to `interview.max_rounds` (3) interview rounds, each one an `InterviewSession` with a `round_number`. Every action below targets the candidate's **current round**: the highest-numbered round that is not voided.
+
+| State of the current round | What HR can do |
+| --- | --- |
+| none yet | send the link / schedule (`interview/send`, `interview/schedule`) |
+| `pending`, `expired`, `cancelled` | **reschedule** (the same session moves; its link is kept) |
+| `in_progress` | nothing: `409 Interview in progress` |
+| `completed`, `assessed`, `assessment_failed` | **next round**, **void**, or **mark finalist** |
+
+A round has no decision of its own. Scheduling the next round is the approval of the previous one; the application is a finalist (`finalist_at`) or rejected. The pipeline returns `available_actions` per candidate (`schedule`, `reschedule`, `cancel`, `next_round`, `void_round`, `mark_finalist`, `retry_assessment`, `reject`), computed on the server; the UI renders exactly those. An interview still `in_progress` `interview.stale_after_minutes` (60) after it started is settled by a periodic task: with a transcript it is completed and assessed on what was said, without one it expires and can be rescheduled.
+
+#### `POST /api/candidates/{candidate_id}/finalist`
+Mark the application a finalist after a taken, meaningful round. Irreversible; a finalist can no longer be rejected, rescheduled or voided. Rejecting is `POST /api/jobs/{job_id}/candidates/{candidate_id}/reject` (any candidate with an interview; an unstarted link is cancelled; a live interview is refused with `409`; no email is sent). Replaces `PATCH .../interview/decision`.
+
+**Response `200`:** `InterviewSessionResponse` (the current round). Writes an `interview.finalist` audit row.
+
+**Errors:** `400` — no taken round yet, or the round is flagged · `409` — rejected (reconsider first).
+
+#### `POST /api/candidates/{candidate_id}/interview/next-round`
+Open the next round after a taken one and email the candidate its link.
+
+**Request Body:** optional `{ scheduled_date, scheduled_time, timezone }` as for `interview/schedule`; without it the link has no fixed slot.
+
+**Response `201`:** `InterviewSessionResponse` with `round_number` one higher. Writes `interview.round_scheduled`.
+
+**Errors:** `409` — the current round is not taken yet (reschedule it), is live, the cap is reached, or the candidate is rejected / a finalist · `422` — time in the past.
+
+#### `POST /api/candidates/{candidate_id}/interview/void`
+Void the current taken round (e.g. the candidate had a technical problem) and open a retake with the **same** round number and a fresh link, emailed to the candidate. The voided round keeps its report and recording (shown as voided) and does not count toward the cap.
+
+**Request Body:** `{ "reason": "string, required, up to 500 chars" }`
+
+**Response `201`:** `InterviewSessionResponse` (the retake). Writes `interview.voided`.
+
+**Errors:** `409` — the current round is not taken, is live, or the candidate is rejected / a finalist.
 
 ---
 
@@ -609,7 +682,7 @@ Create an interview session and send the interview link to the candidate via ema
 **Errors:**
 - `400` — candidate has not passed screening (`result != "pass"`)
 - `404` — candidate not found
-- `409` — active interview session already exists for this candidate, or the candidate was rejected (also for `schedule`, `resend` and `reschedule`)
+- `409` — the application already has a pending, live or taken round (reschedule it, or schedule the next round), or the candidate was rejected / is a finalist (also for `schedule`, `resend` and `reschedule`). A cancelled or expired round is reopened rather than duplicated.
 
 The pass is looked up for this candidate's job and must be a completed call.
 
@@ -672,10 +745,10 @@ Handle LiveKit room events (room_finished etc.). Do not call from frontend.
 
 ---
 
-#### `GET /api/candidates/{candidate_id}/report`
-Fetch the most recent interview report for a candidate.
+#### `GET /api/candidates/{candidate_id}/report?session_id=`
+Fetch one round's interview report: the given round's (`session_id`), else the current round's (falling back to the most recent report while the current round has none yet). `POST .../report/refresh` takes the same query.
 
-**Response `200`:** `InterviewReportResponse` (includes all scores + `candidate_name` + `job_title`)
+**Response `200`:** `InterviewReportResponse` (all scores + `candidate_name` + `job_title`, plus `round_number`, `voided_at`, `void_reason`, and `rounds: [{ session_id, round_number, status, voided, void_reason, overall_score, completed_at }]` for the round tabs)
 
 **Errors:** `404 Report not ready yet` — assessment still running or interview not yet complete
 
@@ -730,11 +803,12 @@ interface Job {
   title: string;
   description: string;
   required_skills: string[] | null;
-  experience_min: number;
-  experience_max: number;
+  seniority_level: "intern" | "junior" | "mid" | "senior";
   screening_questions: Array<{ id: string; question: string }>;
-  interview_questions: Array<{ id: string; question: string; score: number }>;
-  interview_total_score: number;        // computed: sum of question scores
+  interview_topics: Array<{
+    id: string; name: string; scope: string; skill_tag: string;
+    seed_question: string; is_mandatory: boolean;
+  }>;                                   // the answer keys are never returned
   screening_call_from: string | null;   // "HH:MM:SS" local job timezone
   screening_call_to: string | null;
   screening_timezone: string;         // IANA tz, default Asia/Kolkata
@@ -773,6 +847,9 @@ interface ParsedData {
   total_experience_years: number;
   experience: ExperienceEntry[];
   education: EducationEntry[];
+  // Projects the resume describes (prompt combined-shortlist-v2). Resumes parsed earlier have none;
+  // re-run the shortlist to fill them in. The interview asks about these.
+  projects?: Array<{ name: string; description: string; technologies: string[] }>;
   current_company: string | null;
   current_role: string | null;
 }
@@ -863,15 +940,17 @@ interface InterviewReport {
   // Enriched (joined by backend)
   candidate_name: string | null;
   job_title: string | null;
-  // Rubric-based assessment (when job had interview_questions)
+  // Rubric-based assessment (when the interview had a plan: the job has topics)
   question_scores: Array<{
     id: string;
     question: string;
+    section: "intro" | "project" | "topic" | null;
+    topic: string | null;                // the topic's name, for section "topic"
     score: number;
     earned_score: number | null;
     notes: string | null;
   }> | null;
-  rubric_total: number | null;           // sum of rubric question weights
+  rubric_total: number | null;           // 100: the plan's points always total 100
 }
 ```
 
@@ -975,7 +1054,7 @@ VITE_API_URL=http://localhost:8080
 | POST | `/api/interview/{token}/integrity-scan` | Record one extension scan as evidence for the HR report (rate-limited per token) |
 | POST | `/api/interview/{token}/complete` | Mark interview complete |
 | POST | `/api/livekit/webhook` | LiveKit webhook (internal) |
-| GET | `/api/candidates/{id}/report` | Get interview report |
+| GET | `/api/candidates/{id}/report?session_id=` | Get one round's interview report |
 | GET | `/api/settings` | System settings (geography) |
 | PATCH | `/api/settings` | Update system settings |
 | GET | `/health` | Health check |

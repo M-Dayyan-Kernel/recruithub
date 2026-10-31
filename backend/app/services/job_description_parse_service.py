@@ -14,12 +14,21 @@ from app.exceptions import (
     JobParseUnavailableError,
     ValidationError,
 )
-from app.schemas.schemas import InterviewQuestionPublic, JobParseResponse, ScreeningQuestion
+from app.models.enums import SeniorityLevel
+from app.schemas.schemas import InterviewTopicIn, JobParseResponse, ScreeningQuestion
 from app.services.jd_parser_service import JdParserService
 from app.services.job_document_service import JobDocumentService
 from app.services.tenant_integrations_service import TenantIntegrationsService
 
 logger = logging.getLogger(__name__)
+
+
+def _parsed_seniority(raw: object) -> SeniorityLevel:
+    """The model's suggestion, or mid-level when it is missing or not one of the four levels."""
+    try:
+        return SeniorityLevel(str(raw).strip().lower())
+    except ValueError:
+        return SeniorityLevel.MID
 
 
 class JobDescriptionParseService:
@@ -81,14 +90,13 @@ class JobDescriptionParseService:
             title=(parsed.get("title") or "").strip(),
             description=(parsed.get("description") or "").strip(),
             required_skills=parsed.get("required_skills") or [],
-            experience_min=parsed.get("experience_min"),
-            experience_max=parsed.get("experience_max"),
+            seniority_level=_parsed_seniority(parsed.get("seniority_level")),
             work_mode=parsed.get("work_mode"),
             work_location=parsed.get("work_location"),
             screening_questions=[
                 ScreeningQuestion(**q) for q in (parsed.get("screening_questions") or [])
             ],
-            interview_questions=[
-                InterviewQuestionPublic(**q) for q in (parsed.get("interview_questions") or [])
+            interview_topics=[
+                InterviewTopicIn(**t) for t in (parsed.get("interview_topics") or [])
             ],
         )

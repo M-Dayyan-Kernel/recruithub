@@ -16,7 +16,7 @@ from app.exceptions import ConflictError
 from app.main import app
 from app.schemas.schemas import RejectionEmailRequest
 from app.services import reject_service as rs
-from app.services.live_work_guard import interview_is_live
+from app.services.interview_status import is_live as interview_is_live
 
 
 class EmailHelpersTests(unittest.TestCase):
@@ -72,7 +72,8 @@ def _call(**kw):
 
 
 def _session(**kw):
-    base = dict(status="completed", hr_decision="pending", started_at=None)
+    base = dict(status="completed", round_number=1, voided_at=None, started_at=None,
+                created_at=datetime.now(timezone.utc))
     base.update(kw)
     return NS(**base)
 
@@ -91,7 +92,8 @@ class _ServiceHelpers:
 
     def _row(self, decision="approved", **kw):
         base = dict(id=uuid.uuid4(), hr_decision=decision, rejected_from=None, rejected_at=None, rejected_by=None,
-                    rejection_email_claimed_at=None, rejection_emailed_at=None, reconsider_state=None)
+                    rejection_email_claimed_at=None, rejection_emailed_at=None, reconsider_state=None,
+                    finalist_at=None)
         base.update(kw)
         return NS(**base)
 
@@ -138,14 +140,14 @@ class RejectRulesTests(_ServiceHelpers, unittest.IsolatedAsyncioTestCase):
         audit.log_change.assert_not_awaited()
 
     async def test_refused_while_live_or_finalist_and_nothing_changed(self):
-        for label, calls, sessions in (
-            ("call", [_call(call_status="in_progress")], []),
-            ("placed call", [_call(call_status="pending", result=None)], []),
-            ("interview", [], [_session(status="in_progress", started_at=datetime.now(timezone.utc))]),
-            ("finalist", [], [_session(hr_decision="approved")]),
+        for label, calls, sessions, row_kw in (
+            ("call", [_call(call_status="in_progress")], [], {}),
+            ("placed call", [_call(call_status="pending", result=None)], [], {}),
+            ("interview", [], [_session(status="in_progress", started_at=datetime.now(timezone.utc))], {}),
+            ("finalist", [], [_session()], {"finalist_at": datetime.now(timezone.utc)}),
         ):
             with self.subTest(label):
-                row = self._row("approved")
+                row = self._row("approved", **row_kw)
                 svc, db, audit = self._service(row, calls, sessions)
                 with self.assertRaises(ConflictError):
                     await svc.reject(NS(id=uuid.uuid4()), uuid.uuid4(), uuid.uuid4())
@@ -157,11 +159,12 @@ class RejectRulesTests(_ServiceHelpers, unittest.IsolatedAsyncioTestCase):
         await self._reject(self._row("approved"), calls=[queued])
         self.assertEqual(queued.call_status, "cancelled")
 
-    async def test_interview_rejection_marks_the_latest_session(self):
+    async def test_interview_rejection_records_the_interview_origin(self):
         latest = _session(status="completed")
         row = self._row("approved")
         await self._reject(row, sessions=[latest])
-        self.assertEqual((latest.hr_decision, row.reconsider_state), ("rejected", "interview"))
+        self.assertEqual((row.rejected_from, row.reconsider_state), ("interview", "interview"))
+        self.assertEqual(latest.status, "completed")  # a taken round is history, never rewritten
 
     async def test_phone_reconsider_state_comes_from_real_calls_only(self):
         done = _call(result="pass")
@@ -215,7 +218,7 @@ class ReconsiderRulesTests(_ServiceHelpers, unittest.IsolatedAsyncioTestCase):
         for kw, expected in cases:
             with self.subTest(kw):
                 row = self._row("rejected", rejected_at=datetime.now(timezone.utc), rejected_by=uuid.uuid4(), **kw)
-                await self._reconsider(row, sessions=[_session(hr_decision="rejected")])
+                await self._reconsider(row, sessions=[_session()])
                 self.assertEqual(row.hr_decision, expected)
                 self.assertIsNone(row.rejected_from)
                 self.assertIsNone(row.rejected_at)
@@ -239,11 +242,11 @@ class ReconsiderRulesTests(_ServiceHelpers, unittest.IsolatedAsyncioTestCase):
         await self._reconsider(row, calls=[failed])
         self.assertEqual(failed.result, "needs_review")
 
-    async def test_interview_decision_goes_back_to_pending(self):
-        latest = _session(hr_decision="rejected")
+    async def test_interview_reconsider_leaves_the_rounds_alone(self):
+        latest = _session(status="completed")
         row = self._row("rejected", rejected_from="interview", reconsider_state="interview")
         await self._reconsider(row, sessions=[latest])
-        self.assertEqual(latest.hr_decision, "pending")
+        self.assertEqual((row.hr_decision, latest.status), ("approved", "completed"))
 
 
 if __name__ == "__main__":

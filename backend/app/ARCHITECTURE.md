@@ -642,8 +642,7 @@ Package marker only.
 ### Question helpers
 
 - `_normalize_screening_questions`: accepts schema/dict items, generates missing UUIDs, trims and rejects empty text. Unknown item types are silently skipped.
-- `_normalize_interview_questions`: generates IDs, converts scores, normalizes expected points, requires score ≥1, and runs oral/technical constraints.
-- `_strip_expected_points_from_questions`: prevents expected-answer guidance leaking through public job responses.
+- `_normalize_interview_topics`: checks a job's topic pool as a whole (size `parsing.topic_pool.min`-`max`, at most `max_mandatory` mandatory, no repeated name) and gives new topics ids. Each `InterviewTopicIn` trims its text, lowercases the skill tag, and runs the oral/technical constraints on its example question. The answer key is never in `InterviewTopic`, the response model.
 
 ### Job schemas
 
@@ -1043,11 +1042,23 @@ Functions use mock mode or synchronous Gmail helpers and return `True/False` rat
 ## `expected_answer_service.py`
 
 - `_job_context`: compact job context.
-- `generate_expected_points`: asks OpenAI for expected answer points for one question.
-- `_existing_by_id`: maps existing questions.
-- `enrich_interview_questions`: retains existing expected points where possible and generates missing ones.
+- `generate_expected_points` / `ExpectedAnswerService.generate`: asks OpenAI for expected answer points for one question.
 
-Question enrichment makes job create/update dependent on OpenAI availability.
+## `interview_topic_service.py`
+
+- `normalize_generated_topics`: the usable topics from a model answer (valid, distinct names, never mandatory); a bad one is dropped, not fatal.
+- `generate_pool` / `regenerate_topic`: write a pool, or one replacement topic (workload `interview_topics`). Stateless; nothing is stored.
+- `replace_topics`: makes a job's pool exactly the given list, matched by id. A new or reworded example question gets a fresh answer key (written concurrently); a topic whose key cannot be written fails the whole save.
+
+Saving a pool makes job create/update dependent on OpenAI availability.
+
+## `interview_plan_service.py`
+
+- `select_topics`: mandatory topics, then topics not asked in this candidate's earlier rounds, least used across the job first, at most `interview.plan.max_per_skill` per skill tag (relaxed only to fill the interview), in random order.
+- `allocate_points`: the 100 points over the sections present (`interview.plan.weights`); an absent section's weight goes to the topics; the last item in a section takes the remainder.
+- `seeded_items` / `ensure_plan`: the interview's `InterviewPlanItem`s (introduction, then topics as their seed questions; status `seeded`). Called when a session is created and again at interview start for older sessions. A job with no topics gets no plan.
+- `generate_plan` (Celery `tasks.generate_interview_plan`, queued after the new session commits): rewrites a `seeded` plan for the candidate under a row lock, only while the interview has not started. Each topic gets a random angle (`explain`, `debug_scenario`, `trade_off`, `small_design`) and a question checked against the last `interview.plan.avoid_history` questions on that topic (word overlap at `similarity_threshold` counts as a repeat; one rewrite, then it is accepted). Up to `project_questions` questions probe the candidate's own projects (`project_material`: projects, else roles, else none; a project the resume does not have is dropped). Anything invalid falls back to the seeded question, and a failed call leaves the seeded plan, so an interview is never left without questions. Points are reallocated: no projects means that weight goes to the topics. The plan is `generated` afterwards, and a later round is told what earlier rounds covered and how it scored.
+- `plan_as_rubric` / `load_rubric`: the plan in the shape the assessment scores against.
 
 ## `failed_screening_email_service.py`
 
@@ -1075,11 +1086,8 @@ OAuth/file/network operations are synchronous.
 
 ## `interview_finalist_service.py`
 
-- `_session_is_completed_for_decision`.
 - `_experience_years`: pulls parsed resume experience.
-- `_map_recommendation_label`.
-- `set_interview_hr_decision`: require suitable completed/assessed session.
-- `list_finalists`: join approved sessions with candidate, report, and latest screening compensation fields.
+- `list_finalists`: applications with `ShortlistResult.finalist_at` set (not rejected), joined with candidate, the current round's report, and latest screening compensation fields. Marking a finalist is `interview_round_service.mark_finalist`.
 
 ## `interview_flag_service.py`
 
@@ -1114,13 +1122,18 @@ Heuristic validation can have false positives/negatives and should not be treate
 ## `interview_reschedule_service.py`
 
 - Finds latest passing screening call.
-- Expires previous session.
 - Optionally parses new schedule.
-- Creates a replacement session linked by `rescheduled_from_session_id`.
-- Sends reschedule email.
-- Returns enriched response.
+- Moves the candidate's current, untaken round with `interview_round_service.reschedule_round` (same session and link; a taken or live round is refused).
+- Sends the reschedule (or scheduled) email.
+- Returns the enriched response and the slot the round had before, for the audit row.
 
-Concurrency can create multiple replacement sessions because active-session checks are not backed by a partial unique constraint.
+The rows are locked (shortlist row first), and a partial unique index allows one live session per application and round.
+
+## `interview_round_service.py`, `interview_status.py`
+
+- `interview_status`: status sets (`UNTAKEN`, `TAKEN`, `TERMINAL`), `is_live` / `live_clause` (in progress within `interview.stale_after_minutes`).
+- `interview_round_service`: `latest_round`, `available_actions`, `place_first_round`, `reschedule_round`, `schedule_next_round`, `void_round`, `mark_finalist`. State changes only flush; the HR service writes the audit row, sends the email, and commits.
+- `interview_settle_service` + beat task `tasks.settle_stale_interviews`: settles interviews stuck in progress (transcript → completed and assessed; none → expired).
 
 ## `interview_schedule_service.py`
 
@@ -1475,8 +1488,10 @@ All protected endpoints require `Authorization: Bearer <JWT>`. Standard FastAPI 
 | POST | `/api/candidates/{id}/interview/queue` | Admin/HR | Path | 200 | Queue timestamp |
 | POST | `/api/candidates/{id}/interview/schedule` | Admin/HR | Schedule | 201 | Session/email |
 | POST | `/api/candidates/{id}/interview/send` | Admin/HR | Path | 201 | Session/email |
-| POST | `/api/candidates/{id}/interview/reschedule` | Admin/HR | Optional schedule | 201 | Replace/email |
-| PATCH | `/api/candidates/{id}/interview/decision` | Admin/HR | Approved/rejected | 200 | Finalist state |
+| POST | `/api/candidates/{id}/interview/reschedule` | Admin/HR | Optional schedule | 201 | Move untaken round/email |
+| POST | `/api/candidates/{id}/interview/next-round` | Admin/HR | Optional schedule | 201 | Next round/email |
+| POST | `/api/candidates/{id}/interview/void` | Admin/HR | Reason | 201 | Voided round + retake/email |
+| POST | `/api/candidates/{id}/finalist` | Admin/HR | Path | 200 | Finalist state |
 | POST | `/api/candidates/{id}/interview/retry-assessment` | Admin/HR | Path | 202 | Report task |
 | GET | `/api/interview/{token}` | Candidate token | Path | 200 | Session |
 | POST | `/api/interview/{token}/start` | Candidate token | Path | 200 | LiveKit room/token |

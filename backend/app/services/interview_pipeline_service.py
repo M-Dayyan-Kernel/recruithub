@@ -19,6 +19,7 @@ from app.models.models import (
     InterviewSession,
     Job,
     ScreeningCall,
+    ShortlistResult,
 )
 from app.schemas.schemas import (
     InterviewPipelineCandidate,
@@ -27,24 +28,14 @@ from app.schemas.schemas import (
     InterviewSessionResponse,
 )
 from app.services.interview_flag_service import get_flag_reason, is_flagged_session
+from app.services.interview_report_labels import map_recommendation_label
+from app.services.interview_round_service import available_actions, counted_rounds, latest_round
+from app.services.interview_status import CANCELLED, IN_PROGRESS, TAKEN, is_live
 from app.services.rejection_filter import rejected_candidate_ids
 
 logger = logging.getLogger(__name__)
 
 InterviewTabStage = Literal["pending", "scheduled", "ongoing", "completed", "flagged", "finalists"]
-
-
-def _map_recommendation_label(rec: str | None) -> str | None:
-    if not rec:
-        return None
-    normalized = rec.lower().replace(" ", "_")
-    if normalized in ("strong_hire", "hire"):
-        return "Hire"
-    if normalized == "no_hire":
-        return "No Hire"
-    if normalized in ("hold", "needs_review"):
-        return "Needs Review"
-    return rec.replace("_", " ").title()
 
 
 def _assessment_status(
@@ -63,39 +54,28 @@ def _assessment_status(
     return "none"
 
 
-def _session_hr_decision(session: InterviewSession | None) -> str:
-    if not session:
-        return "pending"
-    return getattr(session, "hr_decision", None) or "pending"
-
-
 def classify_interview_tab(
     session: InterviewSession | None,
     *,
     has_report: bool = False,
+    finalist: bool = False,
 ) -> InterviewTabStage:
-    """Map latest session state to an HR-facing pipeline tab."""
+    """Map the application's current round to an HR-facing pipeline tab."""
+    if finalist:
+        return "finalists"
     if is_flagged_session(session, has_report=has_report):
         return "flagged"
     if not session:
         return "completed" if has_report else "pending"
-    if session.status == "cancelled":
-        # Back to "needs a link": HR sends a new one or schedules a new time from here.
+    if session.status == CANCELLED:
+        # Back to "needs a link": HR reschedules it from here.
         return "scheduled"
-    if session.status == "in_progress":
+    if session.status == IN_PROGRESS:
         return "ongoing"
     # Interview finished (or assessment running/failed) → Completed, not Scheduled.
-    if has_report or session.status in ("completed", "assessed", "assessment_failed"):
-        if _session_hr_decision(session) == "approved":
-            return "finalists"
+    if has_report or session.status in TAKEN:
         return "completed"
-    if session.status == "pending":
-        return "scheduled"
     return "scheduled"
-
-
-def _has_active_session(sessions: list[InterviewSession]) -> bool:
-    return any(s.status in ("pending", "in_progress") for s in sessions)
 
 
 def _enrich_session(
@@ -137,17 +117,26 @@ async def get_interview_pipeline(
             latest_pass_by_candidate[call.candidate_id] = call
 
     sessions_result = await db.execute(
-        select(InterviewSession)
-        .where(InterviewSession.job_id == job_id)
-        .order_by(InterviewSession.created_at.desc())
+        select(InterviewSession).where(InterviewSession.job_id == job_id)
     )
-    all_sessions = sessions_result.scalars().all()
-    latest_session_by_candidate: dict[uuid.UUID, InterviewSession] = {}
     sessions_by_candidate: dict[uuid.UUID, list[InterviewSession]] = {}
-    for session in all_sessions:
+    for session in sessions_result.scalars().all():
         sessions_by_candidate.setdefault(session.candidate_id, []).append(session)
-        if session.candidate_id not in latest_session_by_candidate:
-            latest_session_by_candidate[session.candidate_id] = session
+    # The current round: the highest-numbered one that is not voided (a retake replaces it).
+    latest_session_by_candidate: dict[uuid.UUID, InterviewSession] = {
+        candidate_id: round_
+        for candidate_id, sessions in sessions_by_candidate.items()
+        if (round_ := latest_round(sessions)) is not None
+    }
+    finalist_ids = set(
+        (
+            await db.execute(
+                select(ShortlistResult.candidate_id).where(
+                    ShortlistResult.job_id == job_id, ShortlistResult.finalist_at.is_not(None)
+                )
+            )
+        ).scalars().all()
+    )
 
     # Rejected candidates are in the Rejected stage, not here: dropped before anything is
     # counted, so the tab counts match what the tabs list.
@@ -177,13 +166,10 @@ async def get_interview_pipeline(
         )
         .order_by(InterviewReport.created_at.desc())
     )
-    latest_report_by_candidate: dict[uuid.UUID, InterviewReport] = {}
     report_by_session_id: dict[uuid.UUID, InterviewReport] = {}
     for report in reports_result.scalars().all():
         if report.interview_session_id not in report_by_session_id:
             report_by_session_id[report.interview_session_id] = report
-        if report.candidate_id not in latest_report_by_candidate:
-            latest_report_by_candidate[report.candidate_id] = report
 
     counts = InterviewPipelineCounts(
         pending=0, scheduled=0, ongoing=0, completed=0, flagged=0, finalists=0
@@ -194,21 +180,11 @@ async def get_interview_pipeline(
         candidate = candidate_map.get(candidate_id)
         session = latest_session_by_candidate.get(candidate_id)
         pass_call = latest_pass_by_candidate.get(candidate_id)
-        report = (
-            report_by_session_id.get(session.id)
-            if session is not None
-            else None
-        )
-        if report is None:
-            report = latest_report_by_candidate.get(candidate_id)
-        has_report = (
-            report is not None
-            and session is not None
-            and report.interview_session_id == session.id
-        )
-        # Never show another session's scores on the active session card
-        card_report = report if has_report else None
-        stage = classify_interview_tab(session, has_report=has_report)
+        # Only the current round's report: another round's scores never show on this card.
+        card_report = report_by_session_id.get(session.id) if session is not None else None
+        has_report = card_report is not None
+        finalist = candidate_id in finalist_ids
+        stage = classify_interview_tab(session, has_report=has_report, finalist=finalist)
 
         if stage == "pending":
             counts.pending += 1
@@ -230,15 +206,16 @@ async def get_interview_pipeline(
                 continue
 
         candidate_sessions = sessions_by_candidate.get(candidate_id, [])
-        has_other_active = _has_active_session(
-            [s for s in candidate_sessions if session is None or s.id != session.id]
-        )
-        actions_disabled = candidate is None
-        can_reschedule = (
-            not actions_disabled
-            and not has_other_active
-            and stage in ("completed", "flagged")
-            and _session_hr_decision(session) != "rejected"
+        actions = (
+            []
+            if candidate is None
+            else available_actions(
+                candidate_sessions,
+                rejected=False,  # rejected candidates were dropped above
+                finalist=finalist,
+                flagged=stage == "flagged",
+                has_report=has_report,
+            )
         )
 
         session_response = (
@@ -252,15 +229,16 @@ async def get_interview_pipeline(
                 has_report=has_report,
                 session=session_response,
                 report_overall_score=card_report.overall_score if card_report else None,
-                report_recommendation=_map_recommendation_label(
+                report_recommendation=map_recommendation_label(
                     card_report.final_recommendation if card_report else None
                 ),
                 assessment_status=_assessment_status(session, has_report=has_report),
                 flag_reason=get_flag_reason(session, has_report=has_report),
-                can_reschedule=can_reschedule,
-                actions_disabled=actions_disabled,
-                has_active_session=has_other_active,
-                hr_decision=_session_hr_decision(session),
+                round_number=session.round_number if session else 0,
+                round_count=len(counted_rounds(candidate_sessions)),
+                is_live=bool(session) and is_live(session),
+                finalist=finalist,
+                available_actions=actions,
                 screening_skipped=pass_call is not None and is_skipped_call(pass_call),
                 skip_reason=skip_reason(pass_call) if pass_call is not None else None,
             )

@@ -57,6 +57,10 @@ celery_app.conf.update(
             "task": "tasks.recover_stuck_resume_processing",
             "schedule": config.scheduler.recover_stuck_parses_seconds,
         },
+        "settle-stale-interviews": {
+            "task": "tasks.settle_stale_interviews",
+            "schedule": config.scheduler.settle_stale_interviews_seconds,
+        },
         "apply-data-retention": {
             "task": "tasks.apply_data_retention",
             "schedule": 86400.0,

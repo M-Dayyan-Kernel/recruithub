@@ -33,6 +33,68 @@ def enqueue_interview_assessment(interview_session_id: str) -> None:
     schedule_interview_assessment.delay(str(interview_session_id))
 
 
+def enqueue_interview_plan(session) -> None:
+    """Have an interview's questions written for its candidate. Best effort, after the session is
+    committed: if the queue is down the seeded plan simply stands."""
+    if session.plan_status != "seeded":
+        return
+    try:
+        generate_interview_plan.delay(str(session.id))
+    except Exception as exc:
+        logger.warning("Could not queue question writing for session %s: %s", session.id, exc)
+
+
+@celery_app.task(name="tasks.generate_interview_plan")
+def generate_interview_plan(interview_session_id: str):
+    """Rewrite a seeded plan for the candidate (see interview_plan_service.generate_plan).
+    Never retried: a failure leaves the seeded plan, which is a complete interview."""
+    try:
+        asyncio.run(_async_generate_plan(interview_session_id))
+    except Exception as exc:
+        logger.error("generate_interview_plan failed for session %s: %s", interview_session_id, exc)
+
+
+async def _async_generate_plan(interview_session_id: str) -> None:
+    from app.models.models import InterviewSession, Job
+    from app.services.interview_plan_service import generate_plan
+    from app.services.tenant_integrations_service import load_tenant_integrations
+
+    async with get_celery_db() as db:
+        session = (
+            await db.execute(select(InterviewSession).where(InterviewSession.id == uuid.UUID(interview_session_id)))
+        ).scalars().first()
+        if session is None:
+            return
+        job = await db.get(Job, session.job_id)
+        if job is None:
+            return
+        integrations = await load_tenant_integrations(db, job.tenant_id)
+        integrations.require("openai_api_key")
+        if await generate_plan(db, session, api_key=integrations.openai_api_key):
+            await db.commit()
+        else:
+            await db.rollback()
+
+
+@celery_app.task(name="tasks.settle_stale_interviews")
+def settle_stale_interviews():
+    """Beat: settle interviews left in progress past the stale window (see the service)."""
+    try:
+        asyncio.run(_async_settle_stale())
+    except Exception as exc:
+        logger.error("settle_stale_interviews failed: %s", exc)
+        raise
+
+
+async def _async_settle_stale() -> None:
+    from app.services.interview_settle_service import settle_stale_interviews as settle
+
+    async with get_celery_db() as session:
+        completed, _expired = await settle(session)
+    for session_id in completed:
+        enqueue_interview_assessment(str(session_id))
+
+
 @celery_app.task(name="tasks.schedule_interview_assessment")
 def schedule_interview_assessment(interview_session_id: str, attempt: int = 0):
     """
@@ -197,6 +259,7 @@ async def _async_generate_report(task_self, interview_session_id: str) -> None:
     """Async inner: load records, run assessment, persist InterviewReport."""
     from app.models.models import InterviewSession, Candidate, Job, InterviewReport
     from app.services.assessment_service import generate_assessment
+    from app.services.interview_plan_service import load_rubric
 
     session_uuid = uuid.UUID(interview_session_id)
 
@@ -276,6 +339,7 @@ async def _async_generate_report(task_self, interview_session_id: str) -> None:
             job=job,
             candidate=candidate,
             api_key=integrations.openai_api_key,
+            rubric=await load_rubric(db, session_uuid),
         )
 
         # Check for an existing report (idempotent — don't double-create)

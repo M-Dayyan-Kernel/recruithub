@@ -399,7 +399,7 @@ flowchart TD
 
 | Model | Table | Key Fields | Purpose |
 |-------|-------|------------|---------|
-| **Job** | `jobs` | tenant_id, title, description, required_skills, experience_min/max, screening_questions (JSON), interview_questions (JSON), screening_call_from/to, screening_timezone, status | Job posting and configuration (tenant-scoped) |
+| **Job** | `jobs` | tenant_id, title, description, required_skills, seniority_level, screening_questions (JSON), screening_call_from/to, screening_timezone, status | Job posting and configuration (tenant-scoped) |
 | **Candidate** | `candidates` | job_id, name, email, phone, resume_path, parsed_data (JSON), parse_status, original_filename | Resume and parsed profile |
 | **ShortlistResult** | `shortlist_results` | candidate_id, match_score, recommendation, strengths, gaps, hr_decision, hr_feedback | AI shortlist + HR decision |
 | **ScreeningCall** | `screening_calls` | candidate_id, vapi_call_id, call_status, transcript, extracted_fields (JSON), call_outcome, interview_queued_at | Voice screening record |

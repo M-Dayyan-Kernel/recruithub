@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.screening_skipped import SKIPPED_ENDED_REASON
+from app.exceptions import DomainError
 from app.models.models import Candidate, Job, ScreeningCall
 from app.services.candidate_contact_service import resolve_candidate_email
 from app.services.interview_schedule_service import send_interview_invitation_email
@@ -194,7 +195,7 @@ async def advance_approved_candidate_to_interview(
             candidate_id=candidate_id,
             job_id=job_id,
         )
-    except ValueError as exc:
+    except (ValueError, DomainError) as exc:
         logger.warning(
             "Could not create interview session for candidate=%s job=%s: %s",
             candidate_id,
@@ -210,6 +211,9 @@ async def advance_approved_candidate_to_interview(
         )
 
     await db.commit()
+    from app.tasks.interview_tasks import enqueue_interview_plan
+
+    enqueue_interview_plan(interview_session)
     email_sent, email_skipped_reason = await _send_invitation_if_needed(
         db,
         interview_session=interview_session,

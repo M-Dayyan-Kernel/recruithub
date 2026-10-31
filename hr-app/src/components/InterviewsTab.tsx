@@ -22,6 +22,7 @@ import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import { BTN_DANGER, BTN_SECONDARY } from '@/components/ui/Surface'
 import type {
+  InterviewAction,
   InterviewSession,
   Job,
   InterviewPipelineResponse,
@@ -33,19 +34,15 @@ import { InterviewPipelineTable } from '@/components/InterviewPipelineTable'
 import type { InterviewPipelineTab } from '@/types/api'
 import { downloadFinalistsExcel } from '@/lib/finalistsExport'
 import { PHONE_SCREENING_LABEL } from '@/lib/stageLabels'
+import {
+  INTERVIEW_STATUS_CONFIG,
+  resolveInterviewStatus,
+  type InterviewStatus,
+} from '@/lib/interviewStatus'
 
 // ---------------------------------------------------------------------------
 // Interview status chip
 // ---------------------------------------------------------------------------
-
-type InterviewStatus =
-  | 'not_sent'
-  | 'scheduled'
-  | 'link_sent'
-  | 'in_progress'
-  | 'completed'
-  | 'report_ready'
-  | 'cancelled'
 
 type InterviewTabId = InterviewPipelineTab
 
@@ -78,26 +75,7 @@ const TAB_EMPTY_MESSAGES: Record<VisibleInterviewTabId, string> = {
   ongoing: 'No interviews in progress right now.',
   completed: 'No completed interviews yet.',
   flagged: 'No flagged interviews.',
-  finalists: 'No finalists yet. Approve candidates from Completed to move them here.',
-}
-
-function resolveInterviewStatus(
-  hasReport: boolean,
-  session: InterviewSession | null | undefined,
-): InterviewStatus {
-  if (!session) return hasReport ? 'completed' : 'not_sent'
-  // Called off by HR: the link is dead, and the candidate needs a new one.
-  if (session.status === 'cancelled') return 'cancelled'
-  if (hasReport || session.status === 'completed') return 'completed'
-  if (session.status === 'in_progress') return 'in_progress'
-  if (
-    session.scheduled_interview_at &&
-    new Date(session.scheduled_interview_at) > new Date() &&
-    session.status === 'pending'
-  ) {
-    return 'scheduled'
-  }
-  return 'link_sent'
+  finalists: 'No finalists yet. Mark candidates as finalists from Completed to move them here.',
 }
 
 function formatScheduledAt(iso: string, timezone?: string): string {
@@ -125,47 +103,6 @@ function activeTabClass(tab: VisibleInterviewTabId, isActive: boolean): string {
     finalists: 'bg-emerald-600 text-white',
   }
   return active[tab]
-}
-
-const INTERVIEW_STATUS_CONFIG: Record<
-  InterviewStatus,
-  { label: string; className: string; dotClassName: string }
-> = {
-  not_sent: {
-    label: 'Not Sent',
-    className: 'bg-slate-50 text-slate-600 border-slate-200',
-    dotClassName: 'bg-slate-400',
-  },
-  scheduled: {
-    label: 'Scheduled',
-    className: 'bg-violet-50 text-violet-700 border-violet-200',
-    dotClassName: 'bg-violet-500',
-  },
-  link_sent: {
-    label: 'Link Sent',
-    className: 'bg-blue-50 text-blue-700 border-blue-200',
-    dotClassName: 'bg-blue-500',
-  },
-  in_progress: {
-    label: 'In Progress',
-    className: 'bg-amber-50 text-amber-700 border-amber-200',
-    dotClassName: 'bg-amber-500',
-  },
-  completed: {
-    label: 'Completed',
-    className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    dotClassName: 'bg-emerald-500',
-  },
-  cancelled: {
-    label: 'Cancelled',
-    className: 'bg-surface text-ink-muted border-line',
-    dotClassName: 'bg-ink-subtle',
-  },
-  report_ready: {
-    label: 'Report Ready',
-    className: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-    dotClassName: 'bg-indigo-500',
-  },
 }
 
 function InterviewStatusChip({ status }: { status: InterviewStatus }) {
@@ -244,6 +181,9 @@ interface CandidateInterviewCardProps {
   jobId: string
   jobTimezone?: string
   hasReport: boolean
+  /** What HR may do right now (decided on the server) and which round this is. */
+  availableActions: InterviewAction[]
+  roundNumber: number
   /** Moved here without a call; `skipReason` is the sentence HR (or the job setting) gave. */
   screeningSkipped?: boolean
   skipReason?: string | null
@@ -258,6 +198,8 @@ function CandidateInterviewCard({
   jobId,
   jobTimezone,
   hasReport,
+  availableActions,
+  roundNumber,
   screeningSkipped = false,
   skipReason = null,
   initialSession = null,
@@ -267,6 +209,7 @@ function CandidateInterviewCard({
   const [localSession, setLocalSession] = useState<InterviewSession | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
   const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [rescheduleOpen, setRescheduleOpen] = useState(false)
 
   // Fetched session is source of truth; override with freshly-sent session
   const session = localSession ?? initialSession
@@ -370,12 +313,15 @@ function CandidateInterviewCard({
     onError: (err: Error) => setRejectError(err.message || 'Could not reject this candidate.'),
   })
   const canReject =
-    !hasReport && ['not_sent', 'cancelled', 'scheduled', 'link_sent'].includes(interviewStatus)
+    availableActions.includes('reject') &&
+    !hasReport &&
+    ['not_sent', 'cancelled', 'scheduled', 'link_sent'].includes(interviewStatus)
 
   const canResendEmail =
     session?.status === 'pending' && !hasReport && interviewStatus !== 'not_sent'
   // Only a link the candidate has not opened: stopping a live interview is a separate action.
-  const canCancelInterview = session?.status === 'pending' && !hasReport
+  const canCancelInterview = availableActions.includes('cancel')
+  const canReschedule = availableActions.includes('reschedule') && session?.status === 'pending'
 
   const showEmailWarning =
     session?.status === 'pending' && !session.email_sent_at && interviewStatus !== 'not_sent'
@@ -385,13 +331,17 @@ function CandidateInterviewCard({
       ? 'Ready to send AI interview link'
       : interviewStatus === 'cancelled'
         ? 'Interview cancelled. Send a new link or schedule a new time.'
+        : interviewStatus === 'expired'
+        ? 'The link expired before the interview was taken. Reschedule it.'
         : interviewStatus === 'scheduled'
         ? 'Candidate notified — please attend at the scheduled time'
         : interviewStatus === 'link_sent'
           ? 'Waiting for candidate to start'
           : interviewStatus === 'in_progress'
             ? 'Candidate is taking the interview'
-            : hasReport
+            : interviewStatus === 'assessment_failed'
+              ? 'Interview finished — the assessment failed. Retry it from Completed.'
+              : hasReport
               ? 'Interview report is available'
               : 'Interview finished — report generating'
 
@@ -463,7 +413,7 @@ function CandidateInterviewCard({
           </Link>
         )}
 
-        {(canResendEmail || canCancelInterview) && (
+        {(canResendEmail || canReschedule || canCancelInterview) && (
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             {canResendEmail && (
               <button
@@ -483,6 +433,17 @@ function CandidateInterviewCard({
                     {session?.email_sent_at ? 'Resend email' : 'Send email'}
                   </>
                 )}
+              </button>
+            )}
+            {canReschedule && (
+              <button
+                type="button"
+                onClick={() => setRescheduleOpen(true)}
+                disabled={resendEmailMutation.isPending || sendMutation.isPending}
+                className={BTN_SECONDARY}
+              >
+                <CalendarClock size={13} aria-hidden />
+                Reschedule
               </button>
             )}
             {canCancelInterview && (
@@ -521,6 +482,11 @@ function CandidateInterviewCard({
           </span>
         )}
         <InterviewStatusChip status={interviewStatus} />
+        {roundNumber > 0 && (
+          <span className="inline-flex items-center rounded-full border border-line bg-surface px-2.5 py-1 text-xs font-medium text-ink-muted">
+            Round {roundNumber}
+          </span>
+        )}
         {canReject && (
           <button
             type="button"
@@ -686,6 +652,18 @@ function CandidateInterviewCard({
         candidateName={candidateName}
         open={scheduleOpen}
         onClose={() => setScheduleOpen(false)}
+        onSuccess={(data) => {
+          setLocalSession(data)
+          invalidatePipeline()
+        }}
+      />
+      <ScheduleInterviewModal
+        job={job}
+        candidateId={candidateId}
+        candidateName={candidateName}
+        open={rescheduleOpen}
+        mode="reschedule"
+        onClose={() => setRescheduleOpen(false)}
         onSuccess={(data) => {
           setLocalSession(data)
           invalidatePipeline()
@@ -934,6 +912,7 @@ export function InterviewsTab({ job, jobId }: Props) {
           </div>
         ) : (
           <InterviewPipelineTable
+            job={job}
             jobId={jobId}
             rows={pagedCandidates}
             variant={activeTab}
@@ -952,6 +931,8 @@ export function InterviewsTab({ job, jobId }: Props) {
               jobId={jobId}
               jobTimezone={job.screening_timezone}
               hasReport={row.has_report}
+              availableActions={row.available_actions}
+              roundNumber={row.round_number}
               screeningSkipped={row.screening_skipped}
               skipReason={row.skip_reason}
               initialSession={row.session ?? null}

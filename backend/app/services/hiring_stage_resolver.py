@@ -39,17 +39,14 @@ def resolve_hiring_stage(
     if shortlist is not None and shortlist.hr_decision == "rejected":
         return "Rejected"
 
-    if interview_session is not None:
-        hr_decision = getattr(interview_session, "hr_decision", None) or "pending"
-        if interview_report is not None and hr_decision == "approved":
-            return "Finalist"
-        # "cancelled": HR called the interview off, but the candidate is still in this stage.
-        if interview_session.status in ("pending", "in_progress", "cancelled"):
-            return "Interview"
-        if interview_session.status in ("completed", "assessed", "assessment_failed") or interview_report:
-            if hr_decision == "approved":
-                return "Finalist"
-            return "Interview"
+    # A finalist is an application-level mark, set after at least one taken interview round.
+    if shortlist is not None and shortlist.finalist_at is not None:
+        return "Finalist"
+
+    # Any round, whatever its state, keeps the candidate in this stage: a cancelled or expired
+    # one is rescheduled, a taken one is followed by the next round.
+    if interview_session is not None or interview_report is not None:
+        return "Interview"
 
     if screening is not None:
         # "cancelled": HR cancelled the queued call; the candidate is still in this stage.

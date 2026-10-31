@@ -15,6 +15,7 @@ from fastapi import HTTPException, Request
 from app.core.async_utils import run_sync
 from app.core.config_loader import config
 from app.core.settings import settings
+from app.services.interview_status import TERMINAL
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ async def assert_session_joinable(session, db) -> None:
     now = datetime.now(timezone.utc)
 
     if session.expires_at and session.expires_at < now:
-        if session.status not in ("completed", "expired", "cancelled", "assessed", "assessment_failed"):
+        if session.status not in TERMINAL:
             session.status = "expired"
             await db.commit()
             await db.refresh(session)

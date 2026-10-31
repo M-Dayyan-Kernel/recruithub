@@ -3,19 +3,11 @@ Constraints for voice-only, technical interview questions.
 """
 
 import re
-from typing import Any, Optional
+from typing import Optional
 
 from app.prompts.common import (
-    DIFFICULTY_TIER_GUIDANCE,
     ORAL_ONLY_PROMPT_RULES,
     TECHNICAL_ONLY_PROMPT_RULES,
-)
-
-_SENIOR_TITLE_HINTS = (
-    "senior", "lead", "principal", "staff", "architect", "head", "director", "manager",
-)
-_JUNIOR_TITLE_HINTS = (
-    "intern", "graduate", "junior", "entry", "trainee", "associate",
 )
 
 # Patterns that indicate a question requires live coding / non-oral assessment.
@@ -62,71 +54,6 @@ _BEHAVIOURAL_QUESTION_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         r"\bstar\s+method\b",
     )
 )
-
-
-def _title_lower(title: str) -> str:
-    return (title or "").strip().lower()
-
-
-def derive_difficulty_hint(
-    job: Any = None,
-    *,
-    title: str = "",
-    experience_min: Optional[int] = None,
-    experience_max: Optional[int] = None,
-) -> str:
-    """Return a prompt-friendly difficulty tier from role title and experience range."""
-    if job is not None:
-        title = getattr(job, "title", None) or title
-        experience_min = getattr(job, "experience_min", experience_min)
-        experience_max = getattr(job, "experience_max", experience_max)
-
-    title_l = _title_lower(title)
-    exp_min = int(experience_min or 0)
-    exp_max = int(experience_max or 0)
-
-    if any(hint in title_l for hint in _SENIOR_TITLE_HINTS):
-        tier = "Senior"
-        guidance = (
-            "Ask for system design, scalability, reliability, deep stack expertise, "
-            "and cross-component technical trade-offs."
-        )
-    elif any(hint in title_l for hint in _JUNIOR_TITLE_HINTS):
-        tier = "Junior"
-        guidance = (
-            "Ask for fundamentals, core concepts, basic tool usage, and simple practical trade-offs."
-        )
-    elif exp_max > 0 and exp_max <= 2:
-        tier = "Junior"
-        guidance = (
-            "Ask for fundamentals, core concepts, basic tool usage, and simple practical trade-offs."
-        )
-    elif exp_min >= 5 or exp_max > 5:
-        tier = "Senior"
-        guidance = (
-            "Ask for system design, scalability, reliability, deep stack expertise, "
-            "and cross-component technical trade-offs."
-        )
-    elif (exp_min >= 3 and exp_min < 5) or (exp_max >= 3 and exp_max <= 5):
-        tier = "Mid-level"
-        guidance = (
-            "Ask for applied experience, component-level design, debugging, and moderate-depth "
-            "technical decisions."
-        )
-    elif exp_min > 0 and exp_min < 3:
-        tier = "Junior"
-        guidance = (
-            "Ask for fundamentals, core concepts, basic tool usage, and simple practical trade-offs."
-        )
-    else:
-        tier = "Mid-level"
-        guidance = (
-            "Ask for applied experience, component-level design, debugging, and moderate-depth "
-            "technical decisions."
-        )
-
-    exp_label = f"{exp_min}–{exp_max} years" if exp_max > 0 else f"{exp_min}+ years"
-    return f"Difficulty tier: {tier} ({title or 'role'}, {exp_label}). {guidance}"
 
 
 def question_requires_live_coding(question: str) -> bool:

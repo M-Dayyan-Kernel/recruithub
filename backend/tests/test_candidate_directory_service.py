@@ -35,6 +35,7 @@ class CandidateDirectoryServiceTests(unittest.IsolatedAsyncioTestCase):
         shortlist = MagicMock()
         shortlist.match_score = 88.0
         shortlist.hr_decision = "pending"
+        shortlist.finalist_at = None
 
         profile_row = CandidateDirectoryRow(
             candidate=candidate,
@@ -101,6 +102,7 @@ class CandidateDirectoryServiceTests(unittest.IsolatedAsyncioTestCase):
         shortlist = MagicMock()
         shortlist.match_score = 88.0
         shortlist.hr_decision = "pending"
+        shortlist.finalist_at = None
 
         profile_row = CandidateDirectoryRow(
             candidate=candidate,

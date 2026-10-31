@@ -14,6 +14,19 @@ class ExperienceEntry(BaseModel):
     description: Optional[str] = None
 
 
+class ProjectEntry(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    technologies: list[str] = Field(default_factory=list)
+
+    @field_validator("technologies", mode="before")
+    @classmethod
+    def _coerce_technologies(cls, value: object) -> list:
+        if not isinstance(value, list):
+            return []
+        return [str(t) for t in value if t is not None]
+
+
 class EducationEntry(BaseModel):
     institution: Optional[str] = None
     degree: Optional[str] = None
@@ -38,6 +51,7 @@ class ParsedResumeData(BaseModel):
     total_experience_years: float = 0
     experience: list[ExperienceEntry] = Field(default_factory=list)
     education: list[EducationEntry] = Field(default_factory=list)
+    projects: list[ProjectEntry] = Field(default_factory=list)
     current_company: Optional[str] = None
     current_role: Optional[str] = None
 
@@ -50,7 +64,7 @@ class ParsedResumeData(BaseModel):
             raise ValueError("skills must be a list of strings")
         return [str(s) for s in value if s is not None]
 
-    @field_validator("experience", "education", mode="before")
+    @field_validator("experience", "education", "projects", mode="before")
     @classmethod
     def _coerce_list(cls, value: object) -> list:
         if value is None:

@@ -27,18 +27,36 @@ export interface StandardScreeningQuestions {
   max_location_chars: number
 }
 
-export interface InterviewQuestion {
-  id: string
-  question: string
-  score: number
+/**
+ * One topic in a job's interview pool. A topic says what to probe: each interview asks a few of
+ * them, phrased fresh, and the example question is only what it falls back to.
+ */
+export interface InterviewTopic {
+  /** Absent on a topic that has not been saved yet. */
+  id?: string
+  name: string
+  scope: string
+  skill_tag: string
+  seed_question: string
+  /** Asked in every interview. */
+  is_mandatory: boolean
 }
+
+/** Which part of the interview a question belonged to. */
+export type PlanSection = 'intro' | 'project' | 'topic'
 
 export interface PointCoverage {
   point: string
   covered: boolean
 }
 
-export interface InterviewQuestionScore extends InterviewQuestion {
+export interface InterviewQuestionScore {
+  id: string
+  question: string
+  score: number
+  section?: PlanSection | null
+  /** The topic the question covered (when it was one). */
+  topic?: string | null
   earned_score?: number | null
   notes?: string | null
   candidate_answer?: string | null
@@ -47,18 +65,22 @@ export interface InterviewQuestionScore extends InterviewQuestion {
   point_coverage?: PointCoverage[] | null
 }
 
+/** How senior a role is; sets interview question difficulty. Mirrors the API's `SeniorityLevel`. */
+export type SeniorityLevel = 'intern' | 'junior' | 'mid' | 'senior'
+
 export interface ParsedJobDescription {
   title: string
   description: string
   required_skills: string[]
-  experience_min?: number | null
-  experience_max?: number | null
+  /** The parser's suggestion; HR confirms it before the job is created. */
+  seniority_level: SeniorityLevel
   /** Null when the JD does not say how the work is done: HR chooses. */
   work_mode?: WorkMode | null
   work_location?: string | null
   /** The parser's role-specific questions only (at most two). */
   screening_questions?: ScreeningQuestion[]
-  interview_questions?: InterviewQuestion[]
+  /** The topic pool the parser proposes; HR reviews it before the job is created. */
+  interview_topics?: InterviewTopic[]
 }
 
 export interface Job {
@@ -66,15 +88,13 @@ export interface Job {
   title: string
   description: string
   required_skills: string[] | null
-  experience_min?: number
-  experience_max?: number
+  seniority_level: SeniorityLevel
   /** Null on jobs created before work modes existed. */
   work_mode?: WorkMode | null
   work_location?: string | null
   /** The standard questions first, then the role and custom ones. */
   screening_questions?: ScreeningQuestion[]
-  interview_questions?: InterviewQuestion[]
-  interview_total_score?: number
+  interview_topics?: InterviewTopic[]
   screening_call_from?: string | null
   screening_call_to?: string | null
   screening_timezone?: string
@@ -236,7 +256,10 @@ export interface InterviewSession {
   job_id: string
   unique_token: string
   status: 'pending' | 'in_progress' | 'completed' | 'expired' | 'cancelled' | 'assessment_failed' | 'assessed'
-  hr_decision?: 'pending' | 'approved' | 'rejected'
+  /** 1..3. A voided round keeps its number; its retake shares it. */
+  round_number: number
+  voided_at?: string | null
+  void_reason?: string | null
   candidate_name?: string
   job_title?: string
   interview_url?: string
@@ -267,6 +290,16 @@ export interface InterviewPipelineCounts {
 
 export type InterviewAssessmentStatus = 'none' | 'generating' | 'ready' | 'failed'
 
+export type InterviewAction =
+  | 'schedule'
+  | 'reschedule'
+  | 'cancel'
+  | 'next_round'
+  | 'void_round'
+  | 'mark_finalist'
+  | 'retry_assessment'
+  | 'reject'
+
 export interface InterviewPipelineCandidate {
   candidate_id: string
   candidate_name?: string | null
@@ -277,10 +310,14 @@ export interface InterviewPipelineCandidate {
   report_recommendation?: string | null
   assessment_status?: InterviewAssessmentStatus
   flag_reason?: string | null
-  can_reschedule?: boolean
-  actions_disabled?: boolean
-  has_active_session?: boolean
-  hr_decision?: 'pending' | 'approved' | 'rejected' | null
+  /** Which round the row shows (0 before the first is scheduled) and how many rounds there are. */
+  round_number: number
+  round_count: number
+  /** The candidate is in the room: no actions, show "Interview in progress". */
+  is_live: boolean
+  finalist: boolean
+  /** What HR may do right now. Decided on the server; render exactly these. */
+  available_actions: InterviewAction[]
   screening_skipped?: boolean
   skip_reason?: string | null
 }
@@ -301,7 +338,8 @@ export interface FinalistCandidate {
   total_experience_years?: number | null
   report_overall_score?: number | null
   report_recommendation?: string | null
-  hr_decision: string
+  round_count: number
+  finalist_at?: string | null
   completed_at?: string | null
 }
 
@@ -345,8 +383,20 @@ export interface VideoProctoringSummary {
   result?: VideoProctoringResult | null
 }
 
+/** One interview round, for the round tabs on the report page. */
+export interface ReportRound {
+  session_id: string
+  round_number: number
+  status: InterviewSession['status']
+  voided: boolean
+  void_reason?: string | null
+  overall_score?: number | null
+  completed_at?: string | null
+}
+
 export interface InterviewReport {
   id: string
+  interview_session_id: string
   candidate_id: string
   job_id: string
   technical_fit_score?: number
@@ -374,6 +424,11 @@ export interface InterviewReport {
   integrity?: IntegritySummary | null
   /** What the check was set to when this interview ran. */
   extension_check?: ExtensionCheckStamp | null
+  /** Which round this report is for, and every round of the application. */
+  round_number: number
+  voided_at?: string | null
+  void_reason?: string | null
+  rounds: ReportRound[]
   created_at: string
 }
 

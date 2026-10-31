@@ -34,7 +34,7 @@ class RejectedLabelTests(unittest.TestCase):
             SimpleNamespace(call_status="failed", result=None),
         ):
             self.assertEqual(
-                resolve_hiring_stage(cand, shortlist=SimpleNamespace(hr_decision="rejected"), screening=call),
+                resolve_hiring_stage(cand, shortlist=SimpleNamespace(hr_decision="rejected", finalist_at=None), screening=call),
                 "Rejected",
                 call.call_status,
             )
@@ -42,7 +42,7 @@ class RejectedLabelTests(unittest.TestCase):
     def test_an_approved_candidate_with_a_cancelled_call_is_still_in_screening(self):
         cand = SimpleNamespace(status="active", pipeline_status="completed")
         self.assertEqual(
-            resolve_hiring_stage(cand, shortlist=SimpleNamespace(hr_decision="approved"),
+            resolve_hiring_stage(cand, shortlist=SimpleNamespace(hr_decision="approved", finalist_at=None),
                                  screening=SimpleNamespace(call_status="cancelled", result=None)),
             "Screening",
         )

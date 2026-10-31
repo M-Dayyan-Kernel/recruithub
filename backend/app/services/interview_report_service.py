@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.tenancy import get_tenant_candidate
 from app.models.models import InterviewReport, InterviewSession, Job, User
 from app.repositories.interview_repository import InterviewRepository
-from app.schemas.schemas import InterviewReportResponse
+from app.schemas.schemas import InterviewReportResponse, ReportRoundSummary
+from app.services.interview_round_service import load_sessions
 from app.services.interview_public_service import _ensure_recording_ready
 
 
@@ -26,16 +27,23 @@ class InterviewReportService:
         self._interviews = interview_repo or InterviewRepository(session)
 
     async def get_report(
-        self, actor: User, candidate_id: uuid.UUID
+        self, actor: User, candidate_id: uuid.UUID, session_id: uuid.UUID | None = None
     ) -> InterviewReportResponse:
-        """Fetch the most recent interview report for a candidate.
+        """Fetch one round's interview report: the given session's, else the current round's.
 
+        With no session given, a current round that has no report yet falls back to the
+        candidate's most recent report (an earlier round's).
         Returns 404 with 'Report not ready yet' when no report exists (assessment may still be running).
         Enriches response with candidate_name and job_title via joins.
         """
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
 
-        session = await self._interviews.get_latest_session_for_candidate(candidate_id)
+        if session_id is not None:
+            session = await self._interviews.get_session_for_candidate(candidate_id, session_id)
+            if session is None:
+                raise HTTPException(status_code=404, detail="Interview round not found")
+        else:
+            session = await self._interviews.get_latest_session_for_candidate(candidate_id)
 
         report = None
         if session:
@@ -46,7 +54,7 @@ class InterviewReportService:
             )
             report = scoped.scalars().first()
 
-        if not report:
+        if not report and session_id is None:
             report = await self._interviews.get_report_for_candidate(candidate_id)
 
         if not report:
@@ -76,6 +84,12 @@ class InterviewReportService:
         if raw.get("assessment_mode") == "rubric":
             report_dict["question_scores"] = raw.get("question_scores")
             report_dict["rubric_total"] = raw.get("rubric_total")
+
+        if session:
+            report_dict["round_number"] = session.round_number
+            report_dict["voided_at"] = session.voided_at
+            report_dict["void_reason"] = session.void_reason
+        report_dict["rounds"] = await self._round_summaries(candidate_id, report.job_id)
 
         report_dict["transcript"] = session.transcript if session else None
         report_dict["transcript_segments"] = session.transcript_segments if session else None
@@ -109,13 +123,46 @@ class InterviewReportService:
 
         return InterviewReportResponse.model_validate(report_dict)
 
+    async def _round_summaries(
+        self, candidate_id: uuid.UUID, job_id: uuid.UUID
+    ) -> list[ReportRoundSummary]:
+        """Every round of the application, oldest first, with its score when it has a report."""
+        sessions = sorted(
+            await load_sessions(self._session, candidate_id, job_id),
+            key=lambda s: (s.round_number, s.created_at),
+        )
+        scores = dict(
+            (
+                await self._session.execute(
+                    select(InterviewReport.interview_session_id, InterviewReport.overall_score).where(
+                        InterviewReport.interview_session_id.in_([s.id for s in sessions])
+                    )
+                )
+            ).all()
+        )
+        return [
+            ReportRoundSummary(
+                session_id=s.id,
+                round_number=s.round_number,
+                status=s.status,
+                voided=s.voided_at is not None,
+                void_reason=s.void_reason,
+                overall_score=scores.get(s.id),
+                completed_at=s.completed_at,
+            )
+            for s in sessions
+        ]
+
     async def refresh_report(
-        self, actor: User, candidate_id: uuid.UUID
+        self, actor: User, candidate_id: uuid.UUID, session_id: uuid.UUID | None = None
     ) -> InterviewReportResponse:
         """Regenerate rubric point coverage via OpenAI when the stored report is stale."""
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
 
-        session = await self._interviews.get_latest_session_for_candidate(candidate_id)
+        if session_id is not None:
+            session = await self._interviews.get_session_for_candidate(candidate_id, session_id)
+        else:
+            session = await self._interviews.get_latest_session_for_candidate(candidate_id)
         if not session:
             raise HTTPException(status_code=404, detail="No interview session found")
 
@@ -146,4 +193,4 @@ class InterviewReportService:
             await self._session.commit()
             await self._session.refresh(report)
 
-        return await self.get_report(actor, candidate_id)
+        return await self.get_report(actor, candidate_id, session.id)

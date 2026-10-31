@@ -9,38 +9,17 @@ stopped from here), so the only safe answer is "not now".
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import ConflictError
 from app.models.models import InterviewSession, ScreeningCall, ShortlistResult
+from app.services.interview_status import live_clause
 from app.services.screening_trigger_service import call_is_on_its_way, call_on_its_way_clause
-
-# An AI interview takes 20-30 minutes. One still "in progress" this long after it started is
-# stuck (the room-finished webhook never arrived: it cannot reach localhost, and a dropped
-# connection can miss it), not live. Without a bound, such a candidate, and their whole job,
-# could never be deleted again, and retrying would never help.
-STALE_INTERVIEW_AFTER = timedelta(hours=3)
 
 _CANDIDATE_ON_CALL = "This candidate is on a call right now. Try again when it ends."
 _CANDIDATE_IN_INTERVIEW = "This candidate is in an interview right now. Try again when it ends."
-
-
-def _interview_live_clause():
-    cutoff = datetime.now(timezone.utc) - STALE_INTERVIEW_AFTER
-    return (InterviewSession.status == "in_progress") & or_(
-        InterviewSession.started_at.is_(None), InterviewSession.started_at > cutoff
-    )
-
-
-def interview_is_live(session: InterviewSession) -> bool:
-    """Python twin of `_interview_live_clause`, for sessions already loaded."""
-    if session.status != "in_progress":
-        return False
-    started = session.started_at
-    return started is None or started > datetime.now(timezone.utc) - STALE_INTERVIEW_AFTER
 
 
 async def assert_candidate_not_live(
@@ -75,7 +54,7 @@ async def assert_candidate_not_live(
             .where(
                 InterviewSession.job_id == job_id,
                 InterviewSession.candidate_id == candidate_id,
-                _interview_live_clause(),
+                live_clause(),
             )
             .with_for_update()
             .limit(1)
@@ -118,7 +97,7 @@ async def assert_job_not_live(db: AsyncSession, job_id: uuid.UUID) -> None:
         (
             await db.execute(
                 select(InterviewSession.candidate_id).where(
-                    InterviewSession.job_id == job_id, _interview_live_clause()
+                    InterviewSession.job_id == job_id, live_clause()
                 )
             )
         )

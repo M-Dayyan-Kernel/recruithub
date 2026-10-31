@@ -46,7 +46,7 @@ from app.prompts.interview import (
     build_interview_structure,
     build_interview_system_prompt,
     build_start_interview_instruction,
-    format_rubric_block,
+    format_projects,
 )
 from app.core.config_loader import config
 
@@ -90,13 +90,10 @@ def _validate_agent_env_on_startup() -> None:
         raise SystemExit(1) from exc
 
 
-def _format_rubric_block(questions: list) -> str:
-    return format_rubric_block(questions)
-
-
-def _build_interview_structure(job) -> str:
+def _build_interview_structure(job, plan_items) -> str:
     return build_interview_structure(
         job,
+        plan_items=plan_items,
         max_follow_ups_per_topic=config.interview.max_follow_ups_per_topic,
     )
 
@@ -116,6 +113,7 @@ async def _load_session_data(session_id: str) -> tuple[str, str, str]:
     from sqlalchemy import select
     from app.core.database import get_celery_db
     from app.models.models import InterviewSession, Candidate, Job
+    from app.services.interview_plan_service import load_plan_items, project_material
 
     try:
         async with get_celery_db() as db:
@@ -134,6 +132,9 @@ async def _load_session_data(session_id: str) -> tuple[str, str, str]:
                 select(Job).where(Job.id == session.job_id)
             )).scalars().first()
 
+            # This interview's own plan: what to ask, in order. Empty for a job with no topics.
+            plan_items = await load_plan_items(db, session.id)
+
         if not candidate or not job:
             return _default_prompt(), "Candidate", "Hello! I am your AI interviewer. Shall we begin?"
 
@@ -143,7 +144,7 @@ async def _load_session_data(session_id: str) -> tuple[str, str, str]:
         current_role = parsed.get("current_role", "unknown")
         current_company = parsed.get("current_company", "unknown")
         required_skills = ", ".join(job.required_skills or []) or "not specified"
-        interview_structure = _build_interview_structure(job)
+        interview_structure = _build_interview_structure(job, plan_items)
 
         prompt = build_interview_system_prompt(
             candidate_name=candidate.name,
@@ -156,6 +157,8 @@ async def _load_session_data(session_id: str) -> tuple[str, str, str]:
             job_description=job.description or "",
             interview_structure=interview_structure,
             max_follow_ups_per_topic=config.interview.max_follow_ups_per_topic,
+            target_minutes=config.interview.target_duration_minutes,
+            projects=format_projects(project_material(parsed)),
         )
 
         greeting = build_candidate_greeting(candidate.name)

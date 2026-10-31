@@ -8,6 +8,7 @@ import type { Job } from '@/types/api'
 import { JobStatusBadge } from '@/components/JobStatusBadge'
 import { filterArchivedJobs } from '@/lib/jobStatus'
 import { workArrangementLabel } from '@/lib/screeningQuestions'
+import { seniorityLabel } from '@/lib/seniority'
 
 type StatusFilter = 'all' | 'paused' | 'closed'
 
@@ -16,16 +17,6 @@ const FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: 'paused', label: 'Paused' },
   { value: 'closed', label: 'Closed' },
 ]
-
-function experienceLabel(job: Job): string | null {
-  const { experience_min: min, experience_max: max } = job
-  // The API stores "no upper bound" as 0, so 0 is not a real maximum.
-  const hasMax = max != null && max > 0
-  if (min != null && hasMax) return `${min}–${max} years experience`
-  if (min != null && min > 0) return `${min}+ years experience`
-  if (hasMax) return `Up to ${max} years experience`
-  return null
-}
 
 function ArchivedJobCard({ job }: { job: Job }) {
   const navigate = useNavigate()
@@ -42,7 +33,7 @@ function ArchivedJobCard({ job }: { job: Job }) {
     onError: () => toast.error('Failed to reactivate job'),
   })
 
-  const expLabel = experienceLabel(job)
+  const levelLabel = seniorityLabel(job.seniority_level)
   const workLabel = workArrangementLabel(job.work_mode, job.work_location)
 
   return (
@@ -65,7 +56,7 @@ function ArchivedJobCard({ job }: { job: Job }) {
         <JobStatusBadge status={job.status} />
       </div>
 
-      {expLabel && <p className="mb-2 text-xs text-slate-500">{expLabel}</p>}
+      {levelLabel && <p className="mb-2 text-xs text-slate-500">{levelLabel}</p>}
       {workLabel && <p className="mb-2 text-xs text-slate-500">{workLabel}</p>}
 
       <p className="mb-4 line-clamp-3 flex-1 break-words text-sm leading-relaxed text-slate-600">

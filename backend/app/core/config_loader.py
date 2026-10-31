@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.production_validation import (
     parse_csv_list,
@@ -49,6 +49,8 @@ class ModelsConfig(BaseModel):
     jd_parse: ModelWorkloadConfig
     combined_shortlist: ModelWorkloadConfig
     expected_answer: ModelWorkloadConfig
+    interview_topics: ModelWorkloadConfig
+    interview_plan: ModelWorkloadConfig
     screening_extraction: ModelWorkloadConfig
     interview_assessment: ModelWorkloadConfig
 
@@ -159,6 +161,14 @@ class VapiConfig(BaseModel):
     )
 
 
+class TopicPoolConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    size: int = Field(default=15, ge=1)
+    min: int = Field(default=8, ge=1)
+    max: int = Field(default=20, ge=1)
+    max_mandatory: int = Field(default=2, ge=0)
+
+
 class ParsingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     resume_max_chars: int = 8000
@@ -173,7 +183,7 @@ class ParsingConfig(BaseModel):
     min_resume_chars: int = 50
     min_jd_chars: int = 50
     min_transcript_chars: int = 100
-    default_question_score: int = 10
+    topic_pool: TopicPoolConfig = Field(default_factory=lambda: TopicPoolConfig())
 
 
 class ConcurrencyConfig(BaseModel):
@@ -264,6 +274,42 @@ class AssessmentRetryConfig(BaseModel):
     max_attempts: int = 12
 
 
+class PlanWeightsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    intro: int = Field(default=10, ge=0)
+    project: int = Field(default=25, ge=0)
+    topic: int = Field(default=65, ge=1)
+
+    @model_validator(mode="after")
+    def total_is_100(self):
+        if self.intro + self.project + self.topic != 100:
+            raise ValueError("interview.plan.weights must add up to 100")
+        return self
+
+
+class PlanConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    topics_per_round: int = Field(default=5, ge=1)
+    max_per_skill: int = Field(default=2, ge=1)
+    project_questions: int = Field(default=2, ge=0)
+    avoid_history: int = Field(default=10, ge=0)
+    similarity_threshold: float = Field(default=0.6, gt=0, le=1)
+    weights: PlanWeightsConfig = Field(default_factory=PlanWeightsConfig)
+    intro_question: str = (
+        "Please introduce yourself: your background, what you work on now, and the "
+        "technologies you use day to day."
+    )
+    intro_expected_points: list[str] = Field(
+        default_factory=lambda: [
+            "States their current or most recent role and what they are responsible for",
+            "Names the languages, frameworks or tools they use",
+            "Describes at least one piece of work in concrete terms",
+            "Connects their background to this role",
+        ],
+        min_length=1,
+    )
+
+
 class InterviewConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     max_follow_ups_per_topic: int = 2
@@ -271,7 +317,11 @@ class InterviewConfig(BaseModel):
     schedule_early_grace_sec: int = 120
     public_rate_limit_per_minute: int = 20
     max_concurrent_interviews: int = 25
+    max_rounds: int = Field(default=3, ge=1)
+    stale_after_minutes: int = Field(default=60, ge=1)
+    target_duration_minutes: int = Field(default=30, ge=5)
     busy_retry_minutes: int = 45
+    plan: PlanConfig = Field(default_factory=PlanConfig)
     assessment_retry: AssessmentRetryConfig = Field(
         default_factory=AssessmentRetryConfig
     )
@@ -294,6 +344,7 @@ class SchedulerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dispatch_pending_screening_seconds: float = 60.0
     recover_stuck_parses_seconds: float = 120.0
+    settle_stale_interviews_seconds: float = 300.0
 
 
 class CeleryQueueConfig(BaseModel):

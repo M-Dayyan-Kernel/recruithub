@@ -77,19 +77,19 @@ class WriterAndSchemaTests(unittest.IsolatedAsyncioTestCase):
 class ResolverOrderTests(unittest.TestCase):
     def test_rejected_shortlist_wins_over_an_interview_session(self):
         cand = NS(status="active", pipeline_status="completed")
-        shortlist = NS(hr_decision="rejected")
+        shortlist = NS(hr_decision="rejected", finalist_at=None)
         for status in ("pending", "in_progress", "completed", "cancelled"):
             with self.subTest(status=status):
-                session = NS(status=status, hr_decision="pending")
+                session = NS(status=status)
                 self.assertEqual(
                     resolve_hiring_stage(cand, shortlist=shortlist, interview_session=session), "Rejected"
                 )
 
     def test_approved_shortlist_with_session_still_reads_interview(self):
         cand = NS(status="active", pipeline_status="completed")
-        session = NS(status="pending", hr_decision="pending")
+        session = NS(status="pending")
         self.assertEqual(
-            resolve_hiring_stage(cand, shortlist=NS(hr_decision="approved"), interview_session=session),
+            resolve_hiring_stage(cand, shortlist=NS(hr_decision="approved", finalist_at=None), interview_session=session),
             "Interview",
         )
 

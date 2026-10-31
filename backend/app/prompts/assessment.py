@@ -99,24 +99,22 @@ def build_assessment_user_prompt(
     *,
     job_title: str,
     required_skills: list[str],
-    experience_min: int | None,
-    experience_max: int | None,
+    seniority_level: str,
     job_description: str,
     candidate_name: str,
     candidate_summary: str,
     transcript: str,
 ) -> str:
     from app.core.config_loader import config
-    from app.prompts.common import format_experience_requirement
+    from app.prompts.common import seniority_label
 
     skills = ", ".join(required_skills or []) or "Not specified"
-    experience_range = format_experience_requirement(experience_min, experience_max)
     jd_limit = config.parsing.assessment_jd_chars
     transcript_limit = config.parsing.assessment_transcript_chars
     return f"""== JOB DESCRIPTION ==
 Title: {job_title}
 Required Skills: {skills}
-Experience Required: {experience_range}
+Seniority Level: {seniority_label(seniority_level)}
 Description:
 {job_description[:jd_limit]}
 

@@ -1,90 +1,100 @@
-"""Interview decision, link and pipeline guards that keep a rejected candidate rejected."""
+"""Finalist, link and pipeline guards that keep a rejected candidate rejected."""
 
 import unittest
 import uuid
 from types import SimpleNamespace as NS
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from datetime import datetime, timezone
+
 from fastapi import HTTPException
 
-from app.exceptions import ConflictError
-from app.services import interview_finalist_service as finalist
+from app.exceptions import ConflictError, NotFoundError, ValidationError
+from app.services import interview_round_service as rounds
 from app.services.interview_hr_service import InterviewHrService
 
 
-def _result(value):
-    r = MagicMock()
-    r.scalars.return_value.first.return_value = value
-    r.scalar_one_or_none.return_value = value
-    r.scalars.return_value.all.return_value = [value] if value is not None else []
-    return r
+class MarkFinalistGuardTests(unittest.IsolatedAsyncioTestCase):
+    """Marking a finalist needs a taken, meaningful round, and never overrides a rejection."""
 
+    def _sessions(self, status="completed", **kw):
+        base = dict(id=uuid.uuid4(), status=status, round_number=1, voided_at=None,
+                    created_at=datetime.now(timezone.utc), started_at=None)
+        base.update(kw)
+        return [NS(**base)]
 
-class SetDecisionGuardTests(unittest.IsolatedAsyncioTestCase):
-    def _db(self, *, shortlist, session):
-        cand = NS(id=uuid.uuid4(), job_id=uuid.uuid4(), name="C")
+    async def _mark(self, shortlist, sessions, *, flagged=False):
         db = AsyncMock()
-        db.get = AsyncMock(return_value=cand)
-        results = [_result(shortlist), _result(session), _result(object())]
-        db.execute = AsyncMock(side_effect=results)
-        return db, cand
+        with patch.object(rounds, "_shortlist", AsyncMock(return_value=shortlist)), \
+             patch.object(rounds, "load_sessions", AsyncMock(return_value=sessions)):
+            result = await rounds.mark_finalist(
+                db, candidate_id=uuid.uuid4(), job_id=uuid.uuid4(), actor_id=uuid.uuid4(), flagged=flagged
+            )
+        return result, db
 
-    async def test_approve_refused_when_shortlist_rejected(self):
-        db, cand = self._db(shortlist=NS(hr_decision="rejected"), session=None)
+    def _row(self, **kw):
+        base = dict(hr_decision="approved", finalist_at=None, finalist_by_user_id=None)
+        base.update(kw)
+        return NS(**base)
+
+    async def test_refused_when_shortlist_rejected(self):
         with self.assertRaises(ConflictError):
-            await finalist.set_interview_hr_decision(db, cand.id, "approved")
-        db.commit.assert_not_awaited()
+            await self._mark(self._row(hr_decision="rejected"), self._sessions())
 
-    async def test_finalist_cannot_be_flipped_to_rejected(self):
-        session = NS(id=uuid.uuid4(), hr_decision="approved", status="completed", job_id=uuid.uuid4())
-        db, cand = self._db(shortlist=NS(hr_decision="approved"), session=session)
-        with patch.object(finalist, "_session_is_completed_for_decision", return_value=True):
-            with self.assertRaises(ConflictError):
-                await finalist.set_interview_hr_decision(db, cand.id, "rejected")
-        self.assertEqual(session.hr_decision, "approved")
+    async def test_unknown_candidate_is_not_found(self):
+        with self.assertRaises(NotFoundError):
+            await self._mark(None, self._sessions())
 
-    async def test_decision_flushes_and_leaves_the_commit_to_the_caller(self):
-        session = NS(
-            id=uuid.uuid4(), candidate_id=uuid.uuid4(), job_id=uuid.uuid4(), hr_decision="pending", status="completed", unique_token="tok"
-        )
-        db, cand = self._db(shortlist=NS(hr_decision="approved"), session=session)
-        db.get = AsyncMock(side_effect=[cand, None])
-        with patch.object(finalist, "_session_is_completed_for_decision", return_value=True), patch.object(
-            finalist.InterviewSessionResponse, "model_validate", return_value=NS(interview_url=None, candidate_name=None, job_title=None, id=session.id)
-        ):
-            await finalist.set_interview_hr_decision(db, cand.id, "rejected")
-        self.assertEqual(session.hr_decision, "rejected")
+    async def test_marks_flushes_and_leaves_the_commit_to_the_caller(self):
+        row = self._row()
+        _, db = await self._mark(row, self._sessions())
+        self.assertIsNotNone(row.finalist_at)
+        self.assertIsNotNone(row.finalist_by_user_id)
         db.flush.assert_awaited()
         db.commit.assert_not_awaited()
 
+    async def test_marking_twice_changes_nothing(self):
+        at = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        row = self._row(finalist_at=at)
+        await self._mark(row, self._sessions())
+        self.assertEqual(row.finalist_at, at)
+
+    async def test_needs_a_taken_round(self):
+        for label, sessions in (("none", []), ("pending", self._sessions("pending")), ("live", self._sessions("in_progress"))):
+            with self.subTest(label), self.assertRaises(ValidationError):
+                await self._mark(self._row(), sessions)
+
+    async def test_a_flagged_round_cannot_be_marked(self):
+        with self.assertRaises(ValidationError):
+            await self._mark(self._row(), self._sessions(), flagged=True)
+
+    async def test_a_voided_round_does_not_count(self):
+        sessions = self._sessions(voided_at=datetime.now(timezone.utc))
+        with self.assertRaises(ValidationError):
+            await self._mark(self._row(), sessions)
+
 
 class RefuseIfRejectedTests(unittest.IsolatedAsyncioTestCase):
-    async def _check(self, shortlist, latest_decision):
+    async def _check(self, shortlist):
         db = MagicMock()
         first = MagicMock()
         first.scalars.return_value.first.return_value = shortlist
-        second = MagicMock()
-        second.scalars.return_value.first.return_value = latest_decision
-        db.execute = AsyncMock(side_effect=[first, second])
+        db.execute = AsyncMock(side_effect=[first])
         svc = InterviewHrService(db, interview_repo=MagicMock(), audit_service=MagicMock())
         await svc._refuse_if_rejected(NS(id=uuid.uuid4(), job_id=uuid.uuid4()))
         return db
 
     async def test_rejected_shortlist_is_refused_with_409(self):
         with self.assertRaises(HTTPException) as ctx:
-            await self._check(NS(hr_decision="rejected"), "pending")
+            await self._check(NS(hr_decision="rejected"))
         self.assertEqual(ctx.exception.status_code, 409)
 
-    async def test_rejected_latest_interview_is_refused(self):
-        with self.assertRaises(HTTPException):
-            await self._check(NS(hr_decision="approved"), "rejected")
-
     async def test_normal_candidate_and_missing_shortlist_pass(self):
-        await self._check(NS(hr_decision="approved"), "pending")
-        await self._check(None, None)
+        await self._check(NS(hr_decision="approved"))
+        await self._check(None)
 
     async def test_the_shortlist_row_is_locked_first(self):
-        db = await self._check(NS(hr_decision="approved"), None)
+        db = await self._check(NS(hr_decision="approved"))
         first_sql = str(db.execute.await_args_list[0].args[0])
         self.assertIn("FOR UPDATE", first_sql)
         self.assertIn("shortlist_results", first_sql)

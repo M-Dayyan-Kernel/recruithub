@@ -1,31 +1,19 @@
 """
-Interview finalists — HR approve/reject after completed interviews.
+Interview finalists — applications HR marked as finalists after a taken interview round.
 """
 
 from __future__ import annotations
 
 import uuid
-from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config_loader import config
-from app.exceptions import ConflictError
 from app.models.models import Candidate, InterviewReport, InterviewSession, Job, ScreeningCall, ShortlistResult
-from app.schemas.schemas import FinalistCandidate, FinalistsResponse, InterviewSessionResponse
-from app.services.interview_flag_service import is_flagged_session
+from app.schemas.schemas import FinalistCandidate, FinalistsResponse
+from app.services.interview_round_service import counted_rounds, latest_round
+from app.services.interview_report_labels import map_recommendation_label
 from app.services.rejection_filter import rejected_candidate_ids
-
-
-def _session_is_completed_for_decision(
-    session: InterviewSession,
-    *,
-    has_report: bool,
-) -> bool:
-    if is_flagged_session(session, has_report=has_report):
-        return False
-    return has_report or session.status in ("completed", "assessed", "assessment_failed")
 
 
 def _experience_years(candidate: Candidate | None) -> float | None:
@@ -40,108 +28,56 @@ def _experience_years(candidate: Candidate | None) -> float | None:
         return None
 
 
-def _map_recommendation_label(rec: str | None) -> str | None:
-    if not rec:
-        return None
-    normalized = rec.lower().replace(" ", "_")
-    if normalized in ("strong_hire", "hire"):
-        return "Hire"
-    if normalized == "no_hire":
-        return "No Hire"
-    if normalized in ("hold", "needs_review"):
-        return "Needs Review"
-    return rec.replace("_", " ").title()
-
-
-async def set_interview_hr_decision(
-    db: AsyncSession,
-    candidate_id: uuid.UUID,
-    hr_decision: Literal["approved", "rejected"],
-) -> InterviewSessionResponse:
-    candidate = await db.get(Candidate, candidate_id)
-    if not candidate:
-        raise ValueError("Candidate not found")
-
-    # Shortlist row first (the lock order every other path uses), so a reject or an
-    # approval racing this decision serialises instead of crossing it.
-    shortlist = (
-        await db.execute(
-            select(ShortlistResult)
-            .where(ShortlistResult.job_id == candidate.job_id, ShortlistResult.candidate_id == candidate_id)
-            .with_for_update()
-        )
-    ).scalars().first()
-    if shortlist is not None and shortlist.hr_decision == "rejected":
-        raise ConflictError(
-            public_message="This candidate was rejected. Reconsider them before deciding on the interview."
-        )
-
-    sessions_result = await db.execute(
-        select(InterviewSession)
-        .where(InterviewSession.candidate_id == candidate_id)
-        .order_by(InterviewSession.created_at.desc())
-    )
-    sessions = list(sessions_result.scalars().all())
-    if not sessions:
-        raise ValueError("No interview session found for candidate")
-
-    session = sessions[0]
-    report_result = await db.execute(
-        select(InterviewReport).where(InterviewReport.interview_session_id == session.id)
-    )
-    has_report = report_result.scalar_one_or_none() is not None
-
-    if not _session_is_completed_for_decision(session, has_report=has_report):
-        raise ValueError("Interview must be completed before approving or rejecting")
-
-    if session.hr_decision == "approved" and hr_decision != "approved":
-        raise ConflictError(public_message="This candidate is a finalist; the decision can no longer be changed.")
-
-    session.hr_decision = hr_decision
-    # The caller writes the audit row and commits, so decision and audit land together.
-    await db.flush()
-    await db.refresh(session)
-
-    job = await db.get(Job, session.job_id)
-    response = InterviewSessionResponse.model_validate(session)
-    response.interview_url = f"{config.CANDIDATE_APP_URL}/interview/{session.unique_token}"
-    response.candidate_name = candidate.name
-    response.job_title = job.title if job else None
-    return response
-
-
 async def list_finalists(db: AsyncSession, job_id: uuid.UUID) -> FinalistsResponse:
     job = await db.get(Job, job_id)
     if not job:
         raise ValueError("Job not found")
 
-    all_latest_result = await db.execute(
-        select(InterviewSession)
-        .where(InterviewSession.job_id == job_id)
-        .order_by(InterviewSession.created_at.desc())
-    )
-    overall_latest: dict[uuid.UUID, InterviewSession] = {}
-    for session in all_latest_result.scalars().all():
-        if session.candidate_id not in overall_latest:
-            overall_latest[session.candidate_id] = session
-
     rejected_ids = await rejected_candidate_ids(db, job_id)
-    finalist_sessions = [
-        session
-        for session in overall_latest.values()
-        if session.hr_decision == "approved" and session.candidate_id not in rejected_ids
+    finalist_ids = [
+        candidate_id
+        for candidate_id in (
+            await db.execute(
+                select(ShortlistResult.candidate_id).where(
+                    ShortlistResult.job_id == job_id, ShortlistResult.finalist_at.is_not(None)
+                )
+            )
+        ).scalars().all()
+        if candidate_id not in rejected_ids
     ]
-
-    if not finalist_sessions:
+    if not finalist_ids:
         return FinalistsResponse(candidates=[])
 
-    candidate_ids = [s.candidate_id for s in finalist_sessions]
-    candidates_result = await db.execute(select(Candidate).where(Candidate.id.in_(candidate_ids)))
+    finalist_at = dict(
+        (
+            await db.execute(
+                select(ShortlistResult.candidate_id, ShortlistResult.finalist_at).where(
+                    ShortlistResult.job_id == job_id,
+                    ShortlistResult.candidate_id.in_(finalist_ids),
+                )
+            )
+        ).all()
+    )
+    sessions_result = await db.execute(
+        select(InterviewSession).where(
+            InterviewSession.job_id == job_id, InterviewSession.candidate_id.in_(finalist_ids)
+        )
+    )
+    sessions_by_candidate: dict[uuid.UUID, list[InterviewSession]] = {}
+    for session in sessions_result.scalars().all():
+        sessions_by_candidate.setdefault(session.candidate_id, []).append(session)
+    latest_by_candidate = {
+        candidate_id: latest_round(sessions) for candidate_id, sessions in sessions_by_candidate.items()
+    }
+
+    candidates_result = await db.execute(select(Candidate).where(Candidate.id.in_(finalist_ids)))
     candidate_map = {c.id: c for c in candidates_result.scalars().all()}
 
     reports_result = await db.execute(
         select(InterviewReport).where(
-            InterviewReport.interview_session_id.in_([s.id for s in finalist_sessions])
+            InterviewReport.interview_session_id.in_(
+                [s.id for s in latest_by_candidate.values() if s is not None]
+            )
         )
     )
     report_by_session = {r.interview_session_id: r for r in reports_result.scalars().all()}
@@ -150,7 +86,7 @@ async def list_finalists(db: AsyncSession, job_id: uuid.UUID) -> FinalistsRespon
         select(ScreeningCall)
         .where(
             ScreeningCall.job_id == job_id,
-            ScreeningCall.candidate_id.in_(candidate_ids),
+            ScreeningCall.candidate_id.in_(finalist_ids),
             ScreeningCall.call_status == "completed",
         )
         .order_by(ScreeningCall.created_at.desc())
@@ -161,17 +97,20 @@ async def list_finalists(db: AsyncSession, job_id: uuid.UUID) -> FinalistsRespon
             latest_screening[call.candidate_id] = call
 
     rows: list[FinalistCandidate] = []
-    for session in finalist_sessions:
-        candidate = candidate_map.get(session.candidate_id)
+    for candidate_id in finalist_ids:
+        session = latest_by_candidate.get(candidate_id)
+        if session is None:
+            continue
+        candidate = candidate_map.get(candidate_id)
         report = report_by_session.get(session.id)
-        screening = latest_screening.get(session.candidate_id)
+        screening = latest_screening.get(candidate_id)
         parsed = candidate.parsed_data if candidate else None
         email = (candidate.email if candidate else None) or (parsed.get("email") if parsed else None)
         phone = (candidate.phone if candidate else None) or (parsed.get("phone") if parsed else None)
 
         rows.append(
             FinalistCandidate(
-                candidate_id=session.candidate_id,
+                candidate_id=candidate_id,
                 session_id=session.id,
                 candidate_name=candidate.name if candidate else None,
                 email=email,
@@ -180,10 +119,11 @@ async def list_finalists(db: AsyncSession, job_id: uuid.UUID) -> FinalistsRespon
                 expected_ctc=screening.expected_ctc if screening else None,
                 total_experience_years=_experience_years(candidate),
                 report_overall_score=report.overall_score if report else None,
-                report_recommendation=_map_recommendation_label(
+                report_recommendation=map_recommendation_label(
                     report.final_recommendation if report else None
                 ),
-                hr_decision=session.hr_decision,
+                round_count=len(counted_rounds(sessions_by_candidate[candidate_id])),
+                finalist_at=finalist_at.get(candidate_id),
                 completed_at=session.completed_at,
             )
         )

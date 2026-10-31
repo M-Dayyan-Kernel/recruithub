@@ -43,14 +43,14 @@ async function mockFrontendJobDetail(page: import('@playwright/test').Page) {
   await mockGetInterviewPipeline(page, JOB_IDS.frontend)
 }
 
-test('job detail page loads with title, skills, and experience range', async ({ page }) => {
+test('job detail page loads with title, skills, and seniority level', async ({ page }) => {
   await mockFrontendJobDetail(page)
 
   await page.goto(FRONTEND_URL)
   await page.waitForLoadState('networkidle')
 
   await expect(page.getByRole('heading', { name: 'Senior Frontend Engineer' })).toBeVisible()
-  await expect(page.getByText('3–7 years experience required')).toBeVisible()
+  await expect(page.getByText('Senior', { exact: true })).toBeVisible()
   await expect(page.getByText('React', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('TypeScript', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('GraphQL', { exact: true }).first()).toBeVisible()

@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions import InterviewCapacityError
 from app.models.models import Candidate, InterviewSession, Job
 from app.repositories.interview_repository import InterviewRepository
+from app.services.interview_plan_service import ensure_plan, freeze_plan
+from app.services.interview_status import TERMINAL
 from app.schemas.schemas import InterviewSessionResponse, InterviewStartResponse
 
 logger = logging.getLogger(__name__)
@@ -118,7 +120,7 @@ class InterviewPublicService:
         job = job_result.scalars().first()
 
         if session.expires_at and session.expires_at < datetime.now(timezone.utc):
-            if session.status not in ("completed", "expired", "cancelled"):
+            if session.status not in TERMINAL:
                 session.status = "expired"
                 await self._session.commit()
                 await self._interviews.refresh(session)
@@ -215,6 +217,14 @@ class InterviewPublicService:
                 status_code=409,
                 detail="Interview already started or not in pending state.",
             )
+
+        # A session made before plans existed (or before its job had topics) gets its plan now, and
+        # the plan is frozen: from here the interview is asked exactly what the assessment will
+        # score, even if the question writer is still working. Committed here, not with the start
+        # below, because create_room dispatches the agent, which reads the plan on its own connection.
+        built = await ensure_plan(self._session, session)
+        if await freeze_plan(self._session, session) or built:
+            await self._session.commit()
 
         from app.services.interview_queue_service import has_live_interview_slot
 
