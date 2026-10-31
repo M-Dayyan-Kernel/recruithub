@@ -2,7 +2,7 @@
 
 import json
 
-PROMPT_VERSION = "combined-shortlist-v1"
+PROMPT_VERSION = "combined-shortlist-v2"
 
 COMBINED_SHORTLIST_SYSTEM_PROMPT = """You are an expert recruiter. From the resume text and job description provided:
 1. Extract a structured candidate profile (contact info, skills, experience, education).
@@ -15,6 +15,9 @@ Return ONLY valid JSON with exactly these top-level keys:
     total_experience_years: number
     experience: array of {company, title, duration, description}
     education: array of {institution, degree, field, year}
+    projects: array of {name, description, technologies} for the projects the resume describes
+      (personal, academic, open-source or work). description is one or two sentences in the
+      resume's own terms; technologies lists the tools used. Use [] when it describes none.
     current_company, current_role (strings or null)
   assessment: object with keys:
     match_score: integer 0-100

@@ -19,6 +19,7 @@ MODEL_WORKLOADS = frozenset({
     "combined_shortlist",
     "expected_answer",
     "interview_topics",
+    "interview_plan",
     "screening_extraction",
     "interview_assessment",
 })

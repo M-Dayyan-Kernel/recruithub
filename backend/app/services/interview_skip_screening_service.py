@@ -211,6 +211,9 @@ async def advance_approved_candidate_to_interview(
         )
 
     await db.commit()
+    from app.tasks.interview_tasks import enqueue_interview_plan
+
+    enqueue_interview_plan(interview_session)
     email_sent, email_skipped_reason = await _send_invitation_if_needed(
         db,
         interview_session=interview_session,

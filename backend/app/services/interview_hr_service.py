@@ -70,6 +70,13 @@ class InterviewHrService:
             return candidate.original_filename
         return str(candidate_id)
 
+    @staticmethod
+    def _queue_question_writing(session: InterviewSession) -> None:
+        """Once a new interview is saved, have its questions written for the candidate."""
+        from app.tasks.interview_tasks import enqueue_interview_plan
+
+        enqueue_interview_plan(session)
+
     async def _mark_interview_queued(
         self, candidate_id: uuid.UUID, job_id: uuid.UUID
     ) -> ScreeningCall:
@@ -216,6 +223,7 @@ class InterviewHrService:
             candidate_id=candidate_id,
         )
         await self._session.commit()
+        self._queue_question_writing(interview_session)
         await self._interviews.refresh(interview_session)
 
         response_data = InterviewSessionResponse.model_validate(interview_session)
@@ -288,6 +296,7 @@ class InterviewHrService:
             candidate_id=candidate_id,
         )
         await self._session.commit()
+        self._queue_question_writing(interview_session)
         await self._interviews.refresh(interview_session)
 
         response_data = InterviewSessionResponse.model_validate(interview_session)
@@ -473,6 +482,7 @@ class InterviewHrService:
             candidate_id=candidate_id,
         )
         await self._session.commit()
+        self._queue_question_writing(session)
         await self._interviews.refresh(session)
         return await self._session_response(session, candidate, job_title)
 
@@ -507,6 +517,7 @@ class InterviewHrService:
             candidate_id=candidate_id,
         )
         await self._session.commit()
+        self._queue_question_writing(retake)
         await self._interviews.refresh(retake)
         return await self._session_response(retake, candidate, job_title)
 

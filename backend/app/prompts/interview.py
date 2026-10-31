@@ -39,6 +39,16 @@ def format_plan_block(items: Sequence[Any]) -> str:
     return "\n".join(lines)
 
 
+def format_projects(projects: Sequence[dict]) -> str:
+    """The candidate's projects as lines for the interviewer's background; empty when there are none."""
+    lines = []
+    for project in projects:
+        tech = f" ({', '.join(project['technologies'])})" if project.get("technologies") else ""
+        detail = f": {project['description']}" if project.get("description") else ""
+        lines.append(f"- {project['name']}{tech}{detail}")
+    return "\n".join(lines)
+
+
 def build_interview_structure(
     job: Any,
     *,
@@ -50,7 +60,7 @@ def build_interview_structure(
     if plan_items:
         return f"""INTERVIEW STRUCTURE (follow this order):
 1. You have already greeted the candidate. Move straight into the plan below.
-2. Ask EACH plan item IN ORDER. Use the exact intent of each, phrased for spoken answers only (explain / describe / walk through, never write or run code). The first item is the introduction: ask it warmly and listen for what they say.
+2. Ask EACH plan item IN ORDER. Use the exact intent of each, phrased for spoken answers only (explain / describe / walk through, never write or run code). The first item is the introduction: ask it warmly and listen for what they say. If they mention a project or tool from their resume, ask one follow-up about it.
 3. After each answer, apply ADAPTIVE FOLLOW-UP RULES before the next item.
 4. Do not skip any item. Never reveal point values to the candidate.
 5. Ask about their interest in this role at Webknot
@@ -84,7 +94,13 @@ def build_interview_system_prompt(
     interview_structure: str,
     max_follow_ups_per_topic: int,
     target_minutes: int,
+    projects: str = "",
 ) -> str:
+    background = (
+        f"\nPROJECTS ON THEIR RESUME (background for follow-ups; never read this list out):\n{projects}\n"
+        if projects
+        else ""
+    )
     return f"""You are a professional AI interviewer conducting a structured technical interview on behalf of Webknot Technologies. Speak naturally — this is a voice conversation.
 
 CANDIDATE: {candidate_name}
@@ -94,7 +110,7 @@ SKILLS: {skills}
 ROLE: {job_title}
 REQUIRED SKILLS: {required_skills}
 JOB: {job_description[:400]}
-
+{background}
 {interview_structure}
 
 {build_adaptive_followup_rules(max_follow_ups_per_topic)}

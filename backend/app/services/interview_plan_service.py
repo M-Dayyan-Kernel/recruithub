@@ -4,24 +4,45 @@ Every interview has a plan of items (the introduction, then topics), each with t
 ask, its answer key, and its share of the 100 points. The agent asks from the plan and the
 assessment scores against it, so the report shows exactly what this candidate was asked.
 
+A plan starts "seeded": the introduction and each topic's own example question, ready to
+interview on. `generate_plan` then rewrites it for this candidate (each topic in a fresh angle,
+plus questions about their own projects) and marks it "generated"; if that fails the seeded plan
+stands.
+
 A job with no topics has no plan, and its interviews keep the generic prompt and the 0-100
 dimension scoring.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import random
+import re
 import uuid
 from collections import Counter
-from typing import Iterable, Optional, Sequence
+from datetime import datetime, timezone
+from typing import Any, Iterable, Optional, Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients import mocks, openai_client
 from app.core.config_loader import config
 from app.models.enums import PlanSection, PlanStatus
-from app.models.models import InterviewPlanItem, InterviewSession, Job, JobInterviewTopic
+from app.models.models import (
+    Candidate,
+    InterviewPlanItem,
+    InterviewReport,
+    InterviewSession,
+    Job,
+    JobInterviewTopic,
+)
+from app.prompts.interview_plan import ANGLES, plan_messages
+from app.services.interview_question_constraints import (
+    validate_oral_interview_question,
+    validate_technical_interview_question,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -229,3 +250,260 @@ def plan_as_rubric(items: Iterable[InterviewPlanItem]) -> list[dict]:
 async def load_rubric(db: AsyncSession, session_id: uuid.UUID) -> list[dict]:
     """The interview's rubric; empty when it has no plan (the legacy dimension scoring applies)."""
     return plan_as_rubric(await load_plan_items(db, session_id))
+
+
+# ---------------------------------------------------------------------------
+# Writing the questions for this candidate
+# ---------------------------------------------------------------------------
+
+#: Most projects (or roles) from the resume offered to the question writer.
+_MAX_PROJECTS_OFFERED = 4
+_QUESTION_MAX_CHARS = 600
+_MAX_POINTS = 6
+_MIN_POINTS = 2
+_WORD = re.compile(r"[a-z0-9]+")
+
+
+def project_material(parsed_data: Optional[dict]) -> list[dict]:
+    """What the candidate's resume gives to ask about: their projects, else their roles, else nothing."""
+    parsed_data = parsed_data or {}
+    projects = [
+        {
+            "name": (p.get("name") or "").strip(),
+            "description": (p.get("description") or "").strip(),
+            "technologies": [str(t) for t in (p.get("technologies") or [])],
+        }
+        for p in parsed_data.get("projects") or []
+        if isinstance(p, dict) and (p.get("name") or p.get("description"))
+    ]
+    projects = [p for p in projects if p["name"]]
+    if projects:
+        return projects[:_MAX_PROJECTS_OFFERED]
+    roles = []
+    for entry in parsed_data.get("experience") or []:
+        if not isinstance(entry, dict) or not (entry.get("description") or "").strip():
+            continue
+        title, company = (entry.get("title") or "").strip(), (entry.get("company") or "").strip()
+        name = f"{title} at {company}" if title and company else title or company
+        if name:
+            roles.append({"name": name, "description": entry["description"].strip(), "technologies": []})
+    return roles[:_MAX_PROJECTS_OFFERED]
+
+
+def question_similarity(a: str, b: str) -> float:
+    """Word overlap between two questions, 0 (nothing shared) to 1 (the same words)."""
+    left = {w for w in _WORD.findall(a.lower()) if len(w) > 2}
+    right = {w for w in _WORD.findall(b.lower()) if len(w) > 2}
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
+
+
+def is_repeat(question: str, asked: Iterable[str]) -> bool:
+    limit = config.interview.plan.similarity_threshold
+    return any(question_similarity(question, earlier) >= limit for earlier in asked)
+
+
+def _clean_points(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    points = [" ".join(str(p).split()) for p in raw if str(p).strip()]
+    return points[:_MAX_POINTS]
+
+
+def _valid_question(raw: Any) -> Optional[str]:
+    """The question if it is one that can be asked aloud in a technical interview, else None."""
+    question = " ".join(str(raw or "").split())
+    if not question or len(question) > _QUESTION_MAX_CHARS:
+        return None
+    try:
+        validate_oral_interview_question(question)
+        validate_technical_interview_question(question)
+    except ValueError:
+        return None
+    return question
+
+
+async def _already_asked(db: AsyncSession, job_id: uuid.UUID, topic_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[str]]:
+    """The latest questions put to candidates on each topic, newest first, for the writer to avoid."""
+    limit = config.interview.plan.avoid_history
+    asked: dict[uuid.UUID, list[str]] = {topic_id: [] for topic_id in topic_ids}
+    if not topic_ids or not limit:
+        return asked
+    rows = await db.execute(
+        select(InterviewPlanItem.topic_id, InterviewPlanItem.question)
+        .join(InterviewSession, InterviewSession.id == InterviewPlanItem.session_id)
+        .where(InterviewSession.job_id == job_id, InterviewPlanItem.topic_id.in_(topic_ids))
+        .order_by(InterviewSession.created_at.desc(), InterviewPlanItem.position)
+    )
+    for topic_id, question in rows.all():
+        if len(asked[topic_id]) < limit and question not in asked[topic_id]:
+            asked[topic_id].append(question)
+    return asked
+
+
+async def _earlier_rounds(db: AsyncSession, session: InterviewSession) -> list[dict]:
+    """What this candidate's earlier rounds covered and how it went, for a later round to build on."""
+    rows = await db.execute(
+        select(InterviewSession.round_number, InterviewReport.raw_report)
+        .join(InterviewReport, InterviewReport.interview_session_id == InterviewSession.id)
+        .where(
+            InterviewSession.candidate_id == session.candidate_id,
+            InterviewSession.job_id == session.job_id,
+            InterviewSession.id != session.id,
+            InterviewSession.voided_at.is_(None),
+        )
+        .order_by(InterviewSession.round_number)
+    )
+    rounds = []
+    for number, raw in rows.all():
+        covered = [
+            {"topic": q.get("topic"), "scored": f'{q.get("earned_score") or 0}/{q.get("score")}'}
+            for q in (raw or {}).get("question_scores") or []
+            if q.get("section") == PlanSection.TOPIC.value
+        ]
+        if covered:
+            rounds.append({"round": number, "topics": covered})
+    return rounds
+
+
+async def _write_questions(api_key: str, **request: Any) -> dict:
+    """Ask the model for this interview's questions. Raises if it is unreachable or answers badly."""
+    if mocks.mock_openai_enabled():
+        return mocks.mock_interview_plan(**request)
+    content = await openai_client().chat_completion_json(
+        "interview_plan", plan_messages(**request), api_key=api_key
+    )
+    data = json.loads(content or "{}")
+    if not isinstance(data, dict):
+        raise ValueError("the question writer did not return an object")
+    return data
+
+
+def _topic_answers(raw: Any) -> dict[str, dict]:
+    return {
+        str(item.get("topic_id")): item
+        for item in raw if isinstance(item, dict) and item.get("topic_id")
+    } if isinstance(raw, list) else {}
+
+
+async def generate_plan(
+    db: AsyncSession, session: InterviewSession, *, api_key: str, rng: Optional[random.Random] = None
+) -> bool:
+    """Rewrite a seeded plan for this candidate. Returns whether the plan was replaced.
+
+    Each topic is put in a fresh angle and checked against what earlier candidates were asked on it
+    (one retry when it repeats one); up to `project_questions` questions probe the candidate's own
+    projects. Anything the writer gets wrong falls back to the seeded question, so the interview is
+    never left without one. Only an interview that has not started is touched, under a row lock, so
+    the agent never reads a plan that is changing underneath it.
+    """
+    rng = rng or random.Random()
+    locked = (
+        await db.execute(
+            select(InterviewSession)
+            .where(InterviewSession.id == session.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalars().first()
+    if locked is None or locked.status != "pending" or locked.plan_status != PlanStatus.SEEDED.value:
+        return False
+
+    job = await db.get(Job, locked.job_id)
+    candidate = await db.get(Candidate, locked.candidate_id)
+    items = await load_plan_items(db, locked.id)
+    by_topic = {t.id: t for t in (job.interview_topics if job else [])}
+    seeded_topics = [i for i in items if i.section == PlanSection.TOPIC.value and i.topic_id in by_topic]
+    if not job or not seeded_topics:
+        return False
+
+    asked = await _already_asked(db, job.id, [i.topic_id for i in seeded_topics])
+    parsed = (candidate.parsed_data if candidate else None) or {}
+    projects = project_material(parsed)
+    wanted_projects = min(config.interview.plan.project_questions, len(projects))
+    request = dict(
+        title=job.title,
+        seniority_level=job.seniority_level,
+        topics=[
+            {
+                "id": str(i.topic_id), "name": by_topic[i.topic_id].name, "scope": by_topic[i.topic_id].scope,
+                "angle": rng.choice(list(ANGLES)), "seed_question": by_topic[i.topic_id].seed_question,
+                "already_asked": asked[i.topic_id],
+            }
+            for i in seeded_topics
+        ],
+        projects=projects,
+        project_questions=wanted_projects,
+        skills=[str(s) for s in parsed.get("skills") or []][:20],
+        earlier_rounds=await _earlier_rounds(db, locked),
+    )
+    try:
+        answer = await _write_questions(api_key, **request)
+    except Exception:
+        logger.exception("Could not write the questions for session=%s; keeping the seeded plan", locked.id)
+        return False
+
+    written = _topic_answers(answer.get("topics"))
+    repeats = [
+        t for t in request["topics"]
+        if (q := _valid_question((written.get(t["id"]) or {}).get("question"))) and is_repeat(q, t["already_asked"])
+    ]
+    if repeats:
+        try:
+            retry = await _write_questions(
+                api_key, **{**request, "topics": repeats, "projects": [], "project_questions": 0, "earlier_rounds": []}
+            )
+            written.update(_topic_answers(retry.get("topics")))
+        except Exception:
+            logger.exception("Retry for repeated questions failed for session=%s", locked.id)
+
+    topic_items: list[dict] = []
+    for item in seeded_topics:
+        entry = written.get(str(item.topic_id)) or {}
+        question, points = _valid_question(entry.get("question")), _clean_points(entry.get("expected_points"))
+        if question is None or len(points) < _MIN_POINTS:
+            question, points = item.question, list(item.expected_points or [])  # keep the seeded one
+        topic_items.append({"topic_id": item.topic_id, "topic_name": item.topic_name,
+                            "question": question, "expected_points": points, "section": PlanSection.TOPIC})
+
+    project_items: list[dict] = []
+    known = {p["name"].lower() for p in projects}
+    for entry in answer.get("projects") or []:
+        if not isinstance(entry, dict) or len(project_items) >= wanted_projects:
+            continue
+        name = " ".join(str(entry.get("project") or "").split())
+        question, points = _valid_question(entry.get("question")), _clean_points(entry.get("expected_points"))
+        if name.lower() not in known or question is None or len(points) < _MIN_POINTS:
+            continue
+        if any(p["topic_name"].lower() == name.lower() for p in project_items):
+            continue
+        project_items.append({"topic_id": None, "topic_name": name[:120], "question": question,
+                              "expected_points": points, "section": PlanSection.PROJECT})
+
+    intro = next((i for i in items if i.section == PlanSection.INTRO.value), None)
+    ordered: list[dict] = []
+    if intro is not None:
+        ordered.append({"topic_id": None, "topic_name": intro.topic_name, "question": intro.question,
+                        "expected_points": list(intro.expected_points or []), "section": PlanSection.INTRO})
+    ordered += project_items + topic_items
+    points = allocate_points(dict(Counter(i["section"] for i in ordered)))
+    cursor = {section: 0 for section in points}
+
+    await db.execute(delete(InterviewPlanItem).where(InterviewPlanItem.session_id == locked.id))
+    for position, item in enumerate(ordered):
+        section = item["section"]
+        db.add(InterviewPlanItem(
+            session_id=locked.id, position=position, section=section.value, topic_id=item["topic_id"],
+            topic_name=item["topic_name"], question=item["question"],
+            expected_points=item["expected_points"], points=points[section][cursor[section]],
+        ))
+        cursor[section] += 1
+    locked.plan_status = PlanStatus.GENERATED.value
+    locked.plan_generated_at = datetime.now(timezone.utc)
+    await db.flush()
+    logger.info(
+        "Wrote interview plan for session=%s: %d topic and %d project questions",
+        locked.id, len(topic_items), len(project_items),
+    )
+    return True

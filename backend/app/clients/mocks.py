@@ -153,6 +153,32 @@ def mock_interview_topics(count: int | None = None) -> list[dict]:
     return topics[:count] if count else topics
 
 
+def mock_interview_plan(
+    *, topics: list, projects: list, project_questions: int, **_unused
+) -> dict:
+    """Interview questions without calling OpenAI: each topic worded by its angle, plus projects."""
+    log_mock_usage("openai", "interview plan (gpt-4o)")
+    return {
+        "topics": [
+            {
+                "topic_id": t["id"],
+                "question": f"Thinking about {t['name'].lower()}, how would you handle it in practice? "
+                f"Take the {t['angle'].replace('_', ' ')} view.",
+                "expected_points": [f"Explains {t['name'].lower()} clearly", "Gives a concrete example", "Names a trade-off"],
+            }
+            for t in topics
+        ],
+        "projects": [
+            {
+                "project": p["name"],
+                "question": f"In {p['name']}, what were the main technical choices you made, and why?",
+                "expected_points": ["Describes the design", "Justifies the choices", "Names what they would change"],
+            }
+            for p in projects[:project_questions]
+        ],
+    }
+
+
 def mock_combined_shortlist(raw_text: str = ""):
     from app.schemas.ai_outputs import CombinedShortlistOutput, ParsedResumeData, ShortlistAssessment
 

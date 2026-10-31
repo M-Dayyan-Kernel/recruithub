@@ -25,6 +25,7 @@ models:
   combined_shortlist: { name: gpt-test-combined, temperature: 0, max_tokens: 3000 }
   expected_answer: { name: gpt-test-expected, temperature: 0, max_tokens: 100 }
   interview_topics: { name: gpt-test-topics, temperature: 0, max_tokens: 100 }
+  interview_plan: { name: gpt-test-plan, temperature: 0, max_tokens: 100 }
   screening_extraction: { name: gpt-test-screening, temperature: 0, max_tokens: 100 }
   interview_assessment: { name: gpt-test-assessment, temperature: 0, max_tokens: 100 }
 livekit:

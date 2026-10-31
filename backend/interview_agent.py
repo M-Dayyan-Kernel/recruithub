@@ -46,6 +46,7 @@ from app.prompts.interview import (
     build_interview_structure,
     build_interview_system_prompt,
     build_start_interview_instruction,
+    format_projects,
 )
 from app.core.config_loader import config
 
@@ -112,7 +113,7 @@ async def _load_session_data(session_id: str) -> tuple[str, str, str]:
     from sqlalchemy import select
     from app.core.database import get_celery_db
     from app.models.models import InterviewSession, Candidate, Job
-    from app.services.interview_plan_service import load_plan_items
+    from app.services.interview_plan_service import load_plan_items, project_material
 
     try:
         async with get_celery_db() as db:
@@ -157,6 +158,7 @@ async def _load_session_data(session_id: str) -> tuple[str, str, str]:
             interview_structure=interview_structure,
             max_follow_ups_per_topic=config.interview.max_follow_ups_per_topic,
             target_minutes=config.interview.target_duration_minutes,
+            projects=format_projects(project_material(parsed)),
         )
 
         greeting = build_candidate_greeting(candidate.name)

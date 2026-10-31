@@ -50,6 +50,7 @@ class ModelsConfig(BaseModel):
     combined_shortlist: ModelWorkloadConfig
     expected_answer: ModelWorkloadConfig
     interview_topics: ModelWorkloadConfig
+    interview_plan: ModelWorkloadConfig
     screening_extraction: ModelWorkloadConfig
     interview_assessment: ModelWorkloadConfig
 
@@ -290,6 +291,9 @@ class PlanConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     topics_per_round: int = Field(default=5, ge=1)
     max_per_skill: int = Field(default=2, ge=1)
+    project_questions: int = Field(default=2, ge=0)
+    avoid_history: int = Field(default=10, ge=0)
+    similarity_threshold: float = Field(default=0.6, gt=0, le=1)
     weights: PlanWeightsConfig = Field(default_factory=PlanWeightsConfig)
     intro_question: str = (
         "Please introduce yourself: your background, what you work on now, and the "

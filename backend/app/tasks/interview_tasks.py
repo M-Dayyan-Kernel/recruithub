@@ -33,6 +33,49 @@ def enqueue_interview_assessment(interview_session_id: str) -> None:
     schedule_interview_assessment.delay(str(interview_session_id))
 
 
+def enqueue_interview_plan(session) -> None:
+    """Have an interview's questions written for its candidate. Best effort, after the session is
+    committed: if the queue is down the seeded plan simply stands."""
+    if session.plan_status != "seeded":
+        return
+    try:
+        generate_interview_plan.delay(str(session.id))
+    except Exception as exc:
+        logger.warning("Could not queue question writing for session %s: %s", session.id, exc)
+
+
+@celery_app.task(name="tasks.generate_interview_plan")
+def generate_interview_plan(interview_session_id: str):
+    """Rewrite a seeded plan for the candidate (see interview_plan_service.generate_plan).
+    Never retried: a failure leaves the seeded plan, which is a complete interview."""
+    try:
+        asyncio.run(_async_generate_plan(interview_session_id))
+    except Exception as exc:
+        logger.error("generate_interview_plan failed for session %s: %s", interview_session_id, exc)
+
+
+async def _async_generate_plan(interview_session_id: str) -> None:
+    from app.models.models import InterviewSession, Job
+    from app.services.interview_plan_service import generate_plan
+    from app.services.tenant_integrations_service import load_tenant_integrations
+
+    async with get_celery_db() as db:
+        session = (
+            await db.execute(select(InterviewSession).where(InterviewSession.id == uuid.UUID(interview_session_id)))
+        ).scalars().first()
+        if session is None:
+            return
+        job = await db.get(Job, session.job_id)
+        if job is None:
+            return
+        integrations = await load_tenant_integrations(db, job.tenant_id)
+        integrations.require("openai_api_key")
+        if await generate_plan(db, session, api_key=integrations.openai_api_key):
+            await db.commit()
+        else:
+            await db.rollback()
+
+
 @celery_app.task(name="tasks.settle_stale_interviews")
 def settle_stale_interviews():
     """Beat: settle interviews left in progress past the stale window (see the service)."""

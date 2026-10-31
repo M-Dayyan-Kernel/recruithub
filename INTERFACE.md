@@ -847,6 +847,9 @@ interface ParsedData {
   total_experience_years: number;
   experience: ExperienceEntry[];
   education: EducationEntry[];
+  // Projects the resume describes (prompt combined-shortlist-v2). Resumes parsed earlier have none;
+  // re-run the shortlist to fill them in. The interview asks about these.
+  projects?: Array<{ name: string; description: string; technologies: string[] }>;
   current_company: string | null;
   current_role: string | null;
 }

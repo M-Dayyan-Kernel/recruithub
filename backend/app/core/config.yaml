@@ -27,6 +27,13 @@ models:
     temperature: 0.3
     max_tokens: 4000
     response_format: json_object
+  # Writes one interview's questions from its topics and the candidate's resume.
+  interview_plan:
+    provider: openai
+    name: gpt-5.4-mini
+    temperature: 0.7
+    max_tokens: 4000
+    response_format: json_object
   screening_extraction:
     provider: openai
     name: gpt-5.4-mini
@@ -179,6 +186,9 @@ interview:
   plan:
     topics_per_round: 5
     max_per_skill: 2   # topics sharing a skill tag in one interview (mandatory ones excepted)
+    project_questions: 2   # questions about the candidate's own projects
+    avoid_history: 10      # earlier questions on a topic the writer is told not to repeat
+    similarity_threshold: 0.6   # word overlap (0-1) at which a new question counts as a repeat
     weights:
       intro: 10
       project: 25
