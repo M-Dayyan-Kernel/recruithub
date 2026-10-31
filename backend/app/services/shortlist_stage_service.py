@@ -19,6 +19,7 @@ from app.models.models import InterviewReport, InterviewSession, ScreeningCall
 from app.schemas.schemas import ShortlistStage
 from app.services.interview_flag_service import get_flag_reason
 from app.services.interview_pipeline_service import classify_interview_tab
+from app.services.interview_round_service import latest_round
 from app.services.settings_cache_service import CachedSettings
 
 _LIVE_CALL_STATUSES = frozenset({"initiated", "in_progress"})
@@ -166,12 +167,12 @@ def _screening_stage(
     return ShortlistStage(kind="screening", state="queued")
 
 
-def _interview_stage(session: InterviewSession, has_report: bool) -> ShortlistStage:
+def _interview_stage(session: InterviewSession, has_report: bool, finalist: bool) -> ShortlistStage:
     """Whatever tab the Interviews page files this session under, name it the same way."""
     if session.status == "cancelled":
         # Filed under Scheduled (needs a link) by the Interviews tab; say why.
         return ShortlistStage(kind="interview", state="cancelled")
-    tab = classify_interview_tab(session, has_report=has_report)
+    tab = classify_interview_tab(session, has_report=has_report, finalist=finalist)
     if tab == "flagged":
         return ShortlistStage(
             kind="interview",
@@ -193,6 +194,7 @@ def resolve_shortlist_stage(
     sessions: list[InterviewSession],
     *,
     has_report: bool = False,
+    finalist: bool = False,
     phone: str | None,
     settings: CachedSettings | None = None,
     screening_effective: bool = True,
@@ -203,8 +205,9 @@ def resolve_shortlist_stage(
         return None
     # An interview session always supersedes the call that led to it (and a candidate
     # approved with screening switched off never had a call).
-    if sessions:
-        return _interview_stage(_newest(sessions), has_report)
+    current = latest_round(sessions)
+    if current is not None:
+        return _interview_stage(current, has_report, finalist)
     if not screening_effective and not calls:
         # Approving with screening off moves them straight to an interview; approved with
         # no call and no interview means that did not happen (or screening went off before
@@ -255,14 +258,13 @@ async def load_stages(
         )
     )
     reported_sessions = set(reports.scalars().all())
-    # "Has a report" means the candidate's latest session has one, as the Interviews tab
-    # reads it. A report from an earlier interview (before a reschedule) must not make a
-    # new, unstarted link look completed.
+    # "Has a report" means the current round has one, as the Interviews tab reads it. A report
+    # from an earlier round must not make a new, unstarted link look completed.
     return {
         cid: (
             calls_by[cid],
             sessions_by[cid],
-            bool(sessions_by[cid]) and _newest(sessions_by[cid]).id in reported_sessions,
+            (current := latest_round(sessions_by[cid])) is not None and current.id in reported_sessions,
         )
         for cid in approved_candidate_ids
     }

@@ -30,6 +30,7 @@ TASK_ROUTES: dict[str, dict[str, str]] = {
     "tasks.schedule_interview_assessment": {"queue": INTERVIEWS_QUEUE},
     "tasks.generate_interview_report": {"queue": INTERVIEWS_QUEUE},
     "tasks.run_video_proctoring": {"queue": INTERVIEWS_QUEUE},
+    "tasks.settle_stale_interviews": {"queue": INTERVIEWS_QUEUE},
 }
 
 ROUTED_TASK_NAMES: frozenset[str] = frozenset(TASK_ROUTES)

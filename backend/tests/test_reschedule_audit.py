@@ -23,10 +23,10 @@ def _service(new_session, previous):
 class RescheduleAuditTests(unittest.IsolatedAsyncioTestCase):
     async def _run(self, new_at, body):
         previous = SimpleNamespace(id=uuid.uuid4(), scheduled_interview_at=datetime(2026, 10, 20, 9, 30, tzinfo=timezone.utc))
-        new = SimpleNamespace(id=uuid.uuid4(), scheduled_interview_at=new_at, rescheduled_from_session_id=previous.id)
+        new = SimpleNamespace(id=uuid.uuid4(), scheduled_interview_at=new_at, round_number=2)
         svc, audit = _service(new, previous)
         with patch("app.services.interview_hr_service.get_tenant_candidate", AsyncMock(return_value=SimpleNamespace(job_id=uuid.uuid4()))), \
-             patch("app.services.interview_reschedule_service.reschedule_interview", AsyncMock(return_value=new)):
+             patch("app.services.interview_reschedule_service.reschedule_interview", AsyncMock(return_value=(new, previous.scheduled_interview_at))):
             await svc.reschedule(SimpleNamespace(tenant_id=uuid.uuid4()), uuid.uuid4(), body)
         return audit.log_change.await_args.kwargs, new
 
@@ -37,6 +37,7 @@ class RescheduleAuditTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kw["after"]["timezone"], "Asia/Kolkata")
         self.assertEqual(kw["before"]["scheduled_interview_at"], "2026-10-20T09:30:00+00:00")
         self.assertEqual(kw["after"]["session_id"], str(new.id))
+        self.assertEqual(kw["after"]["round_number"], 2)
 
     async def test_link_only_reschedule_records_null_time(self):
         kw, _ = await self._run(None, None)

@@ -500,19 +500,59 @@ export function describeActivity(row: ActivityRowInput): ActivityView {
       return { ...base, event: 'Interview scheduled', change: { kind: 'chip', chip: chip(when, 'plain', 30) }, details: [who, ['Date and time', when]] }
     }
     case 'interview.rescheduled': {
-      // A reschedule can carry a new time or only issue a fresh link; the
+      // A reschedule can carry a new time or only re-send the same link; the
       // audit row says which, so the label must not guess.
       const when = after?.scheduled_interview_at ? formatValue('scheduled_interview_at', after.scheduled_interview_at) : null
       const was = before?.scheduled_interview_at ? formatValue('scheduled_interview_at', before.scheduled_interview_at) : null
       const details: Array<[string, string]> = [who]
       if (was) details.push(['Previous time', was])
-      details.push(when ? ['New time', when] : ['What happened', 'A new interview link was issued. No date or time was set.'])
+      details.push(when ? ['New time', when] : ['What happened', 'The interview link was sent again. No date or time was set.'])
       return {
         ...base,
         event: 'Interview rescheduled',
-        change: when ? { kind: 'chip', chip: chip(when, 'plain', 30) } : { kind: 'chip', chip: chip('New link issued', 'muted') },
+        change: when ? { kind: 'chip', chip: chip(when, 'plain', 30) } : { kind: 'chip', chip: chip('Link sent again', 'muted') },
         details,
         tech: techLine(row, typeof after?.session_id === 'string' ? `Session ${after.session_id}` : undefined),
+      }
+    }
+    case 'interview.round_scheduled': {
+      const round = typeof after?.round_number === 'number' ? after.round_number : null
+      const when = after?.scheduled_interview_at ? formatValue('scheduled_interview_at', after.scheduled_interview_at) : null
+      const details: Array<[string, string]> = [who]
+      if (round !== null) details.push(['Round', String(round)])
+      details.push(['Date and time', when ?? 'Not set: the link works any time before it expires'])
+      return {
+        ...base,
+        event: round !== null ? `Round ${round} scheduled` : 'Next round scheduled',
+        change: { kind: 'chip', chip: chip(round !== null ? `Round ${round}` : 'Next round', 'plain') },
+        details,
+        note: 'Scheduling the next round is the approval of the previous one.',
+        tech: techLine(row, typeof after?.session_id === 'string' ? `Session ${after.session_id}` : undefined),
+      }
+    }
+    case 'interview.voided': {
+      const round = typeof before?.round_number === 'number' ? before.round_number : null
+      const details: Array<[string, string]> = [who]
+      if (round !== null) details.push(['Round', String(round)])
+      details.push(['Reason', text(after?.reason, '—')])
+      return {
+        ...base,
+        event: round !== null ? `Round ${round} voided` : 'Round voided',
+        change: { kind: 'chip', chip: chip('Voided', 'neg') },
+        details,
+        note: 'The candidate was sent a new link to retake it. The report stays on file and does not count.',
+        tech: techLine(row, typeof after?.retake_session_id === 'string' ? `Retake ${after.retake_session_id}` : undefined),
+      }
+    }
+    case 'interview.finalist': {
+      const round = typeof after?.round_number === 'number' ? after.round_number : null
+      const details: Array<[string, string]> = [who]
+      if (round !== null) details.push(['After round', String(round)])
+      return {
+        ...base,
+        event: 'Marked as finalist',
+        change: { kind: 'chip', chip: chip('Finalist', 'pos') },
+        details,
       }
     }
     case 'interview.cancelled': {

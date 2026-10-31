@@ -13,7 +13,34 @@ interface Props {
   open: boolean
   onClose: () => void
   onSuccess: (session: InterviewSession) => void
-  mode?: 'schedule' | 'reschedule'
+  mode?: ScheduleMode
+}
+
+export type ScheduleMode = 'schedule' | 'reschedule' | 'next_round'
+
+/** What each mode calls, and what it says to HR. */
+const MODE_COPY: Record<
+  ScheduleMode,
+  { title: string; path: string; done: (name: string) => string; failed: string }
+> = {
+  schedule: {
+    title: 'Schedule interview',
+    path: 'schedule',
+    done: (name) => `Interview scheduled — ${name} was notified by email`,
+    failed: 'Failed to schedule interview',
+  },
+  reschedule: {
+    title: 'Reschedule interview',
+    path: 'reschedule',
+    done: (name) => `Interview rescheduled — ${name} was notified by email`,
+    failed: 'Failed to reschedule interview',
+  },
+  next_round: {
+    title: 'Schedule next round',
+    path: 'next-round',
+    done: (name) => `Next round scheduled — ${name} was notified by email`,
+    failed: 'Failed to schedule the next round',
+  },
 }
 
 const inputClass =
@@ -34,6 +61,7 @@ export function ScheduleInterviewModal({
   onSuccess,
   mode = 'schedule',
 }: Props) {
+  const copy = MODE_COPY[mode]
   const timezone = job.screening_timezone || 'Asia/Kolkata'
   const [scheduledDate, setScheduledDate] = useState(defaultScheduleDate)
   const [scheduledTime, setScheduledTime] = useState('10:00')
@@ -60,30 +88,21 @@ export function ScheduleInterviewModal({
         scheduled_time: scheduledTime,
         timezone,
       }
-      const endpoint =
-        mode === 'reschedule'
-          ? `/api/candidates/${candidateId}/interview/reschedule`
-          : `/api/candidates/${candidateId}/interview/schedule`
-      return api.post(endpoint, body) as unknown as Promise<InterviewSession>
+      return api.post(
+        `/api/candidates/${candidateId}/interview/${copy.path}`,
+        body,
+      ) as unknown as Promise<InterviewSession>
     },
     onSuccess: (data) => {
-      const emailed = Boolean(data.email_sent_at)
-      if (emailed) {
-        toast.success(
-          mode === 'reschedule'
-            ? `Interview rescheduled — ${candidateName} was notified by email`
-            : `Interview scheduled — ${candidateName} was notified by email`,
-        )
+      if (data.email_sent_at) {
+        toast.success(copy.done(candidateName))
       } else {
-        toast.error(
-          `Interview ${mode === 'reschedule' ? 'rescheduled' : 'scheduled'}, but the email could not be sent. Use Resend email.`,
-        )
+        toast.error(`${copy.title} saved, but the email could not be sent. Use Resend email.`)
       }
       onSuccess(data)
       onClose()
     },
-    onError: (err: Error) =>
-      toast.error(err.message || `Failed to ${mode === 'reschedule' ? 'reschedule' : 'schedule'} interview`),
+    onError: (err: Error) => toast.error(err.message || copy.failed),
   })
 
   if (!open) return null
@@ -94,7 +113,7 @@ export function ScheduleInterviewModal({
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-slate-800">
-              {mode === 'reschedule' ? 'Reschedule interview' : 'Schedule interview'}
+              {copy.title}
             </h2>
             <p className="mt-0.5 truncate text-xs text-slate-500">{candidateName}</p>
           </div>

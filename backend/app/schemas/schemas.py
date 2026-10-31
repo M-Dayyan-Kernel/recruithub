@@ -744,7 +744,10 @@ class InterviewSessionResponse(BaseModel):
     unique_token: str
     livekit_room_name: Optional[str] = None
     status: str
-    hr_decision: str = "pending"  # pending | approved | rejected
+    # 1..interview.max_rounds. A voided round keeps its number; its retake shares it.
+    round_number: int = 1
+    voided_at: Optional[datetime] = None
+    void_reason: Optional[str] = None
     email_sent_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -762,9 +765,18 @@ class InterviewSessionResponse(BaseModel):
     retry_after_minutes: Optional[int] = None
 
 
-class InterviewHrDecisionUpdate(BaseModel):
-    """HR approve/reject after a completed interview."""
-    hr_decision: Literal["approved", "rejected"]
+class InterviewVoidRequest(BaseModel):
+    """Void the current taken round so the candidate can retake it."""
+
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def reason_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Give a reason for voiding this round.")
+        return value
 
 
 class VoiceScreeningCandidate(BaseModel):
@@ -888,10 +900,14 @@ class InterviewPipelineCandidate(BaseModel):
     report_recommendation: Optional[str] = None
     assessment_status: Literal["none", "generating", "ready", "failed"] = "none"
     flag_reason: Optional[str] = None
-    can_reschedule: bool = False
-    actions_disabled: bool = False
-    has_active_session: bool = False
-    hr_decision: Optional[str] = None
+    # Which round the card shows (0 before the first is scheduled) and how many there are.
+    round_number: int = 0
+    round_count: int = 0
+    # True while the candidate is in the room; HR sees "Interview in progress" and no actions.
+    is_live: bool = False
+    finalist: bool = False
+    # What HR may do right now, decided on the server (interview_round_service.available_actions).
+    available_actions: List[str] = []
     screening_skipped: bool = False
     skip_reason: Optional[str] = None
 
@@ -912,7 +928,8 @@ class FinalistCandidate(BaseModel):
     total_experience_years: Optional[float] = None
     report_overall_score: Optional[float] = None
     report_recommendation: Optional[str] = None
-    hr_decision: str = "approved"
+    round_count: int = 1
+    finalist_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 
 
@@ -983,6 +1000,18 @@ class VideoProctoringSummary(BaseModel):
     result: Optional[VideoProctoringResult] = None
 
 
+class ReportRoundSummary(BaseModel):
+    """One interview round, for the round tabs on the report page."""
+
+    session_id: uuid.UUID
+    round_number: int
+    status: str
+    voided: bool = False
+    void_reason: Optional[str] = None
+    overall_score: Optional[float] = None
+    completed_at: Optional[datetime] = None
+
+
 class InterviewReportResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -1020,6 +1049,12 @@ class InterviewReportResponse(BaseModel):
     # What the interview ran under. `enabled` is None for interviews that predate the
     # per-job check (no stamp), which the report treats as "not recorded".
     extension_check: Optional["ExtensionCheckStamp"] = None
+    # Which round this report is for, and every round of the application (voided ones included)
+    # so the page can offer the others. Voided: HR voided this round; the report stays for the record.
+    round_number: int = 1
+    voided_at: Optional[datetime] = None
+    void_reason: Optional[str] = None
+    rounds: List[ReportRoundSummary] = []
 
 
 class ExtensionCheckStamp(BaseModel):

@@ -238,7 +238,10 @@ export interface InterviewSession {
   job_id: string
   unique_token: string
   status: 'pending' | 'in_progress' | 'completed' | 'expired' | 'cancelled' | 'assessment_failed' | 'assessed'
-  hr_decision?: 'pending' | 'approved' | 'rejected'
+  /** 1..3. A voided round keeps its number; its retake shares it. */
+  round_number: number
+  voided_at?: string | null
+  void_reason?: string | null
   candidate_name?: string
   job_title?: string
   interview_url?: string
@@ -269,6 +272,16 @@ export interface InterviewPipelineCounts {
 
 export type InterviewAssessmentStatus = 'none' | 'generating' | 'ready' | 'failed'
 
+export type InterviewAction =
+  | 'schedule'
+  | 'reschedule'
+  | 'cancel'
+  | 'next_round'
+  | 'void_round'
+  | 'mark_finalist'
+  | 'retry_assessment'
+  | 'reject'
+
 export interface InterviewPipelineCandidate {
   candidate_id: string
   candidate_name?: string | null
@@ -279,10 +292,14 @@ export interface InterviewPipelineCandidate {
   report_recommendation?: string | null
   assessment_status?: InterviewAssessmentStatus
   flag_reason?: string | null
-  can_reschedule?: boolean
-  actions_disabled?: boolean
-  has_active_session?: boolean
-  hr_decision?: 'pending' | 'approved' | 'rejected' | null
+  /** Which round the row shows (0 before the first is scheduled) and how many rounds there are. */
+  round_number: number
+  round_count: number
+  /** The candidate is in the room: no actions, show "Interview in progress". */
+  is_live: boolean
+  finalist: boolean
+  /** What HR may do right now. Decided on the server; render exactly these. */
+  available_actions: InterviewAction[]
   screening_skipped?: boolean
   skip_reason?: string | null
 }
@@ -303,7 +320,8 @@ export interface FinalistCandidate {
   total_experience_years?: number | null
   report_overall_score?: number | null
   report_recommendation?: string | null
-  hr_decision: string
+  round_count: number
+  finalist_at?: string | null
   completed_at?: string | null
 }
 
@@ -347,8 +365,20 @@ export interface VideoProctoringSummary {
   result?: VideoProctoringResult | null
 }
 
+/** One interview round, for the round tabs on the report page. */
+export interface ReportRound {
+  session_id: string
+  round_number: number
+  status: InterviewSession['status']
+  voided: boolean
+  void_reason?: string | null
+  overall_score?: number | null
+  completed_at?: string | null
+}
+
 export interface InterviewReport {
   id: string
+  interview_session_id: string
   candidate_id: string
   job_id: string
   technical_fit_score?: number
@@ -376,6 +406,11 @@ export interface InterviewReport {
   integrity?: IntegritySummary | null
   /** What the check was set to when this interview ran. */
   extension_check?: ExtensionCheckStamp | null
+  /** Which round this report is for, and every round of the application. */
+  round_number: number
+  voided_at?: string | null
+  void_reason?: string | null
+  rounds: ReportRound[]
   created_at: string
 }
 

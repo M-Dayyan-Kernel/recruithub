@@ -147,6 +147,7 @@ class ShortlistService:
                         calls,
                         sessions,
                         has_report=has_report,
+                        finalist=record.finalist_at is not None,
                         phone=candidate.phone if candidate else None,
                         settings=stage_settings,
                         screening_effective=screening_effective,

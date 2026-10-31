@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions import InterviewCapacityError
 from app.models.models import Candidate, InterviewSession, Job
 from app.repositories.interview_repository import InterviewRepository
+from app.services.interview_status import TERMINAL
 from app.schemas.schemas import InterviewSessionResponse, InterviewStartResponse
 
 logger = logging.getLogger(__name__)
@@ -118,7 +119,7 @@ class InterviewPublicService:
         job = job_result.scalars().first()
 
         if session.expires_at and session.expires_at < datetime.now(timezone.utc):
-            if session.status not in ("completed", "expired", "cancelled"):
+            if session.status not in TERMINAL:
                 session.status = "expired"
                 await self._session.commit()
                 await self._interviews.refresh(session)

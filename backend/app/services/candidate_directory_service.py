@@ -128,7 +128,7 @@ class CandidateDirectoryService:
         sessions_result = await self._session.execute(
             select(InterviewSession)
             .where(InterviewSession.candidate_id == candidate_id)
-            .order_by(InterviewSession.created_at.desc())
+            .order_by(InterviewSession.round_number, InterviewSession.created_at)
         )
         sessions = [
             InterviewSessionResponse.model_validate(s)

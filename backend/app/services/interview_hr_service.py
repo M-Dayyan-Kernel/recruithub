@@ -13,18 +13,34 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_loader import config
 from app.core.tenancy import get_tenant_candidate, get_tenant_job
-from app.models.models import Candidate, InterviewSession, Job, ScreeningCall, ShortlistResult, User
+from app.models.models import (
+    Candidate,
+    InterviewReport,
+    InterviewSession,
+    Job,
+    ScreeningCall,
+    ShortlistResult,
+    User,
+)
 from app.repositories.interview_repository import InterviewRepository
 from app.schemas.schemas import (
     FinalistsResponse,
     InterviewCancelRequest,
     InterviewCancelResponse,
-    InterviewHrDecisionUpdate,
     InterviewPipelineResponse,
     InterviewScheduleRequest,
     InterviewSessionResponse,
 )
 from app.services.audit_service import AuditService
+from app.services.interview_round_service import (
+    latest_round,
+    load_sessions,
+    mark_finalist,
+    place_first_round,
+    schedule_next_round,
+    void_round,
+)
+from app.services.interview_flag_service import is_flagged_session
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +87,8 @@ class InterviewHrService:
 
     async def _refuse_if_rejected(self, candidate: Candidate) -> None:
         """Locks the shortlist row first (the order every other path uses) and refuses to
-        issue, resend or move an interview link for a rejected candidate: a rejection
-        cancels the link, so a fresh one would quietly undo it."""
+        resend an interview link for a rejected candidate: a rejection cancels the link, so
+        a fresh one would quietly undo it. The round operations make the same check."""
         shortlist = (
             await self._session.execute(
                 select(ShortlistResult)
@@ -83,18 +99,7 @@ class InterviewHrService:
                 .with_for_update()
             )
         ).scalars().first()
-        latest_decision = (
-            await self._session.execute(
-                select(InterviewSession.hr_decision)
-                .where(
-                    InterviewSession.job_id == candidate.job_id,
-                    InterviewSession.candidate_id == candidate.id,
-                )
-                .order_by(InterviewSession.created_at.desc())
-                .limit(1)
-            )
-        ).scalars().first()
-        if (shortlist is not None and shortlist.hr_decision == "rejected") or latest_decision == "rejected":
+        if shortlist is not None and shortlist.hr_decision == "rejected":
             raise HTTPException(
                 status_code=409,
                 detail="This candidate was rejected. Reconsider them before sending an interview link.",
@@ -167,30 +172,12 @@ class InterviewHrService:
                 detail="Candidate has not passed phone screening. Interview cannot be scheduled.",
             )
 
-        existing_result = await self._session.execute(
-            select(InterviewSession).where(
-                InterviewSession.candidate_id == candidate_id,
-                InterviewSession.job_id == candidate.job_id,
-                InterviewSession.status.in_(["pending", "in_progress"]),
-            )
-        )
-        if existing_result.scalars().first():
-            raise HTTPException(
-                status_code=409,
-                detail="An active interview session already exists for this candidate.",
-            )
-
-        unique_token = str(uuid.uuid4())
-        interview_session = InterviewSession(
+        interview_session = await place_first_round(
+            self._session,
             candidate_id=candidate_id,
             job_id=candidate.job_id,
-            unique_token=unique_token,
-            status="pending",
-            scheduled_interview_at=scheduled_at,
-            expires_at=scheduled_at + timedelta(days=config.interview.session_link_ttl_days),
+            scheduled_at=scheduled_at,
         )
-        self._session.add(interview_session)
-        await self._interviews.flush()
 
         await self._mark_interview_queued(candidate_id, candidate.job_id)
 
@@ -198,7 +185,7 @@ class InterviewHrService:
         job = job_result.scalars().first()
         job_title = job.title if job else "the position"
 
-        interview_url = f"{config.CANDIDATE_APP_URL}/interview/{unique_token}"
+        interview_url = f"{config.CANDIDATE_APP_URL}/interview/{interview_session.unique_token}"
 
         email_sent = await send_scheduled_interview_notification_email(
             self._session,
@@ -221,7 +208,10 @@ class InterviewHrService:
             subject_label=await self._candidate_label(candidate, candidate_id),
             feature="scheduled_interview_at",
             before=None,
-            after={"scheduled_interview_at": scheduled_at.isoformat()},
+            after={
+                "scheduled_interview_at": scheduled_at.isoformat(),
+                "round_number": interview_session.round_number,
+            },
             job_id=candidate.job_id,
             candidate_id=candidate_id,
         )
@@ -243,7 +233,7 @@ class InterviewHrService:
         Requires:
         - Candidate exists
         - A ScreeningCall with result='pass' exists for this candidate
-        - No active (pending/in_progress) session already exists
+        - The application has no round yet (a cancelled or expired one is reopened)
 
         Email failure is non-fatal — session is still created and link is returned.
         """
@@ -275,10 +265,7 @@ class InterviewHrService:
                 job_id=candidate.job_id,
             )
         except ValueError as exc:
-            detail = str(exc)
-            if "already exists" in detail:
-                raise HTTPException(status_code=409, detail=detail) from exc
-            raise HTTPException(status_code=400, detail=detail) from exc
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         await self._mark_interview_queued(candidate_id, candidate.job_id)
 
@@ -386,86 +373,142 @@ class InterviewHrService:
                 raise HTTPException(status_code=404, detail="Job not found") from exc
             raise
 
-    async def update_decision(
+    async def _session_response(
+        self, session: InterviewSession, candidate: Candidate, job_title: str | None
+    ) -> InterviewSessionResponse:
+        response = InterviewSessionResponse.model_validate(session)
+        response.interview_url = f"{config.CANDIDATE_APP_URL}/interview/{session.unique_token}"
+        response.candidate_name = candidate.name
+        response.job_title = job_title
+        return response
+
+    async def mark_finalist(
+        self, actor: User, candidate_id: uuid.UUID
+    ) -> InterviewSessionResponse:
+        """Mark the application a finalist after a taken interview round. Rejecting is the
+        Rejected stage's own action (it cancels an unstarted link and refuses while live)."""
+        candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
+        latest = latest_round(await load_sessions(self._session, candidate_id, candidate.job_id))
+        if latest is None:
+            raise HTTPException(status_code=400, detail="No interview session found for candidate")
+        has_report = (
+            await self._session.execute(
+                select(InterviewReport.id).where(InterviewReport.interview_session_id == latest.id)
+            )
+        ).scalars().first() is not None
+        shortlist = await mark_finalist(
+            self._session,
+            candidate_id=candidate_id,
+            job_id=candidate.job_id,
+            actor_id=actor.id,
+            flagged=is_flagged_session(latest, has_report=has_report),
+        )
+        await self._audit.log_change(
+            actor=actor,
+            action="interview.finalist",
+            entity_type="interview",
+            entity_id=latest.id,
+            subject_label=await self._candidate_label(candidate, candidate_id),
+            feature="finalist",
+            before={"finalist": False},
+            after={"finalist": True, "round_number": latest.round_number},
+            job_id=candidate.job_id,
+            candidate_id=candidate_id,
+        )
+        await self._session.commit()
+        await self._session.refresh(shortlist)
+        job = await self._session.get(Job, candidate.job_id)
+        return await self._session_response(latest, candidate, job.title if job else None)
+
+    async def next_round(
         self,
         actor: User,
         candidate_id: uuid.UUID,
-        payload: InterviewHrDecisionUpdate,
+        body: Optional[InterviewScheduleRequest] = None,
     ) -> InterviewSessionResponse:
-        """Approve (move to Finalists) or reject (keep in Completed) after interview."""
-        from app.services.interview_finalist_service import set_interview_hr_decision
+        """Open the next interview round after a taken one and email the candidate its link."""
+        from app.services.interview_schedule_service import (
+            parse_scheduled_at,
+            send_interview_invitation_email,
+            send_scheduled_interview_notification_email,
+        )
+
+        try:
+            scheduled_at = parse_scheduled_at(body) if body else None
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
-        if payload.hr_decision == "rejected":
-            return await self._reject(actor, candidate)
-        try:
-            before_decision = None
-            sess_result = await self._session.execute(
-                select(InterviewSession)
-                .where(InterviewSession.candidate_id == candidate_id)
-                .order_by(InterviewSession.created_at.desc())
-                .limit(1)
-            )
-            latest = sess_result.scalars().first()
-            if latest:
-                before_decision = latest.hr_decision
-
-            result = await set_interview_hr_decision(
-                self._session, candidate_id, payload.hr_decision
-            )
-            await self._audit.log_change(
-                actor=actor,
-                action="interview.decision_set",
-                entity_type="interview",
-                entity_id=result.id if hasattr(result, "id") else candidate_id,
-                subject_label=await self._candidate_label(candidate, candidate_id),
-                feature="hr_decision",
-                before={"hr_decision": before_decision},
-                after={"hr_decision": payload.hr_decision},
-                job_id=candidate.job_id if candidate else None,
-                candidate_id=candidate_id,
-            )
-            await self._session.commit()
-            return result
-        except ValueError as exc:
-            msg = str(exc)
-            if msg == "Candidate not found":
-                raise HTTPException(status_code=404, detail=msg) from exc
-            raise HTTPException(status_code=400, detail=msg) from exc
-
-    async def _reject(self, actor: User, candidate: Candidate) -> InterviewSessionResponse:
-        """Rejecting is the Rejected stage's job: it cancels an unstarted link, refuses
-        while the interview is live, and never emails (sent from the Rejected list)."""
-        from app.services.reject_service import RejectService
-
-        has_session = (
-            await self._session.execute(
-                select(InterviewSession.id)
-                .where(InterviewSession.candidate_id == candidate.id, InterviewSession.job_id == candidate.job_id)
-                .limit(1)
-            )
-        ).scalars().first()
-        if has_session is None:
-            # Checked first: this endpoint is about interviews, and a rejection that
-            # succeeded must not be reported as an error.
-            raise HTTPException(status_code=400, detail="No interview session found for candidate")
-        await RejectService(self._session).reject(actor, candidate.job_id, candidate.id)
-        latest = (
-            await self._session.execute(
-                select(InterviewSession)
-                .where(InterviewSession.candidate_id == candidate.id, InterviewSession.job_id == candidate.job_id)
-                .order_by(InterviewSession.created_at.desc())
-                .limit(1)
-            )
-        ).scalars().first()
-        if latest is None:
-            raise HTTPException(status_code=400, detail="No interview session found for candidate")
+        session = await schedule_next_round(
+            self._session,
+            candidate_id=candidate_id,
+            job_id=candidate.job_id,
+            scheduled_at=scheduled_at,
+        )
         job = await self._session.get(Job, candidate.job_id)
-        response = InterviewSessionResponse.model_validate(latest)
-        response.interview_url = f"{config.CANDIDATE_APP_URL}/interview/{latest.unique_token}"
-        response.candidate_name = candidate.name
-        response.job_title = job.title if job else None
-        return response
+        job_title = job.title if job else "the position"
+        if scheduled_at and body:
+            await send_scheduled_interview_notification_email(
+                self._session,
+                session,
+                candidate,
+                job_title,
+                timezone_name=body.timezone or (job.screening_timezone if job else None) or "Asia/Kolkata",
+            )
+        else:
+            await send_interview_invitation_email(self._session, session, candidate, job_title)
+        await self._audit.log_change(
+            actor=actor,
+            action="interview.round_scheduled",
+            entity_type="interview",
+            entity_id=session.id,
+            subject_label=await self._candidate_label(candidate, candidate_id),
+            feature="interview_round",
+            before=None,
+            after={
+                "round_number": session.round_number,
+                "scheduled_interview_at": _iso(session.scheduled_interview_at),
+            },
+            job_id=candidate.job_id,
+            candidate_id=candidate_id,
+        )
+        await self._session.commit()
+        await self._interviews.refresh(session)
+        return await self._session_response(session, candidate, job_title)
+
+    async def void_current_round(
+        self, actor: User, candidate_id: uuid.UUID, reason: str
+    ) -> InterviewSessionResponse:
+        """Void the current taken round (e.g. the candidate had a technical problem) and open a
+        retake with a fresh link. The voided round keeps its report but stops counting."""
+        from app.services.interview_schedule_service import send_interview_invitation_email
+
+        candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
+        voided, retake = await void_round(
+            self._session,
+            candidate_id=candidate_id,
+            job_id=candidate.job_id,
+            reason=reason,
+            actor_id=actor.id,
+        )
+        job = await self._session.get(Job, candidate.job_id)
+        job_title = job.title if job else "the position"
+        await send_interview_invitation_email(self._session, retake, candidate, job_title)
+        await self._audit.log_change(
+            actor=actor,
+            action="interview.voided",
+            entity_type="interview",
+            entity_id=voided.id,
+            subject_label=await self._candidate_label(candidate, candidate_id),
+            feature="interview_round",
+            before={"round_number": voided.round_number, "status": voided.status},
+            after={"reason": voided.void_reason, "retake_session_id": str(retake.id)},
+            job_id=candidate.job_id,
+            candidate_id=candidate_id,
+        )
+        await self._session.commit()
+        await self._interviews.refresh(retake)
+        return await self._session_response(retake, candidate, job_title)
 
     async def resend_email(
         self, actor: User, candidate_id: uuid.UUID
@@ -541,7 +584,8 @@ class InterviewHrService:
         body: Optional[InterviewScheduleRequest] = None,
     ) -> InterviewSessionResponse:
         """
-        Expire the previous interview link, create a new session, and email the candidate.
+        Move the current round to a new time and email the candidate. Only a round the candidate
+        has not taken can move: a taken one is followed by the next round instead.
         """
         from app.services.interview_reschedule_service import reschedule_interview
 
@@ -549,18 +593,8 @@ class InterviewHrService:
             candidate = await get_tenant_candidate(
                 self._session, candidate_id, actor.tenant_id
             )
-            await self._refuse_if_rejected(candidate)
-            result = await reschedule_interview(
+            result, previous_slot = await reschedule_interview(
                 self._session, candidate_id, schedule=body
-            )
-            # The time lives on the new session row; copy it here so the audit
-            # row stays readable on its own. A reschedule without a time only
-            # issues a fresh link, which shows up as a null.
-            new_session = await self._session.get(InterviewSession, result.id)
-            previous = (
-                await self._session.get(InterviewSession, new_session.rescheduled_from_session_id)
-                if new_session and new_session.rescheduled_from_session_id
-                else None
             )
             await self._audit.log_change(
                 actor=actor,
@@ -569,11 +603,10 @@ class InterviewHrService:
                 entity_id=result.id,
                 subject_label=await self._candidate_label(candidate, candidate_id),
                 feature="interview_session",
-                before={
-                    "scheduled_interview_at": _iso(previous.scheduled_interview_at) if previous else None,
-                },
+                before={"scheduled_interview_at": _iso(previous_slot)},
                 after={
                     "session_id": str(result.id),
+                    "round_number": result.round_number,
                     "scheduled_interview_at": _iso(result.scheduled_interview_at),
                     "timezone": body.timezone if body and result.scheduled_interview_at else None,
                 },
@@ -586,8 +619,6 @@ class InterviewHrService:
             msg = str(exc)
             if msg == "Candidate not found":
                 raise HTTPException(status_code=404, detail=msg) from exc
-            if "already exists" in msg:
-                raise HTTPException(status_code=409, detail=msg) from exc
             raise HTTPException(status_code=400, detail=msg) from exc
 
     async def cancel(
@@ -645,12 +676,7 @@ class InterviewHrService:
 
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
 
-        result = await self._session.execute(
-            select(InterviewSession)
-            .where(InterviewSession.candidate_id == candidate_id)
-            .order_by(InterviewSession.created_at.desc())
-        )
-        session = result.scalars().first()
+        session = latest_round(await load_sessions(self._session, candidate_id, candidate.job_id))
         if not session:
             raise HTTPException(status_code=404, detail="No interview session found")
 

@@ -21,7 +21,6 @@ from app.services.hiring_stage_resolver import resolve_hiring_stage
 from app.services.interview_flag_service import get_flag_reason
 from app.services.interview_hr_service import InterviewHrService
 from app.services.interview_pipeline_service import classify_interview_tab
-from app.services.interview_reschedule_service import _expire_session
 from app.services.screening_cancel_service import ScreeningCancelService
 from app.tasks.screening_tasks import can_set_call_status
 
@@ -151,24 +150,16 @@ class CancelledSessionEverywhereTests(unittest.IsolatedAsyncioTestCase):
     def test_a_cancelled_session_is_filed_under_scheduled(self):
         self.assertEqual(classify_interview_tab(_sess("cancelled")), "scheduled")
 
-    async def test_rescheduling_after_a_cancellation_keeps_it_cancelled(self):
-        s = _sess("cancelled")
-        await _expire_session(s)
-        self.assertEqual(s.status, "cancelled")
-        s = _sess("pending")
-        await _expire_session(s)
-        self.assertEqual(s.status, "expired")
-
     def test_the_candidates_page_keeps_them_in_the_stage(self):
         cand = SimpleNamespace(status="active", pipeline_status="completed")
         self.assertEqual(
-            resolve_hiring_stage(cand, shortlist=SimpleNamespace(hr_decision="approved"),
+            resolve_hiring_stage(cand, shortlist=SimpleNamespace(hr_decision="approved", finalist_at=None),
                                  screening=SimpleNamespace(call_status="completed", result="pass"),
                                  interview_session=_sess("cancelled")),
             "Interview",
         )
         self.assertEqual(
-            resolve_hiring_stage(cand, shortlist=SimpleNamespace(hr_decision="approved"),
+            resolve_hiring_stage(cand, shortlist=SimpleNamespace(hr_decision="approved", finalist_at=None),
                                  screening=SimpleNamespace(call_status="cancelled", result=None)),
             "Screening",
         )

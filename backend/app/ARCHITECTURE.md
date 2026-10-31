@@ -1075,11 +1075,8 @@ OAuth/file/network operations are synchronous.
 
 ## `interview_finalist_service.py`
 
-- `_session_is_completed_for_decision`.
 - `_experience_years`: pulls parsed resume experience.
-- `_map_recommendation_label`.
-- `set_interview_hr_decision`: require suitable completed/assessed session.
-- `list_finalists`: join approved sessions with candidate, report, and latest screening compensation fields.
+- `list_finalists`: applications with `ShortlistResult.finalist_at` set (not rejected), joined with candidate, the current round's report, and latest screening compensation fields. Marking a finalist is `interview_round_service.mark_finalist`.
 
 ## `interview_flag_service.py`
 
@@ -1114,13 +1111,18 @@ Heuristic validation can have false positives/negatives and should not be treate
 ## `interview_reschedule_service.py`
 
 - Finds latest passing screening call.
-- Expires previous session.
 - Optionally parses new schedule.
-- Creates a replacement session linked by `rescheduled_from_session_id`.
-- Sends reschedule email.
-- Returns enriched response.
+- Moves the candidate's current, untaken round with `interview_round_service.reschedule_round` (same session and link; a taken or live round is refused).
+- Sends the reschedule (or scheduled) email.
+- Returns the enriched response and the slot the round had before, for the audit row.
 
-Concurrency can create multiple replacement sessions because active-session checks are not backed by a partial unique constraint.
+The rows are locked (shortlist row first), and a partial unique index allows one live session per application and round.
+
+## `interview_round_service.py`, `interview_status.py`
+
+- `interview_status`: status sets (`UNTAKEN`, `TAKEN`, `TERMINAL`), `is_live` / `live_clause` (in progress within `interview.stale_after_minutes`).
+- `interview_round_service`: `latest_round`, `available_actions`, `place_first_round`, `reschedule_round`, `schedule_next_round`, `void_round`, `mark_finalist`. State changes only flush; the HR service writes the audit row, sends the email, and commits.
+- `interview_settle_service` + beat task `tasks.settle_stale_interviews`: settles interviews stuck in progress (transcript → completed and assessed; none → expired).
 
 ## `interview_schedule_service.py`
 
@@ -1475,8 +1477,10 @@ All protected endpoints require `Authorization: Bearer <JWT>`. Standard FastAPI 
 | POST | `/api/candidates/{id}/interview/queue` | Admin/HR | Path | 200 | Queue timestamp |
 | POST | `/api/candidates/{id}/interview/schedule` | Admin/HR | Schedule | 201 | Session/email |
 | POST | `/api/candidates/{id}/interview/send` | Admin/HR | Path | 201 | Session/email |
-| POST | `/api/candidates/{id}/interview/reschedule` | Admin/HR | Optional schedule | 201 | Replace/email |
-| PATCH | `/api/candidates/{id}/interview/decision` | Admin/HR | Approved/rejected | 200 | Finalist state |
+| POST | `/api/candidates/{id}/interview/reschedule` | Admin/HR | Optional schedule | 201 | Move untaken round/email |
+| POST | `/api/candidates/{id}/interview/next-round` | Admin/HR | Optional schedule | 201 | Next round/email |
+| POST | `/api/candidates/{id}/interview/void` | Admin/HR | Reason | 201 | Voided round + retake/email |
+| POST | `/api/candidates/{id}/finalist` | Admin/HR | Path | 200 | Finalist state |
 | POST | `/api/candidates/{id}/interview/retry-assessment` | Admin/HR | Path | 202 | Report task |
 | GET | `/api/interview/{token}` | Candidate token | Path | 200 | Session |
 | POST | `/api/interview/{token}/start` | Candidate token | Path | 200 | LiveKit room/token |

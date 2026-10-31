@@ -1,6 +1,7 @@
 """HiringStageResolver unit tests."""
 
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 from app.services.hiring_stage_resolver import resolve_hiring_stage
@@ -16,6 +17,7 @@ def _candidate(**kwargs):
 def _shortlist(**kwargs):
     s = MagicMock()
     s.hr_decision = kwargs.get("hr_decision", "pending")
+    s.finalist_at = kwargs.get("finalist_at")
     return s
 
 
@@ -29,7 +31,6 @@ def _screening(**kwargs):
 def _interview_session(**kwargs):
     s = MagicMock()
     s.status = kwargs.get("status", "pending")
-    s.hr_decision = kwargs.get("hr_decision", "pending")
     return s
 
 
@@ -57,15 +58,34 @@ class HiringStageResolverTests(unittest.TestCase):
         stage = resolve_hiring_stage(_candidate(pipeline_status="failed"))
         self.assertEqual(stage, "Failed")
 
-    def test_finalist_when_interview_approved_with_report(self):
+    def test_finalist_when_the_application_is_marked(self):
         stage = resolve_hiring_stage(
             _candidate(),
-            shortlist=_shortlist(hr_decision="approved"),
+            shortlist=_shortlist(hr_decision="approved", finalist_at=datetime.now(timezone.utc)),
             screening=_screening(),
-            interview_session=_interview_session(hr_decision="approved"),
+            interview_session=_interview_session(status="completed"),
             interview_report=MagicMock(),
         )
         self.assertEqual(stage, "Finalist")
+
+    def test_a_rejection_beats_the_finalist_mark(self):
+        stage = resolve_hiring_stage(
+            _candidate(),
+            shortlist=_shortlist(hr_decision="rejected", finalist_at=datetime.now(timezone.utc)),
+            interview_session=_interview_session(status="completed"),
+        )
+        self.assertEqual(stage, "Rejected")
+
+    def test_every_round_state_keeps_the_candidate_in_interview(self):
+        for status in ("pending", "in_progress", "completed", "assessed", "assessment_failed", "expired", "cancelled"):
+            with self.subTest(status=status):
+                stage = resolve_hiring_stage(
+                    _candidate(),
+                    shortlist=_shortlist(hr_decision="approved"),
+                    screening=_screening(),
+                    interview_session=_interview_session(status=status),
+                )
+                self.assertEqual(stage, "Interview")
 
     def test_interview_in_progress(self):
         stage = resolve_hiring_stage(

@@ -271,6 +271,8 @@ class InterviewConfig(BaseModel):
     schedule_early_grace_sec: int = 120
     public_rate_limit_per_minute: int = 20
     max_concurrent_interviews: int = 25
+    max_rounds: int = Field(default=3, ge=1)
+    stale_after_minutes: int = Field(default=60, ge=1)
     busy_retry_minutes: int = 45
     assessment_retry: AssessmentRetryConfig = Field(
         default_factory=AssessmentRetryConfig
@@ -294,6 +296,7 @@ class SchedulerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dispatch_pending_screening_seconds: float = 60.0
     recover_stuck_parses_seconds: float = 120.0
+    settle_stale_interviews_seconds: float = 300.0
 
 
 class CeleryQueueConfig(BaseModel):

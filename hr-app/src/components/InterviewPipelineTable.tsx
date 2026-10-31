@@ -1,15 +1,19 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Check, FileText, Loader2, RefreshCw, X } from 'lucide-react'
+import { ArrowRight, CalendarClock, Check, FileText, Loader2, RefreshCw, RotateCcw, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { InterviewPipelineCandidate, InterviewSession } from '@/types/api'
+import type { InterviewPipelineCandidate, InterviewSession, Job } from '@/types/api'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
-import { BTN_SECONDARY } from '@/components/ui/Surface'
+import { BTN_DANGER, BTN_PRIMARY, BTN_SECONDARY } from '@/components/ui/Surface'
+import { ScheduleInterviewModal, type ScheduleMode } from '@/components/screening/ScheduleInterviewModal'
+import { VoidRoundDialog } from '@/components/VoidRoundDialog'
+import { hasAction, interviewRowStatusLabel, roundLabel } from '@/lib/interviewStatus'
 import { WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
 
 interface Props {
+  job: Job
   jobId: string
   rows: InterviewPipelineCandidate[]
   variant: 'completed' | 'flagged' | 'finalists'
@@ -17,89 +21,24 @@ interface Props {
   onRescheduled?: () => void
 }
 
-function interviewStatusLabel(row: InterviewPipelineCandidate): string {
-  const session = row.session
-  if (row.tab === 'finalists' || row.hr_decision === 'approved') return 'Finalist'
-  if (row.hr_decision === 'rejected') return 'Rejected'
-  if (row.assessment_status === 'failed') return 'Assessment Failed'
-  if (row.has_report) return 'Completed'
-  if (session?.status === 'in_progress') return 'In Progress'
-  if (session?.status === 'expired') return 'Expired'
-  if (session?.status === 'cancelled') return 'Cancelled'
-  if (session?.status === 'completed') return 'Completed'
-  if (session?.status === 'pending') return 'Link Sent'
-  return 'Not Sent'
-}
-
-function RescheduleButton({
+/** Every action on one candidate's current round. The server says which are available. */
+function RowActions({
   row,
+  job,
   jobId,
-  onSuccess,
+  onRescheduled,
 }: {
   row: InterviewPipelineCandidate
+  job: Job
   jobId: string
-  onSuccess: () => void
+  onRescheduled?: () => void
 }) {
   const queryClient = useQueryClient()
-
-  const rescheduleMutation = useMutation({
-    mutationFn: () =>
-      api.post(`/api/candidates/${row.candidate_id}/interview/reschedule`),
-    onSuccess: () => {
-      toast.success(
-        `Interview rescheduled — email sent to ${row.candidate_name ?? 'candidate'}`,
-      )
-      queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
-      onSuccess()
-    },
-    onError: (err: Error) => toast.error(err.message || 'Failed to reschedule interview'),
-  })
-
-  // A rejected candidate has no link to move: Reconsider comes first.
-  if (row.hr_decision === 'rejected') return null
-
-  const disabled =
-    row.actions_disabled || !row.can_reschedule || row.has_active_session
-
-  let title = 'Send a new interview link by email'
-  if (row.actions_disabled) title = 'Candidate or job no longer available'
-  else if (row.has_active_session) title = 'Another interview is already pending or in progress'
-  else if (!row.can_reschedule) title = 'Reschedule is not available'
-
-  return (
-    <button
-      type="button"
-      disabled={disabled || rescheduleMutation.isPending}
-      title={title}
-      onClick={() => rescheduleMutation.mutate()}
-      className={BTN_SECONDARY}
-    >
-      {rescheduleMutation.isPending ? (
-        <Loader2 size={12} className="animate-spin" />
-      ) : (
-        <RefreshCw size={12} />
-      )}
-      Reschedule
-    </button>
-  )
-}
-
-function DecisionButtons({
-  row,
-  jobId,
-}: {
-  row: InterviewPipelineCandidate
-  jobId: string
-}) {
-  const queryClient = useQueryClient()
+  const name = row.candidate_name ?? 'Candidate'
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode | null>(null)
+  const [confirmVoid, setConfirmVoid] = useState(false)
   const [confirmReject, setConfirmReject] = useState(false)
   const [rejectError, setRejectError] = useState<string | null>(null)
-  const decision = row.hr_decision ?? 'pending'
-  const name = row.candidate_name ?? 'Candidate'
-  const canDecide =
-    !row.actions_disabled &&
-    (row.has_report || row.assessment_status === 'ready') &&
-    decision !== 'approved'
 
   const refresh = () => {
     for (const key of ['interviews-pipeline', 'finalists', 'rejected']) {
@@ -107,18 +46,26 @@ function DecisionButtons({
     }
     queryClient.invalidateQueries({ queryKey: ['candidates'] })
     queryClient.invalidateQueries({ queryKey: ['candidate', row.candidate_id] })
+    queryClient.invalidateQueries({ queryKey: ['report', row.candidate_id] })
   }
 
-  const approveMutation = useMutation({
+  const retryMutation = useMutation({
+    mutationFn: () => api.post(`/api/candidates/${row.candidate_id}/interview/retry-assessment`),
+    onSuccess: () => {
+      toast.success('Assessment retry started')
+      refresh()
+    },
+    onError: (err: Error) => toast.error(err.message || 'Failed to retry assessment'),
+  })
+
+  const finalistMutation = useMutation({
     mutationFn: () =>
-      api.patch(`/api/candidates/${row.candidate_id}/interview/decision`, {
-        hr_decision: 'approved',
-      }) as Promise<InterviewSession>,
+      api.post(`/api/candidates/${row.candidate_id}/finalist`) as unknown as Promise<InterviewSession>,
     onSuccess: () => {
       refresh()
       toast.success(`${name} moved to Finalists`)
     },
-    onError: (err: Error) => toast.error(err.message || 'Failed to update decision'),
+    onError: (err: Error) => toast.error(err.message || 'Failed to mark finalist'),
   })
 
   const rejectMutation = useMutation({
@@ -132,31 +79,89 @@ function DecisionButtons({
     onError: (err: Error) => setRejectError(err.message || 'Failed to reject candidate'),
   })
 
-  // A rejection is not undone from this table (a status is a label, not a button);
-  // Reconsider is the way back.
-  if (!canDecide || decision === 'rejected') return null
+  if (row.is_live) {
+    return <span className="text-xs text-ink-muted">Interview in progress</span>
+  }
 
-  const busy = approveMutation.isPending || rejectMutation.isPending
+  const busy = retryMutation.isPending || finalistMutation.isPending || rejectMutation.isPending
   return (
     <>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => approveMutation.mutate()}
-        className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-      >
-        {approveMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-        Approve
-      </button>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => setConfirmReject(true)}
-        className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-50"
-      >
-        <X size={12} />
-        Reject
-      </button>
+      {hasAction(row, 'retry_assessment') && (
+        <button
+          type="button"
+          onClick={() => retryMutation.mutate()}
+          disabled={busy}
+          className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+        >
+          {retryMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+          Retry Assessment
+        </button>
+      )}
+      {hasAction(row, 'mark_finalist') && (
+        <button type="button" disabled={busy} onClick={() => finalistMutation.mutate()} className={BTN_PRIMARY}>
+          {finalistMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+          Mark finalist
+        </button>
+      )}
+      {hasAction(row, 'next_round') && (
+        <button type="button" disabled={busy} onClick={() => setScheduleMode('next_round')} className={BTN_SECONDARY}>
+          <ArrowRight size={12} />
+          Next round
+        </button>
+      )}
+      {hasAction(row, 'reschedule') && (
+        <button type="button" disabled={busy} onClick={() => setScheduleMode('reschedule')} className={BTN_SECONDARY}>
+          <CalendarClock size={12} />
+          Reschedule
+        </button>
+      )}
+      {hasAction(row, 'void_round') && (
+        <button type="button" disabled={busy} onClick={() => setConfirmVoid(true)} className={BTN_SECONDARY}>
+          <RotateCcw size={12} />
+          Void round
+        </button>
+      )}
+      {hasAction(row, 'reject') && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setRejectError(null)
+            setConfirmReject(true)
+          }}
+          className={BTN_DANGER}
+        >
+          <X size={12} />
+          Reject
+        </button>
+      )}
+
+      {scheduleMode && (
+        <ScheduleInterviewModal
+          job={job}
+          candidateId={row.candidate_id}
+          candidateName={name}
+          open
+          mode={scheduleMode}
+          onClose={() => setScheduleMode(null)}
+          onSuccess={() => {
+            refresh()
+            onRescheduled?.()
+          }}
+        />
+      )}
+      {confirmVoid && row.round_number > 0 && (
+        <VoidRoundDialog
+          candidateId={row.candidate_id}
+          candidateName={name}
+          roundNumber={row.round_number}
+          onClose={() => setConfirmVoid(false)}
+          onVoided={() => {
+            refresh()
+            onRescheduled?.()
+          }}
+        />
+      )}
       {confirmReject && (
         <ConfirmDialog
           title={`Reject ${name}?`}
@@ -184,34 +189,7 @@ function DecisionButtons({
   )
 }
 
-export function InterviewPipelineTable({
-  jobId,
-  rows,
-  variant,
-  returnSearch,
-  onRescheduled,
-}: Props) {
-  const queryClient = useQueryClient()
-
-  const retryMutation = useMutation({
-    mutationFn: (candidateId: string) =>
-      api.post(`/api/candidates/${candidateId}/interview/retry-assessment`),
-    onSuccess: () => {
-      toast.success('Assessment retry started')
-      queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
-    },
-    onError: (err: Error) => toast.error(err.message || 'Failed to retry assessment'),
-  })
-
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['interviews-pipeline', jobId] })
-  }
-
-  const handleRescheduled = () => {
-    invalidate()
-    onRescheduled?.()
-  }
-
+export function InterviewPipelineTable({ job, jobId, rows, variant, returnSearch, onRescheduled }: Props) {
   const reportLink = (candidateId: string) =>
     `/jobs/${jobId}/candidates/${candidateId}/report${returnSearch}`
 
@@ -237,66 +215,46 @@ export function InterviewPipelineTable({
             const reportReady = row.has_report || row.assessment_status === 'ready'
             const generating = row.assessment_status === 'generating'
             const assessmentFailed = row.assessment_status === 'failed'
-            const actionsDisabled = Boolean(row.actions_disabled)
+            const round = roundLabel(row)
 
             return (
               <tr key={row.candidate_id} className="hover:bg-slate-50/60">
                 <td className="px-4 py-3 text-sm font-medium text-slate-800">
                   <div className="flex items-center gap-2">
                     {row.candidate_name ?? 'Candidate'}
-                    {row.hr_decision === 'rejected' && (
-                      <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700">
-                        Rejected
+                    {round && (
+                      <span
+                        title={`${row.round_count} round${row.round_count === 1 ? '' : 's'} so far`}
+                        className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted"
+                      >
+                        {round}
                       </span>
                     )}
                   </div>
                 </td>
-                <td className="px-4 py-3 text-sm text-slate-600">
-                  {interviewStatusLabel(row)}
-                </td>
+                <td className="px-4 py-3 text-sm text-slate-600">{interviewRowStatusLabel(row)}</td>
                 {variant === 'completed' || variant === 'finalists' ? (
                   <>
+                    <td className="px-4 py-3 text-sm text-slate-600">{row.report_recommendation ?? '—'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">
-                      {row.report_recommendation ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600">
-                      {row.report_overall_score != null
-                        ? row.report_overall_score
-                        : '—'}
+                      {row.report_overall_score != null ? row.report_overall_score : '—'}
                     </td>
                   </>
                 ) : null}
                 {variant === 'flagged' && (
-                  <td className="px-4 py-3 text-sm text-amber-800">
-                    {row.flag_reason ?? '—'}
-                  </td>
+                  <td className="px-4 py-3 text-sm text-amber-800">{row.flag_reason ?? '—'}</td>
                 )}
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     {(variant === 'completed' || variant === 'finalists') && (
                       <>
-                        {variant === 'completed' && assessmentFailed && !actionsDisabled && (
-                          <button
-                            type="button"
-                            onClick={() => retryMutation.mutate(row.candidate_id)}
-                            disabled={retryMutation.isPending}
-                            className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
-                          >
-                            {retryMutation.isPending ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <RefreshCw size={12} />
-                            )}
-                            Retry Assessment
-                          </button>
-                        )}
                         {variant === 'completed' && generating && (
                           <span className="inline-flex items-center gap-1 text-xs text-slate-500">
                             <Loader2 size={12} className="animate-spin" />
                             Generating...
                           </span>
                         )}
-                        {reportReady && !actionsDisabled ? (
+                        {reportReady ? (
                           <Link to={reportLink(row.candidate_id)} className={BTN_SECONDARY}>
                             <FileText size={12} />
                             View Report
@@ -315,18 +273,9 @@ export function InterviewPipelineTable({
                             </button>
                           )
                         )}
-                        {variant === 'completed' && (
-                          <DecisionButtons row={row} jobId={jobId} />
-                        )}
                       </>
                     )}
-                    {variant !== 'finalists' && (
-                      <RescheduleButton
-                        row={row}
-                        jobId={jobId}
-                        onSuccess={handleRescheduled}
-                      />
-                    )}
+                    <RowActions row={row} job={job} jobId={jobId} onRescheduled={onRescheduled} />
                   </div>
                 </td>
               </tr>

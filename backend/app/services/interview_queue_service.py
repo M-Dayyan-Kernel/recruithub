@@ -9,18 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_loader import config
 from app.models.models import InterviewSession
+from app.services.interview_status import live_clause
 
 logger = logging.getLogger(__name__)
 
-LIVE_INTERVIEW_STATUS = "in_progress"
-
-
 async def count_live_interviews(session: AsyncSession) -> int:
-    """Count in-flight interview sessions across all tenants."""
+    """Count live interview sessions across all tenants; a stuck one holds no slot."""
     result = await session.execute(
         select(func.count())
         .select_from(InterviewSession)
-        .where(InterviewSession.status == LIVE_INTERVIEW_STATUS)
+        .where(live_clause())
     )
     return int(result.scalar() or 0)
 

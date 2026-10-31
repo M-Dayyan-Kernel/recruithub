@@ -33,6 +33,25 @@ def enqueue_interview_assessment(interview_session_id: str) -> None:
     schedule_interview_assessment.delay(str(interview_session_id))
 
 
+@celery_app.task(name="tasks.settle_stale_interviews")
+def settle_stale_interviews():
+    """Beat: settle interviews left in progress past the stale window (see the service)."""
+    try:
+        asyncio.run(_async_settle_stale())
+    except Exception as exc:
+        logger.error("settle_stale_interviews failed: %s", exc)
+        raise
+
+
+async def _async_settle_stale() -> None:
+    from app.services.interview_settle_service import settle_stale_interviews as settle
+
+    async with get_celery_db() as session:
+        completed, _expired = await settle(session)
+    for session_id in completed:
+        enqueue_interview_assessment(str(session_id))
+
+
 @celery_app.task(name="tasks.schedule_interview_assessment")
 def schedule_interview_assessment(interview_session_id: str, attempt: int = 0):
     """

@@ -222,6 +222,10 @@ class ShortlistResult(Base):
     rejection_email_claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     rejection_emailed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     reconsider_state: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    # The application was marked a finalist (after at least one taken interview round).
+    # `finalist_at IS NOT NULL` is THE marker; a finalist cannot be rejected.
+    finalist_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    finalist_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
@@ -301,7 +305,13 @@ class InterviewSession(Base):
     unique_token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     livekit_room_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
-    hr_decision: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    # 1..interview.max_rounds. A voided round and its retake share the number; at most one
+    # session per application and round is not voided (uq_interview_sessions_round_per_application).
+    round_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    # Set when HR voids a taken round so the candidate can retake it. The report stays viewable.
+    voided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    voided_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    void_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     email_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -323,9 +333,6 @@ class InterviewSession(Base):
     video_proctoring_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)  # Link expiry (session_link_ttl_days after the send time, or after the scheduled slot)
     scheduled_interview_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    rescheduled_from_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("interview_sessions.id", ondelete="SET NULL"), nullable=True
-    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships

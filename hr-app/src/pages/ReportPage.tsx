@@ -99,7 +99,9 @@ function ReportSkeleton() {
 
 export default function ReportPage() {
   const { jobId, candidateId } = useParams<{ jobId: string; candidateId: string }>()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
+  // Which round's report to show; absent means the current round.
+  const sessionId = searchParams.get('session')
   const [downloadingPdf, setDownloadingPdf] = useState(false)
   const [currentTimeSec, setCurrentTimeSec] = useState(0)
   const [tab, setTab] = useState<'overview' | 'questions' | 'integrity'>('overview')
@@ -126,9 +128,11 @@ export default function ReportPage() {
     isError,
     error,
   } = useQuery<InterviewReport>({
-    queryKey: ['report', candidateId],
+    queryKey: ['report', candidateId, sessionId],
     queryFn: () =>
-      api.get(`/api/candidates/${candidateId}/report`) as unknown as Promise<InterviewReport>,
+      api.get(
+        `/api/candidates/${candidateId}/report${sessionId ? `?session_id=${sessionId}` : ''}`,
+      ) as unknown as Promise<InterviewReport>,
     enabled: !!candidateId,
     retry: false,
     refetchInterval: (query) => {
@@ -171,6 +175,16 @@ export default function ReportPage() {
   const registerSeek = useCallback((fn: (sec: number) => void) => {
     playerSeekRef.current = fn
   }, [])
+
+  // Rounds the candidate sat; the others have no report to show yet.
+  const roundTabs: TabDef[] = (report?.rounds ?? [])
+    .filter((r) => ['completed', 'assessed', 'assessment_failed'].includes(r.status))
+    .map((r) => ({ id: r.session_id, label: `Round ${r.round_number}${r.voided ? ' · voided' : ''}` }))
+  const switchRound = (id: string) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('session', id)
+    setSearchParams(next)
+  }
 
   const questions = report?.question_scores ?? []
   const totalEarned = questions.reduce((sum, q) => sum + (q.earned_score ?? 0), 0)
@@ -359,6 +373,21 @@ export default function ReportPage() {
               </button>
             </div>
           </GlassCard>
+
+          {report.voided_at && (
+            <p role="status" className="rounded-lg bg-warn-soft px-4 py-2.5 text-[13px] text-warn">
+              Round {report.round_number} was voided
+              {report.void_reason ? `: ${report.void_reason}` : ''}. This report is kept for the record
+              and does not count.
+            </p>
+          )}
+          {roundTabs.length > 1 && (
+            <Tabs
+              tabs={roundTabs}
+              active={report.interview_session_id}
+              onChange={switchRound}
+            />
+          )}
 
           {/* ── Tabs ──────────────────────────────────────────────────────── */}
           <GlassCard edge="neutral" innerClassName="overflow-hidden">

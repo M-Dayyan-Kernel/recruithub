@@ -445,6 +445,7 @@ export const MOCK_INTERVIEW_SESSION = {
   unique_token: 'tok-alice-123456',
   livekit_room_name: 'interview-eeeeeeee-0000-0000-0000-000000000001',
   status: 'completed',
+  round_number: 1,
   candidate_name: 'Alice Sharma',
   job_title: 'Senior Frontend Engineer',
   interview_url: 'http://localhost:5174/interview/tok-alice-123456',

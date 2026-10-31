@@ -27,12 +27,12 @@ from app.schemas.schemas import (
     FinalistsResponse,
     InterviewCancelRequest,
     InterviewCancelResponse,
-    InterviewHrDecisionUpdate,
     InterviewPipelineResponse,
     InterviewReportResponse,
     InterviewScheduleRequest,
     InterviewSessionResponse,
     InterviewStartResponse,
+    InterviewVoidRequest,
 )
 from app.services.integrity_service import IntegrityService
 from app.services.interview_guards import enforce_public_interview_rate_limit
@@ -149,9 +149,13 @@ async def livekit_webhook(
 async def get_interview_report(
     candidate_id: uuid.UUID,
     actor: RequireAdminOrHr,
+    session_id: Optional[uuid.UUID] = Query(
+        default=None,
+        description="The round's interview session. Omit for the current round.",
+    ),
     service: InterviewReportService = Depends(get_interview_report_service),
 ):
-    return await service.get_report(actor, candidate_id)
+    return await service.get_report(actor, candidate_id, session_id)
 
 
 @router.post(
@@ -162,9 +166,10 @@ async def get_interview_report(
 async def refresh_interview_report(
     candidate_id: uuid.UUID,
     actor: RequireAdminOrHr,
+    session_id: Optional[uuid.UUID] = Query(default=None),
     service: InterviewReportService = Depends(get_interview_report_service),
 ):
-    return await service.refresh_report(actor, candidate_id)
+    return await service.refresh_report(actor, candidate_id, session_id)
 
 
 @router.get(
@@ -212,18 +217,50 @@ async def get_finalists(
     return await service.get_finalists(actor, job_id)
 
 
-@router.patch(
-    "/candidates/{candidate_id}/interview/decision",
+@router.post(
+    "/candidates/{candidate_id}/finalist",
     response_model=InterviewSessionResponse,
     dependencies=[_hr_auth],
 )
-async def update_interview_hr_decision(
+async def mark_candidate_finalist(
     candidate_id: uuid.UUID,
-    payload: InterviewHrDecisionUpdate,
     actor: RequireAdminOrHr,
     service: InterviewHrService = Depends(get_interview_hr_service),
 ):
-    return await service.update_decision(actor, candidate_id, payload)
+    """Mark the application a finalist after a taken interview round. Rejecting is
+    POST /jobs/{job_id}/candidates/{candidate_id}/reject."""
+    return await service.mark_finalist(actor, candidate_id)
+
+
+@router.post(
+    "/candidates/{candidate_id}/interview/next-round",
+    response_model=InterviewSessionResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[_hr_auth],
+)
+async def schedule_next_interview_round(
+    candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    body: Optional[InterviewScheduleRequest] = Body(None),
+    service: InterviewHrService = Depends(get_interview_hr_service),
+):
+    return await service.next_round(actor, candidate_id, body)
+
+
+@router.post(
+    "/candidates/{candidate_id}/interview/void",
+    response_model=InterviewSessionResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[_hr_auth],
+)
+async def void_interview_round(
+    candidate_id: uuid.UUID,
+    body: InterviewVoidRequest,
+    actor: RequireAdminOrHr,
+    service: InterviewHrService = Depends(get_interview_hr_service),
+):
+    """Void the current taken round so the candidate can retake it; returns the retake."""
+    return await service.void_current_round(actor, candidate_id, body.reason)
 
 
 @router.post(
