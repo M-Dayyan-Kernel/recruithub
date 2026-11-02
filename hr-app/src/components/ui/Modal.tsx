@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { X } from 'lucide-react'
+import { useEscapeToClose } from '@/hooks/useEscapeToClose'
 
 /**
  * A centred dialog on a scrim (a bottom sheet below `sm`, since panels have to work at
@@ -26,10 +27,7 @@ export default function Modal({
   const titleId = useId()
   const descriptionId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
-  // Read through a ref so the effect below does not re-run (and re-steal focus) when a
-  // parent passes a new onClose on every render.
-  const closeRef = useRef({ onClose, busy })
-  closeRef.current = { onClose, busy }
+  useEscapeToClose(onClose, { busy })
 
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null
@@ -40,15 +38,10 @@ export default function Modal({
     const field = panelRef.current?.querySelector<HTMLElement>('[data-modal-body] input, [data-modal-body] select')
     ;(field ?? first)?.focus()
 
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !closeRef.current.busy) closeRef.current.onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
     // Stop the page behind the scrim from scrolling.
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
-      document.removeEventListener('keydown', onKeyDown)
       document.body.style.overflow = previousOverflow
       opener?.focus?.()
     }

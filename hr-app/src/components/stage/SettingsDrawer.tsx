@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { X } from 'lucide-react'
+import { useEscapeToClose } from '@/hooks/useEscapeToClose'
 
 /**
  * A right-hand drawer for a stage's configuration (the phone call window and questions, the
@@ -25,20 +26,14 @@ export default function SettingsDrawer({
 }) {
   const titleId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
-  const closeRef = useRef({ onClose, busy })
-  closeRef.current = { onClose, busy }
+  useEscapeToClose(onClose, { busy })
 
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null
     panelRef.current?.focus()
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !closeRef.current.busy) closeRef.current.onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
-      document.removeEventListener('keydown', onKeyDown)
       document.body.style.overflow = previousOverflow
       opener?.focus?.()
     }

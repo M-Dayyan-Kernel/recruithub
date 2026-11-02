@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Clock, Loader2, Phone, Settings2 } from 'lucide-react'
@@ -232,7 +233,11 @@ export function ScreeningSettingsPanel({ job }: { job: Job }) {
         </button>
       </section>
 
-      <ScreeningCriteriaModal job={job} open={criteriaOpen} onClose={() => setCriteriaOpen(false)} />
+      {/* Out of the drawer: its slide-in transform would otherwise become the modal's frame. */}
+      {createPortal(
+        <ScreeningCriteriaModal job={job} open={criteriaOpen} onClose={() => setCriteriaOpen(false)} />,
+        document.body,
+      )}
     </div>
   )
 }
