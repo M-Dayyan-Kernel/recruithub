@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useOutletContext, useSearchParams } from 'react-router-dom'
+import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { ArrowRight, Loader2, Mic, Phone, PhoneOff, Settings2, X } from 'lucide-react'
@@ -12,7 +12,8 @@ import type {
 } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
-import { BTN_DANGER, BTN_GHOST, BTN_SECONDARY } from '@/components/ui/Surface'
+import { BTN_DANGER, BTN_GHOST, BTN_SECONDARY, BTN_STAGE_LINK } from '@/components/ui/Surface'
+import { describeStage } from '@/lib/shortlistDecision'
 import type { JobOutletContext } from '@/components/JobLayout'
 import {
   ScreeningCallActions,
@@ -159,7 +160,10 @@ function ScreeningTableRow({
         <td className="px-4 py-3 text-sm text-slate-500">#{row.attemptNumber}</td>
         <td className="px-4 py-3">
           <div className="flex flex-col gap-1">
-            <StatusPill label={row.statusLabel} variant={variant} />
+            <StatusPill
+              label={row.inInterview ? 'In interview' : row.statusLabel}
+              variant={row.inInterview ? 'active' : variant}
+            />
             {row.tab === 'completed' && row.latestCall?.result && (
               <span className="text-xs text-slate-500 capitalize">
                 AI: {row.latestCall.result.replace('_', ' ')}
@@ -168,6 +172,22 @@ function ScreeningTableRow({
           </div>
         </td>
         <td className="px-4 py-3">
+          {row.inInterview ? (
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              {row.shortlist.stage && (
+                <span className="text-[13px] text-ink-muted">
+                  {describeStage(row.shortlist.stage, jobId).title} · {describeStage(row.shortlist.stage, jobId).detail}
+                </span>
+              )}
+              <Link
+                to={row.shortlist.stage ? describeStage(row.shortlist.stage, jobId).to : `/jobs/${jobId}/interviews`}
+                className={BTN_STAGE_LINK}
+              >
+                Open Interviews
+                <ArrowRight size={13} aria-hidden />
+              </Link>
+            </div>
+          ) : (
           <div className="flex flex-wrap items-center justify-end gap-2">
             {row.canCallNow && (
               <button
@@ -246,6 +266,7 @@ function ScreeningTableRow({
               </button>
             )}
           </div>
+          )}
         </td>
       </tr>
       {placing === 'advance' && (

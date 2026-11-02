@@ -1,5 +1,6 @@
 import type { Candidate, ScreeningCall, ShortlistResultWithCandidate, SystemSettings } from '@/types/api'
-import { phoneLooksIndian } from '@/components/screening/screeningUtils'
+// Relative with the extension, not `@/`: the node test runner resolves neither the alias nor a bare path.
+import { phoneLooksIndian } from './screeningUtils.ts'
 
 export const SCREENING_ACTIVE_POLL_MS = 2000
 
@@ -25,6 +26,12 @@ export interface ScreeningRow {
   isActive: boolean
   isScheduledRetry: boolean
   flagReason?: string
+  /**
+   * An interview owns this candidate now (same rule as the Completed list and the server's
+   * stage resolver: a session supersedes the call that led to it). The row stays listed, but
+   * only says where they are and links to Interviews; no call, move or reject from here.
+   */
+  inInterview: boolean
 }
 
 const LIVE_CALL_STATUSES = new Set(['initiated', 'in_progress'])
@@ -322,10 +329,14 @@ export function buildScreeningRows(
     const attemptNumber = latestCall ? (latestCall.retry_count ?? 0) + 1 : 1
     const scheduledRetry = latestCall ? isScheduledRetry(latestCall) : false
     const isActive = latestCall ? isLiveCall(latestCall) : false
-    const canCallNow = screeningOn && canCallNowForRow(tab, phone, latestCall, settings)
+    const inInterview =
+      Boolean(latestCall?.has_interview_session) ||
+      (sr.stage?.kind === 'interview' && sr.stage.state !== 'pending')
+    const canCallNow = !inInterview && screeningOn && canCallNowForRow(tab, phone, latestCall, settings)
     // Mirrors the server: a call that was queued (a row not yet dialled) or that was never
     // created because the candidate is still waiting for auto-dispatch.
     const canCancel =
+      !inInterview &&
       screeningOn &&
       tab === 'pending' &&
       isCallablePhone(phone, settings) &&
@@ -346,6 +357,7 @@ export function buildScreeningRows(
       canCallNow,
       canCancel,
       canPlace:
+        !inInterview &&
         !isOnItsWay(latestCall) &&
         (tab === 'flagged' ||
           latestCall?.call_status === 'cancelled' ||
@@ -354,6 +366,7 @@ export function buildScreeningRows(
       isActive,
       isScheduledRetry: scheduledRetry,
       flagReason,
+      inInterview,
     }
   })
 }
