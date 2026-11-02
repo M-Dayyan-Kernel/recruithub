@@ -21,7 +21,7 @@ import {
   ScreeningSettingsPanel,
 } from '@/components/screening/ScreeningSettingsCard'
 import StageHeader from '@/components/stage/StageHeader'
-import SettingsDrawer from '@/components/stage/SettingsDrawer'
+import SettingsModal from '@/components/stage/SettingsModal'
 import { CompletedScreeningList } from '@/components/screening/CompletedScreeningList'
 import {
   buildScreeningRows,
@@ -558,14 +558,14 @@ export function ScreeningTab({ jobId }: Props) {
     </StageHeader>
   )
 
-  const drawer = settingsOpen && job && (
-    <SettingsDrawer
+  const settingsModal = settingsOpen && job && (
+    <SettingsModal
       title="Phone screening settings"
       description="The call window and the questions the AI asks on the call."
       onClose={() => setSettingsOpen(false)}
     >
       <ScreeningSettingsPanel job={job} />
-    </SettingsDrawer>
+    </SettingsModal>
   )
   const offBanner = !screeningOn && (
     <div className="rounded-card border border-warn/30 bg-warn-soft px-4 py-3 text-[13px] text-ink">
@@ -582,7 +582,7 @@ export function ScreeningTab({ jobId }: Props) {
     return (
       <div className="space-y-5">
         {header}
-        {drawer}
+        {settingsModal}
         {offBanner}
         <div className="h-64 animate-pulse rounded-xl bg-slate-200" />
       </div>
@@ -593,7 +593,7 @@ export function ScreeningTab({ jobId }: Props) {
     return (
       <div className="space-y-5">
         {header}
-        {drawer}
+        {settingsModal}
         {offBanner}
         <BackendError onRetry={refetch} />
       </div>
@@ -604,7 +604,7 @@ export function ScreeningTab({ jobId }: Props) {
     return (
       <div className="space-y-5">
         {header}
-        {drawer}
+        {settingsModal}
         {offBanner}
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
@@ -622,7 +622,7 @@ export function ScreeningTab({ jobId }: Props) {
   return (
     <div className="space-y-5">
       {header}
-      {drawer}
+      {settingsModal}
       {offBanner}
 
       <div className={WORKFLOW_CARD_CLASS}>

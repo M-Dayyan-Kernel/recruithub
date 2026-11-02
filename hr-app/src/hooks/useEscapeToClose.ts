@@ -2,9 +2,9 @@ import { useEffect, useRef, type MutableRefObject } from 'react'
 
 /**
  * Escape for dialogs, topmost first. Each open dialog registers here instead of listening on
- * `document` itself: with separate listeners, one Escape closed a modal and the drawer under it
+ * `document` itself: with separate listeners, one Escape closed a modal and the dialog under it
  * together, throwing away whatever was open in both. Here only the most recently opened dialog
- * reacts, so a modal inside a drawer closes alone and the drawer stays.
+ * reacts, so a modal inside another dialog closes alone and the outer one stays.
  */
 type Handlers = MutableRefObject<{ onClose: () => void; busy: boolean }>
 
