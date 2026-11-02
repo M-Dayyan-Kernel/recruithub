@@ -99,7 +99,7 @@ export function FailedTab({ jobId, candidates, isLoading = false, isError = fals
                   <p className="mt-0.5 text-xs text-ink-muted">Uploaded {formatUploadedAt(candidate.created_at)}</p>
                   <p className="mt-1.5 break-words text-sm text-ink-muted">
                     <span className="font-medium text-neg">Why: </span>
-                    {candidate.pipeline_error?.trim() || 'No reason was recorded.'}
+                    {candidate.failure_reason?.trim() || 'No reason was recorded.'}
                   </p>
                 </div>
                 <button
