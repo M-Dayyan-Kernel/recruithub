@@ -58,7 +58,13 @@ export function ShortlistStatusTabs() {
         (tab) => ({
           id: tab,
           label: tab,
-          count: tab === 'Processing' ? processingCount : tab === 'Failed' ? failedCount : undefined,
+          // No zero badge: a quiet Processing tab is just its name, as it was before.
+          count:
+            tab === 'Processing'
+              ? processingCount || undefined
+              : tab === 'Failed'
+                ? failedCount
+                : undefined,
           tone: tab === 'Failed' ? ('danger' as const) : undefined,
         }),
       )}

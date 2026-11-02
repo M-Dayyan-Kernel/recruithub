@@ -95,6 +95,22 @@ export async function mockAuthenticatedSession(
   })
 }
 
+/**
+ * A safety net for requests a spec does not mock. The API base is a real server, so an unmocked
+ * call reaches it unauthenticated, gets a 401 and the app signs the session out mid-test. Call
+ * it BEFORE the specific mocks: Playwright tries the most recently added route first, so those
+ * still win.
+ */
+export async function mockUnmockedApi(page: Page) {
+  await page.route('**/api/**', (route: Route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: route.request().method() === 'GET' ? '[]' : '{}',
+    })
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Sample interview topic pool
 // ---------------------------------------------------------------------------
