@@ -12,7 +12,6 @@ import {
 import { api } from '@/lib/api'
 import type { FinalistsResponse, Job, RejectedListResponse } from '@/types/api'
 import { isVoiceScreeningEffective } from '@/lib/voiceScreening'
-import { InterviewTopicsPanel } from '@/components/InterviewTopicsPanel'
 import { downloadFinalistsExcel } from '@/lib/finalistsExport'
 import { PHONE_SCREENING_LABEL, REJECTED_LABEL, RESUME_SCREENING_LABEL } from '@/lib/stageLabels'
 
@@ -160,9 +159,7 @@ export function JobPhaseNav({ job }: Props) {
   const finalists = finalistsData?.candidates ?? []
 
   const toolbar =
-    phase === 'interviews' ? (
-      <InterviewTopicsPanel job={job} />
-    ) : phase === 'finalists' ? (
+    phase === 'finalists' ? (
       <PhaseToolbar
         end={
           <button
