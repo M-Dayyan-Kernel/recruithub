@@ -311,6 +311,8 @@ export function EditJobModal({ job, open, onClose }: Props) {
             />
           </div>
 
+          <h3 className="border-t border-line pt-5 text-sm font-semibold text-ink">Phone screening</h3>
+
           <div className="rounded-lg border border-line bg-surface px-3 py-2.5">
             <VoiceScreeningToggle job={job} />
             <p className="mt-1 text-xs text-ink-muted">
@@ -341,18 +343,24 @@ export function EditJobModal({ job, open, onClose }: Props) {
             )}
           </div>
 
-          <InterviewTopicsEditor
-            topics={interviewTopics}
-            onChange={setInterviewTopics}
-            job={{
-              title,
-              description,
-              required_skills: skills,
-              seniority_level: seniority,
-            }}
-            disabled={mutation.isPending}
-            scrollable
-          />
+          <div className="border-t border-line pt-5">
+            <h3 className="text-sm font-semibold text-ink">AI interview</h3>
+            <p className="mb-3 mt-0.5 text-xs text-ink-muted">
+              What the AI interviewer covers. Each candidate gets their own questions, drawn from these topics.
+            </p>
+            <InterviewTopicsEditor
+              topics={interviewTopics}
+              onChange={setInterviewTopics}
+              job={{
+                title,
+                description,
+                required_skills: skills,
+                seniority_level: seniority,
+              }}
+              disabled={mutation.isPending}
+              scrollable
+            />
+          </div>
         </div>
 
         {/* Footer */}
