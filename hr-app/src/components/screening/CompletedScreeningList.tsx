@@ -126,7 +126,7 @@ function CompletedScreeningRow({
               {stageView ? `${stageView.title} · ${stageView.detail}` : 'In Interviews'}
             </span>
             <Link to={stageView?.to ?? `/jobs/${jobId}/interviews`} className={BTN_STAGE_LINK}>
-              Open Interviews
+              {stageView?.toLabel ?? 'Open Interviews'}
               <ArrowRight size={13} aria-hidden />
             </Link>
           </div>

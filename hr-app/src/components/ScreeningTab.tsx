@@ -151,6 +151,9 @@ function ScreeningTableRow({
   const reasonOk = reason.trim().length >= 3
 
   const variant = row.isActive ? 'active' : row.tab
+  // Where an interview (or later) owns the candidate: say which stage, and link to it.
+  const stageView = row.inInterview && row.shortlist.stage ? describeStage(row.shortlist.stage, jobId) : null
+  const isFinalist = stageView?.title === 'Finalist'
 
   return (
     <>
@@ -161,8 +164,8 @@ function ScreeningTableRow({
         <td className="px-4 py-3">
           <div className="flex flex-col gap-1">
             <StatusPill
-              label={row.inInterview ? 'In interview' : row.statusLabel}
-              variant={row.inInterview ? 'active' : variant}
+              label={row.inInterview ? (isFinalist ? 'Finalist' : 'In interview') : row.statusLabel}
+              variant={row.inInterview ? (isFinalist ? 'completed' : 'active') : variant}
             />
             {row.tab === 'completed' && row.latestCall?.result && (
               <span className="text-xs text-slate-500 capitalize">
@@ -174,16 +177,13 @@ function ScreeningTableRow({
         <td className="px-4 py-3">
           {row.inInterview ? (
             <div className="flex flex-wrap items-center justify-end gap-3">
-              {row.shortlist.stage && (
+              {stageView && (
                 <span className="text-[13px] text-ink-muted">
-                  {describeStage(row.shortlist.stage, jobId).title} · {describeStage(row.shortlist.stage, jobId).detail}
+                  {stageView.title} · {stageView.detail}
                 </span>
               )}
-              <Link
-                to={row.shortlist.stage ? describeStage(row.shortlist.stage, jobId).to : `/jobs/${jobId}/interviews`}
-                className={BTN_STAGE_LINK}
-              >
-                Open Interviews
+              <Link to={stageView?.to ?? `/jobs/${jobId}/interviews`} className={BTN_STAGE_LINK}>
+                {stageView?.toLabel ?? 'Open Interviews'}
                 <ArrowRight size={13} aria-hidden />
               </Link>
             </div>

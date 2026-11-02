@@ -15,7 +15,7 @@ interface Props {
   job: Job
   jobId: string
   rows: InterviewPipelineCandidate[]
-  variant: 'completed' | 'flagged' | 'finalists'
+  variant: 'completed' | 'flagged'
   returnSearch: string
   onRescheduled?: () => void
 }
@@ -180,7 +180,7 @@ export function InterviewPipelineTable({ job, jobId, rows, variant, returnSearch
           <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
             <th className="px-4 py-3">Candidate Name</th>
             <th className="px-4 py-3">Interview Status</th>
-            {variant === 'completed' || variant === 'finalists' ? (
+            {variant === 'completed' ? (
               <>
                 <th className="px-4 py-3">Hire Recommendation</th>
                 <th className="px-4 py-3">Interview Score</th>
@@ -213,7 +213,7 @@ export function InterviewPipelineTable({ job, jobId, rows, variant, returnSearch
                   </div>
                 </td>
                 <td className="px-4 py-3 text-sm text-slate-600">{interviewRowStatusLabel(row)}</td>
-                {variant === 'completed' || variant === 'finalists' ? (
+                {variant === 'completed' ? (
                   <>
                     <td className="px-4 py-3 text-sm text-slate-600">{row.report_recommendation ?? '—'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">
@@ -226,7 +226,7 @@ export function InterviewPipelineTable({ job, jobId, rows, variant, returnSearch
                 )}
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {(variant === 'completed' || variant === 'finalists') && (
+                    {(variant === 'completed') && (
                       <>
                         {variant === 'completed' && generating && (
                           <span className="inline-flex items-center gap-1 text-xs text-slate-500">

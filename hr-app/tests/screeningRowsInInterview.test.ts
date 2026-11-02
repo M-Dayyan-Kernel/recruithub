@@ -44,3 +44,10 @@ test('an interview stage that has no session yet is still the phone round to act
   assert.equal(row.inInterview, false)
   assert.equal(row.canPlace, true)
 })
+
+test('a finalist is also past the phone round, and their stage says Finalist', () => {
+  const [row] = rowsFor(shortlist({ stage: { kind: 'interview', state: 'finalist' } }))
+  assert.equal(row.inInterview, true)
+  assert.equal(row.canPlace, false)
+  assert.equal(row.shortlist.stage?.state, 'finalist')
+})

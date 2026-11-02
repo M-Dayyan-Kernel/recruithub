@@ -33,7 +33,7 @@ const INTERVIEW_STATES: Record<string, { detail: string; tone: StageTone; tab: s
   link_sent: { detail: 'Link sent', tone: 'neutral', tab: 'scheduled' },
   live: { detail: 'In progress', tone: 'accent', tab: 'ongoing' },
   completed: { detail: 'Completed', tone: 'neutral', tab: 'completed' },
-  finalist: { detail: 'Approved as a finalist', tone: 'pos', tab: 'finalists', title: 'Finalist' },
+  finalist: { detail: 'Approved as a finalist', tone: 'pos', tab: 'completed', title: 'Finalist' },
   flagged: { detail: 'Needs attention', tone: 'warn', tab: 'flagged' },
   cancelled: { detail: 'Interview cancelled', tone: 'neutral', tab: 'scheduled' },
 }
@@ -57,6 +57,16 @@ export function describeStage(stage: ShortlistStage, jobId: string): StageView {
     }
   }
   const known = INTERVIEW_STATES[stage.state]
+  if (stage.state === 'finalist') {
+    // A finalist is past the interview stage: they live on the Finalists page, not in Interviews.
+    return {
+      title: known.title ?? 'Finalist',
+      detail: known.detail,
+      tone: known.tone,
+      to: `/jobs/${jobId}/finalists`,
+      toLabel: 'Open Finalists',
+    }
+  }
   return {
     title: known?.title ?? 'Interview',
     detail: (stage.state === 'flagged' && stage.reason) || known?.detail || 'In this stage',
