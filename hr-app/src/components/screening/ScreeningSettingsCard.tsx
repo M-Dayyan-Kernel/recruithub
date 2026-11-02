@@ -24,18 +24,21 @@ function useCallWindow(job: Job) {
 }
 
 /**
- * The calling controls of the phone stage's toolbar: whether the window is open, how many
- * candidates are ready, and the button that dials them. The window itself is edited in the
- * stage's Settings drawer; this only acts on what is saved.
+ * The calling controls in the phone stage's header: a clock that says whether the call window
+ * is open (green) or closed (red), and the button that dials the candidates who are ready.
+ * The window itself is edited in the Settings drawer; this only acts on what is saved.
  */
 export function ScreeningCallActions({
   job,
   eligibleCandidateIds,
   onCallsTriggered,
+  showStart,
 }: {
   job: Job
   eligibleCandidateIds: string[]
   onCallsTriggered: () => void
+  /** The window clock always shows; the dial buttons only where there is someone to dial. */
+  showStart: boolean
 }) {
   const queryClient = useQueryClient()
   const { from, to, timezone, withinWindow } = useCallWindow(job)
@@ -70,45 +73,57 @@ export function ScreeningCallActions({
   })
 
   const pending = startMutation.isPending
+  const noneReady = eligibleCount === 0
+  const startLabel = withinWindow ? 'Start calling now' : `Queue calls for ${from}`
+  const windowText = `${from}–${to} (${timezone})`
+  // A disabled button gets no hover events in some browsers, so the tip sits on a wrapper.
+  const startTip = noneReady
+    ? 'No candidates are ready to call'
+    : `${eligibleCount} candidate${eligibleCount === 1 ? '' : 's'} ready to call`
+
   return (
     <>
       <span
-        title={`Calls go out between ${from} and ${to} (${timezone}). Change the window in Settings.`}
-        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-          withinWindow ? 'bg-pos-soft text-pos' : 'bg-warn-soft text-warn'
+        role="img"
+        aria-label={withinWindow ? 'Within the call window' : 'Outside the call window'}
+        title={
+          withinWindow
+            ? `Within the call window, ${windowText}. Calls go out now.`
+            : `Outside the call window, ${windowText}. Calls are queued until ${from}. Change the window in Settings.`
+        }
+        className={`inline-flex h-9 w-9 items-center justify-center rounded-lg ${
+          withinWindow ? 'bg-pos-soft text-pos' : 'bg-neg-soft text-neg'
         }`}
       >
-        <Clock size={12} aria-hidden />
-        {withinWindow ? 'Within call window' : `Outside call window · opens ${from}`}
+        <Clock size={16} aria-hidden />
       </span>
-      <span className="text-sm text-ink-muted">
-        {eligibleCount === 0 ? (
-          'No candidates ready to call'
-        ) : (
-          <>
-            <span className="font-mono font-semibold tabular-nums text-ink">{eligibleCount}</span> ready to call
-          </>
-        )}
-      </span>
-      {!withinWindow && (
-        <button
-          type="button"
-          onClick={() => startMutation.mutate(true)}
-          disabled={pending || eligibleCount === 0}
-          className={BTN_SECONDARY}
-        >
-          Call now anyway
-        </button>
+      {showStart && (
+        <>
+          {!withinWindow && (
+            <span title={startTip}>
+              <button
+                type="button"
+                onClick={() => startMutation.mutate(true)}
+                disabled={pending || noneReady}
+                className={BTN_SECONDARY}
+              >
+                Call now anyway
+              </button>
+            </span>
+          )}
+          <span title={startTip}>
+            <button
+              type="button"
+              onClick={() => startMutation.mutate(false)}
+              disabled={pending || noneReady}
+              className={BTN_PRIMARY}
+            >
+              {pending ? <Loader2 size={14} className="animate-spin" /> : <Phone size={14} />}
+              {startLabel}
+            </button>
+          </span>
+        </>
       )}
-      <button
-        type="button"
-        onClick={() => startMutation.mutate(false)}
-        disabled={pending || eligibleCount === 0}
-        className={BTN_PRIMARY}
-      >
-        {pending ? <Loader2 size={14} className="animate-spin" /> : <Phone size={14} />}
-        {withinWindow ? 'Start calling now' : `Queue calls for ${from}`}
-      </button>
     </>
   )
 }

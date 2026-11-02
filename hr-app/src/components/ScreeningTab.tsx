@@ -19,7 +19,6 @@ import {
   ScreeningSettingsPanel,
 } from '@/components/screening/ScreeningSettingsCard'
 import StageHeader from '@/components/stage/StageHeader'
-import StageToolbar from '@/components/stage/StageToolbar'
 import SettingsDrawer from '@/components/stage/SettingsDrawer'
 import { CompletedScreeningList } from '@/components/screening/CompletedScreeningList'
 import {
@@ -529,29 +528,25 @@ export function ScreeningTab({ jobId }: Props) {
       count={isLoading ? undefined : rows.length}
       actions={
         screeningOn && job ? (
-          <button type="button" onClick={() => setSettingsOpen(true)} className={BTN_SECONDARY}>
-            <Settings2 size={14} aria-hidden />
-            Settings
-          </button>
+          <>
+            <ScreeningCallActions
+              job={job}
+              eligibleCandidateIds={eligibleForBulkCall}
+              showStart={showCallActions}
+              onCallsTriggered={() => {
+                queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
+              }}
+            />
+            <button type="button" onClick={() => setSettingsOpen(true)} className={BTN_SECONDARY}>
+              <Settings2 size={14} aria-hidden />
+              Settings
+            </button>
+          </>
         ) : undefined
       }
     >
       <ScreeningStatusTabs jobId={jobId} />
     </StageHeader>
-  )
-
-  const toolbar = showCallActions && job && (
-    <StageToolbar
-      actions={
-        <ScreeningCallActions
-          job={job}
-          eligibleCandidateIds={eligibleForBulkCall}
-          onCallsTriggered={() => {
-            queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
-          }}
-        />
-      }
-    />
   )
 
   const drawer = settingsOpen && job && (
@@ -620,7 +615,6 @@ export function ScreeningTab({ jobId }: Props) {
       {header}
       {drawer}
       {offBanner}
-      {toolbar}
 
       <div className={WORKFLOW_CARD_CLASS}>
         {activeTab === 'completed' ? (
