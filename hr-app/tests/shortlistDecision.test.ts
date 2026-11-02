@@ -58,6 +58,10 @@ test('every interview state links to the tab that owns it, and a finalist to the
 
 test('a finalist reads as Finalist and opens Finalists, not Interviews', () => {
   const f = describeStage({ kind: 'interview', state: 'finalist' }, JOB)
+  // Callers branch on `phase`, so a renamed title can never turn a finalist into an interviewee.
+  assert.equal(f.phase, 'finalist')
+  assert.equal(describeStage({ kind: 'interview', state: 'live' }, JOB).phase, 'interview')
+  assert.equal(describeStage({ kind: 'screening', state: 'live' }, JOB).phase, 'screening')
   assert.deepEqual([f.title, f.detail, f.toLabel], ['Finalist', 'Approved as a finalist', 'Open Finalists'])
   assert.equal(describeStage({ kind: 'interview', state: 'link_sent' }, JOB).toLabel, 'Open Interviews')
 })

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
+import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { ArrowRight, Loader2, Mic, Phone, PhoneOff, Settings2, X } from 'lucide-react'
@@ -12,8 +12,9 @@ import type {
 } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
-import { BTN_DANGER, BTN_GHOST, BTN_SECONDARY, BTN_STAGE_LINK } from '@/components/ui/Surface'
+import { BTN_DANGER, BTN_GHOST, BTN_SECONDARY } from '@/components/ui/Surface'
 import { describeStage } from '@/lib/shortlistDecision'
+import { InInterviewCell, inInterviewBadge } from '@/components/screening/InInterviewCell'
 import type { JobOutletContext } from '@/components/JobLayout'
 import {
   ScreeningCallActions,
@@ -153,7 +154,7 @@ function ScreeningTableRow({
   const variant = row.isActive ? 'active' : row.tab
   // Where an interview (or later) owns the candidate: say which stage, and link to it.
   const stageView = row.inInterview && row.shortlist.stage ? describeStage(row.shortlist.stage, jobId) : null
-  const isFinalist = stageView?.title === 'Finalist'
+  const badge = row.inInterview ? inInterviewBadge(stageView) : null
 
   return (
     <>
@@ -163,10 +164,7 @@ function ScreeningTableRow({
         <td className="px-4 py-3 text-sm text-slate-500">#{row.attemptNumber}</td>
         <td className="px-4 py-3">
           <div className="flex flex-col gap-1">
-            <StatusPill
-              label={row.inInterview ? (isFinalist ? 'Finalist' : 'In interview') : row.statusLabel}
-              variant={row.inInterview ? (isFinalist ? 'completed' : 'active') : variant}
-            />
+            <StatusPill label={badge?.label ?? row.statusLabel} variant={badge?.variant ?? variant} />
             {row.tab === 'completed' && row.latestCall?.result && (
               <span className="text-xs text-slate-500 capitalize">
                 AI: {row.latestCall.result.replace('_', ' ')}
@@ -176,17 +174,7 @@ function ScreeningTableRow({
         </td>
         <td className="px-4 py-3">
           {row.inInterview ? (
-            <div className="flex flex-wrap items-center justify-end gap-3">
-              {stageView && (
-                <span className="text-[13px] text-ink-muted">
-                  {stageView.title} · {stageView.detail}
-                </span>
-              )}
-              <Link to={stageView?.to ?? `/jobs/${jobId}/interviews`} className={BTN_STAGE_LINK}>
-                {stageView?.toLabel ?? 'Open Interviews'}
-                <ArrowRight size={13} aria-hidden />
-              </Link>
-            </div>
+            <InInterviewCell view={stageView} jobId={jobId} />
           ) : (
           <div className="flex flex-wrap items-center justify-end gap-2">
             {row.canCallNow && (

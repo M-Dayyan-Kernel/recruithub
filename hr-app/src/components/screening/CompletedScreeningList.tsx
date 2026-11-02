@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link, useOutletContext } from 'react-router-dom'
+import { useOutletContext } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { ArrowRight, FileText, Loader2, Phone, Send, X } from 'lucide-react'
+import { FileText, Loader2, Phone, Send, X } from 'lucide-react'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
-import { BTN_DANGER, BTN_SECONDARY, BTN_STAGE_LINK } from '@/components/ui/Surface'
+import { BTN_DANGER, BTN_SECONDARY } from '@/components/ui/Surface'
+import { InInterviewCell } from '@/components/screening/InInterviewCell'
 import { describeStage } from '@/lib/shortlistDecision'
 import type { ScreeningRow } from '@/components/screening/screeningRows'
 import { ScreeningReportModal } from '@/components/screening/ScreeningReportModal'
@@ -121,15 +122,7 @@ function CompletedScreeningRow({
       </td>
       <td className="px-4 py-3">
         {pastScreening ? (
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <span className="text-[13px] text-ink-muted">
-              {stageView ? `${stageView.title} · ${stageView.detail}` : 'In Interviews'}
-            </span>
-            <Link to={stageView?.to ?? `/jobs/${jobId}/interviews`} className={BTN_STAGE_LINK}>
-              {stageView?.toLabel ?? 'Open Interviews'}
-              <ArrowRight size={13} aria-hidden />
-            </Link>
-          </div>
+          <InInterviewCell view={stageView} jobId={jobId} />
         ) : (
         <div className="flex flex-wrap items-center justify-end gap-2">
           {row.canCallNow && (
