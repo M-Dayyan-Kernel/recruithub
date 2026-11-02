@@ -9,7 +9,8 @@ import {
   Briefcase,
   MapPin,
   Target,
-  ClipboardList,
+  MessagesSquare,
+  PhoneCall,
   ShieldCheck,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -545,11 +546,11 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
           />
         </FormSection>
 
-        {/* Evaluation */}
+        {/* Phone screening: the AI call that comes before the interview */}
         <FormSection
-          icon={<ClipboardList size={17} />}
-          title="Evaluation"
-          description="How candidates are screened and scored in interviews."
+          icon={<PhoneCall size={17} />}
+          title="Phone screening"
+          description="The short AI call that checks the basics before a candidate is invited to interview."
         >
           <VoiceScreeningSwitch
             checked={voiceScreeningEnabled}
@@ -580,7 +581,14 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
               </p>
             )}
           </div>
+        </FormSection>
 
+        {/* The AI interview itself */}
+        <FormSection
+          icon={<MessagesSquare size={17} />}
+          title="AI interview"
+          description="What the AI interviewer covers. Each candidate gets their own questions, drawn from these topics."
+        >
           <div>
             <InterviewTopicsEditor
               topics={interviewTopics}
