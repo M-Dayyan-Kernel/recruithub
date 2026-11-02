@@ -532,20 +532,6 @@ export function describeActivity(row: ActivityRowInput): ActivityView {
         tech: techLine(row, typeof after?.session_id === 'string' ? `Session ${after.session_id}` : undefined),
       }
     }
-    case 'interview.voided': {
-      const round = typeof before?.round_number === 'number' ? before.round_number : null
-      const details: Array<[string, string]> = [who]
-      if (round !== null) details.push(['Round', String(round)])
-      details.push(['Reason', text(after?.reason, '—')])
-      return {
-        ...base,
-        event: round !== null ? `Round ${round} voided` : 'Round voided',
-        change: { kind: 'chip', chip: chip('Voided', 'neg') },
-        details,
-        note: 'The candidate was sent a new link to retake it. The report stays on file and does not count.',
-        tech: techLine(row, typeof after?.retake_session_id === 'string' ? `Retake ${after.retake_session_id}` : undefined),
-      }
-    }
     case 'interview.finalist': {
       const round = typeof after?.round_number === 'number' ? after.round_number : null
       const details: Array<[string, string]> = [who]

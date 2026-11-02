@@ -1,14 +1,13 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowRight, CalendarClock, Check, FileText, Loader2, RefreshCw, RotateCcw, X } from 'lucide-react'
+import { ArrowRight, CalendarClock, Check, FileText, Loader2, RefreshCw, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import type { InterviewPipelineCandidate, InterviewSession, Job } from '@/types/api'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { BTN_DANGER, BTN_PRIMARY, BTN_SECONDARY } from '@/components/ui/Surface'
 import { ScheduleInterviewModal, type ScheduleMode } from '@/components/screening/ScheduleInterviewModal'
-import { VoidRoundDialog } from '@/components/VoidRoundDialog'
 import { hasAction, interviewRowStatusLabel, roundLabel } from '@/lib/interviewStatus'
 import { WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
 
@@ -36,7 +35,6 @@ function RowActions({
   const queryClient = useQueryClient()
   const name = row.candidate_name ?? 'Candidate'
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode | null>(null)
-  const [confirmVoid, setConfirmVoid] = useState(false)
   const [confirmReject, setConfirmReject] = useState(false)
   const [rejectError, setRejectError] = useState<string | null>(null)
 
@@ -115,12 +113,6 @@ function RowActions({
           Reschedule
         </button>
       )}
-      {hasAction(row, 'void_round') && (
-        <button type="button" disabled={busy} onClick={() => setConfirmVoid(true)} className={BTN_SECONDARY}>
-          <RotateCcw size={12} />
-          Void round
-        </button>
-      )}
       {hasAction(row, 'reject') && (
         <button
           type="button"
@@ -145,18 +137,6 @@ function RowActions({
           mode={scheduleMode}
           onClose={() => setScheduleMode(null)}
           onSuccess={() => {
-            refresh()
-            onRescheduled?.()
-          }}
-        />
-      )}
-      {confirmVoid && row.round_number > 0 && (
-        <VoidRoundDialog
-          candidateId={row.candidate_id}
-          candidateName={name}
-          roundNumber={row.round_number}
-          onClose={() => setConfirmVoid(false)}
-          onVoided={() => {
             refresh()
             onRescheduled?.()
           }}

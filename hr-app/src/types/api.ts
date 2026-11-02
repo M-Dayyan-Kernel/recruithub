@@ -256,10 +256,8 @@ export interface InterviewSession {
   job_id: string
   unique_token: string
   status: 'pending' | 'in_progress' | 'completed' | 'expired' | 'cancelled' | 'assessment_failed' | 'assessed'
-  /** 1..3. A voided round keeps its number; its retake shares it. */
+  /** 1..3 */
   round_number: number
-  voided_at?: string | null
-  void_reason?: string | null
   candidate_name?: string
   job_title?: string
   interview_url?: string
@@ -295,7 +293,6 @@ export type InterviewAction =
   | 'reschedule'
   | 'cancel'
   | 'next_round'
-  | 'void_round'
   | 'mark_finalist'
   | 'retry_assessment'
   | 'reject'
@@ -388,8 +385,6 @@ export interface ReportRound {
   session_id: string
   round_number: number
   status: InterviewSession['status']
-  voided: boolean
-  void_reason?: string | null
   overall_score?: number | null
   completed_at?: string | null
 }
@@ -426,8 +421,6 @@ export interface InterviewReport {
   extension_check?: ExtensionCheckStamp | null
   /** Which round this report is for, and every round of the application. */
   round_number: number
-  voided_at?: string | null
-  void_reason?: string | null
   rounds: ReportRound[]
   created_at: string
 }

@@ -210,7 +210,7 @@ const BACKEND_ACTIONS = [
   'settings.extension_policy_updated', 'settings.extension_blocklist_added', 'settings.extension_blocklist_updated', 'settings.extension_blocklist_deleted',
   'settings.extension_defaults_restored', 'settings.extension_observed_dismissed', 'settings.extension_observed_restored',
   'interview.queued', 'interview.scheduled', 'interview.link_sent', 'interview.decision_set', 'interview.email_resent', 'interview.rescheduled', 'interview.retry_assessment', 'interview.cancelled',
-  'interview.round_scheduled', 'interview.voided', 'interview.finalist',
+  'interview.round_scheduled', 'interview.finalist',
   'job.created', 'job.updated', 'job.deleted',
   'tenant.created', 'tenant.updated', 'tenant.approved', 'tenant.rejected', 'tenant.deleted',
   'screening.result_set', 'screening.triggered', 'screening.call_cancelled', 'screening.advanced_without_call', 'screening.rejected',

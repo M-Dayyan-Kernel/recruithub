@@ -16,7 +16,6 @@ from app.services.interview_round_service import (
     ACTION_RESCHEDULE,
     ACTION_RETRY_ASSESSMENT,
     ACTION_SCHEDULE,
-    ACTION_VOID_ROUND,
     available_actions,
     counted_rounds,
     latest_round,
@@ -25,11 +24,10 @@ from app.services.interview_round_service import (
 NOW = datetime(2026, 10, 31, 10, 0, tzinfo=timezone.utc)
 
 
-def _round(status="completed", round_number=1, voided=False, minutes=0, started=None, **kw):
+def _round(status="completed", round_number=1, minutes=0, started=None, **kw):
     base = dict(
         id=uuid.uuid4(), candidate_id=uuid.uuid4(), job_id=uuid.uuid4(), unique_token=f"tok-{uuid.uuid4()}",
-        status=status, round_number=round_number, voided_at=NOW if voided else None, void_reason=None,
-        voided_by_user_id=None, created_at=NOW + timedelta(minutes=minutes), started_at=started,
+        status=status, round_number=round_number, created_at=NOW + timedelta(minutes=minutes), started_at=started,
         completed_at=None, scheduled_interview_at=None, expires_at=NOW + timedelta(days=3),
         livekit_room_name=None, egress_id=None, recording_key=None, recording_ready=None,
         transcript=None, transcript_segments=None,
@@ -53,14 +51,9 @@ class CurrentRoundTests(unittest.TestCase):
         r1, r2 = _round(round_number=1), _round("pending", round_number=2)
         self.assertIs(latest_round([r2, r1]), r2)
 
-    def test_a_voided_round_is_replaced_by_its_retake(self):
-        voided = _round(round_number=1, voided=True)
-        retake = _round("pending", round_number=1, minutes=5)
-        self.assertEqual(counted_rounds([voided, retake]), [retake])
-        self.assertIs(latest_round([voided, retake]), retake)
-
-    def test_an_all_voided_application_has_no_current_round(self):
-        self.assertIsNone(latest_round([_round(voided=True)]))
+    def test_rounds_are_listed_in_order(self):
+        r1, r2, r3 = _round(round_number=1), _round(round_number=2), _round("pending", round_number=3)
+        self.assertEqual(counted_rounds([r3, r1, r2]), [r1, r2, r3])
 
 
 class AvailableActionsTests(unittest.TestCase):
@@ -95,24 +88,21 @@ class AvailableActionsTests(unittest.TestCase):
         for status in ("completed", "assessed"):
             with self.subTest(status):
                 actions = self._actions([_round(status)])
-                self.assertEqual(actions, [ACTION_NEXT_ROUND, ACTION_MARK_FINALIST, ACTION_VOID_ROUND, ACTION_REJECT])
+                self.assertEqual(actions, [ACTION_NEXT_ROUND, ACTION_MARK_FINALIST, ACTION_REJECT])
                 self.assertNotIn(ACTION_RESCHEDULE, actions)
 
     def test_the_last_allowed_round_cannot_open_another(self):
         sessions = [_round(round_number=n) for n in (1, 2, 3)]
-        self.assertEqual(self._actions(sessions), [ACTION_MARK_FINALIST, ACTION_VOID_ROUND, ACTION_REJECT])
+        self.assertEqual(self._actions(sessions), [ACTION_MARK_FINALIST, ACTION_REJECT])
 
-    def test_a_voided_round_does_not_count_toward_the_cap(self):
-        sessions = [_round(round_number=1), _round(round_number=2),
-                    _round(round_number=3, voided=True), _round(round_number=3, minutes=5)]
-        self.assertEqual(len(counted_rounds(sessions)), 3)
-        self.assertNotIn(ACTION_NEXT_ROUND, self._actions(sessions))
-        sessions = [_round(round_number=1), _round(round_number=2, voided=True), _round("pending", round_number=2, minutes=5)]
-        self.assertEqual(len(counted_rounds(sessions)), 2)
+    def test_every_round_counts_toward_the_cap(self):
+        two = [_round(round_number=1), _round(round_number=2)]
+        self.assertIn(ACTION_NEXT_ROUND, self._actions(two))
+        self.assertNotIn(ACTION_NEXT_ROUND, self._actions(two + [_round(round_number=3)]))
 
     def test_a_flagged_round_cannot_be_marked_a_finalist(self):
         self.assertEqual(
-            self._actions([_round("completed")], flagged=True), [ACTION_NEXT_ROUND, ACTION_VOID_ROUND, ACTION_REJECT]
+            self._actions([_round("completed")], flagged=True), [ACTION_NEXT_ROUND, ACTION_REJECT]
         )
 
     def test_a_failed_assessment_can_be_retried(self):
@@ -269,65 +259,25 @@ class ScheduleNextRoundTests(_Rounds, unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ConflictError, "in progress"):
             await self._call(rounds.schedule_next_round, [live])
 
-    async def test_a_round_that_never_closed_blocks_the_next_round_and_a_void(self):
+    async def test_a_round_that_never_closed_blocks_the_next_round(self):
         stuck = _round("in_progress", started=datetime.now(timezone.utc) - timedelta(hours=3))
-        for fn, kw in ((rounds.schedule_next_round, {}), (rounds.void_round, {"reason": "x", "actor_id": uuid.uuid4()})):
-            with self.subTest(fn.__name__), self.assertRaises(ConflictError):
-                await self._call(fn, [stuck], **kw)
+        with self.assertRaisesRegex(ConflictError, "being settled"):
+            await self._call(rounds.schedule_next_round, [stuck])
         self.assertEqual(stuck.status, "in_progress")
 
     async def test_needs_an_earlier_round(self):
         with self.assertRaises(ValidationError):
             await self._call(rounds.schedule_next_round, [])
 
-    async def test_numbers_continue_after_a_void(self):
-        sessions = [_round(round_number=1, voided=True), _round(round_number=1, minutes=5)]
-        session, _ = await self._call(rounds.schedule_next_round, sessions)
-        self.assertEqual(session.round_number, 2)
+    async def test_numbers_continue_from_the_highest_round(self):
+        session, _ = await self._call(rounds.schedule_next_round, [_round(round_number=1), _round(round_number=2)])
+        self.assertEqual(session.round_number, 3)
         self.ensure_plan.assert_awaited_once()
 
     async def test_a_finalist_or_rejected_application_is_refused(self):
         for row in (_row(hr_decision="rejected"), _row(finalist_at=NOW)):
             with self.subTest(row=row), self.assertRaises(ConflictError):
                 await self._call(rounds.schedule_next_round, [_round()], row=row)
-
-
-class VoidRoundTests(_Rounds, unittest.IsolatedAsyncioTestCase):
-    async def test_voids_the_round_and_opens_a_retake_with_the_same_number(self):
-        taken = _round("assessed", round_number=2)
-        actor = uuid.uuid4()
-        (voided, retake), db = await self._call(
-            rounds.void_round, [_round(round_number=1), taken], reason="  Mic failed  ", actor_id=actor
-        )
-        self.assertIs(voided, taken)
-        self.assertIsNotNone(taken.voided_at)
-        self.assertEqual((taken.void_reason, taken.voided_by_user_id), ("Mic failed", actor))
-        self.assertEqual((retake.round_number, retake.status), (2, "pending"))
-        self.assertNotEqual(retake.unique_token, taken.unique_token)
-        # The voided row is flushed before the retake is added, so the unique round index holds.
-        self.assertEqual(db.flush.await_count, 2)
-        self.ensure_plan.assert_awaited_once_with(db, retake)
-
-    async def test_needs_a_reason(self):
-        for reason in ("", "   "):
-            with self.subTest(reason), self.assertRaises(ValidationError):
-                await self._call(rounds.void_round, [_round()], reason=reason, actor_id=uuid.uuid4())
-
-    async def test_only_a_taken_round_can_be_voided(self):
-        for status in ("pending", "expired", "cancelled"):
-            with self.subTest(status), self.assertRaises(ConflictError):
-                await self._call(rounds.void_round, [_round(status)], reason="x", actor_id=uuid.uuid4())
-        with self.assertRaises(ConflictError):
-            await self._call(rounds.void_round, [], reason="x", actor_id=uuid.uuid4())
-
-    async def test_a_live_round_cannot_be_voided(self):
-        live = _round("in_progress", started=datetime.now(timezone.utc))
-        with self.assertRaises(ConflictError):
-            await self._call(rounds.void_round, [live], reason="x", actor_id=uuid.uuid4())
-
-    async def test_a_finalist_cannot_be_voided(self):
-        with self.assertRaises(ConflictError):
-            await self._call(rounds.void_round, [_round()], row=_row(finalist_at=NOW), reason="x", actor_id=uuid.uuid4())
 
 
 if __name__ == "__main__":

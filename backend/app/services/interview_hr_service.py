@@ -38,7 +38,6 @@ from app.services.interview_round_service import (
     mark_finalist,
     place_first_round,
     schedule_next_round,
-    void_round,
 )
 from app.services.interview_flag_service import is_flagged_session
 
@@ -485,41 +484,6 @@ class InterviewHrService:
         self._queue_question_writing(session)
         await self._interviews.refresh(session)
         return await self._session_response(session, candidate, job_title)
-
-    async def void_current_round(
-        self, actor: User, candidate_id: uuid.UUID, reason: str
-    ) -> InterviewSessionResponse:
-        """Void the current taken round (e.g. the candidate had a technical problem) and open a
-        retake with a fresh link. The voided round keeps its report but stops counting."""
-        from app.services.interview_schedule_service import send_interview_invitation_email
-
-        candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
-        voided, retake = await void_round(
-            self._session,
-            candidate_id=candidate_id,
-            job_id=candidate.job_id,
-            reason=reason,
-            actor_id=actor.id,
-        )
-        job = await self._session.get(Job, candidate.job_id)
-        job_title = job.title if job else "the position"
-        await send_interview_invitation_email(self._session, retake, candidate, job_title)
-        await self._audit.log_change(
-            actor=actor,
-            action="interview.voided",
-            entity_type="interview",
-            entity_id=voided.id,
-            subject_label=await self._candidate_label(candidate, candidate_id),
-            feature="interview_round",
-            before={"round_number": voided.round_number, "status": voided.status},
-            after={"reason": voided.void_reason, "retake_session_id": str(retake.id)},
-            job_id=candidate.job_id,
-            candidate_id=candidate_id,
-        )
-        await self._session.commit()
-        self._queue_question_writing(retake)
-        await self._interviews.refresh(retake)
-        return await self._session_response(retake, candidate, job_title)
 
     async def resend_email(
         self, actor: User, candidate_id: uuid.UUID

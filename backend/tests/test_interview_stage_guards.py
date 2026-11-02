@@ -18,7 +18,7 @@ class MarkFinalistGuardTests(unittest.IsolatedAsyncioTestCase):
     """Marking a finalist needs a taken, meaningful round, and never overrides a rejection."""
 
     def _sessions(self, status="completed", **kw):
-        base = dict(id=uuid.uuid4(), status=status, round_number=1, voided_at=None,
+        base = dict(id=uuid.uuid4(), status=status, round_number=1,
                     created_at=datetime.now(timezone.utc), started_at=None)
         base.update(kw)
         return [NS(**base)]
@@ -67,11 +67,6 @@ class MarkFinalistGuardTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_flagged_round_cannot_be_marked(self):
         with self.assertRaises(ValidationError):
             await self._mark(self._row(), self._sessions(), flagged=True)
-
-    async def test_a_voided_round_does_not_count(self):
-        sessions = self._sessions(voided_at=datetime.now(timezone.utc))
-        with self.assertRaises(ValidationError):
-            await self._mark(self._row(), sessions)
 
 
 class RefuseIfRejectedTests(unittest.IsolatedAsyncioTestCase):

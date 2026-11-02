@@ -23,10 +23,10 @@ class InterviewRepository:
     async def get_latest_session_for_candidate(
         self, candidate_id: uuid.UUID
     ) -> InterviewSession | None:
-        """The current round: the highest-numbered one that is not voided."""
+        """The current round: the highest-numbered one."""
         result = await self._session.execute(
             select(InterviewSession)
-            .where(InterviewSession.candidate_id == candidate_id, InterviewSession.voided_at.is_(None))
+            .where(InterviewSession.candidate_id == candidate_id)
             .order_by(InterviewSession.round_number.desc(), InterviewSession.created_at.desc())
             .limit(1)
         )

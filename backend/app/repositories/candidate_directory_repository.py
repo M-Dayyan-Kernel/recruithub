@@ -121,7 +121,7 @@ class CandidateDirectoryRepository:
     async def _latest_session(self, candidate_id: uuid.UUID) -> InterviewSession | None:
         result = await self._session.execute(
             select(InterviewSession)
-            .where(InterviewSession.candidate_id == candidate_id, InterviewSession.voided_at.is_(None))
+            .where(InterviewSession.candidate_id == candidate_id)
             .order_by(InterviewSession.round_number.desc(), InterviewSession.created_at.desc())
             .limit(1)
         )

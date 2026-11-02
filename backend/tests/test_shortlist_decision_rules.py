@@ -22,7 +22,7 @@ def _call(status="completed", result=None, vapi="v1", minutes=0, outcome=None, t
 
 
 def _session(status="pending", at=None, minutes=0, started=None, expires=None, transcript=None, round_number=1):
-    return SimpleNamespace(status=status, round_number=round_number, voided_at=None, scheduled_interview_at=at,
+    return SimpleNamespace(status=status, round_number=round_number, scheduled_interview_at=at,
                            created_at=NOW + timedelta(minutes=minutes), started_at=started,
                            expires_at=expires or (NOW + timedelta(days=30)), transcript=transcript)
 
@@ -313,8 +313,8 @@ class LoadStagesReportTests(unittest.IsolatedAsyncioTestCase):
         from app.services.shortlist_stage_service import load_stages
 
         cand = uuid.uuid4()
-        old = SimpleNamespace(id=uuid.uuid4(), candidate_id=cand, created_at=NOW - timedelta(days=3), round_number=1, voided_at=None)
-        new = SimpleNamespace(id=uuid.uuid4(), candidate_id=cand, created_at=NOW, round_number=2, voided_at=None)
+        old = SimpleNamespace(id=uuid.uuid4(), candidate_id=cand, created_at=NOW - timedelta(days=3), round_number=1)
+        new = SimpleNamespace(id=uuid.uuid4(), candidate_id=cand, created_at=NOW, round_number=2)
 
         def _r(rows):
             r = MagicMock()

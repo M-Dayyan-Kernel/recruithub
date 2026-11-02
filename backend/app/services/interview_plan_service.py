@@ -160,7 +160,7 @@ def seeded_items(topics: Sequence[JobInterviewTopic]) -> list[dict]:
 
 
 async def _prior_topic_ids(db: AsyncSession, session: InterviewSession) -> set[uuid.UUID]:
-    """Topics already asked in this candidate's other rounds, voided ones included."""
+    """Topics already asked in this candidate's other rounds."""
     rows = await db.execute(
         select(InterviewPlanItem.topic_id)
         .join(InterviewSession, InterviewSession.id == InterviewPlanItem.session_id)
@@ -410,7 +410,6 @@ async def _earlier_rounds(db: AsyncSession, session: InterviewSession) -> list[d
             InterviewSession.candidate_id == session.candidate_id,
             InterviewSession.job_id == session.job_id,
             InterviewSession.id != session.id,
-            InterviewSession.voided_at.is_(None),
         )
         .order_by(InterviewSession.round_number)
     )

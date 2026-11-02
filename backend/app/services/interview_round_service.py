@@ -8,7 +8,7 @@ An application (a candidate on a job) has up to `interview.max_rounds` rounds, e
     none yet                       schedule / send the first round's link
     pending, expired, cancelled    reschedule (the same session moves; its link is kept)
     in progress                    nothing: the interview is live
-    completed / assessed / failed  schedule the next round, void it, or mark a finalist
+    completed / assessed / failed  schedule the next round, or mark a finalist
 
 Scheduling the next round is the approval of the previous one, so a round carries no decision
 of its own: the application is a finalist (`ShortlistResult.finalist_at`) or rejected
@@ -45,18 +45,14 @@ ACTION_SCHEDULE = "schedule"
 ACTION_RESCHEDULE = "reschedule"
 ACTION_CANCEL = "cancel"
 ACTION_NEXT_ROUND = "next_round"
-ACTION_VOID_ROUND = "void_round"
 ACTION_MARK_FINALIST = "mark_finalist"
 ACTION_RETRY_ASSESSMENT = "retry_assessment"
 ACTION_REJECT = "reject"
 
 
 def counted_rounds(sessions: Iterable[InterviewSession]) -> list[InterviewSession]:
-    """The application's rounds in order. A voided session is replaced by its retake."""
-    return sorted(
-        (s for s in sessions if s.voided_at is None),
-        key=lambda s: (s.round_number, s.created_at),
-    )
+    """The application's rounds in order."""
+    return sorted(sessions, key=lambda s: (s.round_number, s.created_at))
 
 
 def latest_round(sessions: Iterable[InterviewSession]) -> Optional[InterviewSession]:
@@ -74,8 +70,8 @@ def available_actions(
 ) -> list[str]:
     """What HR can do with this application's interview, decided once for every screen.
 
-    `flagged` is a taken interview that never produced a meaningful result; it can be voided or
-    moved on, but not marked a finalist. `has_report` gates cancel: a session with a report is done.
+    `flagged` is a taken interview that never produced a meaningful result; HR can move on from it,
+    but not mark it a finalist. `has_report` gates cancel: a session with a report is done.
     """
     sessions = list(sessions)
     latest = latest_round(sessions)
@@ -100,7 +96,6 @@ def available_actions(
                 actions.append(ACTION_NEXT_ROUND)
             if not flagged:
                 actions.append(ACTION_MARK_FINALIST)
-            actions.append(ACTION_VOID_ROUND)
     else:
         # in_progress past the stale window: stuck. The sweeper settles it; until then HR waits.
         return []
@@ -154,7 +149,7 @@ def _new_session(
 async def load_sessions(
     db: AsyncSession, candidate_id: uuid.UUID, job_id: uuid.UUID, *, lock: bool = False
 ) -> list[InterviewSession]:
-    """Every session of the application, voided ones included. Locks the rows when asked."""
+    """Every session of the application. Locks the rows when asked."""
     stmt = select(InterviewSession).where(
         InterviewSession.candidate_id == candidate_id, InterviewSession.job_id == job_id
     )
@@ -314,45 +309,6 @@ async def schedule_next_round(
     await db.flush()
     await ensure_plan(db, session)
     return session
-
-
-async def void_round(
-    db: AsyncSession,
-    *,
-    candidate_id: uuid.UUID,
-    job_id: uuid.UUID,
-    reason: str,
-    actor_id: uuid.UUID,
-) -> tuple[InterviewSession, InterviewSession]:
-    """Void the current taken round and open a retake with the same round number.
-
-    The voided session keeps its report and recording for the record, and does not count toward
-    the round cap. Returns (voided, retake).
-    """
-    reason = (reason or "").strip()
-    if not reason:
-        raise ValidationError(public_message="Give a reason for voiding this round.")
-    shortlist = await _shortlist(db, candidate_id, job_id)
-    _refuse_untouchable(shortlist)
-    latest = latest_round(await load_sessions(db, candidate_id, job_id, lock=True))
-    if latest is None or latest.status not in TAKEN:
-        raise ConflictError(public_message="Only a round the candidate has taken can be voided.")
-    _refuse_if_live(latest)
-
-    latest.voided_at = datetime.now(timezone.utc)
-    latest.voided_by_user_id = actor_id
-    latest.void_reason = reason
-    # The partial unique index lets the retake share the round number once this one is voided,
-    # but it must see the voided row first.
-    await db.flush()
-    retake = _new_session(
-        candidate_id=candidate_id, job_id=job_id, round_number=latest.round_number, scheduled_at=None
-    )
-    db.add(retake)
-    await db.flush()
-    # Planned after the voided round is flushed, so the retake avoids the topics already asked.
-    await ensure_plan(db, retake)
-    return latest, retake
 
 
 async def mark_finalist(

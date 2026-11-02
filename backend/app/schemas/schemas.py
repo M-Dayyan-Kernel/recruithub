@@ -778,10 +778,8 @@ class InterviewSessionResponse(BaseModel):
     unique_token: str
     livekit_room_name: Optional[str] = None
     status: str
-    # 1..interview.max_rounds. A voided round keeps its number; its retake shares it.
+    # 1..interview.max_rounds.
     round_number: int = 1
-    voided_at: Optional[datetime] = None
-    void_reason: Optional[str] = None
     email_sent_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -797,20 +795,6 @@ class InterviewSessionResponse(BaseModel):
     mock_mode: bool = False
     capacity_available: Optional[bool] = None
     retry_after_minutes: Optional[int] = None
-
-
-class InterviewVoidRequest(BaseModel):
-    """Void the current taken round so the candidate can retake it."""
-
-    reason: str = Field(min_length=1, max_length=500)
-
-    @field_validator("reason")
-    @classmethod
-    def reason_not_blank(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("Give a reason for voiding this round.")
-        return value
 
 
 class VoiceScreeningCandidate(BaseModel):
@@ -1043,8 +1027,6 @@ class ReportRoundSummary(BaseModel):
     session_id: uuid.UUID
     round_number: int
     status: str
-    voided: bool = False
-    void_reason: Optional[str] = None
     overall_score: Optional[float] = None
     completed_at: Optional[datetime] = None
 
@@ -1086,11 +1068,9 @@ class InterviewReportResponse(BaseModel):
     # What the interview ran under. `enabled` is None for interviews that predate the
     # per-job check (no stamp), which the report treats as "not recorded".
     extension_check: Optional["ExtensionCheckStamp"] = None
-    # Which round this report is for, and every round of the application (voided ones included)
-    # so the page can offer the others. Voided: HR voided this round; the report stays for the record.
+    # Which round this report is for, and every round of the application, so the page can offer
+    # the others.
     round_number: int = 1
-    voided_at: Optional[datetime] = None
-    void_reason: Optional[str] = None
     rounds: List[ReportRoundSummary] = []
 
 
