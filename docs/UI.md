@@ -91,6 +91,12 @@ full-bleed and carry no app chrome.
 ## 4. Layout
 
 - Page: `PageHeader`, then a stat row, then content. Consistent across pages.
+- **Pipeline stage pages** (Resume screening, Phone screening, Interviews, Finalists,
+  Rejected) share one anatomy, in this order: `StageHeader` (icon, title, description, count,
+  the stage's own actions), `StageTabs` if the stage has sub-views, `StageToolbar` (search and
+  filters left, bulk actions right), then the list. Configuration that changes rarely (the
+  call window, the interview topics) goes in a `SettingsDrawer` opened from a Settings
+  button in the header, never an always-open card. All in `components/stage/`.
 - Card grids: `gap-4`, `sm:grid-cols-2 lg:grid-cols-4` for stats.
 - Content width: `max-w-6xl` for app pages. Auth is full-bleed.
 - **Design at 375px first.** Panels that only work at 1440px are not done.

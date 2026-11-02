@@ -8,7 +8,8 @@ import type { RejectedCandidate, RejectedListResponse, RejectionEmailResponse } 
 import type { JobOutletContext } from '@/components/JobLayout'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { BTN_PRIMARY, BTN_SECONDARY } from '@/components/ui/Surface'
-import { REJECTED_FROM_LABEL } from '@/lib/stageLabels'
+import { REJECTED_FROM_LABEL, REJECTED_LABEL } from '@/lib/stageLabels'
+import StageHeader from '@/components/stage/StageHeader'
 import { WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
 
 const BATCH = 10 // the server takes at most this many per request
@@ -123,7 +124,22 @@ export default function JobRejectedPage() {
   })
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      <StageHeader
+        icon={UserX}
+        title={REJECTED_LABEL}
+        description="Reconsider until a candidate is emailed; emailing is final."
+        count={isLoading ? undefined : candidates.length}
+        actions={
+          toTell.length > 0 ? (
+            <button type="button" onClick={() => setConfirmAll(true)} className={BTN_PRIMARY}>
+              <Send size={14} aria-hidden />
+              Email all not told ({toTell.length})
+            </button>
+          ) : undefined
+        }
+      />
+
       {isError && (
         <div className="rounded-lg border border-neg/30 bg-neg-soft px-4 py-3 text-sm text-neg">
           Failed to load rejected candidates.{' '}
@@ -152,19 +168,6 @@ export default function JobRejectedPage() {
 
       {candidates.length > 0 && (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-[13px] text-ink-muted">
-              <span className="font-mono tabular-nums">{toTell.length}</span> not told yet. You can
-              reconsider anyone until they are emailed; emailing is final.
-            </p>
-            {toTell.length > 0 && (
-              <button type="button" onClick={() => setConfirmAll(true)} className={BTN_PRIMARY}>
-                <Send size={14} aria-hidden />
-                Email all not told ({toTell.length})
-              </button>
-            )}
-          </div>
-
           <div className="overflow-x-auto rounded-xl border border-line bg-surface shadow-sm">
             <table className={WORKFLOW_TABLE_CLASS}>
               <thead>

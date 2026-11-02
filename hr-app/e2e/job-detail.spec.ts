@@ -63,7 +63,7 @@ test('Resume Screening tab is default on job shortlist load', async ({ page }) =
   await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByRole('button', { name: 'Resume Screening', exact: true })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Resume Screening', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Resume Screening' })).toBeVisible()
   await expect(page.getByText('No candidates have been scored yet.')).toBeVisible()
 })
@@ -84,8 +84,8 @@ test('shortlist toolbar shows Resume Screening and Processing only', async ({ pa
   await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByRole('button', { name: 'Resume Screening', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Processing', exact: true })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Resume Screening', exact: true })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Processing', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Upload', exact: true })).not.toBeVisible()
 })
 
@@ -121,7 +121,7 @@ test('each workflow tab shows its empty state', async ({ page }) => {
   }
 
   for (const tab of WORKFLOW_TABS) {
-    await page.getByRole('button', { name: tab, exact: true }).click()
+    await page.getByRole('tab', { name: tab, exact: true }).click()
     await expect(page.getByText(emptyStates[tab])).toBeVisible()
   }
 })
@@ -177,7 +177,7 @@ test('Processing tab shows in-progress AI review', async ({ page }) => {
   await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
-  await page.getByRole('button', { name: 'Processing', exact: true }).click()
+  await page.getByRole('tab', { name: 'Processing', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'AI Review in Progress' })).toBeVisible()
   await expect(page.getByText('Bob Martinez')).toBeVisible()
   await expect(page.getByText('Reviewing')).toBeVisible()
@@ -221,7 +221,7 @@ test('Resume Screening tab supports table approve', async ({ page }) => {
   await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
-  await page.getByRole('button', { name: 'Resume Screening', exact: true }).click()
+  await page.getByRole('tab', { name: 'Resume Screening', exact: true }).click()
   await expect(page.getByRole('cell', { name: 'Alice Sharma' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Report' })).toBeVisible()
 
