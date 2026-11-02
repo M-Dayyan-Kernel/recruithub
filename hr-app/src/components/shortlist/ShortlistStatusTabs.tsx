@@ -1,6 +1,7 @@
 import { useSearchParams, useParams } from 'react-router-dom'
 import StageTabs from '@/components/stage/StageTabs'
 import { useJobPipelineCandidates } from '@/hooks/useJobPipelineCandidates'
+import { useFailedCandidates } from '@/hooks/useFailedCandidates'
 
 export const SHORTLIST_TABS = ['Failed', 'Processing', 'Resume Screening'] as const
 
@@ -36,9 +37,9 @@ export function ShortlistStatusTabs() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { jobId = '' } = useParams<{ jobId: string }>()
   const activeTab = resolveShortlistTab(searchParams.get('tab'))
-  const { processingCandidates, failedCandidates } = useJobPipelineCandidates(jobId)
+  const { processingCandidates } = useJobPipelineCandidates(jobId)
+  const { failedTotal: failedCount } = useFailedCandidates(jobId)
   const processingCount = processingCandidates.length
-  const failedCount = failedCandidates.length
 
   const setTab = (tab: ShortlistTabId) => {
     const next = new URLSearchParams(searchParams)

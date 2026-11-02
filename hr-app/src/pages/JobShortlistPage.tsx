@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ListChecks } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ShortlistResultWithCandidate } from '@/types/api'
@@ -11,6 +11,7 @@ import { ShortlistTab } from '@/components/ShortlistTab'
 import { ProcessingTab } from '@/components/ProcessingTab'
 import { FailedTab } from '@/components/FailedTab'
 import { useJobPipelineCandidates } from '@/hooks/useJobPipelineCandidates'
+import { useFailedCandidates } from '@/hooks/useFailedCandidates'
 import {
   resolveShortlistTab,
   ShortlistStatusTabs,
@@ -47,6 +48,8 @@ export default function JobShortlistPage() {
   }
 
   const pipeline = useJobPipelineCandidates(jobId, { watchCandidateIds })
+  const failed = useFailedCandidates(jobId)
+  const queryClient = useQueryClient()
 
   // Same key as the results table below, so this is one request, not two.
   const { data: results } = useQuery<ShortlistResultWithCandidate[]>({
@@ -56,9 +59,12 @@ export default function JobShortlistPage() {
     enabled: !!jobId,
   })
 
-  const handleProcessingComplete = () => {
+  // A finished batch lands on the Failed tab when anything in it failed, so a failure is seen
+  // when it happens instead of being a count nobody opens; otherwise on the scored results.
+  const handleProcessingComplete = ({ failed: failedInBatch }: { failed: number }) => {
     pipeline.clearProgressBatch()
-    setActiveTab('Resume Screening', true)
+    if (failedInBatch > 0) void queryClient.invalidateQueries({ queryKey: ['candidates', jobId, 'failed'] })
+    setActiveTab(failedInBatch > 0 ? 'Failed' : 'Resume Screening', true)
   }
 
   return (
@@ -85,10 +91,10 @@ export default function JobShortlistPage() {
       ) : activeTab === 'Failed' ? (
         <FailedTab
           jobId={jobId}
-          candidates={pipeline.failedCandidates}
-          isLoading={pipeline.isLoading}
-          isError={pipeline.isError}
-          onRetry={pipeline.refetch}
+          candidates={failed.failedCandidates}
+          isLoading={failed.isLoading}
+          isError={failed.isError}
+          onRetry={failed.refetch}
         />
       ) : (
         <ProcessingTab

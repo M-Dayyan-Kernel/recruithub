@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, CheckCircle2, ClipboardCheck, FileText, Phone, Video } from 'lucide-react'
 import { api } from '@/lib/api'
-import { fetchJobCandidates } from '@/lib/workflow'
+import { fetchCandidatePage } from '@/lib/workflow'
 import type {
   InterviewPipelineResponse,
   Job,
@@ -118,8 +118,9 @@ export function JobPipelineDashboard({ job }: Props) {
         enabled: !!jobId,
       },
       {
-        queryKey: ['candidates', jobId],
-        queryFn: () => fetchJobCandidates(jobId),
+        // Its own key: ['candidates', jobId] elsewhere holds a bare array, not this page.
+        queryKey: ['candidates', jobId, 'page'],
+        queryFn: () => fetchCandidatePage(jobId),
         enabled: !!jobId,
       },
       {
@@ -144,7 +145,7 @@ export function JobPipelineDashboard({ job }: Props) {
   const metrics = useMemo(() => {
     const shortlist = shortlistQuery.data ?? []
     const screeningCalls = screeningQuery.data ?? []
-    const candidates = candidatesQuery.data ?? []
+    const candidates = candidatesQuery.data?.items ?? []
     const pipeline = pipelineQuery.data
 
     // HR's decision is the source of truth here, not the AI's recommendation: a candidate the
@@ -162,7 +163,8 @@ export function JobPipelineDashboard({ job }: Props) {
     const counts = pipeline?.counts
 
     return {
-      applied: candidates.length,
+      // The server's total: the list is capped, so its length undercounts a big job.
+      applied: candidatesQuery.data?.total ?? 0,
       approved: approvedShortlist.length,
       awaitingDecision,
       screeningCompleted: screeningEffective ? screeningCounts.completed : 0,
