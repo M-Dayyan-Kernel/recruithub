@@ -15,6 +15,8 @@ export default function Modal({
   description,
   onClose,
   busy = false,
+  size = 'md',
+  blur = false,
   children,
 }: {
   title: string
@@ -22,6 +24,10 @@ export default function Modal({
   onClose: () => void
   /** Blocks every way of closing while an action runs. */
   busy?: boolean
+  /** `xl` is for long editors (settings); `md` for confirmations and short forms. */
+  size?: 'md' | 'xl'
+  /** Blur the page behind the scrim. Used where the dialog is a whole workspace, not a prompt. */
+  blur?: boolean
   children: ReactNode
 }) {
   const titleId = useId()
@@ -49,7 +55,9 @@ export default function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 sm:items-center sm:p-4"
+      className={`fixed inset-0 z-50 flex items-end justify-center bg-ink/40 sm:items-center sm:p-4 ${
+        blur ? 'backdrop-blur-sm' : ''
+      }`}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose()
       }}
@@ -60,7 +68,9 @@ export default function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
-        className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-card border border-line bg-surface shadow-e3 sm:max-w-lg sm:rounded-card"
+        className={`flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-card border border-line bg-surface shadow-e3 sm:rounded-card ${
+          size === 'xl' ? 'sm:max-w-3xl' : 'sm:max-w-lg'
+        }`}
       >
         <div className="flex shrink-0 items-start gap-3 border-b border-line px-5 py-4">
           <div className="min-w-0 flex-1">

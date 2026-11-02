@@ -95,8 +95,9 @@ full-bleed and carry no app chrome.
   Rejected) share one anatomy, in this order: `StageHeader` (icon, title, description, count,
   the stage's own actions), `StageTabs` if the stage has sub-views, `StageToolbar` (search and
   filters left, bulk actions right), then the list. Configuration that changes rarely (the
-  call window, the interview topics) goes in a `SettingsDrawer` opened from a Settings
-  button in the header, never an always-open card. All in `components/stage/`.
+  call window, the interview topics) goes in a `SettingsModal` opened from a Settings
+  button in the header, never an always-open card. It is a centred modal over a blurred page (a
+  deliberate exception to §2's no-blur rule: it is a whole workspace, not a prompt). All in `components/stage/`.
 - **A candidate lives on exactly one stage page.** Finalists are not an Interviews tab; they are
   only on the Finalists page. Where another page mentions a candidate who has moved on (the
   "In interview" and "Finalist" rows on Phone screening, the stage on Resume screening), it

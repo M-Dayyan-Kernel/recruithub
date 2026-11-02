@@ -27,7 +27,7 @@ function useCallWindow(job: Job) {
 /**
  * The calling controls in the phone stage's header: a clock that says whether the call window
  * is open (green) or closed (red), and the button that dials the candidates who are ready.
- * The window itself is edited in the Settings drawer; this only acts on what is saved.
+ * The window itself is edited in the Settings modal; this only acts on what is saved.
  */
 export function ScreeningCallActions({
   job,
@@ -130,7 +130,7 @@ export function ScreeningCallActions({
 }
 
 /**
- * The phone stage's settings, shown in its drawer: the call window and the screening
+ * The phone stage's settings, shown in its settings modal: the call window and the screening
  * questions. Both change rarely, so they live behind the Settings button.
  */
 export function ScreeningSettingsPanel({ job }: { job: Job }) {
@@ -233,7 +233,7 @@ export function ScreeningSettingsPanel({ job }: { job: Job }) {
         </button>
       </section>
 
-      {/* Out of the drawer: its slide-in transform would otherwise become the modal's frame. */}
+      {/* Out of the modal: its slide-in transform would otherwise become the modal's frame. */}
       {createPortal(
         <ScreeningCriteriaModal job={job} open={criteriaOpen} onClose={() => setCriteriaOpen(false)} />,
         document.body,

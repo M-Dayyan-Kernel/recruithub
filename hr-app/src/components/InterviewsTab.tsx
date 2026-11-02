@@ -37,7 +37,7 @@ import { PHONE_SCREENING_LABEL } from '@/lib/stageLabels'
 import StageHeader from '@/components/stage/StageHeader'
 import StageTabs from '@/components/stage/StageTabs'
 import StageToolbar, { StageSearch } from '@/components/stage/StageToolbar'
-import SettingsDrawer from '@/components/stage/SettingsDrawer'
+import SettingsModal from '@/components/stage/SettingsModal'
 import { InterviewTopicsPanel } from '@/components/InterviewTopicsPanel'
 import {
   INTERVIEW_STATUS_CONFIG,
@@ -792,14 +792,14 @@ export function InterviewsTab({ job, jobId }: Props) {
     setSettingsOpen(false)
   }
 
-  const drawer = settingsOpen && (
-    <SettingsDrawer
+  const settingsModal = settingsOpen && (
+    <SettingsModal
       title="Interview topics"
       description="The pool every candidate's interview is drawn from."
       onClose={closeSettings}
     >
       <InterviewTopicsPanel job={job} onDirtyChange={setTopicsDirty} />
-    </SettingsDrawer>
+    </SettingsModal>
   )
 
   const toolbar =
@@ -844,7 +844,7 @@ export function InterviewsTab({ job, jobId }: Props) {
     return (
       <div className="space-y-5">
         {header}
-        {drawer}
+        {settingsModal}
         {[1, 2].map((i) => (
           <div
             key={i}
@@ -874,7 +874,7 @@ export function InterviewsTab({ job, jobId }: Props) {
   return (
     <div className="space-y-5">
       {header}
-      {drawer}
+      {settingsModal}
       {toolbar}
 
       {totalEligible === 0 ? (

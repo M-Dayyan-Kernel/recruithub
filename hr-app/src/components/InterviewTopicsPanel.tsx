@@ -10,14 +10,14 @@ import { BTN_GHOST, BTN_PRIMARY } from '@/components/ui/Surface'
 
 interface Props {
   job: Job
-  /** Lets the drawer ask before it throws away unsaved edits. */
+  /** Lets the settings modal ask before it throws away unsaved edits. */
   onDirtyChange?: (dirty: boolean) => void
 }
 
 const snapshotOf = (topics: InterviewTopic[]) => JSON.stringify(cleanTopics(topics))
 
 /**
- * The job's interview topic pool, edited in the Interviews stage's Settings drawer. Edits are
+ * The job's interview topic pool, edited in the Interviews stage's Settings modal. Edits are
  * kept until Save; Discard goes back to what is saved.
  */
 export function InterviewTopicsPanel({ job, onDirtyChange }: Props) {
