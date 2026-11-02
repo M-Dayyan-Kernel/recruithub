@@ -87,8 +87,6 @@ class InterviewReportService:
 
         if session:
             report_dict["round_number"] = session.round_number
-            report_dict["voided_at"] = session.voided_at
-            report_dict["void_reason"] = session.void_reason
         report_dict["rounds"] = await self._round_summaries(candidate_id, report.job_id)
 
         report_dict["transcript"] = session.transcript if session else None
@@ -145,8 +143,6 @@ class InterviewReportService:
                 session_id=s.id,
                 round_number=s.round_number,
                 status=s.status,
-                voided=s.voided_at is not None,
-                void_reason=s.void_reason,
                 overall_score=scores.get(s.id),
                 completed_at=s.completed_at,
             )

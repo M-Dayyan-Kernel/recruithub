@@ -32,7 +32,6 @@ from app.schemas.schemas import (
     InterviewScheduleRequest,
     InterviewSessionResponse,
     InterviewStartResponse,
-    InterviewVoidRequest,
 )
 from app.services.integrity_service import IntegrityService
 from app.services.interview_guards import enforce_public_interview_rate_limit
@@ -245,22 +244,6 @@ async def schedule_next_interview_round(
     service: InterviewHrService = Depends(get_interview_hr_service),
 ):
     return await service.next_round(actor, candidate_id, body)
-
-
-@router.post(
-    "/candidates/{candidate_id}/interview/void",
-    response_model=InterviewSessionResponse,
-    status_code=status.HTTP_201_CREATED,
-    dependencies=[_hr_auth],
-)
-async def void_interview_round(
-    candidate_id: uuid.UUID,
-    body: InterviewVoidRequest,
-    actor: RequireAdminOrHr,
-    service: InterviewHrService = Depends(get_interview_hr_service),
-):
-    """Void the current taken round so the candidate can retake it; returns the retake."""
-    return await service.void_current_round(actor, candidate_id, body.reason)
 
 
 @router.post(

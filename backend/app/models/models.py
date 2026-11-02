@@ -340,16 +340,11 @@ class InterviewSession(Base):
     unique_token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     livekit_room_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
-    # 1..interview.max_rounds. A voided round and its retake share the number; at most one
-    # session per application and round is not voided (uq_interview_sessions_round_per_application).
+    # 1..interview.max_rounds; one session per application and round (uq_interview_sessions_round_per_application).
     round_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
-    # Set when HR voids a taken round so the candidate can retake it. The report stays viewable.
     # pending | seeded | generated (PlanStatus): where this interview's question plan stands.
     plan_status: Mapped[str] = mapped_column(String(16), nullable=False, default=PlanStatus.PENDING.value, server_default=PlanStatus.PENDING.value)
     plan_generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    voided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    voided_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    void_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     email_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

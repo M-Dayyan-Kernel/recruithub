@@ -61,7 +61,7 @@ test('the row label puts the finalist mark and a live interview before the round
 })
 
 test('actions are exactly what the server listed', () => {
-  const r = row({ available_actions: ['next_round', 'void_round'] })
+  const r = row({ available_actions: ['next_round', 'mark_finalist'] })
   assert.equal(hasAction(r, 'next_round'), true)
   assert.equal(hasAction(r, 'reschedule'), false)
   assert.equal(hasAction(row(), 'reject'), false)

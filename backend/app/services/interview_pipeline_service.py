@@ -122,7 +122,7 @@ async def get_interview_pipeline(
     sessions_by_candidate: dict[uuid.UUID, list[InterviewSession]] = {}
     for session in sessions_result.scalars().all():
         sessions_by_candidate.setdefault(session.candidate_id, []).append(session)
-    # The current round: the highest-numbered one that is not voided (a retake replaces it).
+    # The current round: the highest-numbered one.
     latest_session_by_candidate: dict[uuid.UUID, InterviewSession] = {
         candidate_id: round_
         for candidate_id, sessions in sessions_by_candidate.items()

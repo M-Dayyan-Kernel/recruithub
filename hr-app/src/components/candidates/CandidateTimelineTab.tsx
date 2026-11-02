@@ -29,7 +29,6 @@ const ACTIONS: Record<
   'interview.decision_set': { label: 'Interview decision', Icon: Video, tone: 'accent' },
   'interview.cancelled': { label: 'Interview cancelled', Icon: Video, tone: 'neutral' },
   'interview.round_scheduled': { label: 'Next interview round scheduled', Icon: Video, tone: 'accent' },
-  'interview.voided': { label: 'Interview round voided', Icon: Video, tone: 'warn' },
   'interview.finalist': { label: 'Marked as finalist', Icon: Video, tone: 'pos' },
   'screening.call_cancelled': { label: 'Screening call cancelled', Icon: PhoneCall, tone: 'neutral' },
   'screening.advanced_without_call': { label: 'Moved to interview without a call', Icon: ArrowRight, tone: 'accent' },

@@ -1132,7 +1132,7 @@ The rows are locked (shortlist row first), and a partial unique index allows one
 ## `interview_round_service.py`, `interview_status.py`
 
 - `interview_status`: status sets (`UNTAKEN`, `TAKEN`, `TERMINAL`), `is_live` / `live_clause` (in progress within `interview.stale_after_minutes`).
-- `interview_round_service`: `latest_round`, `available_actions`, `place_first_round`, `reschedule_round`, `schedule_next_round`, `void_round`, `mark_finalist`. State changes only flush; the HR service writes the audit row, sends the email, and commits.
+- `interview_round_service`: `latest_round`, `available_actions`, `place_first_round`, `reschedule_round`, `schedule_next_round`, `mark_finalist`. State changes only flush; the HR service writes the audit row, sends the email, and commits.
 - `interview_settle_service` + beat task `tasks.settle_stale_interviews`: settles interviews stuck in progress (transcript → completed and assessed; none → expired).
 
 ## `interview_schedule_service.py`
@@ -1490,7 +1490,6 @@ All protected endpoints require `Authorization: Bearer <JWT>`. Standard FastAPI 
 | POST | `/api/candidates/{id}/interview/send` | Admin/HR | Path | 201 | Session/email |
 | POST | `/api/candidates/{id}/interview/reschedule` | Admin/HR | Optional schedule | 201 | Move untaken round/email |
 | POST | `/api/candidates/{id}/interview/next-round` | Admin/HR | Optional schedule | 201 | Next round/email |
-| POST | `/api/candidates/{id}/interview/void` | Admin/HR | Reason | 201 | Voided round + retake/email |
 | POST | `/api/candidates/{id}/finalist` | Admin/HR | Path | 200 | Finalist state |
 | POST | `/api/candidates/{id}/interview/retry-assessment` | Admin/HR | Path | 202 | Report task |
 | GET | `/api/interview/{token}` | Candidate token | Path | 200 | Session |

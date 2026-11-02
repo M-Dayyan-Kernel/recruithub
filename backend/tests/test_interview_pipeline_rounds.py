@@ -12,7 +12,7 @@ NOW = datetime.now(timezone.utc)
 
 def _round(status, started=True, expires_in_days=3, **kw):
     base = dict(
-        id=uuid.uuid4(), status=status, round_number=1, voided_at=None, started_at=NOW if started else None,
+        id=uuid.uuid4(), status=status, round_number=1, started_at=NOW if started else None,
         completed_at=NOW, expires_at=NOW + timedelta(days=expires_in_days), transcript="x", created_at=NOW,
     )
     base.update(kw)

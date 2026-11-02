@@ -17,23 +17,18 @@ export function CandidateInterviewTab({ profile }: Props) {
   return (
     <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
       {sessions.map((session) => {
-        const voided = Boolean(session.voided_at)
         const status = INTERVIEW_STATUS_CONFIG[resolveInterviewStatus(false, session)].label
         const taken = ['completed', 'assessed', 'assessment_failed'].includes(session.status)
         return (
           <li
             key={session.id}
-            className={`flex items-center justify-between gap-4 px-4 py-3 ${voided ? 'opacity-60' : ''}`}
+            className="flex items-center justify-between gap-4 px-4 py-3"
           >
             <div>
               <p className="text-sm font-medium text-slate-900">
                 Round {session.round_number}
-                {voided && <span className="ml-2 text-xs font-normal text-slate-500">Voided</span>}
               </p>
-              <p className="text-xs text-slate-500">
-                {status}
-                {voided && session.void_reason ? ` · ${session.void_reason}` : ''}
-              </p>
+              <p className="text-xs text-slate-500">{status}</p>
             </div>
             {taken && (
               <Link

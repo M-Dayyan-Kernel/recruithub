@@ -617,19 +617,19 @@ HR view: list all interview sessions for a job, enriched with `candidate_name` a
 
 #### Interview rounds
 
-An application (a candidate on a job) has up to `interview.max_rounds` (3) interview rounds, each one an `InterviewSession` with a `round_number`. Every action below targets the candidate's **current round**: the highest-numbered round that is not voided.
+An application (a candidate on a job) has up to `interview.max_rounds` (3) interview rounds, each one an `InterviewSession` with a `round_number`. Every action below targets the candidate's **current round**: the highest-numbered round.
 
 | State of the current round | What HR can do |
 | --- | --- |
 | none yet | send the link / schedule (`interview/send`, `interview/schedule`) |
 | `pending`, `expired`, `cancelled` | **reschedule** (the same session moves; its link is kept) |
 | `in_progress` | nothing: `409 Interview in progress` |
-| `completed`, `assessed`, `assessment_failed` | **next round**, **void**, or **mark finalist** |
+| `completed`, `assessed`, `assessment_failed` | **next round**, or **mark finalist** |
 
-A round has no decision of its own. Scheduling the next round is the approval of the previous one; the application is a finalist (`finalist_at`) or rejected. The pipeline returns `available_actions` per candidate (`schedule`, `reschedule`, `cancel`, `next_round`, `void_round`, `mark_finalist`, `retry_assessment`, `reject`), computed on the server; the UI renders exactly those. An interview still `in_progress` `interview.stale_after_minutes` (60) after it started is settled by a periodic task: with a transcript it is completed and assessed on what was said, without one it expires and can be rescheduled.
+A round has no decision of its own. Scheduling the next round is the approval of the previous one; the application is a finalist (`finalist_at`) or rejected. The pipeline returns `available_actions` per candidate (`schedule`, `reschedule`, `cancel`, `next_round`, `mark_finalist`, `retry_assessment`, `reject`), computed on the server; the UI renders exactly those. An interview still `in_progress` `interview.stale_after_minutes` (60) after it started is settled by a periodic task: with a transcript it is completed and assessed on what was said, without one it expires and can be rescheduled.
 
 #### `POST /api/candidates/{candidate_id}/finalist`
-Mark the application a finalist after a taken, meaningful round. Irreversible; a finalist can no longer be rejected, rescheduled or voided. Rejecting is `POST /api/jobs/{job_id}/candidates/{candidate_id}/reject` (any candidate with an interview; an unstarted link is cancelled; a live interview is refused with `409`; no email is sent). Replaces `PATCH .../interview/decision`.
+Mark the application a finalist after a taken, meaningful round. Irreversible; a finalist can no longer be rejected or rescheduled. Rejecting is `POST /api/jobs/{job_id}/candidates/{candidate_id}/reject` (any candidate with an interview; an unstarted link is cancelled; a live interview is refused with `409`; no email is sent). Replaces `PATCH .../interview/decision`.
 
 **Response `200`:** `InterviewSessionResponse` (the current round). Writes an `interview.finalist` audit row.
 
@@ -643,15 +643,6 @@ Open the next round after a taken one and email the candidate its link.
 **Response `201`:** `InterviewSessionResponse` with `round_number` one higher. Writes `interview.round_scheduled`.
 
 **Errors:** `409` — the current round is not taken yet (reschedule it), is live, the cap is reached, or the candidate is rejected / a finalist · `422` — time in the past.
-
-#### `POST /api/candidates/{candidate_id}/interview/void`
-Void the current taken round (e.g. the candidate had a technical problem) and open a retake with the **same** round number and a fresh link, emailed to the candidate. The voided round keeps its report and recording (shown as voided) and does not count toward the cap.
-
-**Request Body:** `{ "reason": "string, required, up to 500 chars" }`
-
-**Response `201`:** `InterviewSessionResponse` (the retake). Writes `interview.voided`.
-
-**Errors:** `409` — the current round is not taken, is live, or the candidate is rejected / a finalist.
 
 ---
 
@@ -748,7 +739,7 @@ Handle LiveKit room events (room_finished etc.). Do not call from frontend.
 #### `GET /api/candidates/{candidate_id}/report?session_id=`
 Fetch one round's interview report: the given round's (`session_id`), else the current round's (falling back to the most recent report while the current round has none yet). `POST .../report/refresh` takes the same query.
 
-**Response `200`:** `InterviewReportResponse` (all scores + `candidate_name` + `job_title`, plus `round_number`, `voided_at`, `void_reason`, and `rounds: [{ session_id, round_number, status, voided, void_reason, overall_score, completed_at }]` for the round tabs)
+**Response `200`:** `InterviewReportResponse` (all scores + `candidate_name` + `job_title`, plus `round_number`, and `rounds: [{ session_id, round_number, status, overall_score, completed_at }]` for the round tabs)
 
 **Errors:** `404 Report not ready yet` — assessment still running or interview not yet complete
 

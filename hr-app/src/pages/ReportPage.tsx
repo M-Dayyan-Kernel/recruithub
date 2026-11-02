@@ -179,7 +179,7 @@ export default function ReportPage() {
   // Rounds the candidate sat; the others have no report to show yet.
   const roundTabs: TabDef[] = (report?.rounds ?? [])
     .filter((r) => ['completed', 'assessed', 'assessment_failed'].includes(r.status))
-    .map((r) => ({ id: r.session_id, label: `Round ${r.round_number}${r.voided ? ' · voided' : ''}` }))
+    .map((r) => ({ id: r.session_id, label: `Round ${r.round_number}` }))
   const switchRound = (id: string) => {
     const next = new URLSearchParams(searchParams)
     next.set('session', id)
@@ -374,13 +374,6 @@ export default function ReportPage() {
             </div>
           </GlassCard>
 
-          {report.voided_at && (
-            <p role="status" className="rounded-lg bg-warn-soft px-4 py-2.5 text-[13px] text-warn">
-              Round {report.round_number} was voided
-              {report.void_reason ? `: ${report.void_reason}` : ''}. This report is kept for the record
-              and does not count.
-            </p>
-          )}
           {roundTabs.length > 1 && (
             <Tabs
               tabs={roundTabs}

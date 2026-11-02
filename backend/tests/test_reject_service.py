@@ -72,7 +72,7 @@ def _call(**kw):
 
 
 def _session(**kw):
-    base = dict(status="completed", round_number=1, voided_at=None, started_at=None,
+    base = dict(status="completed", round_number=1, started_at=None,
                 created_at=datetime.now(timezone.utc))
     base.update(kw)
     return NS(**base)
