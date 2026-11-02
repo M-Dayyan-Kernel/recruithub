@@ -585,6 +585,8 @@ class CandidateResponse(BaseModel):
     phone: Optional[str] = None
     original_filename: Optional[str] = None
     pipeline_status: str
+    # Why processing failed (HR/admin only); set only when pipeline_status is 'failed'.
+    pipeline_error: Optional[str] = None
     status: str = "active"
     years_experience: Optional[float] = None
     current_ctc: Optional[str] = None
@@ -598,7 +600,6 @@ class CandidateDetailResponse(CandidateResponse):
     """Full candidate detail including parsed resume data (HR/admin only)."""
     resume_file_path: Optional[str] = None
     parsed_data: Optional[dict] = None
-    pipeline_error: Optional[str] = None
 
 
 class CandidateListItem(BaseModel):

@@ -2,18 +2,20 @@ import { useSearchParams, useParams } from 'react-router-dom'
 import StageTabs from '@/components/stage/StageTabs'
 import { useJobPipelineCandidates } from '@/hooks/useJobPipelineCandidates'
 
-export const SHORTLIST_TABS = ['Processing', 'Resume Screening'] as const
+export const SHORTLIST_TABS = ['Failed', 'Processing', 'Resume Screening'] as const
 
 export type ShortlistTabId = (typeof SHORTLIST_TABS)[number]
 
 const TAB_PARAM: Record<ShortlistTabId, string> = {
   'Resume Screening': 'results',
   Processing: 'processing',
+  Failed: 'failed',
 }
 
 const PARAM_TO_TAB: Record<string, ShortlistTabId> = {
   results: 'Resume Screening',
   processing: 'Processing',
+  failed: 'Failed',
   // Legacy URL params
   upload: 'Processing',
   parsing: 'Processing',
@@ -34,8 +36,9 @@ export function ShortlistStatusTabs() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { jobId = '' } = useParams<{ jobId: string }>()
   const activeTab = resolveShortlistTab(searchParams.get('tab'))
-  const { processingCandidates } = useJobPipelineCandidates(jobId)
+  const { processingCandidates, failedCandidates } = useJobPipelineCandidates(jobId)
   const processingCount = processingCandidates.length
+  const failedCount = failedCandidates.length
 
   const setTab = (tab: ShortlistTabId) => {
     const next = new URLSearchParams(searchParams)
@@ -48,11 +51,16 @@ export function ShortlistStatusTabs() {
       label="Resume screening views"
       active={activeTab}
       onChange={setTab}
-      tabs={SHORTLIST_TABS.map((tab) => ({
-        id: tab,
-        label: tab,
-        count: tab === 'Processing' ? processingCount : undefined,
-      }))}
+      // Failed only appears while something has failed (or is open), so a clean job has no
+      // empty red tab.
+      tabs={SHORTLIST_TABS.filter((tab) => tab !== 'Failed' || failedCount > 0 || activeTab === 'Failed').map(
+        (tab) => ({
+          id: tab,
+          label: tab,
+          count: tab === 'Processing' ? processingCount : tab === 'Failed' ? failedCount : undefined,
+          tone: tab === 'Failed' ? ('danger' as const) : undefined,
+        }),
+      )}
     />
   )
 }

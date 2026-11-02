@@ -9,6 +9,7 @@ import { RESUME_SCREENING_LABEL } from '@/lib/stageLabels'
 import type { JobOutletContext } from '@/components/JobLayout'
 import { ShortlistTab } from '@/components/ShortlistTab'
 import { ProcessingTab } from '@/components/ProcessingTab'
+import { FailedTab } from '@/components/FailedTab'
 import { useJobPipelineCandidates } from '@/hooks/useJobPipelineCandidates'
 import {
   resolveShortlistTab,
@@ -80,6 +81,14 @@ export default function JobShortlistPage() {
           shortlistTriggered={false}
           onShortlistComplete={() => pipeline.refetch()}
           mode="aiShortlisted"
+        />
+      ) : activeTab === 'Failed' ? (
+        <FailedTab
+          jobId={jobId}
+          candidates={pipeline.failedCandidates}
+          isLoading={pipeline.isLoading}
+          isError={pipeline.isError}
+          onRetry={pipeline.refetch}
         />
       ) : (
         <ProcessingTab

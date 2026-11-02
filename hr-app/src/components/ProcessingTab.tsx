@@ -39,7 +39,6 @@ export function ProcessingTab({
   const inFlight = candidates.filter(
     (c) => c.pipeline_status === 'queued' || c.pipeline_status === 'processing',
   )
-  const failed = candidates.filter((c) => c.pipeline_status === 'failed')
   const total = watchedTotal > 0 ? watchedTotal : inFlight.length + watchedDone
   const done =
     watchedTotal > 0
@@ -72,10 +71,11 @@ export function ProcessingTab({
     onError: () => toast.error('Failed to retry'),
   })
 
-  const displayList =
-    watchedTotal > 0
-      ? candidates
-      : [...inFlight, ...failed]
+  // Failures are listed, with their reason and Retry, on the Failed tab. They still count as
+  // settled in the progress bar above, so a batch can finish.
+  const displayList = (watchedTotal > 0 ? candidates : inFlight).filter(
+    (c) => c.pipeline_status !== 'failed',
+  )
 
   return (
     <div className="space-y-6">

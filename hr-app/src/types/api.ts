@@ -443,6 +443,8 @@ export interface Candidate {
   original_filename?: string | null
   parsed_data?: ParsedData | null
   pipeline_status: 'queued' | 'processing' | 'completed' | 'failed'
+  /** Why processing failed; set only when pipeline_status is 'failed'. */
+  pipeline_error?: string | null
   status?: string
   years_experience?: number | null
   current_ctc?: string | null

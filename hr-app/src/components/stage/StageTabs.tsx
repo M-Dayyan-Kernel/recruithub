@@ -5,6 +5,8 @@ export interface StageTab<T extends string> {
   label: string
   /** Omit for a tab with no count. A zero is shown, but not emphasised. */
   count?: number
+  /** `danger` tints the count red: something here needs attention. */
+  tone?: 'danger'
 }
 
 /**
@@ -49,7 +51,11 @@ export default function StageTabs<T extends string>({
               <span
                 className={cn(
                   'rounded-full px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums',
-                  selected && tab.count > 0 ? 'bg-accent-soft text-accent' : 'bg-surface-3 text-ink-muted',
+                  tab.tone === 'danger' && tab.count > 0
+                    ? 'bg-neg-soft text-neg'
+                    : selected && tab.count > 0
+                      ? 'bg-accent-soft text-accent'
+                      : 'bg-surface-3 text-ink-muted',
                 )}
               >
                 {tab.count}
