@@ -8,6 +8,7 @@ import {
   ChevronUp,
   Loader2,
   MapPin,
+  MoreVertical,
   Pencil,
   Trash2,
 } from 'lucide-react'
@@ -65,8 +66,8 @@ function getStatusOptions(
   }
 }
 
-const btnSecondary =
-  'inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50'
+const menuItem =
+  'flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors disabled:opacity-50'
 
 interface Props {
   job: Job
@@ -141,8 +142,8 @@ export function JobHeader({ job, showDelete = false }: Props) {
 
   return (
     <>
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 px-5 py-4 sm:px-6 sm:py-5">
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="rounded-t-2xl border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 px-5 py-4 sm:px-6 sm:py-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2.5">
@@ -152,91 +153,96 @@ export function JobHeader({ job, showDelete = false }: Props) {
                 <JobStatusBadge status={job.status} />
               </div>
 
-              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                  {levelLabel && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-1 ring-1 ring-slate-200/80">
-                      <Briefcase className="h-3.5 w-3.5 text-slate-400" />
-                      {levelLabel}
-                    </span>
-                  )}
+              {(levelLabel || workLabel) && (
+                <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                   {workLabel && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-1 ring-1 ring-slate-200/80">
                       <MapPin className="h-3.5 w-3.5 text-slate-400" />
                       {workLabel}
                     </span>
                   )}
-                  {skills.length > 0 && (
-                    <span className="rounded-full bg-white/80 px-2.5 py-1 ring-1 ring-slate-200/80">
-                      {skills.length} required skill{skills.length === 1 ? '' : 's'}
+                  {levelLabel && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-1 ring-1 ring-slate-200/80">
+                      <Briefcase className="h-3.5 w-3.5 text-slate-400" />
+                      {levelLabel}
                     </span>
                   )}
                 </div>
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                  <VoiceScreeningToggle job={job} />
-                  <ExtensionCheckToggle job={job} />
-                </div>
-              </div>
+              )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
-              <button
-                type="button"
-                onClick={() => setEditOpen(true)}
-                className={btnSecondary}
-              >
-                <Pencil size={14} />
-                Edit
-              </button>
+            <div className="flex items-center gap-2 sm:shrink-0">
+              {/* The two per-job settings, grouped apart from the actions menu beside them. */}
+              <div className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface-2 p-1">
+                <VoiceScreeningToggle job={job} variant="icon" />
+                <ExtensionCheckToggle job={job} variant="icon" />
+              </div>
+              <span aria-hidden className="h-6 w-px bg-line" />
 
               <div className="relative" ref={statusMenuRef}>
                 <button
                   type="button"
                   onClick={() => setShowStatusMenu((v) => !v)}
                   disabled={isActionPending}
-                  className={btnSecondary}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:opacity-50"
+                  aria-label="Job actions"
+                  title="Job actions"
                   aria-expanded={showStatusMenu}
                   aria-haspopup="menu"
                 >
-                  {statusMutation.isPending ? (
-                    <Loader2 size={14} className="animate-spin" />
+                  {isActionPending ? (
+                    <Loader2 size={16} className="animate-spin" aria-hidden />
                   ) : (
-                    <ChevronDown size={14} />
+                    <MoreVertical size={16} aria-hidden />
                   )}
-                  Status
                 </button>
                 {showStatusMenu && (
-                  <div className="absolute right-0 top-full z-20 mt-1 min-w-[10rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-full z-20 mt-1 min-w-[11rem] rounded-lg border border-line bg-surface py-1 shadow-lg"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setShowStatusMenu(false)
+                        setEditOpen(true)
+                      }}
+                      className={cn(menuItem, 'text-ink hover:bg-surface-2')}
+                    >
+                      <Pencil size={14} aria-hidden />
+                      Edit
+                    </button>
                     {getStatusOptions(job.status).map((opt) => (
                       <button
                         key={opt.value}
                         type="button"
+                        role="menuitem"
                         onClick={() => statusMutation.mutate(opt.value)}
                         disabled={isActionPending}
-                        className="w-full px-3.5 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
+                        className={cn(menuItem, 'pl-[2.4rem] text-ink hover:bg-surface-2')}
                       >
                         {opt.label}
                       </button>
                     ))}
+                    {showDelete && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setShowStatusMenu(false)
+                          handleDelete()
+                        }}
+                        disabled={isActionPending}
+                        className={cn(menuItem, 'mt-1 border-t border-line text-neg hover:bg-neg-soft')}
+                      >
+                        <Trash2 size={14} aria-hidden />
+                        Delete
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
-
-              {showDelete && (
-                <button
-                  type="button"
-                  onClick={handleDelete}
-                  disabled={isActionPending}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 text-sm font-medium text-rose-600 transition-colors hover:bg-rose-50 disabled:opacity-50"
-                >
-                  {deleteMutation.isPending ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <Trash2 size={14} />
-                  )}
-                  Delete
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -273,7 +279,15 @@ export function JobHeader({ job, showDelete = false }: Props) {
           </div>
 
           {skills.length > 0 && (
-            <div>
+            <div
+              // Hover or keyboard focus reveals every skill; leaving folds it back. Nothing to click.
+              onMouseEnter={() => setSkillsExpanded(true)}
+              onMouseLeave={() => setSkillsExpanded(false)}
+              onFocus={() => setSkillsExpanded(true)}
+              onBlur={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setSkillsExpanded(false)
+              }}
+            >
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
                 Required skills
               </p>
@@ -287,21 +301,14 @@ export function JobHeader({ job, showDelete = false }: Props) {
                   </span>
                 ))}
                 {!skillsExpanded && hiddenSkillCount > 0 && (
+                  // Still a button so touch and keyboard users can open it; hover does the same.
                   <button
                     type="button"
                     onClick={() => setSkillsExpanded(true)}
-                    className="rounded-full border border-dashed border-slate-300 px-2.5 py-0.5 text-xs font-medium text-slate-500 hover:border-slate-400 hover:text-slate-700"
+                    aria-label={`Show ${hiddenSkillCount} more required skills`}
+                    className="rounded-full border border-dashed border-slate-300 px-2.5 py-0.5 text-xs font-medium text-slate-500"
                   >
                     +{hiddenSkillCount} more
-                  </button>
-                )}
-                {skillsExpanded && skills.length > SKILL_PREVIEW_COUNT && (
-                  <button
-                    type="button"
-                    onClick={() => setSkillsExpanded(false)}
-                    className="rounded-full px-2 py-0.5 text-xs font-medium text-indigo-600 hover:text-indigo-800"
-                  >
-                    Show fewer
                   </button>
                 )}
               </div>

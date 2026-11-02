@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Users, Phone, Calendar, CheckCircle2, AlertCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle2, ClipboardCheck, FileText, Phone, Video } from 'lucide-react'
 import { api } from '@/lib/api'
 import { fetchJobCandidates } from '@/lib/workflow'
 import type {
@@ -26,106 +26,73 @@ interface StageConfig {
   description: string
   value: number | string
   icon: React.ReactNode
-  accent: string
-  iconBg: string
-  barColor: string
+  /** Background and text colour of the icon tile. */
+  tint: string
   to?: string
   disabled?: boolean
 }
 
-function PipelineBar({
-  stages,
-}: {
-  stages: Array<{ key: string; value: number; barColor: string; label: string }>
-}) {
-  const total = stages.reduce((sum, s) => sum + s.value, 0)
-
-  if (total === 0) {
-    return (
-      <div className="mb-6">
-        <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">
-          {stages.map((stage) => (
-            <div key={stage.key} className="flex-1 border-r border-white last:border-r-0" />
-          ))}
-        </div>
-        <p className="mt-2 text-center text-xs text-slate-400">No candidates in the pipeline yet</p>
-      </div>
-    )
-  }
-
+/**
+ * The stage counts as one strip, not a card each: a number and its label need a line or two,
+ * and four tall cards spent most of their height on empty padding. Cells are divided by a
+ * 1px gap over a tinted background, so the divider survives wrapping to two columns.
+ */
+function StageStrip({ stages, columns }: { stages: StageConfig[]; columns: string }) {
   return (
-    <div className="mb-6">
-      <div className="flex h-2.5 overflow-hidden rounded-full bg-slate-100">
-        {stages.map((stage) => {
-          const width = Math.max((stage.value / total) * 100, stage.value > 0 ? 8 : 0)
-          return (
-            <div
-              key={stage.key}
-              className={cn('transition-all duration-500', stage.barColor)}
-              style={{ width: `${width}%` }}
-              title={`${stage.label}: ${stage.value}`}
-            />
-          )
-        })}
-      </div>
-      <div className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1">
-        {stages.map((stage) => (
-          <span key={stage.key} className="inline-flex items-center gap-1.5 text-xs text-slate-500">
-            <span className={cn('h-2 w-2 rounded-full', stage.barColor)} />
-            {stage.label}
-          </span>
-        ))}
-      </div>
+    <div className={cn('grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200', columns)}>
+      {stages.map((stage) => {
+        const cell = (
+          <div
+            className={cn(
+              'flex h-full items-center gap-3 bg-white px-4 py-3 transition-colors',
+              stage.to && !stage.disabled && 'hover:bg-slate-50',
+              stage.disabled && 'opacity-50',
+            )}
+          >
+            <span
+              aria-hidden
+              className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', stage.tint)}
+            >
+              {stage.icon}
+            </span>
+            <p className="min-w-[2ch] font-mono text-2xl font-semibold leading-none tabular-nums text-slate-900">
+              {stage.value}
+            </p>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold leading-snug text-slate-800">{stage.label}</p>
+              <p className="mt-0.5 text-xs leading-snug text-slate-500">{stage.description}</p>
+            </div>
+          </div>
+        )
+        return !stage.to || stage.disabled ? (
+          <div key={stage.key}>{cell}</div>
+        ) : (
+          <Link
+            key={stage.key}
+            to={stage.to}
+            className="block focus:outline-none focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-indigo-500"
+          >
+            {cell}
+          </Link>
+        )
+      })}
     </div>
   )
 }
 
-function StageCard({ stage }: { stage: StageConfig }) {
-  const content = (
-    <div
-      className={cn(
-        'relative flex h-full flex-col overflow-hidden rounded-xl border bg-white transition-all',
-        stage.disabled
-          ? 'border-slate-200 opacity-50'
-          : stage.to
-            ? 'border-slate-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md'
-            : 'border-slate-200',
-      )}
-    >
-      <div className={cn('h-1 w-full', stage.accent)} />
-      <div className="flex flex-1 flex-col p-5">
-        <div className={cn('mb-4 flex h-11 w-11 items-center justify-center rounded-xl', stage.iconBg)}>
-          {stage.icon}
+function StageStripSkeleton({ count, columns }: { count: number; columns: string }) {
+  return (
+    <div className={cn('grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200', columns)}>
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="flex items-center gap-3 bg-white px-4 py-3">
+          <div className="h-9 w-9 animate-pulse rounded-lg bg-slate-100" />
+          <div className="h-7 w-8 animate-pulse rounded bg-slate-200" />
+          <div className="space-y-1.5">
+            <div className="h-3.5 w-24 animate-pulse rounded bg-slate-200" />
+            <div className="h-3 w-32 animate-pulse rounded bg-slate-100" />
+          </div>
         </div>
-        <p className="text-4xl font-bold tracking-tight text-slate-900 tabular-nums">{stage.value}</p>
-        <p className="mt-1 text-sm font-semibold text-slate-800">{stage.label}</p>
-        <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{stage.description}</p>
-      </div>
-    </div>
-  )
-
-  if (!stage.to || stage.disabled) return content
-
-  return (
-    <Link
-      to={stage.to}
-      className="block h-full rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
-    >
-      {content}
-    </Link>
-  )
-}
-
-function StageCardSkeleton() {
-  return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <div className="h-1 animate-pulse bg-slate-200" />
-      <div className="p-5">
-        <div className="mb-4 h-11 w-11 animate-pulse rounded-xl bg-slate-100" />
-        <div className="mb-2 h-10 w-14 animate-pulse rounded bg-slate-200" />
-        <div className="mb-1 h-4 w-24 animate-pulse rounded bg-slate-200" />
-        <div className="h-3 w-32 animate-pulse rounded bg-slate-100" />
-      </div>
+      ))}
     </div>
   )
 }
@@ -180,9 +147,10 @@ export function JobPipelineDashboard({ job }: Props) {
     const candidates = candidatesQuery.data ?? []
     const pipeline = pipelineQuery.data
 
-    const shortlistedCount = shortlist.filter((r) => r.recommendation === 'shortlisted').length
-
+    // HR's decision is the source of truth here, not the AI's recommendation: a candidate the
+    // AI marked "review" and HR moved ahead is approved all the same.
     const approvedShortlist = shortlist.filter((r) => r.hr_decision === 'approved')
+    const awaitingDecision = shortlist.filter((r) => r.hr_decision === 'pending').length
     const candidatesMap = Object.fromEntries(candidates.map((c) => [c.id, c]))
     const screeningRows = buildScreeningRows(
       approvedShortlist,
@@ -191,13 +159,18 @@ export function JobPipelineDashboard({ job }: Props) {
       settings,
     )
     const screeningCounts = countByTab(screeningRows)
-    const screeningCompletedCount = screeningCounts.completed
+    const counts = pipeline?.counts
 
     return {
-      shortlisted: shortlistedCount,
-      screeningCompleted: screeningEffective ? screeningCompletedCount : 0,
-      scheduled: pipeline?.counts.scheduled ?? 0,
-      finalists: pipeline?.counts.finalists ?? 0,
+      applied: candidates.length,
+      approved: approvedShortlist.length,
+      awaitingDecision,
+      screeningCompleted: screeningEffective ? screeningCounts.completed : 0,
+      screeningWaiting: screeningEffective ? screeningCounts.pending : 0,
+      // Finalists were interviewed too, so they count here: each number is "reached this stage".
+      interviewsCompleted: (counts?.completed ?? 0) + (counts?.finalists ?? 0),
+      interviewsOpen: (counts?.scheduled ?? 0) + (counts?.ongoing ?? 0),
+      finalists: counts?.finalists ?? 0,
     }
   }, [
     shortlistQuery.data,
@@ -230,14 +203,21 @@ export function JobPipelineDashboard({ job }: Props) {
   const stages: StageConfig[] = useMemo(() => {
     const base: StageConfig[] = [
       {
-        key: 'shortlisted',
-        label: 'Resume Shortlisted',
-        description: 'Resumes screened against the JD',
-        value: metrics.shortlisted,
-        icon: <Users size={20} className="text-violet-600" />,
-        accent: 'bg-violet-500',
-        iconBg: 'bg-violet-50',
-        barColor: 'bg-violet-400',
+        key: 'applied',
+        label: 'Applied',
+        description: 'Resumes uploaded',
+        value: metrics.applied,
+        icon: <FileText size={16} />,
+        tint: 'bg-slate-100 text-slate-600',
+        to: `/jobs/${jobId}/shortlist?tab=results`,
+      },
+      {
+        key: 'approved',
+        label: 'Resume approved',
+        description: metrics.awaitingDecision > 0 ? `${metrics.awaitingDecision} awaiting decision` : 'Approved by HR',
+        value: metrics.approved,
+        icon: <ClipboardCheck size={16} />,
+        tint: 'bg-violet-50 text-violet-600',
         to: `/jobs/${jobId}/shortlist?tab=results`,
       },
     ]
@@ -245,38 +225,32 @@ export function JobPipelineDashboard({ job }: Props) {
     if (screeningEffective) {
       base.push({
         key: 'screening',
-        label: 'Screened',
-        description: 'Voice screening completed',
+        label: 'Phone calls completed',
+        description: metrics.screeningWaiting > 0 ? `${metrics.screeningWaiting} waiting for a call` : 'Voice screening done',
         value: metrics.screeningCompleted,
-        icon: <Phone size={20} className="text-emerald-600" />,
-        accent: 'bg-emerald-500',
-        iconBg: 'bg-emerald-50',
-        barColor: 'bg-emerald-400',
+        icon: <Phone size={16} />,
+        tint: 'bg-sky-50 text-sky-600',
         to: `/jobs/${jobId}/screening`,
       })
     }
 
     base.push(
       {
-        key: 'scheduled',
-        label: 'Scheduled',
-        description: 'Interviews booked',
-        value: metrics.scheduled,
-        icon: <Calendar size={20} className="text-indigo-600" />,
-        accent: 'bg-indigo-500',
-        iconBg: 'bg-indigo-50',
-        barColor: 'bg-indigo-400',
-        to: `/jobs/${jobId}/interviews?tab=scheduled`,
+        key: 'interviews',
+        label: 'Interviews completed',
+        description: metrics.interviewsOpen > 0 ? `${metrics.interviewsOpen} booked or in progress` : 'Interviews taken',
+        value: metrics.interviewsCompleted,
+        icon: <Video size={16} />,
+        tint: 'bg-indigo-50 text-indigo-600',
+        to: `/jobs/${jobId}/interviews?tab=completed`,
       },
       {
         key: 'finalists',
         label: 'Finalists',
-        description: 'HR-approved candidates',
+        description: 'Approved after interview',
         value: metrics.finalists,
-        icon: <CheckCircle2 size={20} className="text-emerald-600" />,
-        accent: 'bg-emerald-500',
-        iconBg: 'bg-emerald-50',
-        barColor: 'bg-emerald-400',
+        icon: <CheckCircle2 size={16} />,
+        tint: 'bg-emerald-50 text-emerald-600',
         to: `/jobs/${jobId}/finalists`,
       },
     )
@@ -284,84 +258,77 @@ export function JobPipelineDashboard({ job }: Props) {
     return base
   }, [jobId, metrics, screeningEffective])
 
-  const barStages = stages.map((s) => ({
-    key: s.key,
-    label: s.label,
-    value: typeof s.value === 'number' ? s.value : 0,
-    barColor: s.barColor,
-  }))
+  // Applied already counts everyone; summing the stages would count each candidate once per stage.
+  const totalInPipeline = metrics.applied
+  const gridCols = screeningEffective ? 'lg:grid-cols-5' : 'lg:grid-cols-4'
 
-  const totalInPipeline = barStages.reduce((sum, s) => sum + s.value, 0)
-  const gridCols = screeningEffective ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-3'
+  // Its own card under the stats: adding resumes is an action, not part of the numbers.
+  const uploadCard = (
+    <section aria-label="Add candidates">
+      <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm sm:px-6 sm:py-5">
+        <h2 className="text-lg font-semibold text-slate-900">Add candidates</h2>
+        <p className="mb-3 mt-0.5 text-sm text-slate-500">
+          Upload resumes and AI scores each one against this job automatically.
+        </p>
+        <ResumeUploadZone
+          jobId={jobId}
+          variant="pipeline"
+          disabled={uploadDisabled}
+          onUploadSuccess={handleUploadSuccess}
+        />
+      </div>
+    </section>
+  )
 
   if (isLoading) {
     return (
-      <section aria-label="Hiring pipeline">
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 px-5 py-4 sm:px-6">
-            <div className="space-y-4">
-              <div>
-                <div className="h-5 w-36 animate-pulse rounded bg-slate-200" />
-                <div className="mt-2 h-4 w-56 animate-pulse rounded bg-slate-100" />
-              </div>
-              <div className="h-[72px] animate-pulse rounded-xl border border-slate-100 bg-white/60" />
+      <div className="space-y-6">
+        <section aria-label="Stats">
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 px-5 py-4 sm:px-6">
+              <div className="h-5 w-16 animate-pulse rounded bg-slate-200" />
+              <div className="mt-2 h-4 w-40 animate-pulse rounded bg-slate-100" />
+            </div>
+            <div className="p-5 sm:p-6">
+              <StageStripSkeleton count={stages.length} columns={gridCols} />
             </div>
           </div>
-          <div className="p-6">
-            <div className="mb-6 h-2.5 animate-pulse rounded-full bg-slate-100" />
-            <div className={cn('grid grid-cols-1 gap-4', gridCols)}>
-              {stages.map((stage) => (
-                <StageCardSkeleton key={stage.key} />
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
+        </section>
+        {uploadCard}
+      </div>
     )
   }
 
   return (
-    <section aria-label="Hiring pipeline">
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 px-5 py-4 sm:px-6">
-          <div className="space-y-4">
-            <div className="min-w-0">
-              <h2 className="text-lg font-semibold text-slate-900">Hiring pipeline</h2>
-              <p className="mt-0.5 text-sm text-slate-500">
-                {totalInPipeline > 0
-                  ? `${totalInPipeline} candidate${totalInPipeline === 1 ? '' : 's'} across all stages`
-                  : 'Upload resumes to start — candidates will appear here as they move through hiring'}
-              </p>
-            </div>
-            <ResumeUploadZone
-              jobId={jobId}
-              variant="pipeline"
-              disabled={uploadDisabled}
-              onUploadSuccess={handleUploadSuccess}
-            />
+    <div className="space-y-6">
+      <section aria-label="Stats">
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 px-5 py-4 sm:px-6">
+            <h2 className="text-lg font-semibold text-slate-900">Stats</h2>
+            <p className="mt-0.5 text-sm text-slate-500">
+              {totalInPipeline > 0
+                ? `${totalInPipeline} candidate${totalInPipeline === 1 ? '' : 's'} on this job`
+                : 'No candidates yet — they will show here as they move through hiring'}
+            </p>
+          </div>
+
+          <div className="p-5 sm:p-6">
+            {isError && (
+              <div className="mb-5 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                <AlertCircle size={16} className="shrink-0" />
+                Failed to load pipeline stats.
+                <button type="button" onClick={refetchAll} className="ml-1 underline">
+                  Retry
+                </button>
+              </div>
+            )}
+
+            <StageStrip stages={stages} columns={gridCols} />
           </div>
         </div>
+      </section>
 
-        <div className="p-6">
-          {isError && (
-            <div className="mb-5 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              <AlertCircle size={16} className="shrink-0" />
-              Failed to load pipeline stats.
-              <button type="button" onClick={refetchAll} className="ml-1 underline">
-                Retry
-              </button>
-            </div>
-          )}
-
-          <PipelineBar stages={barStages} />
-
-          <div className={cn('grid grid-cols-1 gap-4', gridCols)}>
-            {stages.map((stage) => (
-              <StageCard key={stage.key} stage={stage} />
-            ))}
-          </div>
-        </div>
-      </div>
-    </section>
+      {uploadCard}
+    </div>
   )
 }
