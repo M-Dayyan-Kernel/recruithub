@@ -41,8 +41,10 @@ export default function StageTabs<T extends string>({
             className={cn(
               '-mb-px inline-flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-medium transition-colors',
               'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1',
+              // Neutral, not accent: docs/UI.md allows about two accent marks a screen, and a
+              // stage page already has its primary action.
               selected
-                ? 'border-accent text-ink'
+                ? 'border-ink text-ink'
                 : 'border-transparent text-ink-muted hover:border-line-strong hover:text-ink',
             )}
           >
@@ -54,7 +56,7 @@ export default function StageTabs<T extends string>({
                   tab.tone === 'danger' && tab.count > 0
                     ? 'bg-neg-soft text-neg'
                     : selected && tab.count > 0
-                      ? 'bg-accent-soft text-accent'
+                      ? 'bg-surface-3 text-ink'
                       : 'bg-surface-3 text-ink-muted',
                 )}
               >
