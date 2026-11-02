@@ -688,6 +688,8 @@ Candidate app: fetch session details using the unique token from the interview l
 
 **Errors:** `404 Interview session not found`
 
+**Opening time:** for a `pending` scheduled interview the response carries `opens_in_seconds`, the whole seconds until it can be started (the scheduled time less `interview.schedule_early_grace_sec`), or `null` once it can be. The candidate app shows a countdown, and nothing else, until it is `null`; `POST .../start` refuses an early start with `403` ("Interview opens at Mon, 02 Nov 2026, 01:00 PM IST. Please join at the scheduled time."). Candidate-facing times are always IST.
+
 > **Nova gotcha:** Used by the candidate landing page to detect session state: `pending` = can start, `in_progress` = already started (guard against page refresh re-joining), `completed` = already done, `expired` = too old.
 
 ---

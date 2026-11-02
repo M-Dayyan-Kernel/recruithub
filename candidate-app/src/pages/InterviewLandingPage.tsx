@@ -4,6 +4,7 @@ import { Loader2, AlertCircle, CheckCircle2, Clock } from 'lucide-react'
 import { api } from '@/lib/api'
 import { extensionCheckApplies } from '@/lib/extensionGate'
 import InterviewBusyScreen from '@/components/InterviewBusyScreen'
+import InterviewNotYetOpen from '@/components/InterviewNotYetOpen'
 import Preflight from '@/components/preflight/Preflight'
 import { Screen, StatusScreen } from '@/components/Shell'
 import { formatInstant } from '@/lib/deadline'
@@ -25,6 +26,8 @@ interface InterviewInfo {
   mock_mode?: boolean
   capacity_available?: boolean | null
   retry_after_minutes?: number | null
+  /** Seconds until a scheduled interview can be started; null once it can be. */
+  opens_in_seconds?: number | null
 }
 
 // ---------------------------------------------------------------------------
@@ -94,8 +97,10 @@ export default function InterviewLandingPage() {
 
   // Resolved once the interview is known to be joinable, before any step renders.
   const joinable = info?.status === 'pending' || info?.status === 'in_progress'
+  // Before the interview's time nothing past this point is shown, so nothing past it is loaded.
+  const notYetOpen = info?.status === 'pending' && (info.opens_in_seconds ?? 0) > 0
   useEffect(() => {
-    if (!token || !joinable) return
+    if (!token || !joinable || notYetOpen) return
     let cancelled = false
     void extensionCheckApplies(token).then((applies) => {
       if (!cancelled) setExtensionCheck(applies)
@@ -103,7 +108,7 @@ export default function InterviewLandingPage() {
     return () => {
       cancelled = true
     }
-  }, [token, joinable])
+  }, [token, joinable, notYetOpen])
 
   const handleRetryCapacity = async () => {
     if (!token) return
@@ -130,6 +135,11 @@ export default function InterviewLandingPage() {
       setMockCompleting(false)
     }
   }
+
+  // Asks the server whether the interview has opened. It is the server that decides.
+  const refreshInfo = useCallback(() => {
+    fetchInterviewInfo().catch(() => undefined)
+  }, [token])
 
   const handleReady = useCallback(() => {
     navigate(`/interview/${token}/room`)
@@ -198,6 +208,17 @@ export default function InterviewLandingPage() {
         body="Thank you for your time. The hiring team is reviewing your interview and will be in touch."
       />
     )
+
+  // ── Not yet time (scheduled interview) ────────────────────────────────────
+  if (info.status === 'pending' && (info.opens_in_seconds ?? 0) > 0) {
+    return (
+      <InterviewNotYetOpen
+        opensInSeconds={info.opens_in_seconds ?? 0}
+        scheduledAt={info.scheduled_interview_at}
+        onOpen={refreshInfo}
+      />
+    )
+  }
 
   // ── Capacity full (pending session) ───────────────────────────────────────
   if (info.status === 'pending' && info.capacity_available === false) {

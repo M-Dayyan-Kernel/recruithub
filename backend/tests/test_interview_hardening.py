@@ -59,6 +59,8 @@ class AssertSessionJoinableTests(unittest.TestCase):
             _run(interview_guards.assert_session_joinable(session, FakeDb()))
         self.assertEqual(ctx.exception.status_code, 403)
         self.assertIn("opens at", ctx.exception.detail.lower())
+        self.assertTrue(ctx.exception.detail.split(". Please")[0].endswith("IST"), ctx.exception.detail)
+        self.assertNotIn("UTC", ctx.exception.detail)
 
     def test_schedule_grace_allows_early_join(self) -> None:
         session = FakeSession(
