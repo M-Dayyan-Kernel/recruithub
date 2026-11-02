@@ -14,8 +14,6 @@ import {
   X,
   Zap,
   Contact,
-  PanelLeftClose,
-  PanelLeftOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
@@ -25,26 +23,49 @@ import { PHONE_SCREENING_LABEL, RESUME_SCREENING_LABEL } from '@/lib/stageLabels
 import { useAuth } from '@/context/AuthContext'
 
 /**
- * Nav items on the dark rail. Collapsed, the row becomes a centred icon and the
- * label is dropped from the flow rather than hidden with opacity, so it cannot
- * be read by a screen reader or catch a click.
+ * Nav items on the dark rail. The rail's contents are laid out at their full, open width at all
+ * times and the rail clips them, so opening is a reveal rather than a reflow: labels never
+ * re-wrap while the width animates. The left padding puts every icon's centre at 38px, the
+ * middle of the 76px collapsed rail, so icons stay put as it opens.
  */
 function navLinkClass(isActive: boolean, collapsed: boolean) {
   return cn(
-    'relative flex items-center rounded-lg text-sm font-medium transition-colors',
-    collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5',
+    'relative flex items-center gap-3 overflow-hidden whitespace-nowrap rounded-lg py-2.5 pl-[17px] pr-3 text-sm font-medium transition-[width,background-color,color] duration-200',
+    // Collapsed, the link is only as wide as the visible rail. At full width it would run under
+    // the clipped edge, so the active highlight looked cut off, not like a rounded chip.
+    collapsed ? 'w-[52px]' : 'w-full',
     isActive
       ? 'bg-accent text-accent-ink shadow-accent'
       : 'text-rail-muted hover:bg-rail-2 hover:text-rail-ink',
   )
 }
 
-function SectionLabel({ children, collapsed }: { children: ReactNode; collapsed?: boolean }) {
-  if (collapsed) return <div className="mx-auto my-2 h-px w-6 bg-rail-line" />
+/** A label that fades out while the rail is collapsed; it is clipped, so it cannot catch a click. */
+function RailText({ collapsed, className, children }: { collapsed: boolean; className?: string; children: ReactNode }) {
   return (
-    <p className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-rail-muted/70">
-      {children}
-    </p>
+    <span className={cn('transition-opacity duration-150', collapsed && 'opacity-0', className)}>{children}</span>
+  )
+}
+
+function SectionLabel({ children, collapsed }: { children: ReactNode; collapsed?: boolean }) {
+  return (
+    <div className="relative h-6">
+      <p
+        className={cn(
+          'absolute inset-x-0 bottom-1.5 whitespace-nowrap px-3 text-[10px] font-semibold uppercase tracking-wider text-rail-muted/70 transition-opacity duration-150',
+          collapsed && 'opacity-0',
+        )}
+      >
+        {children}
+      </p>
+      <div
+        aria-hidden
+        className={cn(
+          'absolute bottom-2.5 left-[26px] h-px w-6 bg-rail-line transition-opacity duration-150',
+          !collapsed && 'opacity-0',
+        )}
+      />
+    </div>
   )
 }
 
@@ -62,27 +83,27 @@ function isJobsNavActive(pathname: string): boolean {
   return false
 }
 
-const RAIL_KEY = 'hub:rail-collapsed'
+const DESKTOP_QUERY = '(min-width: 1024px)'
+
+/** Whether the rail is the desktop one (collapsed until hovered) or the mobile drawer. */
+function useIsDesktop(): boolean {
+  const [desktop, setDesktop] = useState(() => window.matchMedia(DESKTOP_QUERY).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(DESKTOP_QUERY)
+    const onChange = () => setDesktop(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return desktop
+}
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  // Persisted, because a rail that reopens on every navigation is worse than
-  // one that never collapsed.
-  const [collapsed, setCollapsed] = useState(() => {
-    try {
-      return localStorage.getItem(RAIL_KEY) === '1'
-    } catch {
-      return false
-    }
-  })
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(RAIL_KEY, collapsed ? '1' : '0')
-    } catch {
-      /* private mode; the rail just will not remember */
-    }
-  }, [collapsed])
+  // Desktop: an icon rail that opens while the pointer (or keyboard focus) is on it and closes
+  // when it leaves. No button, nothing to remember. The mobile drawer is always full width.
+  const isDesktop = useIsDesktop()
+  const [hovered, setHovered] = useState(false)
+  const collapsed = isDesktop && !hovered
   const location = useLocation()
   const { user, isAdmin, isActingInTenant, clearTenantSwitch, logout } = useAuth()
 
@@ -127,126 +148,91 @@ export default function Layout() {
       )}
 
       {/*
-        A floating rail, inset from the viewport rather than flush to it, so the
-        page ground runs behind it on all four sides.
+        A floating rail, inset from the viewport rather than flush to it, so the page ground
+        runs behind it on all four sides. On desktop the wrapper reserves the collapsed width
+        and the rail grows over the page when opened, so the content never shifts under the
+        pointer. On mobile the wrapper vanishes and the rail is a drawer.
       */}
-      <aside
-        className={cn(
-          'fixed inset-y-0 left-0 z-30 flex flex-col rounded-none bg-rail transition-all duration-200',
-          'lg:static lg:m-3 lg:translate-x-0 lg:rounded-card lg:shadow-e3',
-          collapsed ? 'w-60 lg:w-[76px]' : 'w-60',
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full',
-        )}
-      >
-        <div
+      <div className="contents lg:relative lg:m-3 lg:block lg:w-[76px] lg:shrink-0">
+        <aside
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          onFocus={() => setHovered(true)}
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setHovered(false)
+          }}
           className={cn(
-            'flex items-center border-b border-rail-line py-4',
-            collapsed ? 'justify-center px-0 lg:px-2' : 'gap-2.5 px-4',
+            'fixed inset-y-0 left-0 z-30 flex w-60 flex-col overflow-hidden rounded-none bg-rail transition-[width,transform] duration-200',
+            'lg:absolute lg:inset-y-0 lg:translate-x-0 lg:rounded-card lg:shadow-e3',
+            collapsed ? 'lg:w-[76px]' : 'lg:w-60',
+            sidebarOpen ? 'translate-x-0' : '-translate-x-full',
           )}
         >
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent">
-            <Zap className="h-[18px] w-[18px] text-accent-ink" />
-          </div>
-          {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-rail-ink">Recruitment Hub</p>
-              <p className="text-[11px] text-rail-muted">HR Portal</p>
-            </div>
-          )}
-          <button
-            type="button"
-            className="shrink-0 rounded-md p-1 text-rail-muted hover:bg-rail-2 hover:text-rail-ink lg:hidden"
-            onClick={closeSidebar}
-            aria-label="Close sidebar"
-          >
-            <X className="h-5 w-5" />
-          </button>
-          {!collapsed && (
-            <button
-              type="button"
-              onClick={() => setCollapsed(true)}
-              className="hidden shrink-0 rounded-md p-1 text-rail-muted transition-colors hover:bg-rail-2 hover:text-rail-ink lg:block"
-              aria-label="Collapse sidebar"
-              title="Collapse sidebar"
-            >
-              <PanelLeftClose className="h-[18px] w-[18px]" />
-            </button>
-          )}
-        </div>
-
-        {collapsed && (
-          <button
-            type="button"
-            onClick={() => setCollapsed(false)}
-            className="mx-auto mt-3 hidden rounded-md p-1.5 text-rail-muted transition-colors hover:bg-rail-2 hover:text-rail-ink lg:block"
-            aria-label="Expand sidebar"
-            title="Expand sidebar"
-          >
-            <PanelLeftOpen className="h-[18px] w-[18px]" />
-          </button>
-        )}
-
-        <nav className="scrollbar-thin flex-1 overflow-y-auto px-3 py-3">
-          <SectionLabel collapsed={collapsed}>Overview</SectionLabel>
-          <div className="space-y-1">
-            <NavLink
-              to="/"
-              end
-              title={collapsed ? 'Dashboard' : undefined}
-              onClick={closeSidebar}
-              className={({ isActive }) => navLinkClass(isActive, collapsed)}
-            >
-              <LayoutDashboard className="h-[18px] w-[18px] shrink-0" />
-              {collapsed ? null : 'Dashboard'}
-            </NavLink>
-            <NavLink
-              to="/jobs"
-              end
-              title={collapsed ? 'Jobs' : undefined}
-              onClick={closeSidebar}
-              className={() => navLinkClass(isJobsNavActive(location.pathname), collapsed)}
-            >
-              <Briefcase className="h-[18px] w-[18px] shrink-0" />
-              {collapsed ? null : 'Jobs'}
-            </NavLink>
-            <NavLink
-              to="/candidates"
-              title={collapsed ? 'Candidates' : undefined}
-              onClick={closeSidebar}
-              className={({ isActive }) => navLinkClass(isActive, collapsed)}
-            >
-              <Contact className="h-[18px] w-[18px] shrink-0" />
-              {collapsed ? null : 'Candidates'}
-            </NavLink>
-            {(isAdmin || user?.role === 'hr') && (
-              <NavLink
-                to="/extension-check"
-                title={collapsed ? 'AI extension check' : undefined}
+          <div className="flex h-full w-60 shrink-0 flex-col">
+            <div className="flex items-center gap-2.5 border-b border-rail-line px-5 py-4">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent">
+                <Zap className="h-[18px] w-[18px] text-accent-ink" />
+              </div>
+              <div className="min-w-0 flex-1 whitespace-nowrap">
+                <RailText collapsed={collapsed} className="block">
+                  <span className="block truncate text-sm font-semibold text-rail-ink">Recruitment Hub</span>
+                  <span className="block text-[11px] text-rail-muted">HR Portal</span>
+                </RailText>
+              </div>
+              <button
+                type="button"
+                className="shrink-0 rounded-md p-1 text-rail-muted hover:bg-rail-2 hover:text-rail-ink lg:hidden"
                 onClick={closeSidebar}
-                className={({ isActive }) => navLinkClass(isActive, collapsed)}
+                aria-label="Close sidebar"
               >
-                <ShieldCheck className="h-[18px] w-[18px] shrink-0" />
-                {collapsed ? null : 'AI extension check'}
-              </NavLink>
-            )}
-          </div>
-        </nav>
+                <X className="h-5 w-5" />
+              </button>
+            </div>
 
-        <div className="space-y-3 border-t border-rail-line px-3 py-3">
-          <div>
-            <SectionLabel collapsed={collapsed}>Library</SectionLabel>
-            <NavLink
-              to="/jobs/archived"
-              title={collapsed ? 'Archived' : undefined}
-              onClick={closeSidebar}
-              className={({ isActive }) => navLinkClass(isActive, collapsed)}
-            >
-              <Archive className="h-[18px] w-[18px] shrink-0" />
-              {collapsed ? null : (
-                <>
-                  <span className="flex-1">Archived</span>
+            <nav className="scrollbar-thin flex-1 overflow-y-auto overflow-x-hidden px-3 py-3">
+              <SectionLabel collapsed={collapsed}>Overview</SectionLabel>
+              <div className="space-y-1">
+                <NavLink to="/" end onClick={closeSidebar} className={({ isActive }) => navLinkClass(isActive, collapsed)}>
+                  <LayoutDashboard className="h-[18px] w-[18px] shrink-0" />
+                  <RailText collapsed={collapsed}>Dashboard</RailText>
+                </NavLink>
+                <NavLink
+                  to="/jobs"
+                  end
+                  onClick={closeSidebar}
+                  className={() => navLinkClass(isJobsNavActive(location.pathname), collapsed)}
+                >
+                  <Briefcase className="h-[18px] w-[18px] shrink-0" />
+                  <RailText collapsed={collapsed}>Jobs</RailText>
+                </NavLink>
+                <NavLink to="/candidates" onClick={closeSidebar} className={({ isActive }) => navLinkClass(isActive, collapsed)}>
+                  <Contact className="h-[18px] w-[18px] shrink-0" />
+                  <RailText collapsed={collapsed}>Candidates</RailText>
+                </NavLink>
+                {(isAdmin || user?.role === 'hr') && (
+                  <NavLink
+                    to="/extension-check"
+                    onClick={closeSidebar}
+                    className={({ isActive }) => navLinkClass(isActive, collapsed)}
+                  >
+                    <ShieldCheck className="h-[18px] w-[18px] shrink-0" />
+                    <RailText collapsed={collapsed}>AI extension check</RailText>
+                  </NavLink>
+                )}
+              </div>
+            </nav>
+
+            <div className="space-y-1 border-t border-rail-line px-3 py-3">
+              <div>
+                <SectionLabel collapsed={collapsed}>Library</SectionLabel>
+                <NavLink to="/jobs/archived" onClick={closeSidebar} className={({ isActive }) => navLinkClass(isActive, collapsed)}>
+                  <Archive className="h-[18px] w-[18px] shrink-0" />
+                  <RailText collapsed={collapsed} className="flex-1">
+                    Archived
+                  </RailText>
                   {archivedCount > 0 && (
-                    <span
+                    <RailText
+                      collapsed={collapsed}
                       className={cn(
                         'rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums',
                         location.pathname === '/jobs/archived'
@@ -255,106 +241,70 @@ export default function Layout() {
                       )}
                     >
                       {archivedCount}
-                    </span>
+                    </RailText>
                   )}
-                </>
-              )}
-            </NavLink>
-          </div>
-
-          {isAdmin && (
-            <div>
-              <SectionLabel collapsed={collapsed}>Admin</SectionLabel>
-              <div className="space-y-1">
-                <NavLink
-                  to="/activity"
-                  title={collapsed ? 'Activity' : undefined}
-                  onClick={closeSidebar}
-                  className={({ isActive }) => navLinkClass(isActive, collapsed)}
-                >
-                  <Activity className="h-[18px] w-[18px] shrink-0" />
-                  {collapsed ? null : 'Activity'}
-                </NavLink>
-                <NavLink
-                  to="/users"
-                  title={collapsed ? 'Users' : undefined}
-                  onClick={closeSidebar}
-                  className={({ isActive }) => navLinkClass(isActive, collapsed)}
-                >
-                  <Users className="h-[18px] w-[18px] shrink-0" />
-                  {collapsed ? null : 'Users'}
-                </NavLink>
-                <NavLink
-                  to="/settings"
-                  title={collapsed ? 'Settings' : undefined}
-                  onClick={closeSidebar}
-                  className={({ isActive }) => navLinkClass(isActive, collapsed)}
-                >
-                  <Settings className="h-[18px] w-[18px] shrink-0" />
-                  {collapsed ? null : 'Settings'}
                 </NavLink>
               </div>
-            </div>
-          )}
-        </div>
 
-        <div className="border-t border-rail-line p-3">
-          <div
-            className={cn(
-              'flex items-center rounded-lg py-1',
-              collapsed ? 'justify-center px-0' : 'gap-2.5 px-1.5',
-            )}
-          >
-            <NavLink
-              to="/account"
-              title="Account and password"
-              aria-label="Account and password"
-              onClick={closeSidebar}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rail-2 text-[11px] font-semibold text-rail-ink ring-1 ring-rail-line transition-colors hover:ring-rail-muted"
-            >
-              {userInitials(user?.full_name, user?.email)}
-            </NavLink>
-            
-            {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-rail-ink">
-                {user?.full_name ?? 'User'}
-              </p>
-              <p className="truncate text-[11px] text-rail-muted">
-                {isActingInTenant && user?.active_tenant_name
-                  ? `${user.active_tenant_name} · `
-                  : user?.tenant_name
-                    ? `${user.tenant_name} · `
-                    : ''}
-                <span className="capitalize">{user?.role}</span>
-              </p>
+              {isAdmin && (
+                <div>
+                  <SectionLabel collapsed={collapsed}>Admin</SectionLabel>
+                  <div className="space-y-1">
+                    <NavLink to="/activity" onClick={closeSidebar} className={({ isActive }) => navLinkClass(isActive, collapsed)}>
+                      <Activity className="h-[18px] w-[18px] shrink-0" />
+                      <RailText collapsed={collapsed}>Activity</RailText>
+                    </NavLink>
+                    <NavLink to="/users" onClick={closeSidebar} className={({ isActive }) => navLinkClass(isActive, collapsed)}>
+                      <Users className="h-[18px] w-[18px] shrink-0" />
+                      <RailText collapsed={collapsed}>Users</RailText>
+                    </NavLink>
+                    <NavLink to="/settings" onClick={closeSidebar} className={({ isActive }) => navLinkClass(isActive, collapsed)}>
+                      <Settings className="h-[18px] w-[18px] shrink-0" />
+                      <RailText collapsed={collapsed}>Settings</RailText>
+                    </NavLink>
+                  </div>
+                </div>
+              )}
             </div>
-            )}
-            {!collapsed && (
-              <button
-                type="button"
-                onClick={logout}
-                title="Sign out"
-                aria-label="Sign out"
-                className="shrink-0 rounded-md p-1.5 text-rail-muted transition-colors hover:bg-rail-2 hover:text-rail-ink"
-              >
-                <LogOut className="h-4 w-4" />
-              </button>
-            )}
+
+            <div className="border-t border-rail-line p-3">
+              <div className="flex items-center gap-2.5 rounded-lg px-2 py-1">
+                <NavLink
+                  to="/account"
+                  title="Account and password"
+                  aria-label="Account and password"
+                  onClick={closeSidebar}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rail-2 text-[11px] font-semibold text-rail-ink ring-1 ring-rail-line transition-colors hover:ring-rail-muted"
+                >
+                  {userInitials(user?.full_name, user?.email)}
+                </NavLink>
+                <div className="min-w-0 flex-1 whitespace-nowrap">
+                  <RailText collapsed={collapsed} className="block">
+                    <span className="block truncate text-sm font-medium text-rail-ink">{user?.full_name ?? 'User'}</span>
+                    <span className="block truncate text-[11px] text-rail-muted">
+                      {isActingInTenant && user?.active_tenant_name
+                        ? `${user.active_tenant_name} · `
+                        : user?.tenant_name
+                          ? `${user.tenant_name} · `
+                          : ''}
+                      <span className="capitalize">{user?.role}</span>
+                    </span>
+                  </RailText>
+                </div>
+                <button
+                  type="button"
+                  onClick={logout}
+                  title="Sign out"
+                  aria-label="Sign out"
+                  className="shrink-0 rounded-md p-1.5 text-rail-muted transition-colors hover:bg-rail-2 hover:text-rail-ink"
+                >
+                  <LogOut className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
           </div>
-          {collapsed && (
-            <button
-              type="button"
-              onClick={logout}
-              title="Sign out"
-              aria-label="Sign out"
-              className="mx-auto mt-2 flex h-9 w-9 items-center justify-center rounded-lg text-rail-muted transition-colors hover:bg-rail-2 hover:text-rail-ink"
-            >
-              <LogOut className="h-[18px] w-[18px]" />
-            </button>
-          )}
-        </div>
-      </aside>
+        </aside>
+      </div>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {isActingInTenant && (

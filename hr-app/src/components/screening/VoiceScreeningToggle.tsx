@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowRight, Loader2, RotateCcw } from 'lucide-react'
+import { AlertCircle, ArrowRight, Loader2, PhoneCall, PhoneOff, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
+import IconToggle from '@/components/ui/IconToggle'
 import Modal from '@/components/ui/Modal'
 import { BTN_GHOST, BTN_PRIMARY } from '@/components/ui/Surface'
 import { VoiceScreeningSwitch } from '@/components/screening/VoiceScreeningSwitch'
@@ -39,7 +40,16 @@ const CHOICES: Array<{ id: MoveTo; title: string; body: (n: number) => string }>
  * HR answers. Turning it on, or off with nobody waiting, still asks first, because it
  * changes what every later approval does.
  */
-export function VoiceScreeningToggle({ job, className }: { job: Job; className?: string }) {
+export function VoiceScreeningToggle({
+  job,
+  className,
+  variant = 'switch',
+}: {
+  job: Job
+  className?: string
+  /** `icon` is the compact chip for the job header; both open the same confirmation. */
+  variant?: 'switch' | 'icon'
+}) {
   const queryClient = useQueryClient()
   const enabled = job.voice_screening_enabled !== false
   const [target, setTarget] = useState<boolean | null>(null)
@@ -156,12 +166,28 @@ export function VoiceScreeningToggle({ job, className }: { job: Job; className?:
   return (
     <>
       <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
-        <VoiceScreeningSwitch
-          checked={enabled}
-          disabled={busy || target !== null}
-          onChange={(next) => open(next)}
-          className={className}
-        />
+        {variant === 'icon' ? (
+          <IconToggle
+            icon={PhoneCall}
+            offIcon={PhoneOff}
+            checked={enabled}
+            disabled={busy || target !== null}
+            onChange={open}
+            label="Voice screening"
+            description={
+              enabled
+                ? 'Voice screening is on: approved candidates get a short AI phone call before their interview. Click to turn it off.'
+                : 'Voice screening is off: approved candidates go straight to the interview. Click to turn it on.'
+            }
+          />
+        ) : (
+          <VoiceScreeningSwitch
+            checked={enabled}
+            disabled={busy || target !== null}
+            onChange={(next) => open(next)}
+            className={className}
+          />
+        )}
         {stranded > 0 && (
           <button
             type="button"

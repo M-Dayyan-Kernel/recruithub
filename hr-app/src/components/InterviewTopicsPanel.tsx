@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, Loader2, ListChecks, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -10,13 +10,12 @@ import { cn } from '@/lib/utils'
 
 interface Props {
   job: Job
-  headerEnd?: ReactNode
 }
 
 const snapshotOf = (topics: InterviewTopic[]) => JSON.stringify(cleanTopics(topics))
 
 /** The job's interview topic pool, edited in place on the job page. */
-export function InterviewTopicsPanel({ job, headerEnd }: Props) {
+export function InterviewTopicsPanel({ job }: Props) {
   const queryClient = useQueryClient()
   const [topics, setTopics] = useState<InterviewTopic[]>(job.interview_topics ?? [])
   const [savedSnapshot, setSavedSnapshot] = useState(snapshotOf(job.interview_topics ?? []))
@@ -108,7 +107,6 @@ export function InterviewTopicsPanel({ job, headerEnd }: Props) {
               </button>
             </>
           )}
-          {headerEnd}
         </div>
       </div>
 

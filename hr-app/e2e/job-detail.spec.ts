@@ -74,7 +74,7 @@ test('job overview shows resume upload in hiring pipeline', async ({ page }) => 
   await page.goto(FRONTEND_URL)
   await page.waitForLoadState('networkidle')
 
-  const pipeline = page.getByRole('region', { name: 'Hiring pipeline' })
+  const pipeline = page.getByRole('region', { name: 'Stats' })
   await expect(pipeline.getByText('Add candidate resumes')).toBeVisible()
 })
 
@@ -97,7 +97,7 @@ test('upload from job overview navigates to processing tab', async ({ page }) =>
   await page.waitForLoadState('networkidle')
 
   await page
-    .getByRole('region', { name: 'Hiring pipeline' })
+    .getByRole('region', { name: 'Stats' })
     .locator('input[type="file"]')
     .setInputFiles({
       name: 'resume.pdf',
@@ -266,7 +266,7 @@ test('job details page shows pipeline overview stats', async ({ page }) => {
   await page.goto(FRONTEND_URL)
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByRole('heading', { name: 'Hiring pipeline' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Stats' })).toBeVisible()
   await expect(page.getByText('Resume Shortlisted', { exact: true })).toBeVisible()
   await expect(page.getByText('Screened', { exact: true })).toBeVisible()
   await expect(page.getByText('Scheduled', { exact: true })).toBeVisible()

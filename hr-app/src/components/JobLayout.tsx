@@ -56,10 +56,11 @@ function JobBreadcrumbs({
     <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
       <Link
         to={listPath}
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:border-indigo-200 hover:text-indigo-700"
+        aria-label={`Back to ${listLabel.toLowerCase()}`}
+        title={`Back to ${listLabel.toLowerCase()}`}
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition-colors hover:border-indigo-200 hover:text-indigo-700"
       >
-        <ArrowLeft size={14} />
-        {listLabel}
+        <ArrowLeft size={16} aria-hidden="true" />
       </Link>
 
       <span aria-hidden="true" className="h-4 w-px shrink-0 bg-slate-200" />
