@@ -795,6 +795,9 @@ class InterviewSessionResponse(BaseModel):
     mock_mode: bool = False
     capacity_available: Optional[bool] = None
     retry_after_minutes: Optional[int] = None
+    # Candidate page only: whole seconds until a scheduled interview can be started; null once it
+    # can be (or when it has no fixed time).
+    opens_in_seconds: Optional[int] = None
 
 
 class VoiceScreeningCandidate(BaseModel):

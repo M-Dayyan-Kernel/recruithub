@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import threading
 import time
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from typing import Any, Deque, Dict
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, Request
 
@@ -21,6 +23,27 @@ logger = logging.getLogger(__name__)
 
 _rate_lock = threading.Lock()
 _memory_hits: Dict[str, Deque[float]] = defaultdict(deque)
+
+
+#: Times shown to candidates are always Indian Standard Time.
+DISPLAY_TIMEZONE = ZoneInfo("Asia/Kolkata")
+
+
+def format_for_candidate(moment: datetime) -> str:
+    """"Mon, 02 Nov 2026, 01:00 PM IST": a moment as the candidate reads it."""
+    return moment.astimezone(DISPLAY_TIMEZONE).strftime("%a, %d %b %Y, %I:%M %p IST")
+
+
+def seconds_until_open(session, now: datetime | None = None) -> int | None:
+    """Whole seconds until a scheduled interview can be started, or None when it can already be
+    (or has no fixed time). The one place that decides this: the join guard and the page the
+    candidate sees both read it, so the page never offers a start the server would refuse."""
+    scheduled = getattr(session, "scheduled_interview_at", None)
+    if scheduled is None:
+        return None
+    opens_at = scheduled - timedelta(seconds=int(config.interview.schedule_early_grace_sec))
+    remaining = (opens_at - (now or datetime.now(timezone.utc))).total_seconds()
+    return math.ceil(remaining) if remaining > 0 else None
 
 
 async def assert_session_joinable(session, db) -> None:
@@ -38,17 +61,13 @@ async def assert_session_joinable(session, db) -> None:
             await db.refresh(session)
         raise HTTPException(status_code=410, detail="Interview link has expired.")
 
-    scheduled = getattr(session, "scheduled_interview_at", None)
-    if scheduled is not None:
-        grace = timedelta(seconds=int(config.interview.schedule_early_grace_sec))
-        opens_at = scheduled - grace
-        if now < opens_at:
-            # Present the scheduled time (not grace-adjusted) to the candidate.
-            when = scheduled.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-            raise HTTPException(
-                status_code=403,
-                detail=f"Interview opens at {when}. Please join at the scheduled time.",
-            )
+    if seconds_until_open(session, now) is not None:
+        # Present the scheduled time (not grace-adjusted) to the candidate.
+        when = format_for_candidate(session.scheduled_interview_at)
+        raise HTTPException(
+            status_code=403,
+            detail=f"Interview opens at {when}. Please join at the scheduled time.",
+        )
 
 
 def _enforce_public_interview_rate_limit_sync(token: str, action: str) -> None:

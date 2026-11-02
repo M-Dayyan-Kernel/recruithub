@@ -481,6 +481,11 @@ export default function InterviewRoomPage() {
           return
         }
         const msg = err instanceof Error ? err.message : String(err)
+        // Reached the room before the interview's time: the landing page shows the countdown.
+        if (msg.toLowerCase().includes('interview opens at')) {
+          navigate(`/interview/${token}`, { replace: true })
+          return
+        }
         if (
           msg.toLowerCase().includes('already started') ||
           msg.toLowerCase().includes('not in pending')

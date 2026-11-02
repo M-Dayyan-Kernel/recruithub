@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions import InterviewCapacityError
 from app.models.models import Candidate, InterviewSession, Job
 from app.repositories.interview_repository import InterviewRepository
+from app.services.interview_guards import seconds_until_open
 from app.services.interview_plan_service import ensure_plan, freeze_plan
 from app.services.interview_status import TERMINAL
 from app.schemas.schemas import InterviewSessionResponse, InterviewStartResponse
@@ -132,6 +133,8 @@ class InterviewPublicService:
         from app.clients.mocks import mock_livekit_enabled
 
         response_data.mock_mode = mock_livekit_enabled()
+        if session.status == "pending":
+            response_data.opens_in_seconds = seconds_until_open(session)
 
         await _apply_interview_capacity_fields(response_data, self._session)
 
