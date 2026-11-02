@@ -6,79 +6,54 @@ import { api } from '@/lib/api'
 import type { Job, ScreeningTriggerResponse } from '@/types/api'
 import { editableQuestions } from '@/lib/screeningQuestions'
 import { ScreeningCriteriaModal } from '@/components/screening/ScreeningCriteriaModal'
+import { BTN_PRIMARY, BTN_SECONDARY } from '@/components/ui/Surface'
 import {
   formatTimeForInput,
   isWithinCallWindow,
 } from '@/components/screening/screeningUtils'
 
-interface Props {
+const inputClass =
+  'h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20'
+
+/** The job's saved call window, and whether it is open right now. */
+function useCallWindow(job: Job) {
+  const from = formatTimeForInput(job.screening_call_from, '09:00')
+  const to = formatTimeForInput(job.screening_call_to, '18:00')
+  const timezone = job.screening_timezone || 'Asia/Kolkata'
+  return { from, to, timezone, withinWindow: isWithinCallWindow(from, to, timezone) }
+}
+
+/**
+ * The calling controls of the phone stage's toolbar: whether the window is open, how many
+ * candidates are ready, and the button that dials them. The window itself is edited in the
+ * stage's Settings drawer; this only acts on what is saved.
+ */
+export function ScreeningCallActions({
+  job,
+  eligibleCandidateIds,
+  onCallsTriggered,
+}: {
   job: Job
   eligibleCandidateIds: string[]
   onCallsTriggered: () => void
-}
-
-const inputClass =
-  'h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100'
-
-const btnSecondary =
-  'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50'
-
-export function ScreeningSettingsCard({ job, eligibleCandidateIds, onCallsTriggered }: Props) {
+}) {
   const queryClient = useQueryClient()
-  const [fromTime, setFromTime] = useState(
-    formatTimeForInput(job.screening_call_from, '09:00'),
-  )
-  const [toTime, setToTime] = useState(formatTimeForInput(job.screening_call_to, '18:00'))
-  const [criteriaOpen, setCriteriaOpen] = useState(false)
-
-  const timezone = job.screening_timezone || 'Asia/Kolkata'
-  const withinWindow = isWithinCallWindow(fromTime, toTime, timezone)
-  // The standard questions are the same on every job, so the preview shows what is specific to
-  // this one: the role-specific and custom questions.
-  const questionCount = job.screening_questions?.length ?? 0
-  const extraQuestions = editableQuestions(job.screening_questions)
-  const previewText =
-    extraQuestions.length > 0
-      ? extraQuestions
-          .slice(0, 2)
-          .map((q) => q.question)
-          .join(' · ')
-      : 'Standard questions only.'
+  const { from, to, timezone, withinWindow } = useCallWindow(job)
   const eligibleCount = eligibleCandidateIds.length
 
-  const saveMutation = useMutation({
-    mutationFn: () =>
-      api.patch(`/api/jobs/${job.id}`, {
-        screening_call_from: `${fromTime}:00`,
-        screening_call_to: `${toTime}:00`,
-        screening_timezone: timezone,
-      }) as unknown as Promise<Job>,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['job', job.id] })
-      toast.success('Call window saved')
-    },
-    onError: () => toast.error('Failed to save call window'),
-  })
-
   const startMutation = useMutation({
-    mutationFn: async (force: boolean) => {
-      await api.patch(`/api/jobs/${job.id}`, {
-        screening_call_from: `${fromTime}:00`,
-        screening_call_to: `${toTime}:00`,
-        screening_timezone: timezone,
-      })
-      return api.post(`/api/jobs/${job.id}/screening/trigger`, {
+    mutationFn: (force: boolean) =>
+      api.post(`/api/jobs/${job.id}/screening/trigger`, {
         candidate_ids: eligibleCandidateIds,
         force,
-      }) as unknown as Promise<ScreeningTriggerResponse>
-    },
+      }) as unknown as Promise<ScreeningTriggerResponse>,
     onSuccess: (data, force) => {
       queryClient.invalidateQueries({ queryKey: ['job', job.id] })
       const total = data.initiated + data.queued
       if (total > 0) {
         if (!force && data.queued > 0) {
           toast.success(
-            `Saved call window — ${data.queued} call${data.queued !== 1 ? 's' : ''} queued for ${fromTime} (${timezone})`,
+            `${data.queued} call${data.queued !== 1 ? 's' : ''} queued for ${from} (${timezone})`,
           )
         } else {
           toast.success(
@@ -94,150 +69,155 @@ export function ScreeningSettingsCard({ job, eligibleCandidateIds, onCallsTrigge
     onError: (err: Error) => toast.error(err.message || 'Failed to start screening calls'),
   })
 
-  const startButtonLabel = withinWindow ? 'Start Calling Now' : 'Save'
-
+  const pending = startMutation.isPending
   return (
     <>
-      <div className="mb-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-              Screening call settings
-            </p>
-            <h3 className="mt-0.5 truncate text-base font-semibold text-slate-900">{job.title}</h3>
-            <p className="mt-1 text-xs text-slate-500">Call window, criteria, and bulk dial</p>
+      <span
+        title={`Calls go out between ${from} and ${to} (${timezone}). Change the window in Settings.`}
+        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+          withinWindow ? 'bg-pos-soft text-pos' : 'bg-warn-soft text-warn'
+        }`}
+      >
+        <Clock size={12} aria-hidden />
+        {withinWindow ? 'Within call window' : `Outside call window · opens ${from}`}
+      </span>
+      <span className="text-sm text-ink-muted">
+        {eligibleCount === 0 ? (
+          'No candidates ready to call'
+        ) : (
+          <>
+            <span className="font-mono font-semibold tabular-nums text-ink">{eligibleCount}</span> ready to call
+          </>
+        )}
+      </span>
+      {!withinWindow && (
+        <button
+          type="button"
+          onClick={() => startMutation.mutate(true)}
+          disabled={pending || eligibleCount === 0}
+          className={BTN_SECONDARY}
+        >
+          Call now anyway
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => startMutation.mutate(false)}
+        disabled={pending || eligibleCount === 0}
+        className={BTN_PRIMARY}
+      >
+        {pending ? <Loader2 size={14} className="animate-spin" /> : <Phone size={14} />}
+        {withinWindow ? 'Start calling now' : `Queue calls for ${from}`}
+      </button>
+    </>
+  )
+}
+
+/**
+ * The phone stage's settings, shown in its drawer: the call window and the screening
+ * questions. Both change rarely, so they live behind the Settings button.
+ */
+export function ScreeningSettingsPanel({ job }: { job: Job }) {
+  const queryClient = useQueryClient()
+  const saved = useCallWindow(job)
+  const [fromTime, setFromTime] = useState(saved.from)
+  const [toTime, setToTime] = useState(saved.to)
+  const [criteriaOpen, setCriteriaOpen] = useState(false)
+
+  const timezone = saved.timezone
+  const dirty = fromTime !== saved.from || toTime !== saved.to
+  // The standard questions are the same on every job, so the preview shows what is specific to
+  // this one: the role-specific and custom questions.
+  const questionCount = job.screening_questions?.length ?? 0
+  const extraQuestions = editableQuestions(job.screening_questions)
+  const previewText =
+    extraQuestions.length > 0
+      ? extraQuestions
+          .slice(0, 2)
+          .map((q) => q.question)
+          .join(' · ')
+      : 'Standard questions only.'
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      api.patch(`/api/jobs/${job.id}`, {
+        screening_call_from: `${fromTime}:00`,
+        screening_call_to: `${toTime}:00`,
+        screening_timezone: timezone,
+      }) as unknown as Promise<Job>,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['job', job.id] })
+      toast.success('Call window saved')
+    },
+    onError: () => toast.error('Failed to save call window'),
+  })
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-lg border border-line bg-surface-2/60 p-4">
+        <h3 className="text-sm font-semibold text-ink">Call window</h3>
+        <p className="mt-0.5 text-xs text-ink-muted">
+          Calls are placed only between these times. Anything approved outside them is queued for the
+          next opening.
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="screening-from-time" className="mb-1 block text-[11px] text-ink-muted">
+              From
+            </label>
+            <input
+              id="screening-from-time"
+              type="time"
+              value={fromTime}
+              onChange={(e) => setFromTime(e.target.value)}
+              className={inputClass}
+            />
           </div>
-          <span
-            className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
-              withinWindow ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'
-            }`}
+          <div>
+            <label htmlFor="screening-to-time" className="mb-1 block text-[11px] text-ink-muted">
+              To
+            </label>
+            <input
+              id="screening-to-time"
+              type="time"
+              value={toTime}
+              onChange={(e) => setToTime(e.target.value)}
+              className={inputClass}
+            />
+          </div>
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <p className="text-[11px] text-ink-muted">
+            Timezone: <span className="font-medium text-ink">{timezone}</span>
+          </p>
+          <button
+            type="button"
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending || !dirty}
+            className={BTN_SECONDARY}
           >
-            <Clock size={12} />
-            {withinWindow ? 'Within window' : 'Outside window'}
-          </span>
+            {saveMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : 'Save window'}
+          </button>
         </div>
+      </section>
 
-        <div className="space-y-3 p-4">
-          {/* Window + criteria */}
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
-              <p className="mb-2 text-xs font-medium text-slate-600">Call window</p>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label htmlFor="screening-from-time" className="mb-1 block text-[11px] text-slate-500">
-                    From
-                  </label>
-                  <input
-                    id="screening-from-time"
-                    type="time"
-                    value={fromTime}
-                    onChange={(e) => setFromTime(e.target.value)}
-                    className={inputClass}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="screening-to-time" className="mb-1 block text-[11px] text-slate-500">
-                    To
-                  </label>
-                  <input
-                    id="screening-to-time"
-                    type="time"
-                    value={toTime}
-                    onChange={(e) => setToTime(e.target.value)}
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-              <p className="mt-2 text-[11px] text-slate-500">
-                Timezone: <span className="font-medium text-slate-700">{timezone}</span>
-              </p>
-            </div>
-
-            <div className="flex flex-col rounded-lg border border-slate-100 bg-slate-50/60 p-3">
-              <p className="mb-2 text-xs font-medium text-slate-600">
-                Screening questions
-                {questionCount > 0 && (
-                  <span className="ml-1.5 font-normal text-slate-400">({questionCount})</span>
-                )}
-              </p>
-              <p className="mb-2 line-clamp-2 flex-1 text-xs leading-relaxed text-slate-600">
-                {previewText}
-              </p>
-              <button
-                type="button"
-                onClick={() => setCriteriaOpen(true)}
-                className={`${btnSecondary} w-fit`}
-              >
-                <Settings2 size={14} />
-                {questionCount > 0 ? 'Edit questions' : 'Set up questions'}
-              </button>
-            </div>
-          </div>
-
-          {!withinWindow && (
-            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              Outside the call window. <span className="font-semibold">Save</span> persists your
-              window and queues calls until {fromTime} ({timezone}). Use{' '}
-              <span className="font-semibold">Call now anyway</span> to override.
-            </p>
+      <section className="rounded-lg border border-line bg-surface-2/60 p-4">
+        <h3 className="text-sm font-semibold text-ink">
+          Screening questions
+          {questionCount > 0 && (
+            <span className="ml-1.5 font-mono text-xs font-normal tabular-nums text-ink-muted">
+              ({questionCount})
+            </span>
           )}
-
-          {/* Actions */}
-          <div className="flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-slate-600">
-              {eligibleCount === 0 ? (
-                <>
-                  No candidates ready — approve resumes on{' '}
-                  <span className="font-medium text-slate-700">Resume Screening</span> first
-                </>
-              ) : (
-                <>
-                  <span className="font-semibold text-slate-800">{eligibleCount}</span>
-                  {eligibleCount === 1 ? ' candidate' : ' candidates'} ready in Pending / Flagged
-                </>
-              )}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {withinWindow && (
-                <button
-                  type="button"
-                  onClick={() => saveMutation.mutate()}
-                  disabled={saveMutation.isPending}
-                  className={btnSecondary}
-                >
-                  {saveMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : 'Save window'}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => startMutation.mutate(false)}
-                disabled={startMutation.isPending || eligibleCount === 0}
-                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-xs font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {startMutation.isPending ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <Phone size={14} />
-                )}
-                {startButtonLabel}
-              </button>
-              {!withinWindow && (
-                <button
-                  type="button"
-                  onClick={() => startMutation.mutate(true)}
-                  disabled={startMutation.isPending || eligibleCount === 0}
-                  className="inline-flex h-9 items-center justify-center rounded-lg border border-indigo-200 bg-indigo-50 px-3.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
-                >
-                  Call now anyway
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+        </h3>
+        <p className="mb-3 mt-1 line-clamp-2 text-xs leading-relaxed text-ink-muted">{previewText}</p>
+        <button type="button" onClick={() => setCriteriaOpen(true)} className={BTN_SECONDARY}>
+          <Settings2 size={14} aria-hidden />
+          {questionCount > 0 ? 'Edit questions' : 'Set up questions'}
+        </button>
+      </section>
 
       <ScreeningCriteriaModal job={job} open={criteriaOpen} onClose={() => setCriteriaOpen(false)} />
-    </>
+    </div>
   )
 }
