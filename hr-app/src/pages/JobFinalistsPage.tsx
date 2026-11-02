@@ -1,14 +1,16 @@
 import { Link, useOutletContext } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { FileText, Loader2, Users } from 'lucide-react'
+import { Download, FileText, Loader2, Trophy, Users } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { FinalistsResponse } from '@/types/api'
 import type { JobOutletContext } from '@/components/JobLayout'
 import { BTN_SECONDARY } from '@/components/ui/Surface'
+import StageHeader from '@/components/stage/StageHeader'
+import { downloadFinalistsExcel } from '@/lib/finalistsExport'
 import { WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
 
 export default function JobFinalistsPage() {
-  const { jobId } = useOutletContext<JobOutletContext>()
+  const { job, jobId } = useOutletContext<JobOutletContext>()
 
   const { data, isLoading, isError, refetch } = useQuery<FinalistsResponse>({
     queryKey: ['finalists', jobId],
@@ -20,7 +22,25 @@ export default function JobFinalistsPage() {
   const candidates = data?.candidates ?? []
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      <StageHeader
+        icon={Trophy}
+        title="Finalists"
+        description="Approved after interview — ready for offer discussions."
+        count={isLoading ? undefined : candidates.length}
+        actions={
+          <button
+            type="button"
+            disabled={candidates.length === 0}
+            onClick={() => downloadFinalistsExcel(job.title, candidates)}
+            className={BTN_SECONDARY}
+          >
+            <Download size={14} aria-hidden />
+            Export Excel
+          </button>
+        }
+      />
+
       {isError && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           Failed to load finalists.{' '}

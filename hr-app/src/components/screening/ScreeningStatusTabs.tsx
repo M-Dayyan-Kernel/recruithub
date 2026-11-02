@@ -9,7 +9,7 @@ import {
   countByTab,
   type ScreeningTabId,
 } from '@/components/screening/screeningRows'
-import { cn } from '@/lib/utils'
+import StageTabs from '@/components/stage/StageTabs'
 
 const TABS: ScreeningTabId[] = ['pending', 'completed', 'flagged']
 
@@ -22,15 +22,6 @@ const TAB_LABELS: Record<ScreeningTabId, string> = {
 function resolveTab(raw: string | null): ScreeningTabId {
   if (raw === 'completed' || raw === 'flagged' || raw === 'pending') return raw
   return 'pending'
-}
-
-function activeClass(tab: ScreeningTabId, isActive: boolean): string {
-  if (!isActive) {
-    return 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-  }
-  if (tab === 'pending') return 'bg-emerald-600 text-white'
-  if (tab === 'completed') return 'bg-indigo-600 text-white'
-  return 'bg-amber-500 text-white'
 }
 
 interface Props {
@@ -82,22 +73,12 @@ export function ScreeningStatusTabs({ jobId }: Props) {
   }
 
   return (
-    <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
-      {TABS.map((tab) => (
-        <button
-          key={tab}
-          type="button"
-          onClick={() => setTab(tab)}
-          className={cn(
-            'rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors',
-            activeClass(tab, activeTab === tab),
-          )}
-        >
-          {TAB_LABELS[tab]}
-          <span className="ml-1.5 text-xs opacity-80">({tabCounts[tab]})</span>
-        </button>
-      ))}
-    </div>
+    <StageTabs
+      label="Phone screening views"
+      active={activeTab}
+      onChange={setTab}
+      tabs={TABS.map((tab) => ({ id: tab, label: TAB_LABELS[tab], count: tabCounts[tab] }))}
+    />
   )
 }
 

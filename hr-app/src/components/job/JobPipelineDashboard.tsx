@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, CheckCircle2, ClipboardCheck, FileText, Phone, Video } from 'lucide-react'
 import { api } from '@/lib/api'
-import { fetchJobCandidates } from '@/lib/workflow'
+import { fetchCandidatePage } from '@/lib/workflow'
 import type {
   InterviewPipelineResponse,
   Job,
@@ -39,13 +39,13 @@ interface StageConfig {
  */
 function StageStrip({ stages, columns }: { stages: StageConfig[]; columns: string }) {
   return (
-    <div className={cn('grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200', columns)}>
+    <div className={cn('grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line', columns)}>
       {stages.map((stage) => {
         const cell = (
           <div
             className={cn(
-              'flex h-full items-center gap-3 bg-white px-4 py-3 transition-colors',
-              stage.to && !stage.disabled && 'hover:bg-slate-50',
+              'flex h-full items-center gap-3 bg-surface px-4 py-3 transition-colors',
+              stage.to && !stage.disabled && 'hover:bg-surface-2',
               stage.disabled && 'opacity-50',
             )}
           >
@@ -55,12 +55,12 @@ function StageStrip({ stages, columns }: { stages: StageConfig[]; columns: strin
             >
               {stage.icon}
             </span>
-            <p className="min-w-[2ch] font-mono text-2xl font-semibold leading-none tabular-nums text-slate-900">
+            <p className="min-w-[2ch] font-mono text-2xl font-semibold leading-none tabular-nums text-ink">
               {stage.value}
             </p>
             <div className="min-w-0">
-              <p className="text-sm font-semibold leading-snug text-slate-800">{stage.label}</p>
-              <p className="mt-0.5 text-xs leading-snug text-slate-500">{stage.description}</p>
+              <p className="text-sm font-semibold leading-snug text-ink">{stage.label}</p>
+              <p className="mt-0.5 text-xs leading-snug text-ink-muted">{stage.description}</p>
             </div>
           </div>
         )
@@ -70,7 +70,7 @@ function StageStrip({ stages, columns }: { stages: StageConfig[]; columns: strin
           <Link
             key={stage.key}
             to={stage.to}
-            className="block focus:outline-none focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-indigo-500"
+            className="block focus:outline-none focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-accent"
           >
             {cell}
           </Link>
@@ -82,14 +82,14 @@ function StageStrip({ stages, columns }: { stages: StageConfig[]; columns: strin
 
 function StageStripSkeleton({ count, columns }: { count: number; columns: string }) {
   return (
-    <div className={cn('grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200', columns)}>
+    <div className={cn('grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line', columns)}>
       {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="flex items-center gap-3 bg-white px-4 py-3">
-          <div className="h-9 w-9 animate-pulse rounded-lg bg-slate-100" />
-          <div className="h-7 w-8 animate-pulse rounded bg-slate-200" />
+        <div key={i} className="flex items-center gap-3 bg-surface px-4 py-3">
+          <div className="h-9 w-9 animate-pulse rounded-lg bg-surface-2" />
+          <div className="h-7 w-8 animate-pulse rounded bg-surface-3" />
           <div className="space-y-1.5">
-            <div className="h-3.5 w-24 animate-pulse rounded bg-slate-200" />
-            <div className="h-3 w-32 animate-pulse rounded bg-slate-100" />
+            <div className="h-3.5 w-24 animate-pulse rounded bg-surface-3" />
+            <div className="h-3 w-32 animate-pulse rounded bg-surface-2" />
           </div>
         </div>
       ))}
@@ -118,8 +118,9 @@ export function JobPipelineDashboard({ job }: Props) {
         enabled: !!jobId,
       },
       {
-        queryKey: ['candidates', jobId],
-        queryFn: () => fetchJobCandidates(jobId),
+        // Its own key: ['candidates', jobId] elsewhere holds a bare array, not this page.
+        queryKey: ['candidates', jobId, 'page'],
+        queryFn: () => fetchCandidatePage(jobId),
         enabled: !!jobId,
       },
       {
@@ -144,7 +145,7 @@ export function JobPipelineDashboard({ job }: Props) {
   const metrics = useMemo(() => {
     const shortlist = shortlistQuery.data ?? []
     const screeningCalls = screeningQuery.data ?? []
-    const candidates = candidatesQuery.data ?? []
+    const candidates = candidatesQuery.data?.items ?? []
     const pipeline = pipelineQuery.data
 
     // HR's decision is the source of truth here, not the AI's recommendation: a candidate the
@@ -162,7 +163,8 @@ export function JobPipelineDashboard({ job }: Props) {
     const counts = pipeline?.counts
 
     return {
-      applied: candidates.length,
+      // The server's total: the list is capped, so its length undercounts a big job.
+      applied: candidatesQuery.data?.total ?? 0,
       approved: approvedShortlist.length,
       awaitingDecision,
       screeningCompleted: screeningEffective ? screeningCounts.completed : 0,
@@ -208,7 +210,7 @@ export function JobPipelineDashboard({ job }: Props) {
         description: 'Resumes uploaded',
         value: metrics.applied,
         icon: <FileText size={16} />,
-        tint: 'bg-slate-100 text-slate-600',
+        tint: 'bg-surface-3 text-ink-muted',
         to: `/jobs/${jobId}/shortlist?tab=results`,
       },
       {
@@ -217,7 +219,7 @@ export function JobPipelineDashboard({ job }: Props) {
         description: metrics.awaitingDecision > 0 ? `${metrics.awaitingDecision} awaiting decision` : 'Approved by HR',
         value: metrics.approved,
         icon: <ClipboardCheck size={16} />,
-        tint: 'bg-violet-50 text-violet-600',
+        tint: 'bg-surface-3 text-ink-muted',
         to: `/jobs/${jobId}/shortlist?tab=results`,
       },
     ]
@@ -229,7 +231,7 @@ export function JobPipelineDashboard({ job }: Props) {
         description: metrics.screeningWaiting > 0 ? `${metrics.screeningWaiting} waiting for a call` : 'Voice screening done',
         value: metrics.screeningCompleted,
         icon: <Phone size={16} />,
-        tint: 'bg-sky-50 text-sky-600',
+        tint: 'bg-surface-3 text-ink-muted',
         to: `/jobs/${jobId}/screening`,
       })
     }
@@ -241,7 +243,7 @@ export function JobPipelineDashboard({ job }: Props) {
         description: metrics.interviewsOpen > 0 ? `${metrics.interviewsOpen} booked or in progress` : 'Interviews taken',
         value: metrics.interviewsCompleted,
         icon: <Video size={16} />,
-        tint: 'bg-indigo-50 text-indigo-600',
+        tint: 'bg-surface-3 text-ink-muted',
         to: `/jobs/${jobId}/interviews?tab=completed`,
       },
       {
@@ -250,7 +252,7 @@ export function JobPipelineDashboard({ job }: Props) {
         description: 'Approved after interview',
         value: metrics.finalists,
         icon: <CheckCircle2 size={16} />,
-        tint: 'bg-emerald-50 text-emerald-600',
+        tint: 'bg-pos-soft text-pos',
         to: `/jobs/${jobId}/finalists`,
       },
     )

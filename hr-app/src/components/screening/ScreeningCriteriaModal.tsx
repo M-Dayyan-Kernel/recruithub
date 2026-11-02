@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useEscapeToClose } from '@/hooks/useEscapeToClose'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -20,6 +21,8 @@ interface Props {
 
 export function ScreeningCriteriaModal({ job, open, onClose }: Props) {
   const queryClient = useQueryClient()
+  // Registered with the dialog stack so Escape closes this and not the drawer it opens from.
+  useEscapeToClose(onClose, { busy: false, enabled: open })
   // The standard questions come with the job and are locked; the rest are what this edits.
   const standard = (job.screening_questions ?? []).filter((q) => questionKind(q) === 'standard')
   const [questions, setQuestions] = useState<ScreeningQuestion[]>(() =>

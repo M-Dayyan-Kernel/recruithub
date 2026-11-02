@@ -13,27 +13,32 @@ import {
   Link2,
   Clock,
   CalendarClock,
-  Download,
   Ban,
   SkipForward,
+  ArrowRight,
+  Settings2,
+  Video,
   X,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import { BTN_DANGER, BTN_SECONDARY } from '@/components/ui/Surface'
+import { BTN_DANGER, BTN_SECONDARY, BTN_STAGE_LINK } from '@/components/ui/Surface'
 import type {
   InterviewAction,
   InterviewSession,
   Job,
   InterviewPipelineResponse,
-  FinalistsResponse,
 } from '@/types/api'
 import { ScheduleInterviewModal } from '@/components/screening/ScheduleInterviewModal'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { InterviewPipelineTable } from '@/components/InterviewPipelineTable'
 import type { InterviewPipelineTab } from '@/types/api'
-import { downloadFinalistsExcel } from '@/lib/finalistsExport'
 import { PHONE_SCREENING_LABEL } from '@/lib/stageLabels'
+import StageHeader from '@/components/stage/StageHeader'
+import StageTabs from '@/components/stage/StageTabs'
+import StageToolbar, { StageSearch } from '@/components/stage/StageToolbar'
+import SettingsDrawer from '@/components/stage/SettingsDrawer'
+import { InterviewTopicsPanel } from '@/components/InterviewTopicsPanel'
 import {
   INTERVIEW_STATUS_CONFIG,
   resolveInterviewStatus,
@@ -46,21 +51,20 @@ import {
 
 type InterviewTabId = InterviewPipelineTab
 
-type VisibleInterviewTabId = Exclude<InterviewTabId, 'pending'>
+// Finalists have their own stage page; they are not a tab here.
+type VisibleInterviewTabId = Exclude<InterviewTabId, 'pending' | 'finalists'>
 
 const TAB_LABELS: Record<VisibleInterviewTabId, string> = {
   scheduled: 'Scheduled',
   ongoing: 'Ongoing',
   completed: 'Completed',
   flagged: 'Flagged',
-  finalists: 'Finalists',
 }
 
 const VISIBLE_TABS: VisibleInterviewTabId[] = [
   'scheduled',
   'ongoing',
   'completed',
-  'finalists',
   'flagged',
 ]
 
@@ -75,7 +79,6 @@ const TAB_EMPTY_MESSAGES: Record<VisibleInterviewTabId, string> = {
   ongoing: 'No interviews in progress right now.',
   completed: 'No completed interviews yet.',
   flagged: 'No flagged interviews.',
-  finalists: 'No finalists yet. Mark candidates as finalists from Completed to move them here.',
 }
 
 function formatScheduledAt(iso: string, timezone?: string): string {
@@ -91,18 +94,6 @@ function formatScheduledAt(iso: string, timezone?: string): string {
   } catch {
     return new Date(iso).toLocaleString()
   }
-}
-
-function activeTabClass(tab: VisibleInterviewTabId, isActive: boolean): string {
-  if (!isActive) return 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
-  const active: Record<VisibleInterviewTabId, string> = {
-    scheduled: 'bg-blue-600 text-white',
-    ongoing: 'bg-amber-500 text-white',
-    completed: 'bg-indigo-600 text-white',
-    flagged: 'bg-amber-600 text-white',
-    finalists: 'bg-emerald-600 text-white',
-  }
-  return active[tab]
 }
 
 function InterviewStatusChip({ status }: { status: InterviewStatus }) {
@@ -687,6 +678,8 @@ export function InterviewsTab({ job, jobId }: Props) {
   const tabParam = searchParams.get('tab') as InterviewTabId | null
   const [activeTab, setActiveTab] = useState<VisibleInterviewTabId>(resolveInterviewTab(tabParam))
   const [search, setSearch] = useState(searchParams.get('search') ?? '')
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [topicsDirty, setTopicsDirty] = useState(false)
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1)
   const pageSize = 10
 
@@ -735,13 +728,6 @@ export function InterviewsTab({ job, jobId }: Props) {
     },
   })
 
-  const { data: finalistsData } = useQuery<FinalistsResponse>({
-    queryKey: ['finalists', jobId],
-    queryFn: () =>
-      api.get(`/api/jobs/${jobId}/finalists`) as unknown as Promise<FinalistsResponse>,
-    enabled: !!jobId && activeTab === 'finalists',
-  })
-
   const tabCounts = pipeline?.counts ?? {
     pending: 0,
     scheduled: 0,
@@ -768,97 +754,97 @@ export function InterviewsTab({ job, jobId }: Props) {
     safePage * pageSize,
   )
 
+  // Finalists are counted on their own page, so this is only who is still in interviews.
   const totalEligible =
-    tabCounts.pending +
-    tabCounts.scheduled +
-    tabCounts.ongoing +
-    tabCounts.completed +
-    tabCounts.flagged +
-    (tabCounts.finalists ?? 0)
+    tabCounts.pending + tabCounts.scheduled + tabCounts.ongoing + tabCounts.completed + tabCounts.flagged
+  const finalistCount = tabCounts.finalists ?? 0
 
   const displayTabCount = (tab: VisibleInterviewTabId): number => {
     if (tab === 'scheduled') return tabCounts.scheduled + tabCounts.pending
     return tabCounts[tab] ?? 0
   }
 
-  const tabBar = (
-    <div className="mb-4 flex flex-wrap items-center gap-2">
-      {VISIBLE_TABS.map((tab) => (
-        <button
-          key={tab}
-          type="button"
-          onClick={() => handleTabChange(tab)}
-          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${activeTabClass(tab, activeTab === tab)}`}
-        >
-          {TAB_LABELS[tab]}
-          <span className="ml-1.5 text-xs opacity-80">({displayTabCount(tab)})</span>
+  const header = (
+    <StageHeader
+      icon={Video}
+      title="Interviews"
+      description="AI video interviews, each with questions written for that candidate."
+      count={isLoading ? undefined : totalEligible}
+      actions={
+        <button type="button" onClick={() => setSettingsOpen(true)} className={BTN_SECONDARY}>
+          <Settings2 size={14} aria-hidden />
+          Settings
         </button>
-      ))}
-    </div>
+      }
+    >
+      <StageTabs
+        label="Interview views"
+        active={activeTab}
+        onChange={handleTabChange}
+        tabs={VISIBLE_TABS.map((tab) => ({ id: tab, label: TAB_LABELS[tab], count: displayTabCount(tab) }))}
+      />
+    </StageHeader>
   )
 
-  const filterBar =
-    activeTab === 'completed' || activeTab === 'flagged' || activeTab === 'finalists' ? (
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <input
-          type="search"
+  const closeSettings = () => {
+    if (topicsDirty && !window.confirm('Discard your unsaved topic changes?')) return
+    setTopicsDirty(false)
+    setSettingsOpen(false)
+  }
+
+  const drawer = settingsOpen && (
+    <SettingsDrawer
+      title="Interview topics"
+      description="The pool every candidate's interview is drawn from."
+      onClose={closeSettings}
+    >
+      <InterviewTopicsPanel job={job} onDirtyChange={setTopicsDirty} />
+    </SettingsDrawer>
+  )
+
+  const toolbar =
+    activeTab === 'completed' || activeTab === 'flagged' ? (
+      <StageToolbar>
+        <StageSearch
           value={search}
-          onChange={(e) => {
-            setSearch(e.target.value)
-            syncSearchParams(activeTab, e.target.value, 1)
+          onChange={(next) => {
+            setSearch(next)
+            syncSearchParams(activeTab, next, 1)
           }}
-          placeholder="Search candidates…"
-          className="h-9 w-full max-w-xs rounded-lg border border-slate-200 px-3 text-sm text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
         />
         {totalPages > 1 && (
-          <div className="flex items-center gap-2 text-sm text-slate-600">
+          <div className="flex items-center gap-2 text-sm text-ink-muted">
             <button
               type="button"
               disabled={safePage <= 1}
               onClick={() => syncSearchParams(activeTab, search, safePage - 1)}
-              className="rounded border border-slate-200 px-2 py-1 disabled:opacity-40"
+              className={BTN_SECONDARY}
             >
               Prev
             </button>
             <span>
-              Page {safePage} of {totalPages}
+              Page <span className="font-mono tabular-nums">{safePage}</span> of{' '}
+              <span className="font-mono tabular-nums">{totalPages}</span>
             </span>
             <button
               type="button"
               disabled={safePage >= totalPages}
               onClick={() => syncSearchParams(activeTab, search, safePage + 1)}
-              className="rounded border border-slate-200 px-2 py-1 disabled:opacity-40"
+              className={BTN_SECONDARY}
             >
               Next
             </button>
           </div>
         )}
-        {activeTab === 'finalists' && (
-          <button
-            type="button"
-            disabled={(finalistsData?.candidates.length ?? 0) === 0}
-            onClick={() => {
-              const candidates = finalistsData?.candidates ?? []
-              if (candidates.length === 0) {
-                toast.error('No finalists to export')
-                return
-              }
-              downloadFinalistsExcel(job.title, candidates)
-            }}
-            className="ml-auto inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Download size={15} />
-            Export Excel
-          </button>
-        )}
-      </div>
+      </StageToolbar>
     ) : null
 
   // ── Loading ───────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        {tabBar}
+      <div className="space-y-5">
+        {header}
+        {drawer}
         {[1, 2].map((i) => (
           <div
             key={i}
@@ -886,26 +872,42 @@ export function InterviewsTab({ job, jobId }: Props) {
 
   // ── Normal view (tabs always visible) ─────────────────────────────────────
   return (
-    <div>
-      {tabBar}
-      {filterBar}
+    <div className="space-y-5">
+      {header}
+      {drawer}
+      {toolbar}
 
       {totalEligible === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
             <ClipboardList className="h-6 w-6 text-slate-400" />
           </div>
-          <p className="mb-1 font-semibold text-slate-700">No candidates ready for interview</p>
-          <p className="mx-auto max-w-xs text-sm text-slate-400">
-            Once a candidate is approved for interview, they will appear in these tabs. You can set
-            up the interview rubric above anytime.
-          </p>
+          {finalistCount > 0 ? (
+            <>
+              <p className="mb-1 font-semibold text-slate-700">Nobody is waiting in interviews</p>
+              <p className="mx-auto max-w-sm text-sm text-slate-500">
+                Everyone who was interviewed is a finalist, and finalists have their own page.
+              </p>
+              <Link to={`/jobs/${jobId}/finalists`} className={`${BTN_STAGE_LINK} mt-4`}>
+                Open Finalists
+                <ArrowRight size={13} aria-hidden />
+              </Link>
+            </>
+          ) : (
+            <>
+              <p className="mb-1 font-semibold text-slate-700">No candidates ready for interview</p>
+              <p className="mx-auto max-w-xs text-sm text-slate-400">
+                Once a candidate is approved for interview, they will appear in these tabs. You can set
+                up the interview topics in Settings anytime.
+              </p>
+            </>
+          )}
         </div>
       ) : pipelineCandidates.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center">
           <p className="text-sm text-slate-500">{TAB_EMPTY_MESSAGES[activeTab]}</p>
         </div>
-      ) : activeTab === 'completed' || activeTab === 'flagged' || activeTab === 'finalists' ? (
+      ) : activeTab === 'completed' || activeTab === 'flagged' ? (
         filteredCandidates.length === 0 ? (
           <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center">
             <p className="text-sm text-slate-500">No candidates match your search.</p>

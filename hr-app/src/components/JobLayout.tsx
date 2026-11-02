@@ -6,7 +6,6 @@ import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { JobHeader, JobHeaderSkeleton } from '@/components/JobHeader'
 import {
-  JobPhaseNav,
   currentPhaseSegment,
   jobPhasePath,
   jobPhaseSteps,
@@ -166,7 +165,6 @@ export default function JobLayout() {
       {!isLoading && job && jobId && (
         <>
           <JobBreadcrumbs job={job} jobId={jobId} pathname={location.pathname} />
-          <JobPhaseNav job={job} />
           {showJobHeader && <JobHeader job={job} showDelete />}
           <Outlet context={{ job, jobId } satisfies JobOutletContext} />
         </>

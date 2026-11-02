@@ -2,10 +2,13 @@ import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /**
- * The chip look shared by the header's icon controls. On is accent-tinted and carries a dot;
- * off is dashed but still clearly a control. State has to read without hovering, since the
- * meaning lives in a tooltip. That is two accent elements, the most docs/UI.md §2 allows a
- * screen, so nothing else in the job header may use the accent.
+ * The chip look shared by the header's icon controls. On is accent-tinted with a dot; off is
+ * dashed but still clearly a control. State has to read without hovering, since the meaning
+ * lives in a tooltip.
+ *
+ * This is a deliberate use of the accent (HR asked for a visible on-state): the job header's
+ * two chips are its only accent marks, so nothing else in the header may use it. docs/UI.md §2
+ * caps the accent at about two a screen; the stage tabs are neutral for the same reason.
  */
 export function iconChipClass(on: boolean, disabled?: boolean): string {
   return cn(

@@ -24,7 +24,15 @@ import {
   mockGetInterviewPipeline,
   mockPostScreeningTrigger,
   mockPostResumes,
+  mockAuthenticatedSession,
+  mockUnmockedApi,
 } from './fixtures'
+
+// Every route here is protected: without a session these specs only ever saw the sign-in page.
+test.beforeEach(async ({ page }) => {
+  await mockUnmockedApi(page) // first, so every specific mock below takes precedence
+  await mockAuthenticatedSession(page)
+})
 
 const FRONTEND_JOB = MOCK_JOBS[0]
 const FRONTEND_URL = `/jobs/${JOB_IDS.frontend}`
@@ -63,7 +71,7 @@ test('Resume Screening tab is default on job shortlist load', async ({ page }) =
   await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByRole('button', { name: 'Resume Screening', exact: true })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Resume Screening', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Resume Screening' })).toBeVisible()
   await expect(page.getByText('No candidates have been scored yet.')).toBeVisible()
 })
@@ -74,8 +82,9 @@ test('job overview shows resume upload in hiring pipeline', async ({ page }) => 
   await page.goto(FRONTEND_URL)
   await page.waitForLoadState('networkidle')
 
-  const pipeline = page.getByRole('region', { name: 'Stats' })
-  await expect(pipeline.getByText('Add candidate resumes')).toBeVisible()
+  // The upload is its own card under the stats, not part of them.
+  const upload = page.getByRole('region', { name: 'Add candidates' })
+  await expect(upload.getByText('Add candidate resumes')).toBeVisible()
 })
 
 test('shortlist toolbar shows Resume Screening and Processing only', async ({ page }) => {
@@ -84,8 +93,8 @@ test('shortlist toolbar shows Resume Screening and Processing only', async ({ pa
   await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByRole('button', { name: 'Resume Screening', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Processing', exact: true })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Resume Screening', exact: true })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Processing', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Upload', exact: true })).not.toBeVisible()
 })
 
@@ -97,7 +106,7 @@ test('upload from job overview navigates to processing tab', async ({ page }) =>
   await page.waitForLoadState('networkidle')
 
   await page
-    .getByRole('region', { name: 'Stats' })
+    .getByRole('region', { name: 'Add candidates' })
     .locator('input[type="file"]')
     .setInputFiles({
       name: 'resume.pdf',
@@ -105,7 +114,8 @@ test('upload from job overview navigates to processing tab', async ({ page }) =>
       buffer: Buffer.from('%PDF-1.4 test'),
     })
 
-  await expect(page).toHaveURL(`${FRONTEND_SHORTLIST_URL}?tab=processing`)
+  // The upload adds a `watch` list of the new candidates after the tab.
+  await expect(page).toHaveURL(new RegExp(`${FRONTEND_SHORTLIST_URL}\\?tab=processing`))
   await expect(page.getByRole('heading', { name: 'AI Review in Progress' })).toBeVisible()
 })
 
@@ -121,7 +131,7 @@ test('each workflow tab shows its empty state', async ({ page }) => {
   }
 
   for (const tab of WORKFLOW_TABS) {
-    await page.getByRole('button', { name: tab, exact: true }).click()
+    await page.getByRole('tab', { name: tab, exact: true }).click()
     await expect(page.getByText(emptyStates[tab])).toBeVisible()
   }
 })
@@ -143,7 +153,7 @@ test('404 job renders Job not found state', async ({ page }) => {
   await page.waitForLoadState('networkidle')
 
   await expect(page.getByText('Job not found')).toBeVisible()
-  await expect(page.getByRole('link', { name: /Back to Dashboard/i }).first()).toBeVisible()
+  await expect(page.getByRole('link', { name: /Back to Jobs/i }).first()).toBeVisible()
 })
 
 test('job with null required_skills renders without skill chips or crash', async ({ page }) => {
@@ -177,7 +187,8 @@ test('Processing tab shows in-progress AI review', async ({ page }) => {
   await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
-  await page.getByRole('button', { name: 'Processing', exact: true }).click()
+  // The tab carries its in-flight count ("Processing 1"), so match the start of the name.
+  await page.getByRole('tab', { name: /^Processing/ }).click()
   await expect(page.getByRole('heading', { name: 'AI Review in Progress' })).toBeVisible()
   await expect(page.getByText('Bob Martinez')).toBeVisible()
   await expect(page.getByText('Reviewing')).toBeVisible()
@@ -200,7 +211,7 @@ test('completed candidate appears on Resume Screening tab', async ({ page }) => 
   await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByRole('cell', { name: 'Alice Sharma' })).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'Alice Sharma', exact: true })).toBeVisible()
   await expect(page.getByText(/8[78]%/).first()).toBeVisible()
 })
 
@@ -221,11 +232,13 @@ test('Resume Screening tab supports table approve', async ({ page }) => {
   await page.goto(FRONTEND_SHORTLIST_URL)
   await page.waitForLoadState('networkidle')
 
-  await page.getByRole('button', { name: 'Resume Screening', exact: true }).click()
-  await expect(page.getByRole('cell', { name: 'Alice Sharma' })).toBeVisible()
+  await page.getByRole('tab', { name: 'Resume Screening', exact: true }).click()
+  await expect(page.getByRole('cell', { name: 'Alice Sharma', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Report' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Approve', exact: true }).click()
+  await page.getByRole('button', { name: 'Approve Alice Sharma', exact: true }).click()
+  // Approving asks first: it starts a call or sends an invite.
+  await page.getByRole('dialog').getByRole('button', { name: /^Approve and/ }).click()
 
   await expect(page.getByText('Approved').first()).toBeVisible({ timeout: 5000 })
   expect(patched).toHaveLength(1)
@@ -256,8 +269,9 @@ test('Resume Screening report button opens report modal on same screen', async (
 
   await dialog.getByRole('button', { name: 'Close report' }).click()
   await expect(dialog).not.toBeVisible()
-  await expect(page).toHaveURL(FRONTEND_SHORTLIST_URL)
-  await expect(page.getByRole('cell', { name: 'Alice Sharma' })).toBeVisible()
+  // The page settles on its default tab, which it adds to the URL.
+  await expect(page).toHaveURL(new RegExp(`^.*${FRONTEND_SHORTLIST_URL}(\\?tab=results)?$`))
+  await expect(page.getByRole('cell', { name: 'Alice Sharma', exact: true })).toBeVisible()
 })
 
 test('job details page shows pipeline overview stats', async ({ page }) => {
@@ -266,23 +280,24 @@ test('job details page shows pipeline overview stats', async ({ page }) => {
   await page.goto(FRONTEND_URL)
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByRole('heading', { name: 'Stats' })).toBeVisible()
-  await expect(page.getByText('Resume Shortlisted', { exact: true })).toBeVisible()
-  await expect(page.getByText('Screened', { exact: true })).toBeVisible()
-  await expect(page.getByText('Scheduled', { exact: true })).toBeVisible()
-  await expect(page.getByText('Finalists', { exact: true })).toBeVisible()
+  const stats = page.getByRole('region', { name: 'Stats' })
+  await expect(stats.getByRole('heading', { name: 'Stats' })).toBeVisible()
+  for (const label of ['Applied', 'Resume approved', 'Phone calls completed', 'Interviews completed', 'Finalists']) {
+    await expect(stats.getByText(label, { exact: true })).toBeVisible()
+  }
 })
 
-test('Delete Job button is visible on job details route', async ({ page }) => {
+test('Delete is in the job actions menu on the job details route', async ({ page }) => {
   await mockFrontendJobDetail(page)
 
   await page.goto(FRONTEND_URL)
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByRole('button', { name: 'Delete Job' })).toBeVisible()
+  await page.getByRole('button', { name: 'Job actions' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Delete' })).toBeVisible()
 })
 
-test('Delete Job button is hidden on Screening route', async ({ page }) => {
+test('The job actions menu is hidden on the Screening route', async ({ page }) => {
   await mockGetJobs(page)
   await mockGetJob(page, JOB_IDS.frontend, FRONTEND_JOB)
   await mockGetCandidates(page, JOB_IDS.frontend, [])
@@ -294,10 +309,10 @@ test('Delete Job button is hidden on Screening route', async ({ page }) => {
   await page.goto(`/jobs/${JOB_IDS.frontend}/screening`)
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByRole('button', { name: 'Delete Job' })).not.toBeVisible()
+  await expect(page.getByRole('button', { name: 'Job actions' })).not.toBeVisible()
 })
 
-test('Screening page shows settings card and tabs', async ({ page }) => {
+test('Screening page shows its header, tabs and call controls', async ({ page }) => {
   const approvedShortlist = MOCK_SHORTLIST.map((s) =>
     s.candidate_id === CANDIDATE_IDS.alice ? { ...s, hr_decision: 'approved' } : s,
   )
@@ -314,11 +329,13 @@ test('Screening page shows settings card and tabs', async ({ page }) => {
   await page.goto(`/jobs/${JOB_IDS.frontend}/screening`)
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByText('Screening Call Settings')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Pending' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Completed' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Flagged' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Start Calling Now' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Phone Screening' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: /^Pending/ })).toBeVisible()
+  await expect(page.getByRole('tab', { name: /^Completed/ })).toBeVisible()
+  await expect(page.getByRole('tab', { name: /^Flagged/ })).toBeVisible()
+  // The settings sit behind a button, not in an always-open card.
+  await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Start calling now|Queue calls for/ })).toBeVisible()
 })
 
 test('Screening Call Now triggers force screening', async ({ page }) => {
@@ -347,7 +364,7 @@ test('Screening Call Now triggers force screening', async ({ page }) => {
   expect(triggerBody?.candidate_ids).toContain(CANDIDATE_IDS.alice)
 })
 
-test('deleting a job navigates to dashboard', async ({ page }) => {
+test('deleting a job returns to the jobs list', async ({ page }) => {
   let deleted = false
 
   await mockGetJobs(page)
@@ -365,9 +382,10 @@ test('deleting a job navigates to dashboard', async ({ page }) => {
   await page.waitForLoadState('networkidle')
 
   page.once('dialog', (dialog) => dialog.accept())
-  await page.getByRole('button', { name: 'Delete Job' }).click()
+  await page.getByRole('button', { name: 'Job actions' }).click()
+  await page.getByRole('menuitem', { name: 'Delete' }).click()
 
   await expect(page.getByText('Job deleted')).toBeVisible({ timeout: 5000 })
-  await expect(page).toHaveURL('/')
+  await expect(page).toHaveURL('/jobs')
   expect(deleted).toBe(true)
 })

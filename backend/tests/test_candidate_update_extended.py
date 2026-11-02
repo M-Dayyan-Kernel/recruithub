@@ -25,6 +25,7 @@ class CandidateUpdateExtendedTests(unittest.IsolatedAsyncioTestCase):
         candidate.phone = None
         candidate.original_filename = "resume.pdf"
         candidate.pipeline_status = "completed"
+        candidate.pipeline_error = None
         candidate.status = "active"
         candidate.years_experience = None
         candidate.current_ctc = None
@@ -84,6 +85,7 @@ class CandidateUpdateExtendedTests(unittest.IsolatedAsyncioTestCase):
         candidate.status = "active"
         candidate.original_filename = "r.pdf"
         candidate.pipeline_status = "completed"
+        candidate.pipeline_error = None
         candidate.years_experience = None
         candidate.current_ctc = None
         candidate.expected_ctc = None

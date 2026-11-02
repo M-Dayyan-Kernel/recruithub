@@ -4,6 +4,8 @@ import { formatDateTime } from './activityFormat.ts'
 export type StageTone = 'neutral' | 'accent' | 'pos' | 'warn' | 'neg'
 
 export interface StageView {
+  /** Which stage page owns the candidate. Branch on this, never on the display title. */
+  phase: 'screening' | 'interview' | 'finalist'
   /** The stage the candidate is in, e.g. "Phone screening". */
   title: string
   /** What is happening in it, e.g. "Call in progress". */
@@ -28,12 +30,13 @@ const SCREENING_STATES: Record<string, { detail: string; tone: StageTone; tab: '
   flagged: { detail: 'Needs attention', tone: 'warn', tab: 'flagged' },
 }
 
-const INTERVIEW_STATES: Record<string, { detail: string; tone: StageTone; tab: string; title?: string }> = {
+// `tab` is the Interviews tab that owns the state; a finalist has none, it is on its own page.
+const INTERVIEW_STATES: Record<string, { detail: string; tone: StageTone; tab?: string; title?: string }> = {
   pending: { detail: 'Screening passed, interview next', tone: 'neutral', tab: 'scheduled' },
   link_sent: { detail: 'Link sent', tone: 'neutral', tab: 'scheduled' },
   live: { detail: 'In progress', tone: 'accent', tab: 'ongoing' },
   completed: { detail: 'Completed', tone: 'neutral', tab: 'completed' },
-  finalist: { detail: 'Approved as a finalist', tone: 'pos', tab: 'finalists', title: 'Finalist' },
+  finalist: { detail: 'Approved as a finalist', tone: 'pos', title: 'Finalist' },
   flagged: { detail: 'Needs attention', tone: 'warn', tab: 'flagged' },
   cancelled: { detail: 'Interview cancelled', tone: 'neutral', tab: 'scheduled' },
 }
@@ -49,6 +52,7 @@ export function describeStage(stage: ShortlistStage, jobId: string): StageView {
     // Paused (screening off) rows are listed where they were: Flagged if they had a flag.
     const tab = stage.state === 'paused' && stage.reason ? 'flagged' : (known?.tab ?? 'pending')
     return {
+      phase: 'screening',
       title: 'Phone screening',
       detail: (stage.state === 'flagged' && stage.reason) || known?.detail || 'In this stage',
       tone: known?.tone ?? 'neutral',
@@ -57,7 +61,19 @@ export function describeStage(stage: ShortlistStage, jobId: string): StageView {
     }
   }
   const known = INTERVIEW_STATES[stage.state]
+  if (stage.state === 'finalist') {
+    // A finalist is past the interview stage: they live on the Finalists page, not in Interviews.
+    return {
+      phase: 'finalist',
+      title: known.title ?? 'Finalist',
+      detail: known.detail,
+      tone: known.tone,
+      to: `/jobs/${jobId}/finalists`,
+      toLabel: 'Open Finalists',
+    }
+  }
   return {
+    phase: 'interview',
     title: known?.title ?? 'Interview',
     detail: (stage.state === 'flagged' && stage.reason) || known?.detail || 'In this stage',
     at: stage.state === 'link_sent' && stage.scheduled_at ? formatDateTime(stage.scheduled_at) : undefined,

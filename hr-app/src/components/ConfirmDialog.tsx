@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { AlertTriangle, Loader2, X } from 'lucide-react'
+import { useEscapeToClose } from '@/hooks/useEscapeToClose'
 
 export type ConfirmTone = 'danger' | 'warning' | 'default'
 
@@ -48,22 +49,18 @@ export function ConfirmDialog({
   onCancel,
 }: Props) {
   const confirmRef = useRef<HTMLButtonElement>(null)
+  useEscapeToClose(onCancel, { busy, enabled: open })
 
   useEffect(() => {
     if (!open) return
     confirmRef.current?.focus()
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !busy) onCancel()
-    }
-    document.addEventListener('keydown', onKeyDown)
     // Stop the page behind the overlay from scrolling with the dialog open.
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
-      document.removeEventListener('keydown', onKeyDown)
       document.body.style.overflow = previousOverflow
     }
-  }, [open, busy, onCancel])
+  }, [open])
 
   if (!open) return null
 

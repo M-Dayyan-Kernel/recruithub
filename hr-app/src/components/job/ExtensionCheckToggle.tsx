@@ -253,7 +253,7 @@ function LevelMenu({
                   aria-hidden
                   className={cn(
                     'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border',
-                    selected ? 'border-accent bg-accent text-white' : 'border-line-strong bg-surface',
+                    selected ? 'border-accent bg-accent text-accent-ink' : 'border-line-strong bg-surface',
                   )}
                 >
                   {selected && <Check size={10} strokeWidth={3} />}

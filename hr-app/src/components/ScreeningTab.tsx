@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { ArrowRight, Loader2, Mic, Phone, PhoneOff, X } from 'lucide-react'
+import { ArrowRight, Loader2, Mic, Phone, PhoneOff, Settings2, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import type {
   Candidate,
@@ -12,9 +12,16 @@ import type {
 } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
-import { BTN_DANGER, BTN_GHOST } from '@/components/ui/Surface'
+import { BTN_DANGER, BTN_GHOST, BTN_SECONDARY } from '@/components/ui/Surface'
+import { describeStage } from '@/lib/shortlistDecision'
+import { InInterviewCell, inInterviewBadge } from '@/components/screening/InInterviewCell'
 import type { JobOutletContext } from '@/components/JobLayout'
-import { ScreeningSettingsCard } from '@/components/screening/ScreeningSettingsCard'
+import {
+  ScreeningCallActions,
+  ScreeningSettingsPanel,
+} from '@/components/screening/ScreeningSettingsCard'
+import StageHeader from '@/components/stage/StageHeader'
+import SettingsDrawer from '@/components/stage/SettingsDrawer'
 import { CompletedScreeningList } from '@/components/screening/CompletedScreeningList'
 import {
   buildScreeningRows,
@@ -34,7 +41,8 @@ import {
   WORKFLOW_TABLE_EMPTY_CELL_CLASS,
   WORKFLOW_TABLE_EMPTY_ROW_CLASS,
 } from '@/lib/workflow'
-import { resolveScreeningTab } from '@/components/screening/ScreeningStatusTabs'
+import { ScreeningStatusTabs, resolveScreeningTab } from '@/components/screening/ScreeningStatusTabs'
+import { PHONE_SCREENING_LABEL } from '@/lib/stageLabels'
 
 const TAB_LABELS: Record<ScreeningTabId, string> = {
   pending: 'Pending',
@@ -144,6 +152,9 @@ function ScreeningTableRow({
   const reasonOk = reason.trim().length >= 3
 
   const variant = row.isActive ? 'active' : row.tab
+  // Where an interview (or later) owns the candidate: say which stage, and link to it.
+  const stageView = row.inInterview && row.shortlist.stage ? describeStage(row.shortlist.stage, jobId) : null
+  const badge = row.inInterview ? inInterviewBadge(stageView) : null
 
   return (
     <>
@@ -153,7 +164,7 @@ function ScreeningTableRow({
         <td className="px-4 py-3 text-sm text-slate-500">#{row.attemptNumber}</td>
         <td className="px-4 py-3">
           <div className="flex flex-col gap-1">
-            <StatusPill label={row.statusLabel} variant={variant} />
+            <StatusPill label={badge?.label ?? row.statusLabel} variant={badge?.variant ?? variant} />
             {row.tab === 'completed' && row.latestCall?.result && (
               <span className="text-xs text-slate-500 capitalize">
                 AI: {row.latestCall.result.replace('_', ' ')}
@@ -162,6 +173,9 @@ function ScreeningTableRow({
           </div>
         </td>
         <td className="px-4 py-3">
+          {row.inInterview ? (
+            <InInterviewCell view={stageView} jobId={jobId} />
+          ) : (
           <div className="flex flex-wrap items-center justify-end gap-2">
             {row.canCallNow && (
               <button
@@ -240,6 +254,7 @@ function ScreeningTableRow({
               </button>
             )}
           </div>
+          )}
         </td>
       </tr>
       {placing === 'advance' && (
@@ -332,6 +347,7 @@ export function ScreeningTab({ jobId }: Props) {
   const { job } = useOutletContext<JobOutletContext>()
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const activeTab = resolveScreeningTab(searchParams.get('tab'))
   const screeningOn = job?.voice_screening_enabled !== false
   const autoTriggeredRef = useRef<Set<string>>(new Set())
@@ -510,20 +526,49 @@ export function ScreeningTab({ jobId }: Props) {
     [rows],
   )
 
-  const settingsCard = (
-    <ScreeningSettingsCard
-      job={job}
-      eligibleCandidateIds={eligibleForBulkCall}
-      onCallsTriggered={() => {
-        queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
-      }}
-    />
+  // Off: the call window and bulk dial mean nothing; say why the tab is still here instead.
+  const showCallActions = screeningOn && (activeTab === 'pending' || activeTab === 'flagged')
+
+  const header = (
+    <StageHeader
+      icon={Phone}
+      title={PHONE_SCREENING_LABEL}
+      description="AI calls that check the basics before a candidate is invited to interview."
+      count={isLoading ? undefined : rows.length}
+      actions={
+        screeningOn && job ? (
+          <>
+            <ScreeningCallActions
+              job={job}
+              eligibleCandidateIds={eligibleForBulkCall}
+              showStart={showCallActions}
+              onCallsTriggered={() => {
+                queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
+              }}
+            />
+            <button type="button" onClick={() => setSettingsOpen(true)} className={BTN_SECONDARY}>
+              <Settings2 size={14} aria-hidden />
+              Settings
+            </button>
+          </>
+        ) : undefined
+      }
+    >
+      <ScreeningStatusTabs jobId={jobId} />
+    </StageHeader>
   )
 
-  // Off: the call window and bulk dial mean nothing; say why the tab is still here instead.
-  const showSettingsCard = screeningOn && (activeTab === 'pending' || activeTab === 'flagged')
+  const drawer = settingsOpen && job && (
+    <SettingsDrawer
+      title="Phone screening settings"
+      description="The call window and the questions the AI asks on the call."
+      onClose={() => setSettingsOpen(false)}
+    >
+      <ScreeningSettingsPanel job={job} />
+    </SettingsDrawer>
+  )
   const offBanner = !screeningOn && (
-    <div className="mb-4 rounded-card border border-warn/30 bg-warn-soft px-4 py-3 text-[13px] text-ink">
+    <div className="rounded-card border border-warn/30 bg-warn-soft px-4 py-3 text-[13px] text-ink">
       <p className="font-semibold">Voice screening is off for this job</p>
       <p className="mt-0.5 text-ink-muted">
         No calls will be placed. These candidates were in the phone round when it was turned off:
@@ -535,8 +580,9 @@ export function ScreeningTab({ jobId }: Props) {
 
   if (isLoading) {
     return (
-      <div>
-        {showSettingsCard && settingsCard}
+      <div className="space-y-5">
+        {header}
+        {drawer}
         {offBanner}
         <div className="h-64 animate-pulse rounded-xl bg-slate-200" />
       </div>
@@ -545,8 +591,9 @@ export function ScreeningTab({ jobId }: Props) {
 
   if (isError) {
     return (
-      <div>
-        {showSettingsCard && settingsCard}
+      <div className="space-y-5">
+        {header}
+        {drawer}
         {offBanner}
         <BackendError onRetry={refetch} />
       </div>
@@ -555,8 +602,9 @@ export function ScreeningTab({ jobId }: Props) {
 
   if (approvedShortlist.length === 0) {
     return (
-      <div>
-        {showSettingsCard && settingsCard}
+      <div className="space-y-5">
+        {header}
+        {drawer}
         {offBanner}
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
@@ -572,9 +620,10 @@ export function ScreeningTab({ jobId }: Props) {
   }
 
   return (
-    <div>
-      {showSettingsCard && settingsCard}
-        {offBanner}
+    <div className="space-y-5">
+      {header}
+      {drawer}
+      {offBanner}
 
       <div className={WORKFLOW_CARD_CLASS}>
         {activeTab === 'completed' ? (

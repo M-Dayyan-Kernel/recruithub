@@ -59,6 +59,21 @@ export async function fetchJobCandidates(
   return unwrapPaginated(data)
 }
 
+/**
+ * A page of candidates plus how many match in all. The list endpoint returns at most
+ * DEFAULT_LIST_LIMIT rows, so anything that shows a count must read `total`, not `.length`.
+ */
+export async function fetchCandidatePage(
+  jobId: string,
+  params?: { pipeline_status?: string; limit?: number },
+): Promise<{ items: Candidate[]; total: number }> {
+  const data = (await api.get(
+    candidatesListUrl(jobId, { limit: DEFAULT_LIST_LIMIT, ...params, offset: 0 }),
+  )) as Candidate[] | PaginatedResponse<Candidate>
+  const items = unwrapPaginated(data)
+  return { items, total: Array.isArray(data) ? items.length : (data?.total ?? items.length) }
+}
+
 export async function fetchUsers(): Promise<User[]> {
   const data = (await api.get(
     `/api/users?limit=${DEFAULT_LIST_LIMIT}&offset=0`,

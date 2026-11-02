@@ -44,7 +44,7 @@ test('a flagged screening says why, in the server’s words', () => {
   assert.equal(describeStage({ kind: 'screening', state: 'live', reason: 'stale text' }, JOB).detail, 'Call in progress')
 })
 
-test('every interview state links to the tab that owns it', () => {
+test('every interview state links to the tab that owns it, and a finalist to the Finalists page', () => {
   const tab = (state: string) => describeStage({ kind: 'interview', state }, JOB).to
   assert.equal(tab('pending'), '/jobs/job-1/interviews?tab=scheduled')
   assert.equal(tab('link_sent'), '/jobs/job-1/interviews?tab=scheduled')
@@ -52,7 +52,18 @@ test('every interview state links to the tab that owns it', () => {
   assert.equal(tab('cancelled'), '/jobs/job-1/interviews?tab=scheduled')
   assert.equal(tab('live'), '/jobs/job-1/interviews?tab=ongoing')
   assert.equal(tab('completed'), '/jobs/job-1/interviews?tab=completed')
-  assert.equal(tab('finalist'), '/jobs/job-1/interviews?tab=finalists')
+  // Finalists are not an Interviews tab: they have their own page.
+  assert.equal(tab('finalist'), '/jobs/job-1/finalists')
+})
+
+test('a finalist reads as Finalist and opens Finalists, not Interviews', () => {
+  const f = describeStage({ kind: 'interview', state: 'finalist' }, JOB)
+  // Callers branch on `phase`, so a renamed title can never turn a finalist into an interviewee.
+  assert.equal(f.phase, 'finalist')
+  assert.equal(describeStage({ kind: 'interview', state: 'live' }, JOB).phase, 'interview')
+  assert.equal(describeStage({ kind: 'screening', state: 'live' }, JOB).phase, 'screening')
+  assert.deepEqual([f.title, f.detail, f.toLabel], ['Finalist', 'Approved as a finalist', 'Open Finalists'])
+  assert.equal(describeStage({ kind: 'interview', state: 'link_sent' }, JOB).toLabel, 'Open Interviews')
 })
 
 test('a stage names itself and what is happening', () => {

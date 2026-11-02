@@ -1,25 +1,29 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Loader2, ListChecks, RotateCcw } from 'lucide-react'
+import { Loader2, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import type { Job, InterviewTopic } from '@/types/api'
 import { InterviewTopicsEditor } from '@/components/InterviewTopicsEditor'
 import { cleanTopics, validateTopicPool } from '@/lib/interviewTopics'
-import { cn } from '@/lib/utils'
+import { BTN_GHOST, BTN_PRIMARY } from '@/components/ui/Surface'
 
 interface Props {
   job: Job
+  /** Lets the drawer ask before it throws away unsaved edits. */
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 const snapshotOf = (topics: InterviewTopic[]) => JSON.stringify(cleanTopics(topics))
 
-/** The job's interview topic pool, edited in place on the job page. */
-export function InterviewTopicsPanel({ job }: Props) {
+/**
+ * The job's interview topic pool, edited in the Interviews stage's Settings drawer. Edits are
+ * kept until Save; Discard goes back to what is saved.
+ */
+export function InterviewTopicsPanel({ job, onDirtyChange }: Props) {
   const queryClient = useQueryClient()
   const [topics, setTopics] = useState<InterviewTopic[]>(job.interview_topics ?? [])
   const [savedSnapshot, setSavedSnapshot] = useState(snapshotOf(job.interview_topics ?? []))
-  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     const next = job.interview_topics ?? []
@@ -32,8 +36,8 @@ export function InterviewTopicsPanel({ job }: Props) {
   const mandatory = topics.filter((t) => t.is_mandatory).length
 
   useEffect(() => {
-    if (isDirty) setExpanded(true)
-  }, [isDirty])
+    onDirtyChange?.(isDirty)
+  }, [isDirty, onDirtyChange])
 
   const saveMutation = useMutation({
     mutationFn: (payload: InterviewTopic[]) =>
@@ -49,84 +53,50 @@ export function InterviewTopicsPanel({ job }: Props) {
   })
 
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm">
-      <div className="flex h-14 flex-nowrap items-center gap-3 bg-slate-50/50 px-4">
+    <div className="space-y-4">
+      <p className="text-sm text-ink-muted">
+        {topics.length === 0
+          ? 'No topics yet.'
+          : `${topics.length} topic${topics.length !== 1 ? 's' : ''}${
+              mandatory ? ` · ${mandatory} asked every time` : ''
+            }. `}
+        Each candidate gets their own questions, drawn from these topics.
+      </p>
+
+      <InterviewTopicsEditor
+        topics={topics}
+        onChange={setTopics}
+        job={{
+          title: job.title,
+          description: job.description,
+          required_skills: job.required_skills ?? [],
+          seniority_level: job.seniority_level,
+        }}
+        disabled={saveMutation.isPending}
+        error={isDirty ? problem : null}
+      />
+
+      <div className="sticky bottom-0 -mx-5 -mb-5 flex items-center justify-end gap-2 border-t border-line bg-surface px-5 py-3">
+        {isDirty && <span className="mr-auto text-xs font-medium text-warn">Unsaved changes</span>}
         <button
           type="button"
-          onClick={() => setExpanded((open) => !open)}
-          aria-expanded={expanded ? 'true' : 'false'}
-          className="-mx-1 flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 py-0.5 text-left transition-colors hover:bg-white/60"
+          onClick={() => setTopics(JSON.parse(savedSnapshot) as InterviewTopic[])}
+          disabled={!isDirty || saveMutation.isPending}
+          className={BTN_GHOST}
         >
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white text-slate-500 shadow-sm ring-1 ring-slate-200/60">
-            <ListChecks size={15} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-              <h2 className="truncate text-sm font-semibold text-slate-900">Interview topics</h2>
-              {isDirty && (
-                <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                  Unsaved
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-500">
-              {topics.length === 0
-                ? 'No topics — click to add'
-                : `${topics.length} topic${topics.length !== 1 ? 's' : ''}${
-                    mandatory ? ` · ${mandatory} asked every time` : ''
-                  } · ${expanded ? 'click to collapse' : 'click to edit'}`}
-            </p>
-          </div>
-          <ChevronDown
-            size={18}
-            className={cn('shrink-0 text-slate-400 transition-transform duration-200', expanded && 'rotate-180')}
-            aria-hidden
-          />
+          <RotateCcw size={13} aria-hidden />
+          Discard
         </button>
-
-        <div className="flex shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-          {isDirty && (
-            <>
-              <button
-                type="button"
-                onClick={() => setTopics(JSON.parse(savedSnapshot) as InterviewTopic[])}
-                disabled={saveMutation.isPending}
-                className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-slate-500 transition-colors hover:bg-white hover:text-slate-700 disabled:opacity-50"
-              >
-                <RotateCcw size={11} />
-                Discard
-              </button>
-              <button
-                type="button"
-                onClick={() => saveMutation.mutate(topics)}
-                disabled={saveMutation.isPending || problem !== null}
-                title={problem ?? undefined}
-                className="inline-flex h-8 items-center gap-1 rounded-md bg-indigo-600 px-2.5 text-[11px] font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {saveMutation.isPending ? <Loader2 size={11} className="animate-spin" /> : 'Save'}
-              </button>
-            </>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={() => saveMutation.mutate(topics)}
+          disabled={!isDirty || saveMutation.isPending || problem !== null}
+          title={problem ?? undefined}
+          className={BTN_PRIMARY}
+        >
+          {saveMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : 'Save topics'}
+        </button>
       </div>
-
-      {expanded && (
-        <div className="border-t border-slate-100 p-3">
-          <InterviewTopicsEditor
-            topics={topics}
-            onChange={setTopics}
-            job={{
-              title: job.title,
-              description: job.description,
-              required_skills: job.required_skills ?? [],
-              seniority_level: job.seniority_level,
-            }}
-            disabled={saveMutation.isPending}
-            error={isDirty ? problem : null}
-            scrollable
-          />
-        </div>
-      )}
-    </section>
+    </div>
   )
 }

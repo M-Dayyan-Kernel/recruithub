@@ -1,8 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Loader2, RotateCcw, AlertCircle } from 'lucide-react'
-import { api } from '@/lib/api'
+import { Loader2 } from 'lucide-react'
 import type { Candidate } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
 import {
@@ -13,18 +11,18 @@ import {
 } from '@/lib/workflow'
 
 interface Props {
-  jobId: string
+  jobId?: string
   candidates: Candidate[]
   watchedTotal: number
   watchedDone: number
   isLoading?: boolean
   isError?: boolean
   onRetry?: () => void
-  onComplete?: () => void
+  /** Called once when every watched resume has settled, with how many of them failed. */
+  onComplete?: (summary: { failed: number }) => void
 }
 
 export function ProcessingTab({
-  jobId,
   candidates,
   watchedTotal,
   watchedDone,
@@ -33,13 +31,11 @@ export function ProcessingTab({
   onRetry,
   onComplete,
 }: Props) {
-  const queryClient = useQueryClient()
   const completionFiredRef = useRef(false)
 
   const inFlight = candidates.filter(
     (c) => c.pipeline_status === 'queued' || c.pipeline_status === 'processing',
   )
-  const failed = candidates.filter((c) => c.pipeline_status === 'failed')
   const total = watchedTotal > 0 ? watchedTotal : inFlight.length + watchedDone
   const done =
     watchedTotal > 0
@@ -58,24 +54,14 @@ export function ProcessingTab({
     } else {
       toast.success(`AI review complete — ${succeeded} resume(s) scored`)
     }
-    onComplete?.()
+    onComplete?.({ failed: failedCount })
   }, [allSettled, candidates, onComplete])
 
-  const retryMutation = useMutation({
-    mutationFn: (candidateId: string) =>
-      api.post(`/api/jobs/${jobId}/candidates/${candidateId}/retry-processing`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
-      queryClient.invalidateQueries({ queryKey: ['candidates'] })
-      toast.success('Re-queued for AI review')
-    },
-    onError: () => toast.error('Failed to retry'),
-  })
-
-  const displayList =
-    watchedTotal > 0
-      ? candidates
-      : [...inFlight, ...failed]
+  // Failures are listed, with their reason and Retry, on the Failed tab. They still count as
+  // settled in the progress bar above, so a batch can finish.
+  const displayList = (watchedTotal > 0 ? candidates : inFlight).filter(
+    (c) => c.pipeline_status !== 'failed',
+  )
 
   return (
     <div className="space-y-6">
@@ -123,7 +109,6 @@ export function ProcessingTab({
                 const name = resumeDisplayName(candidate)
                 const isProcessing = candidate.pipeline_status === 'processing'
                 const isQueued = candidate.pipeline_status === 'queued'
-                const isFailed = candidate.pipeline_status === 'failed'
                 const isDone = candidate.pipeline_status === 'completed'
                 return (
                   <li key={candidate.id} className="flex items-start gap-4 px-6 py-4">
@@ -132,8 +117,6 @@ export function ProcessingTab({
                         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">
                           ✓
                         </span>
-                      ) : isFailed ? (
-                        <AlertCircle size={20} className="text-rose-500" />
                       ) : (
                         <Loader2 size={20} className="animate-spin text-indigo-600" />
                       )}
@@ -146,34 +129,17 @@ export function ProcessingTab({
                       <p className="mt-1 text-sm text-slate-600">
                         {isProcessing || isQueued
                           ? 'AI is reading the resume and scoring fit against the job description…'
-                          : isFailed
-                            ? 'Review failed — try again or re-upload the file.'
-                            : 'Scored and ready on the Resume Screening tab.'}
+                          : 'Scored and ready on the Resume Screening tab.'}
                       </p>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-2">
                       <span
                         className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                          isFailed
-                            ? 'bg-rose-100 text-rose-700'
-                            : isDone
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-indigo-100 text-indigo-700'
+                          isDone ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'
                         }`}
                       >
                         {pipelineStatusLabel(candidate.pipeline_status)}
                       </span>
-                      {isFailed && (
-                        <button
-                          type="button"
-                          onClick={() => retryMutation.mutate(candidate.id)}
-                          disabled={retryMutation.isPending}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800"
-                        >
-                          <RotateCcw size={12} />
-                          Retry
-                        </button>
-                      )}
                     </div>
                   </li>
                 )

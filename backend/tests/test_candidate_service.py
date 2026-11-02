@@ -68,6 +68,7 @@ class CandidateServiceTests(unittest.IsolatedAsyncioTestCase):
         candidate.phone = None
         candidate.original_filename = "resume.pdf"
         candidate.pipeline_status = "completed"
+        candidate.pipeline_error = None
         candidate.created_at = datetime.now(timezone.utc)
         # A bare MagicMock hands back a Mock for any attribute not set here,
         # which CandidateResponse rejects. Pin every field the schema reads.

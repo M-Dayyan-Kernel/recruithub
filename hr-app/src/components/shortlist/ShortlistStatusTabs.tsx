@@ -1,19 +1,22 @@
 import { useSearchParams, useParams } from 'react-router-dom'
-import { cn } from '@/lib/utils'
+import StageTabs from '@/components/stage/StageTabs'
 import { useJobPipelineCandidates } from '@/hooks/useJobPipelineCandidates'
+import { useFailedCandidates } from '@/hooks/useFailedCandidates'
 
-export const SHORTLIST_TABS = ['Processing', 'Resume Screening'] as const
+export const SHORTLIST_TABS = ['Failed', 'Processing', 'Resume Screening'] as const
 
 export type ShortlistTabId = (typeof SHORTLIST_TABS)[number]
 
 const TAB_PARAM: Record<ShortlistTabId, string> = {
   'Resume Screening': 'results',
   Processing: 'processing',
+  Failed: 'failed',
 }
 
 const PARAM_TO_TAB: Record<string, ShortlistTabId> = {
   results: 'Resume Screening',
   processing: 'Processing',
+  failed: 'Failed',
   // Legacy URL params
   upload: 'Processing',
   parsing: 'Processing',
@@ -35,6 +38,7 @@ export function ShortlistStatusTabs() {
   const { jobId = '' } = useParams<{ jobId: string }>()
   const activeTab = resolveShortlistTab(searchParams.get('tab'))
   const { processingCandidates } = useJobPipelineCandidates(jobId)
+  const { failedTotal: failedCount } = useFailedCandidates(jobId)
   const processingCount = processingCandidates.length
 
   const setTab = (tab: ShortlistTabId) => {
@@ -44,32 +48,26 @@ export function ShortlistStatusTabs() {
   }
 
   return (
-    <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
-      {SHORTLIST_TABS.map((tab) => (
-        <button
-          key={tab}
-          type="button"
-          onClick={() => setTab(tab)}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors',
-            activeTab === tab
-              ? 'bg-indigo-600 text-white'
-              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
-          )}
-        >
-          {tab}
-          {tab === 'Processing' && processingCount > 0 && (
-            <span
-              className={cn(
-                'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
-                activeTab === tab ? 'bg-indigo-500 text-white' : 'bg-amber-100 text-amber-800',
-              )}
-            >
-              {processingCount}
-            </span>
-          )}
-        </button>
-      ))}
-    </div>
+    <StageTabs
+      label="Resume screening views"
+      active={activeTab}
+      onChange={setTab}
+      // Failed only appears while something has failed (or is open), so a clean job has no
+      // empty red tab.
+      tabs={SHORTLIST_TABS.filter((tab) => tab !== 'Failed' || failedCount > 0 || activeTab === 'Failed').map(
+        (tab) => ({
+          id: tab,
+          label: tab,
+          // No zero badge: a quiet Processing tab is just its name, as it was before.
+          count:
+            tab === 'Processing'
+              ? processingCount || undefined
+              : tab === 'Failed'
+                ? failedCount
+                : undefined,
+          tone: tab === 'Failed' ? ('danger' as const) : undefined,
+        }),
+      )}
+    />
   )
 }

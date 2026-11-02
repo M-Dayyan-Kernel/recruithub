@@ -17,6 +17,7 @@ from pydantic import (
 from app.core.screening_skipped import is_skipped_screening
 from app.models.enums import SeniorityLevel
 from app.schemas.integrity import IntegritySummary
+from app.services.processing_failure import GENERIC as GENERIC_PROCESSING_FAILURE, summarize_processing_failure
 from app.services.screening_defaults import (
     MAX_SCREENING_QUESTION_CHARS,
     MAX_SCREENING_QUESTIONS,
@@ -585,6 +586,10 @@ class CandidateResponse(BaseModel):
     phone: Optional[str] = None
     original_filename: Optional[str] = None
     pipeline_status: str
+    # The raw failure text can carry paths or provider messages, so it is read from the model
+    # but never serialised here; `failure_reason` below is the safe sentence. The audited
+    # detail response below returns the raw text.
+    pipeline_error: Optional[str] = Field(default=None, exclude=True)
     status: str = "active"
     years_experience: Optional[float] = None
     current_ctc: Optional[str] = None
@@ -592,6 +597,14 @@ class CandidateResponse(BaseModel):
     notice_period: Optional[str] = None
     last_working_day: Optional[date] = None
     created_at: datetime
+
+    @computed_field
+    @property
+    def failure_reason(self) -> Optional[str]:
+        """A plain sentence for a failed resume (None otherwise), safe to show in any list."""
+        if self.pipeline_status != "failed":
+            return None
+        return summarize_processing_failure(self.pipeline_error) or GENERIC_PROCESSING_FAILURE
 
 
 class CandidateDetailResponse(CandidateResponse):

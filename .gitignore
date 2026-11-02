@@ -22,3 +22,9 @@ backend/celerybeat-schedule*
 backend/logs/*.log
 backend/logs/*.log.*
 .env.production
+
+# Playwright output
+hr-app/test-results/
+hr-app/playwright-report/
+candidate-app/test-results/
+candidate-app/playwright-report/

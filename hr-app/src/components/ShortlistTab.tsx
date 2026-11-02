@@ -9,7 +9,6 @@ import {
   CheckCircle,
   ChevronDown,
   ChevronUp,
-  Search,
   Trash2,
   XCircle,
   Download,
@@ -18,6 +17,8 @@ import {
 import { api } from '@/lib/api'
 import type { ShortlistResultWithCandidate, SystemSettings } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
+import MenuButton from '@/components/stage/MenuButton'
+import StageToolbar, { StageSearch } from '@/components/stage/StageToolbar'
 import { ShortlistTable } from '@/components/shortlist/ShortlistTable'
 import { ShortlistTableSkeleton } from '@/components/shortlist/ShortlistTableSkeleton'
 import {
@@ -73,7 +74,7 @@ const RECOMMENDATION_FILTER_OPTIONS: { value: RecommendationFilter; label: strin
 ]
 
 const SHORTLIST_FILTER_SELECT_CLASS =
-  'h-11 w-[7.5rem] shrink-0 rounded-lg border border-slate-200 bg-white py-0 pl-3 pr-8 text-left text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100'
+  'h-9 w-[7.5rem] shrink-0 rounded-lg border border-line bg-surface py-0 pl-3 pr-8 text-left text-sm text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20'
 
 function RecommendationBadge({ rec }: { rec: ShortlistResultWithCandidate['recommendation'] }) {
   const cfg = REC_CONFIG[rec as keyof typeof REC_CONFIG]
@@ -140,8 +141,6 @@ const FEEDBACK_TYPES = [
 
 const REASON_TRUNCATE_LENGTH = 160
 const SHORTLIST_EMPTY_STATE_CLASS = 'flex min-h-[360px] flex-col items-center justify-center px-6 text-center'
-const SHORTLIST_SEARCH_CLASS =
-  'h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-700 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100'
 
 function BulkActionButtons({
   approveLabel,
@@ -166,7 +165,7 @@ function BulkActionButtons({
         type="button"
         onClick={onApproveAll}
         disabled={disabled}
-        className="inline-flex h-10 items-center justify-center gap-1.5 bg-pos-soft px-3 text-sm font-semibold text-pos transition-colors hover:bg-pos hover:text-accent-ink focus:outline-none focus:ring-2 focus:ring-inset focus:ring-pos/30 disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex h-9 items-center justify-center gap-1.5 bg-pos-soft px-3 text-sm font-semibold text-pos transition-colors hover:bg-pos hover:text-accent-ink focus:outline-none focus:ring-2 focus:ring-inset focus:ring-pos/30 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {approvingAll ? (
           <>
@@ -184,7 +183,7 @@ function BulkActionButtons({
         type="button"
         onClick={onRejectAll}
         disabled={disabled}
-        className="inline-flex h-10 items-center justify-center gap-1.5 bg-surface px-3 text-sm font-semibold text-neg transition-colors hover:bg-neg-soft focus:outline-none focus:ring-2 focus:ring-inset focus:ring-neg/30 disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex h-9 items-center justify-center gap-1.5 bg-surface px-3 text-sm font-semibold text-neg transition-colors hover:bg-neg-soft focus:outline-none focus:ring-2 focus:ring-inset focus:ring-neg/30 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {rejectingAll ? (
           <>
@@ -610,13 +609,6 @@ export function ShortlistTab({
     })
   }
 
-  const aiShortlistedHeader = (
-    <div className="space-y-1">
-      <h2 className="text-xl font-semibold text-slate-900">Resume Screening</h2>
-      <p className="text-sm text-slate-500">Candidates scored by AI with match scores and recommendations.</p>
-    </div>
-  )
-
   // The batch acts on the rows HR was shown, and only those still awaiting a decision:
   // a row someone else decided in the meantime is left alone.
   const confirmedTargets = (decision: 'approved' | 'rejected') =>
@@ -761,7 +753,6 @@ export function ShortlistTab({
   if (showLoading) {
     return (
       <div className={isAiShortlistedMode ? 'space-y-6' : 'space-y-4'}>
-        {isAiShortlistedMode && aiShortlistedHeader}
         {isAiShortlistedMode ? (
           <ShortlistTableSkeleton />
         ) : (
@@ -775,7 +766,6 @@ export function ShortlistTab({
   if (isError) {
     return (
       <div className={isAiShortlistedMode ? 'space-y-6' : undefined}>
-        {isAiShortlistedMode && aiShortlistedHeader}
         <BackendError onRetry={refetch} />
       </div>
     )
@@ -785,7 +775,6 @@ export function ShortlistTab({
   if (isInProgress) {
     return (
       <div className={isAiShortlistedMode ? 'space-y-6' : undefined}>
-        {isAiShortlistedMode && aiShortlistedHeader}
         <div className={SHORTLIST_EMPTY_STATE_CLASS}>
           <div className="w-14 h-14 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
             <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
@@ -804,7 +793,6 @@ export function ShortlistTab({
     if (isAiShortlistedMode) {
       return (
         <div className="space-y-6">
-          {aiShortlistedHeader}
           <div className={SHORTLIST_EMPTY_STATE_CLASS}>
             <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mb-4">
               <Users className="w-6 h-6 text-slate-400" />
@@ -838,81 +826,59 @@ export function ShortlistTab({
   if (isAiShortlistedMode) {
     return (
       <div className="space-y-4">
-        {aiShortlistedHeader}
-
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex min-w-0 flex-1 basis-[18rem] items-center gap-3">
-            <div className="relative min-w-0 flex-1">
-              <Search
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-              />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search candidates..."
-                className={SHORTLIST_SEARCH_CLASS}
-              />
-            </div>
-            <select
-              value={recommendationFilter}
-              onChange={(e) => setRecommendationFilter(e.target.value as RecommendationFilter)}
-              aria-label="Filter by recommendation"
-              className={SHORTLIST_FILTER_SELECT_CLASS}
-            >
-              {RECOMMENDATION_FILTER_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            <p className="text-sm text-slate-500 whitespace-nowrap">
-              {recommendationFilter === 'all' ? (
-                <>
-                  <span className="font-semibold text-slate-800">{scoredResults.length}</span>
-                  {' '}scored candidate{scoredResults.length !== 1 ? 's' : ''}
-                </>
-              ) : (
-                <>
+        <StageToolbar
+          actions={
+            <>
+              {filteredScored.length !== scoredResults.length && (
+                <p className="whitespace-nowrap text-sm text-ink-muted">
                   Showing{' '}
-                  <span className="font-semibold text-slate-800">{filteredScored.length}</span>
+                  <span className="font-mono font-semibold tabular-nums text-ink">{filteredScored.length}</span>
                   {' '}of{' '}
-                  <span className="font-semibold text-slate-800">{scoredResults.length}</span>
-                </>
+                  <span className="font-mono font-semibold tabular-nums text-ink">{scoredResults.length}</span>
+                </p>
               )}
-            </p>
-            <BulkActionButtons
-              approveLabel="Approve passed"
-              rejectLabel="Reject failed"
-              approvingAll={approvingAll}
-              rejectingAll={rejectingAll}
-              onApproveAll={() => requestBulk('approved')}
-              onRejectAll={() => requestBulk('rejected')}
-            />
-            <button
-              type="button"
-              onClick={handleExportShortlistedCsv}
-              disabled={aiShortlistedCandidates.length === 0}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Download size={14} />
-              Export CSV ({aiShortlistedCandidates.length})
-            </button>
-            <button
-              type="button"
-              onClick={handleExportShortlistedReports}
-              disabled={aiShortlistedCandidates.length === 0 || exportingPdf}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {exportingPdf ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
-              {exportingPdf ? 'Preparing PDF…' : 'Export all PDFs'}
-            </button>
-          </div>
-        </div>
+              <BulkActionButtons
+                approveLabel="Approve passed"
+                rejectLabel="Reject failed"
+                approvingAll={approvingAll}
+                rejectingAll={rejectingAll}
+                onApproveAll={() => requestBulk('approved')}
+                onRejectAll={() => requestBulk('rejected')}
+              />
+              <MenuButton
+                label="Export"
+                icon={exportingPdf ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                disabled={aiShortlistedCandidates.length === 0 || exportingPdf}
+                items={[
+                  {
+                    label: `Export CSV (${aiShortlistedCandidates.length})`,
+                    icon: <Download size={14} />,
+                    onClick: handleExportShortlistedCsv,
+                  },
+                  {
+                    label: exportingPdf ? 'Preparing PDF…' : 'Export all PDFs',
+                    icon: <FileText size={14} />,
+                    onClick: handleExportShortlistedReports,
+                  },
+                ]}
+              />
+            </>
+          }
+        >
+          <StageSearch value={search} onChange={setSearch} />
+          <select
+            value={recommendationFilter}
+            onChange={(e) => setRecommendationFilter(e.target.value as RecommendationFilter)}
+            aria-label="Filter by recommendation"
+            className={SHORTLIST_FILTER_SELECT_CLASS}
+          >
+            {RECOMMENDATION_FILTER_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </StageToolbar>
 
         {filteredScored.length === 0 ? (
           <div className={SHORTLIST_EMPTY_STATE_CLASS}>
