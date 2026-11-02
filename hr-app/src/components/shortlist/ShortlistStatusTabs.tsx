@@ -1,5 +1,5 @@
 import { useSearchParams, useParams } from 'react-router-dom'
-import { cn } from '@/lib/utils'
+import StageTabs from '@/components/stage/StageTabs'
 import { useJobPipelineCandidates } from '@/hooks/useJobPipelineCandidates'
 
 export const SHORTLIST_TABS = ['Processing', 'Resume Screening'] as const
@@ -44,32 +44,15 @@ export function ShortlistStatusTabs() {
   }
 
   return (
-    <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
-      {SHORTLIST_TABS.map((tab) => (
-        <button
-          key={tab}
-          type="button"
-          onClick={() => setTab(tab)}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors',
-            activeTab === tab
-              ? 'bg-indigo-600 text-white'
-              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
-          )}
-        >
-          {tab}
-          {tab === 'Processing' && processingCount > 0 && (
-            <span
-              className={cn(
-                'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
-                activeTab === tab ? 'bg-indigo-500 text-white' : 'bg-amber-100 text-amber-800',
-              )}
-            >
-              {processingCount}
-            </span>
-          )}
-        </button>
-      ))}
-    </div>
+    <StageTabs
+      label="Resume screening views"
+      active={activeTab}
+      onChange={setTab}
+      tabs={SHORTLIST_TABS.map((tab) => ({
+        id: tab,
+        label: tab,
+        count: tab === 'Processing' ? processingCount : undefined,
+      }))}
+    />
   )
 }
