@@ -15,14 +15,13 @@ import {
   CalendarClock,
   Ban,
   SkipForward,
-  ArrowRight,
   Settings2,
   Video,
   X,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import { BTN_DANGER, BTN_SECONDARY, BTN_STAGE_LINK } from '@/components/ui/Surface'
+import { BTN_DANGER, BTN_SECONDARY } from '@/components/ui/Surface'
 import type {
   InterviewAction,
   InterviewSession,
@@ -754,10 +753,9 @@ export function InterviewsTab({ job, jobId }: Props) {
     safePage * pageSize,
   )
 
-  // Finalists are counted on their own page, so this is only who is still in interviews.
+  // Finalists are on their own page, so this is only who is still in interviews.
   const totalEligible =
     tabCounts.pending + tabCounts.scheduled + tabCounts.ongoing + tabCounts.completed + tabCounts.flagged
-  const finalistCount = tabCounts.finalists ?? 0
 
   const displayTabCount = (tab: VisibleInterviewTabId): number => {
     if (tab === 'scheduled') return tabCounts.scheduled + tabCounts.pending
@@ -882,26 +880,11 @@ export function InterviewsTab({ job, jobId }: Props) {
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
             <ClipboardList className="h-6 w-6 text-slate-400" />
           </div>
-          {finalistCount > 0 ? (
-            <>
-              <p className="mb-1 font-semibold text-slate-700">Nobody is waiting in interviews</p>
-              <p className="mx-auto max-w-sm text-sm text-slate-500">
-                Everyone who was interviewed is a finalist, and finalists have their own page.
-              </p>
-              <Link to={`/jobs/${jobId}/finalists`} className={`${BTN_STAGE_LINK} mt-4`}>
-                Open Finalists
-                <ArrowRight size={13} aria-hidden />
-              </Link>
-            </>
-          ) : (
-            <>
-              <p className="mb-1 font-semibold text-slate-700">No candidates ready for interview</p>
-              <p className="mx-auto max-w-xs text-sm text-slate-400">
-                Once a candidate is approved for interview, they will appear in these tabs. You can set
-                up the interview topics in Settings anytime.
-              </p>
-            </>
-          )}
+          <p className="mb-1 font-semibold text-slate-700">No candidates ready for interview</p>
+          <p className="mx-auto max-w-xs text-sm text-slate-400">
+            Once a candidate is approved for interview, they will appear in these tabs. You can set
+            up the interview topics in Settings anytime.
+          </p>
         </div>
       ) : pipelineCandidates.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center">
