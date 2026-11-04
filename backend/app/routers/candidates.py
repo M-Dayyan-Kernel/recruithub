@@ -8,6 +8,7 @@ from app.dependencies import (
     RequireAdminOrHr,
     get_candidate_directory_service,
     get_candidate_service,
+    get_pipeline_candidates_service,
     get_resume_upload_service,
     hr_roles,
 )
@@ -18,11 +19,14 @@ from app.schemas.schemas import (
     CandidateResponse,
     CandidateUpdate,
     PaginatedResponse,
+    PipelineCandidatesResponse,
+    PipelineStageKey,
     ResumeUploadResponse,
 )
 from app.services.candidate_directory_service import CandidateDirectoryService
 from app.services.candidate_stage_filter import CandidateStageFilter
 from app.services.candidate_service import CandidateService
+from app.services.pipeline_candidates_service import PipelineCandidatesService
 from app.services.resume_upload_service import ResumeUploadService
 
 router = APIRouter(dependencies=[Depends(hr_roles)])
@@ -63,6 +67,19 @@ async def upload_resumes(
 ):
     """Upload resume files (PDF / DOCX) or ZIP archives containing them."""
     return await service.upload(actor, job_id, files)
+
+
+@router.get("/jobs/{job_id}/pipeline-candidates", response_model=PipelineCandidatesResponse)
+async def list_pipeline_candidates(
+    job_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    pagination: PaginationParams = Depends(),
+    stage: Optional[PipelineStageKey] = Query(None, description="Only candidates in this stage"),
+    q: Optional[str] = Query(None, description="Search name or email"),
+    service: PipelineCandidatesService = Depends(get_pipeline_candidates_service),
+):
+    """Every candidate on a job with the one stage each is in, and the count per stage."""
+    return await service.list(actor, job_id, stage=stage, q=q, pagination=pagination)
 
 
 @router.get("/jobs/{job_id}/candidates", response_model=PaginatedResponse)

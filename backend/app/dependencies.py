@@ -32,6 +32,7 @@ from app.services.observed_extension_service import ObservedExtensionService
 from app.services.platform_tenant_service import PlatformTenantService
 from app.services.system_settings_service import SystemSettingsService
 from app.services.candidate_service import CandidateService
+from app.services.pipeline_candidates_service import PipelineCandidatesService
 from app.services.candidate_directory_service import CandidateDirectoryService
 from app.services.job_description_parse_service import JobDescriptionParseService
 from app.services.job_service import JobService
@@ -154,6 +155,12 @@ def get_shortlist_trigger_service(
     db: AsyncSession = Depends(get_db),
 ) -> ShortlistTriggerService:
     return ShortlistTriggerService(db)
+
+
+def get_pipeline_candidates_service(
+    db: AsyncSession = Depends(get_db),
+) -> PipelineCandidatesService:
+    return PipelineCandidatesService(db)
 
 
 def get_shortlist_service(db: AsyncSession = Depends(get_db)) -> ShortlistService:

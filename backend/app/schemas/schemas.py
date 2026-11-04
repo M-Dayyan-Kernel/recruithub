@@ -690,6 +690,40 @@ class ShortlistStage(BaseModel):
     reason: Optional[str] = None
 
 
+PipelineStageKey = Literal["processing", "failed", "resume", "phone", "interview", "finalist", "rejected"]
+PIPELINE_STAGES: tuple[str, ...] = (
+    "processing", "failed", "resume", "phone", "interview", "finalist", "rejected",
+)
+
+
+class PipelineCandidate(BaseModel):
+    """One candidate on a job and the single stage they are in (`stage`), with the raw `state`
+    inside it (a call or interview state) that the UI words."""
+
+    candidate_id: uuid.UUID
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    stage: PipelineStageKey
+    state: Optional[str] = None
+    reason: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+    match_score: Optional[float] = None
+    recommendation: Optional[str] = None
+    hr_decision: Optional[str] = None
+    applied_at: datetime
+    failure_reason: Optional[str] = None
+
+
+class PipelineCandidatesResponse(BaseModel):
+    items: List[PipelineCandidate]
+    # For the chosen stage; `counts` is per stage across the whole (searched) job.
+    total: int
+    counts: dict[str, int]
+    limit: int
+    offset: int
+
+
 class ShortlistResultWithCandidateResponse(ShortlistResultResponse):
     """ShortlistResultResponse enriched with candidate name and email.
 

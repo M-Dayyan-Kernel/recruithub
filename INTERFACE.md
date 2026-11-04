@@ -289,6 +289,28 @@ List candidates for a job.
 
 ---
 
+#### `GET /api/jobs/{job_id}/pipeline-candidates`
+Every candidate on a job, each in exactly one pipeline stage. Backs the job's Candidates view, and is
+the single definition of which stage page a candidate belongs on.
+
+**Query params (optional):**
+- `stage` — `processing`, `failed`, `resume`, `phone`, `interview`, `finalist` or `rejected`
+- `q` — search name or email
+- `limit` (max 200), `offset`
+
+**Response `200`:** `{ items, total, counts, limit, offset }`. `items[]` is `{ candidate_id, name, email, phone,
+stage, state, reason, scheduled_at, match_score, recommendation, hr_decision, applied_at, failure_reason }`; `state`
+is the raw call or interview state inside the stage (for example `link_sent`, `flagged`). `total` is for the chosen
+stage; `counts` has every stage and covers the whole (searched) job.
+
+Stage rules: rejected beats everything; `finalist` is a finalist mark or a hired candidate; `resume` is a scored
+candidate awaiting a decision; an approved candidate is `phone` until an interview round exists (a passed call with
+no interview yet is still `phone`), then `interview`.
+
+**Errors:** `404` — job not found
+
+---
+
 #### `GET /api/candidates/{candidate_id}`
 Get a single candidate by UUID.
 
