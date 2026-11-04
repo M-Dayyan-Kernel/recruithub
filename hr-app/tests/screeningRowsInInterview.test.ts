@@ -23,31 +23,24 @@ const shortlist = (over: Partial<ShortlistResultWithCandidate> = {}): ShortlistR
 // No phone number: the row is flagged, the case that offered "Move to interview" and "Reject".
 const rowsFor = (sr: ShortlistResultWithCandidate) => buildScreeningRows([sr], {}, [], undefined)
 
-test('a flagged candidate still waiting in the phone round can be moved or rejected by hand', () => {
-  const [row] = rowsFor(shortlist())
-  assert.equal(row.tab, 'flagged')
-  assert.equal(row.inInterview, false)
-  assert.equal(row.canPlace, true)
+test('a flagged candidate still waiting in the phone round is listed and can be moved or rejected by hand', () => {
+  const rows = rowsFor(shortlist())
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].tab, 'flagged')
+  assert.equal(rows[0].canPlace, true)
 })
 
-test('a candidate whose interview exists stays listed but offers no call, move or reject', () => {
-  const [row] = rowsFor(shortlist({ stage: { kind: 'interview', state: 'link_sent' } }))
-  assert.equal(row.tab, 'flagged')
-  assert.equal(row.inInterview, true)
-  assert.equal(row.canPlace, false)
-  assert.equal(row.canCallNow, false)
-  assert.equal(row.canCancel, false)
+test('a candidate in an interview is on the Interviews page, not listed here', () => {
+  assert.equal(rowsFor(shortlist({ stage: { kind: 'interview', state: 'link_sent' } })).length, 0)
+  assert.equal(rowsFor(shortlist({ stage: { kind: 'interview', state: 'completed' } })).length, 0)
+})
+
+test('a finalist is on the Finalists page, not listed here', () => {
+  assert.equal(rowsFor(shortlist({ stage: { kind: 'interview', state: 'finalist' } })).length, 0)
 })
 
 test('an interview stage that has no session yet is still the phone round to act on', () => {
-  const [row] = rowsFor(shortlist({ stage: { kind: 'interview', state: 'pending' } }))
-  assert.equal(row.inInterview, false)
-  assert.equal(row.canPlace, true)
-})
-
-test('a finalist is also past the phone round, and their stage says Finalist', () => {
-  const [row] = rowsFor(shortlist({ stage: { kind: 'interview', state: 'finalist' } }))
-  assert.equal(row.inInterview, true)
-  assert.equal(row.canPlace, false)
-  assert.equal(row.shortlist.stage?.state, 'finalist')
+  const rows = rowsFor(shortlist({ stage: { kind: 'interview', state: 'pending' } }))
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].canPlace, true)
 })

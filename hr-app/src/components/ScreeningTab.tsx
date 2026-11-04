@@ -13,8 +13,6 @@ import type {
 import { BackendError } from '@/components/BackendError'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { BTN_DANGER, BTN_GHOST, BTN_SECONDARY } from '@/components/ui/Surface'
-import { describeStage } from '@/lib/shortlistDecision'
-import { InInterviewCell, inInterviewBadge } from '@/components/screening/InInterviewCell'
 import type { JobOutletContext } from '@/components/JobLayout'
 import {
   ScreeningCallActions,
@@ -152,9 +150,6 @@ function ScreeningTableRow({
   const reasonOk = reason.trim().length >= 3
 
   const variant = row.isActive ? 'active' : row.tab
-  // Where an interview (or later) owns the candidate: say which stage, and link to it.
-  const stageView = row.inInterview && row.shortlist.stage ? describeStage(row.shortlist.stage, jobId) : null
-  const badge = row.inInterview ? inInterviewBadge(stageView) : null
 
   return (
     <>
@@ -164,7 +159,7 @@ function ScreeningTableRow({
         <td className="px-4 py-3 text-sm text-slate-500">#{row.attemptNumber}</td>
         <td className="px-4 py-3">
           <div className="flex flex-col gap-1">
-            <StatusPill label={badge?.label ?? row.statusLabel} variant={badge?.variant ?? variant} />
+            <StatusPill label={row.statusLabel} variant={variant} />
             {row.tab === 'completed' && row.latestCall?.result && (
               <span className="text-xs text-slate-500 capitalize">
                 AI: {row.latestCall.result.replace('_', ' ')}
@@ -173,9 +168,6 @@ function ScreeningTableRow({
           </div>
         </td>
         <td className="px-4 py-3">
-          {row.inInterview ? (
-            <InInterviewCell view={stageView} jobId={jobId} />
-          ) : (
           <div className="flex flex-wrap items-center justify-end gap-2">
             {row.canCallNow && (
               <button
@@ -254,7 +246,6 @@ function ScreeningTableRow({
               </button>
             )}
           </div>
-          )}
         </td>
       </tr>
       {placing === 'advance' && (

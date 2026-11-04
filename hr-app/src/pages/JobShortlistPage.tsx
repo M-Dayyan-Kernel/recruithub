@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import type { ShortlistResultWithCandidate } from '@/types/api'
 import StageHeader from '@/components/stage/StageHeader'
 import { RESUME_SCREENING_LABEL } from '@/lib/stageLabels'
+import { isAwaitingDecision } from '@/lib/shortlistDecision'
 import type { JobOutletContext } from '@/components/JobLayout'
 import { ShortlistTab } from '@/components/ShortlistTab'
 import { ProcessingTab } from '@/components/ProcessingTab'
@@ -73,7 +74,7 @@ export default function JobShortlistPage() {
         icon={ListChecks}
         title={RESUME_SCREENING_LABEL}
         description="Candidates scored by AI with match scores and recommendations."
-        count={results?.length}
+        count={results?.filter(isAwaitingDecision).length}
       >
         <ShortlistStatusTabs />
       </StageHeader>
@@ -84,9 +85,6 @@ export default function JobShortlistPage() {
           jobTitle={job.title}
           voiceScreeningEnabled={job.voice_screening_enabled}
           requiredSkills={job.required_skills ?? []}
-          shortlistTriggered={false}
-          onShortlistComplete={() => pipeline.refetch()}
-          mode="aiShortlisted"
         />
       ) : activeTab === 'Failed' ? (
         <FailedTab

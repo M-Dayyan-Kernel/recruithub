@@ -1,93 +1,14 @@
 // Run with: npm test
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { decisionCopy, decisionErrorMessage, describeStage } from '../src/lib/shortlistDecision.ts'
+import { decisionCopy, decisionErrorMessage, isAwaitingDecision } from '../src/lib/shortlistDecision.ts'
 
-const JOB = 'job-1'
-
-test('every screening state links to the tab that owns it', () => {
-  const tab = (state: string) => describeStage({ kind: 'screening', state }, JOB).to
-  assert.equal(tab('queued'), '/jobs/job-1/screening?tab=pending')
-  assert.equal(tab('scheduled'), '/jobs/job-1/screening?tab=pending')
-  assert.equal(tab('live'), '/jobs/job-1/screening?tab=pending')
-  assert.equal(tab('review'), '/jobs/job-1/screening?tab=completed')
-  assert.equal(tab('failed'), '/jobs/job-1/screening?tab=completed')
-  assert.equal(tab('flagged'), '/jobs/job-1/screening?tab=flagged')
-  assert.equal(tab('retrying'), '/jobs/job-1/screening?tab=pending')
-  assert.equal(tab('cancelled'), '/jobs/job-1/screening?tab=pending')
-})
-
-test('a paused screening (screening switched off) still points at Phone screening, which stays open for them', () => {
-  const v = describeStage({ kind: 'screening', state: 'paused' }, JOB)
-  assert.deepEqual([v.title, v.tone, v.to, v.toLabel], ['Phone screening', 'warn', '/jobs/job-1/screening?tab=pending', 'Open Phone screening'])
-  assert.match(v.detail, /Screening is off/)
-  // one that was flagged is listed under Flagged, so the link goes there
-  const f = describeStage({ kind: 'screening', state: 'paused', reason: 'No phone number on file' }, JOB)
-  assert.equal(f.to, '/jobs/job-1/screening?tab=flagged')
-})
-
-test('a cancelled call or interview names the stage and says so', () => {
-  const c = describeStage({ kind: 'screening', state: 'cancelled' }, JOB)
-  assert.deepEqual([c.title, c.detail], ['Phone screening', 'Call cancelled'])
-  const i = describeStage({ kind: 'interview', state: 'cancelled' }, JOB)
-  assert.deepEqual([i.title, i.detail], ['Interview', 'Interview cancelled'])
-})
-
-test('a flagged screening says why, in the server’s words', () => {
-  const v = describeStage({ kind: 'screening', state: 'flagged', reason: 'Candidate declined the call' }, JOB)
-  assert.equal(v.detail, 'Candidate declined the call')
-  assert.equal(v.tone, 'warn')
-  assert.equal(describeStage({ kind: 'screening', state: 'flagged' }, JOB).detail, 'Needs attention')
-  const iv = describeStage({ kind: 'interview', state: 'flagged', reason: 'Interview link expired — candidate never joined' }, JOB)
-  assert.equal(iv.detail, 'Interview link expired — candidate never joined')
-  // a reason on any other state is ignored rather than shown out of context
-  assert.equal(describeStage({ kind: 'screening', state: 'live', reason: 'stale text' }, JOB).detail, 'Call in progress')
-})
-
-test('every interview state links to the tab that owns it, and a finalist to the Finalists page', () => {
-  const tab = (state: string) => describeStage({ kind: 'interview', state }, JOB).to
-  assert.equal(tab('pending'), '/jobs/job-1/interviews?tab=scheduled')
-  assert.equal(tab('link_sent'), '/jobs/job-1/interviews?tab=scheduled')
-  assert.equal(tab('flagged'), '/jobs/job-1/interviews?tab=flagged')
-  assert.equal(tab('cancelled'), '/jobs/job-1/interviews?tab=scheduled')
-  assert.equal(tab('live'), '/jobs/job-1/interviews?tab=ongoing')
-  assert.equal(tab('completed'), '/jobs/job-1/interviews?tab=completed')
-  // Finalists are not an Interviews tab: they have their own page.
-  assert.equal(tab('finalist'), '/jobs/job-1/finalists')
-})
-
-test('a finalist reads as Finalist and opens Finalists, not Interviews', () => {
-  const f = describeStage({ kind: 'interview', state: 'finalist' }, JOB)
-  // Callers branch on `phase`, so a renamed title can never turn a finalist into an interviewee.
-  assert.equal(f.phase, 'finalist')
-  assert.equal(describeStage({ kind: 'interview', state: 'live' }, JOB).phase, 'interview')
-  assert.equal(describeStage({ kind: 'screening', state: 'live' }, JOB).phase, 'screening')
-  assert.deepEqual([f.title, f.detail, f.toLabel], ['Finalist', 'Approved as a finalist', 'Open Finalists'])
-  assert.equal(describeStage({ kind: 'interview', state: 'link_sent' }, JOB).toLabel, 'Open Interviews')
-})
-
-test('a stage names itself and what is happening', () => {
-  const v = describeStage({ kind: 'screening', state: 'live' }, JOB)
-  assert.deepEqual([v.title, v.detail, v.tone], ['Phone screening', 'Call in progress', 'accent'])
-  assert.equal(describeStage({ kind: 'interview', state: 'finalist' }, JOB).title, 'Finalist')
-  assert.equal(describeStage({ kind: 'screening', state: 'flagged' }, JOB).tone, 'warn')
-})
-
-test('a sent interview link shows its scheduled time, and plain "Link sent" without one', () => {
-  const withTime = describeStage({ kind: 'interview', state: 'link_sent', scheduled_at: '2026-10-24T09:30:00+00:00' }, JOB)
-  assert.equal(withTime.detail, 'Link sent')
-  assert.match(withTime.at ?? '', /2026/)
-  const without = describeStage({ kind: 'interview', state: 'link_sent', scheduled_at: null }, JOB)
-  assert.equal(without.detail, 'Link sent')
-  assert.equal(without.at, undefined)
-})
-
-test('a state the page does not know still names its stage and links to it', () => {
-  const s = describeStage({ kind: 'screening', state: 'something_new' }, JOB)
-  assert.equal(s.title, 'Phone screening')
-  assert.equal(s.to, '/jobs/job-1/screening?tab=pending')
-  const i = describeStage({ kind: 'interview', state: 'something_new' }, JOB)
-  assert.equal(i.to, '/jobs/job-1/interviews?tab=scheduled')
+test('only an undecided candidate is the Resume Screening list\u2019s to decide', () => {
+  assert.equal(isAwaitingDecision({ hr_decision: 'pending' }), true)
+  assert.equal(isAwaitingDecision({ hr_decision: 'overridden' }), true)
+  // approved is in Phone screening or Interviews, rejected in Rejected
+  assert.equal(isAwaitingDecision({ hr_decision: 'approved' }), false)
+  assert.equal(isAwaitingDecision({ hr_decision: 'rejected' }), false)
 })
 
 test('the approve dialog says what will happen, by the job’s screening setting', () => {

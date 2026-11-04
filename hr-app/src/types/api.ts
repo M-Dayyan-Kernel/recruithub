@@ -454,6 +454,41 @@ export interface Candidate {
   created_at: string
 }
 
+export type PipelineStageKey =
+  | 'processing'
+  | 'failed'
+  | 'resume'
+  | 'phone'
+  | 'interview'
+  | 'finalist'
+  | 'rejected'
+
+/** One candidate on a job and the single stage they are in. `state` is the raw call or interview state inside it. */
+export interface PipelineCandidate {
+  candidate_id: string
+  name: string
+  email?: string | null
+  phone?: string | null
+  stage: PipelineStageKey
+  state?: string | null
+  reason?: string | null
+  scheduled_at?: string | null
+  match_score?: number | null
+  recommendation?: string | null
+  hr_decision?: string | null
+  applied_at: string
+  failure_reason?: string | null
+}
+
+export interface PipelineCandidatesResponse {
+  items: PipelineCandidate[]
+  /** For the chosen stage; `counts` covers every stage across the whole (searched) job. */
+  total: number
+  counts: Record<PipelineStageKey, number>
+  limit: number
+  offset: number
+}
+
 export interface CandidateListItem {
   id: string
   job_id: string

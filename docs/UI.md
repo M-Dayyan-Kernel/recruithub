@@ -98,10 +98,11 @@ full-bleed and carry no app chrome.
   call window, the interview topics) goes in a `SettingsModal` opened from a Settings
   button in the header, never an always-open card. It is a centred modal over a blurred page (a
   deliberate exception to §2's no-blur rule: it is a whole workspace, not a prompt). All in `components/stage/`.
-- **A candidate lives on exactly one stage page.** Finalists are not an Interviews tab; they are
-  only on the Finalists page. Where another page mentions a candidate who has moved on (the
-  "In interview" and "Finalist" rows on Phone screening, the stage on Resume screening), it
-  names the real stage and links to that stage's page, using `describeStage`.
+- **A candidate lives on exactly one stage page.** Resume screening lists only candidates awaiting
+  a decision, Phone screening those in the phone round, Interviews those interviewing, Finalists
+  finalists, Rejected the rejected. A page never lists, or links to, a candidate who is somewhere
+  else; the job's Candidates view (the button at the end of the stage bar) shows where everyone is.
+  Which stage a candidate is in is decided once, on the server (`pipeline_candidates_service`).
 - Card grids: `gap-4`, `sm:grid-cols-2 lg:grid-cols-4` for stats.
 - Content width: `max-w-6xl` for app pages. Auth is full-bleed.
 - **Design at 375px first.** Panels that only work at 1440px are not done.
