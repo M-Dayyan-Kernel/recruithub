@@ -606,7 +606,11 @@ Reject from whichever stage the candidate is in (derived on the server: an inter
 #### `POST /api/jobs/{job_id}/rejected/{candidate_id}/reconsider`
 Put a rejected candidate back where they were rejected from: `resume` → pending on Resume Screening; `phone` → approved (a call that already finished is **not** redialled: a "fail" result goes back to "needs review"; with no finished call, a fresh call is queued, or with screening off they move to Interviews); `interview` → approved again (a link cancelled by the rejection stays cancelled; HR reschedules it; taken rounds are untouched).
 
-**Response `200`:** `{ candidate_id, restored_to }`
+**Response `200`:** `{ candidate_id, restored_to, tab }`. `restored_to` is where the candidate is **now** (`resume`, `phone` or
+`interview`), which can differ from where they were rejected from: a phone rejection with screening off lands in an interview.
+`tab` is the tab of that stage's page that lists them (Resume: `results`; Phone: `pending`, `completed` or `flagged`;
+Interviews: `scheduled`, `ongoing`, `completed` or `flagged`), so a screen can open right on it. If working that out fails the
+reconsider still stands and `restored_to` falls back to where they were rejected from, with no `tab`.
 
 **Errors:** `409` — not rejected; already emailed (final); an email is being sent right now.
 

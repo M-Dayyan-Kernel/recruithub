@@ -45,6 +45,7 @@ from app.services.candidate_contact_service import resolve_candidate_email, reso
 from app.core.screening_skipped import is_skipped_call
 from app.services.interview_round_service import latest_round
 from app.services.interview_status import is_live as interview_is_live
+from app.services.pipeline_candidates_service import resolve_landing
 from app.services.screening_trigger_service import call_is_on_its_way, cancel_undialled_calls
 from app.services.shortlist_stage_service import is_successful_call
 
@@ -268,7 +269,14 @@ class RejectService:
                 await ShortlistService(self._session)._handle_approval_side_effects(actor, row)
             except Exception:  # noqa: BLE001 - the reconsider stands
                 logger.exception("Dispatch after reconsider failed for candidate=%s", candidate_id)
-        return ReconsiderResponse(candidate_id=candidate_id, restored_to=origin)
+        restored_to, tab = origin, None
+        try:
+            landing = await resolve_landing(self._session, actor, job, candidate, row)
+            if landing.stage in ("resume", "phone", "interview"):
+                restored_to, tab = landing.stage, landing.tab
+        except Exception:  # noqa: BLE001 - the reconsider is saved; only the hint of where to look is lost
+            logger.exception("Could not resolve where candidate=%s landed after reconsider", candidate_id)
+        return ReconsiderResponse(candidate_id=candidate_id, restored_to=restored_to, tab=tab)
 
     # -- the list ----------------------------------------------------------------------
 

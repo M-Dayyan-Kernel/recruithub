@@ -743,6 +743,13 @@ export interface RejectedListResponse {
   candidates: RejectedCandidate[]
 }
 
+/** Where a reconsidered candidate is now, and the tab of that stage's page that lists them. */
+export interface ReconsiderResponse {
+  candidate_id: string
+  restored_to: 'resume' | 'phone' | 'interview'
+  tab?: string | null
+}
+
 export interface RejectionEmailResponse {
   results: { candidate_id: string; status: 'sent' | 'failed' | 'no_email' | 'skipped' }[]
   sent: number

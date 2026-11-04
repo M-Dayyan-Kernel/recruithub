@@ -1450,7 +1450,10 @@ class RejectResponse(BaseModel):
 
 class ReconsiderResponse(BaseModel):
     candidate_id: uuid.UUID
+    # Where the candidate is now (not only where they were rejected from: a phone rejection with
+    # screening off lands in an interview), and the tab of that stage's page that lists them.
     restored_to: Literal["resume", "phone", "interview"]
+    tab: Optional[str] = None
 
 
 class RejectedCandidate(BaseModel):
