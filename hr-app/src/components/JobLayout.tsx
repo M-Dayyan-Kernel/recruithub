@@ -1,7 +1,8 @@
+import { useState } from 'react'
 import { Link, Outlet, useLocation, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { usePhoneScreeningVisible } from '@/hooks/usePhoneScreeningVisible'
-import { ArrowLeft, UserX } from 'lucide-react'
+import { ArrowLeft, UserX, Users } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { JobHeader, JobHeaderSkeleton } from '@/components/JobHeader'
@@ -11,6 +12,8 @@ import {
   jobPhaseSteps,
 } from '@/components/JobPhaseNav'
 import { isArchivedJobStatus } from '@/lib/jobStatus'
+import { CandidatesModal } from '@/components/job/CandidatesModal'
+import { usePipelineCandidates } from '@/hooks/usePipelineCandidates'
 
 export interface JobOutletContext {
   job: Job
@@ -48,6 +51,10 @@ function JobStageNav({
   const steps = jobPhaseSteps(job, showScreening)
   const flow = steps.filter((s) => s.segment !== 'rejected')
   const rejected = steps.find((s) => s.segment === 'rejected')
+  const [candidatesOpen, setCandidatesOpen] = useState(false)
+  // limit 1: only the per-stage counts are wanted here, for the button's badge.
+  const { data: overview } = usePipelineCandidates(jobId, { limit: 1 })
+  const candidateCount = overview ? Object.values(overview.counts).reduce((a, b) => a + b, 0) : undefined
 
   const pill =
     'inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent'
@@ -125,6 +132,22 @@ function JobStageNav({
           </>
         )}
       </nav>
+
+      <button
+        type="button"
+        onClick={() => setCandidatesOpen(true)}
+        aria-haspopup="dialog"
+        className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm font-medium text-ink transition-colors hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        <Users size={14} aria-hidden />
+        Candidates
+        {candidateCount !== undefined && (
+          <span className="rounded-full bg-surface-3 px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-ink-muted">
+            {candidateCount}
+          </span>
+        )}
+      </button>
+      {candidatesOpen && <CandidatesModal jobId={jobId} onClose={() => setCandidatesOpen(false)} />}
     </div>
   )
 }
