@@ -1,19 +1,12 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Link } from 'react-router-dom'
-import { AlertCircle, ArrowRight, Check, Loader2, X } from 'lucide-react'
+import { Check, Loader2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { ShortlistDecisionResponse, ShortlistResultWithCandidate } from '@/types/api'
 import Modal from '@/components/ui/Modal'
-import { BTN_GHOST, BTN_STAGE_LINK } from '@/components/ui/Surface'
-import { HrDecisionBadge } from '@/components/shortlist/shortlistBadges'
+import { BTN_GHOST } from '@/components/ui/Surface'
 import { useShortlistDecision } from '@/hooks/useShortlistDecision'
-import {
-  decisionCopy,
-  decisionErrorMessage,
-  describeStage,
-  type StageTone,
-} from '@/lib/shortlistDecision'
+import { decisionCopy, decisionErrorMessage } from '@/lib/shortlistDecision'
 
 type Decision = 'approved' | 'rejected'
 
@@ -26,56 +19,14 @@ const REJECT_BTN = `${SMALL_BTN} border-neg/30 bg-surface text-neg hover:bg-neg-
 const CONFIRM_BTN =
   'inline-flex h-9 items-center justify-center gap-2 rounded-md px-4 text-[13px] font-semibold text-accent-ink transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60'
 
-const TONE_DOT: Record<StageTone, string> = {
-  neutral: 'bg-ink-subtle',
-  accent: 'bg-accent',
-  pos: 'bg-pos',
-  warn: 'bg-warn',
-  neg: 'bg-neg',
-}
-
-/** The HR Status column: the decision while there is one to make, the stage once approved. */
-export function ShortlistStatusCell({
-  result,
-  jobId,
-}: {
-  result: ShortlistResultWithCandidate
-  jobId: string
-}) {
-  if (result.hr_decision === 'pending') {
-    return <span className="text-xs text-ink-muted">Awaiting decision</span>
-  }
-  if (result.hr_decision === 'approved') {
-    if (!result.stage) {
-      // Between the click and the refetch that brings the stage back.
-      return <HrDecisionBadge decision="approved" />
-    }
-    const view = describeStage(result.stage, jobId)
-    return (
-      <div className="inline-flex flex-col items-center gap-0.5">
-        <span className="text-[13px] font-semibold text-ink">{view.title}</span>
-        <span className="inline-flex items-center gap-1.5 text-xs text-ink-muted">
-          <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[view.tone]}`} />
-          <span>
-            {view.detail}
-            {view.at && <span className="font-mono tabular-nums">, {view.at}</span>}
-          </span>
-        </span>
-      </div>
-    )
-  }
-  return <HrDecisionBadge decision={result.hr_decision} />
-}
-
 /**
- * What can be done with a row's decision.
- *  - pending / overridden: Approve and Reject.
- *  - rejected: no buttons. They are in the Rejected stage, which owns them (Reconsider is
- *    there), so a link to it is the only action.
- *  - approved: no decision buttons. The candidate is in a stage, and a link to that
- *    stage's tab is the only action, because that is where calling, cancelling and
- *    rescheduling live.
- * Approve and Reject open a dialog that says what will happen, and stay open on failure.
+ * Approve and Reject for a row on the Resume Screening list. Every row there is awaiting a
+ * decision, so these are always the actions; a decided candidate leaves the list for the stage
+ * they are now in. Each opens a dialog that says what will happen.
+ *
+ * A failure is reported as a toast and the dialog closes. The dialog lives inside the row, and a
+ * refused change (409: someone else decided first) refetches the list and removes the row, which
+ * would take an in-dialog message with it.
  */
 export function ShortlistDecisionControls({
   result,
@@ -89,100 +40,27 @@ export function ShortlistDecisionControls({
   onApproved?: (data: ShortlistDecisionResponse) => void
 }) {
   const [confirming, setConfirming] = useState<Decision | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const mutation = useShortlistDecision(jobId, result.id, { onApproved, optimistic: false })
   const name = result.candidate_name ?? 'Candidate'
 
-  const close = () => {
-    setConfirming(null)
-    setError(null)
-  }
-
   const confirm = async () => {
     if (!confirming) return
-    setError(null)
+    const decision = confirming
     try {
-      await mutation.mutateAsync(confirming)
-      toast.success(confirming === 'approved' ? `${name} approved` : `${name} rejected`)
-      close()
+      await mutation.mutateAsync(decision)
+      if (decision === 'rejected') toast.success(`${name} moved to Rejected`)
+      // With screening off the approval's own handler reports the interview and navigates.
+      else if (screeningEffective) toast.success(`${name} approved and moved to Phone screening`)
     } catch (err) {
-      setError(decisionErrorMessage(err))
+      toast.error(decisionErrorMessage(err))
+    } finally {
+      setConfirming(null)
     }
   }
 
   const copy = confirming
     ? decisionCopy(confirming, { name, score: result.match_score, screeningEffective })
     : null
-
-  // Rendered whatever the row looks like: a refused change (409) means the row has just
-  // flipped to approved, and the sentence explaining why must outlive that flip.
-  const dialog = (
-    <>
-      {/* Portalled: this renders inside a centred table cell, and the dialog must not
-          inherit its text alignment (or receive clicks as if they were on the row). */}
-      {confirming && copy && createPortal(
-        <Modal title={copy.title} onClose={close} busy={mutation.isPending}>
-          <div className="space-y-4 px-5 py-4">
-            {/* Once it has failed, the consequence line would describe something that did not happen. */}
-            {!error && <p className="text-[13px] leading-relaxed text-ink-muted">{copy.body}</p>}
-            {error && (
-              <p role="alert" className="flex items-start gap-1.5 text-[12px] text-neg">
-                <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden />
-                {error}
-              </p>
-            )}
-            <div className="flex flex-wrap justify-end gap-2">
-              <button type="button" onClick={close} disabled={mutation.isPending} className={BTN_GHOST}>
-                {error ? 'Close' : 'Cancel'}
-              </button>
-              {!error && (
-                <button
-                  type="button"
-                  onClick={() => void confirm()}
-                  disabled={mutation.isPending}
-                  className={`${CONFIRM_BTN} ${
-                    confirming === 'approved'
-                      ? 'bg-pos hover:bg-pos/90 focus:ring-pos/40'
-                      : 'bg-neg hover:bg-neg/90 focus:ring-neg/40'
-                  }`}
-                >
-                  {mutation.isPending && <Loader2 size={14} className="animate-spin" aria-hidden />}
-                  {copy.confirmLabel}
-                </button>
-              )}
-            </div>
-          </div>
-        </Modal>,
-        document.body,
-      )}
-    </>
-  )
-
-  if (result.hr_decision === 'approved') {
-    if (!result.stage) return dialog
-    const view = describeStage(result.stage, jobId)
-    return (
-      <>
-        <Link to={view.to} className={BTN_STAGE_LINK} aria-label={`${view.toLabel} for ${name}`}>
-          {view.toLabel}
-          <ArrowRight size={13} aria-hidden />
-        </Link>
-        {dialog}
-      </>
-    )
-  }
-
-  if (result.hr_decision === 'rejected') {
-    return (
-      <>
-        <Link to={`/jobs/${jobId}/rejected`} className={BTN_STAGE_LINK} aria-label={`Open Rejected for ${name}`}>
-          Open Rejected
-          <ArrowRight size={13} aria-hidden />
-        </Link>
-        {dialog}
-      </>
-    )
-  }
 
   return (
     <>
@@ -194,7 +72,34 @@ export function ShortlistDecisionControls({
         <X size={13} aria-hidden />
         Reject
       </button>
-      {dialog}
+      {/* Portalled: this renders inside a centred table cell, and the dialog must not
+          inherit its text alignment (or receive clicks as if they were on the row). */}
+      {confirming && copy && createPortal(
+        <Modal title={copy.title} onClose={() => setConfirming(null)} busy={mutation.isPending}>
+          <div className="space-y-4 px-5 py-4">
+            <p className="text-[13px] leading-relaxed text-ink-muted">{copy.body}</p>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button type="button" onClick={() => setConfirming(null)} disabled={mutation.isPending} className={BTN_GHOST}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirm()}
+                disabled={mutation.isPending}
+                className={`${CONFIRM_BTN} ${
+                  confirming === 'approved'
+                    ? 'bg-pos hover:bg-pos/90 focus:ring-pos/40'
+                    : 'bg-neg hover:bg-neg/90 focus:ring-neg/40'
+                }`}
+              >
+                {mutation.isPending && <Loader2 size={14} className="animate-spin" aria-hidden />}
+                {copy.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </Modal>,
+        document.body,
+      )}
     </>
   )
 }

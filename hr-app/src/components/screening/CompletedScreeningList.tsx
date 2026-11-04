@@ -5,8 +5,6 @@ import toast from 'react-hot-toast'
 import { FileText, Loader2, Phone, Send, X } from 'lucide-react'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { BTN_DANGER, BTN_SECONDARY } from '@/components/ui/Surface'
-import { InInterviewCell } from '@/components/screening/InInterviewCell'
-import { describeStage } from '@/lib/shortlistDecision'
 import type { ScreeningRow } from '@/components/screening/screeningRows'
 import { ScreeningReportModal } from '@/components/screening/ScreeningReportModal'
 import { displayField, isScreeningReportGenerating } from '@/components/screening/screeningUtils'
@@ -42,12 +40,6 @@ function CompletedScreeningRow({
   if (!call) return null
 
   const isRejected = call.result === 'fail'
-  const stage = row.shortlist.stage
-  // Past screening: the interview owns the candidate now, so this row only says where they
-  // are. (A passed call with no session yet is still this stage's to act on.)
-  const pastScreening =
-    Boolean(call.has_interview_session) || (stage?.kind === 'interview' && stage.state !== 'pending')
-  const stageView = pastScreening && stage ? describeStage(stage, jobId) : null
   const isGenerating = isScreeningReportGenerating(call)
 
   const invalidate = () => {
@@ -121,9 +113,6 @@ function CompletedScreeningRow({
         )}
       </td>
       <td className="px-4 py-3">
-        {pastScreening ? (
-          <InInterviewCell view={stageView} jobId={jobId} />
-        ) : (
         <div className="flex flex-wrap items-center justify-end gap-2">
           {row.canCallNow && (
             <button
@@ -168,7 +157,6 @@ function CompletedScreeningRow({
             </button>
           )}
         </div>
-        )}
       </td>
       {confirmReject && (
         <ConfirmDialog

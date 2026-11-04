@@ -4,10 +4,7 @@ import { Loader2, Trash2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { ShortlistResultWithCandidate } from '@/types/api'
 import { RecommendationBadge, ScoreBadge } from '@/components/shortlist/shortlistBadges'
-import {
-  ShortlistDecisionControls,
-  ShortlistStatusCell,
-} from '@/components/shortlist/ShortlistDecisionControls'
+import { ShortlistDecisionControls } from '@/components/shortlist/ShortlistDecisionControls'
 import { ShortlistReportModal } from '@/components/shortlist/ShortlistReportModal'
 import { useShortlistApproveNavigation } from '@/hooks/useShortlistApproveNavigation'
 import { useDeleteCandidate } from '@/hooks/useDeleteCandidate'
@@ -66,9 +63,6 @@ function ShortlistTableRow({
       </td>
       <td className={TD_CLASS}>
         <RecommendationBadge rec={result.recommendation} />
-      </td>
-      <td className={TD_CLASS}>
-        <ShortlistStatusCell result={result} jobId={jobId} />
       </td>
       <td className={TD_CLASS}>
         <div className="flex flex-wrap items-center justify-center gap-2">
@@ -276,7 +270,6 @@ export function ShortlistTable({
                 <th className={TH_CLASS}>Name</th>
                 <th className={TH_CLASS}>Match Score</th>
                 <th className={TH_CLASS}>AI Recommendation</th>
-                <th className={TH_CLASS}>HR Status</th>
                 <th className={TH_CLASS}>Actions</th>
               </tr>
             </thead>

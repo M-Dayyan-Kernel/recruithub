@@ -1,86 +1,11 @@
-import type { ShortlistStage } from '../types/api.ts'
-import { formatDateTime } from './activityFormat.ts'
-
-export type StageTone = 'neutral' | 'accent' | 'pos' | 'warn' | 'neg'
-
-export interface StageView {
-  /** Which stage page owns the candidate. Branch on this, never on the display title. */
-  phase: 'screening' | 'interview' | 'finalist'
-  /** The stage the candidate is in, e.g. "Phone screening". */
-  title: string
-  /** What is happening in it, e.g. "Call in progress". */
-  detail: string
-  /** A date and time that belongs after the detail, kept apart so it can be set in figures. */
-  at?: string
-  tone: StageTone
-  /** The tab that owns the next action for this candidate. */
-  to: string
-  toLabel: string
-}
-
-const SCREENING_STATES: Record<string, { detail: string; tone: StageTone; tab: 'pending' | 'completed' | 'flagged' }> = {
-  queued: { detail: 'Waiting for the call', tone: 'neutral', tab: 'pending' },
-  scheduled: { detail: 'Call scheduled', tone: 'neutral', tab: 'pending' },
-  retrying: { detail: 'Retrying the call', tone: 'neutral', tab: 'pending' },
-  cancelled: { detail: 'Call cancelled', tone: 'neutral', tab: 'pending' },
-  paused: { detail: 'Screening is off: move them on or reject', tone: 'warn', tab: 'pending' },
-  live: { detail: 'Call in progress', tone: 'accent', tab: 'pending' },
-  review: { detail: 'Needs your review', tone: 'warn', tab: 'completed' },
-  failed: { detail: 'Did not pass', tone: 'neg', tab: 'completed' },
-  flagged: { detail: 'Needs attention', tone: 'warn', tab: 'flagged' },
-}
-
-// `tab` is the Interviews tab that owns the state; a finalist has none, it is on its own page.
-const INTERVIEW_STATES: Record<string, { detail: string; tone: StageTone; tab?: string; title?: string }> = {
-  pending: { detail: 'Screening passed, interview next', tone: 'neutral', tab: 'scheduled' },
-  link_sent: { detail: 'Link sent', tone: 'neutral', tab: 'scheduled' },
-  live: { detail: 'In progress', tone: 'accent', tab: 'ongoing' },
-  completed: { detail: 'Completed', tone: 'neutral', tab: 'completed' },
-  finalist: { detail: 'Approved as a finalist', tone: 'pos', title: 'Finalist' },
-  flagged: { detail: 'Needs attention', tone: 'warn', tab: 'flagged' },
-  cancelled: { detail: 'Interview cancelled', tone: 'neutral', tab: 'scheduled' },
-}
+import type { ShortlistResultWithCandidate } from '../types/api.ts'
 
 /**
- * How an approved row reads on the Resume Screening tab. An unknown state (the server
- * learned a new one before this page did) still names the stage and links to it, rather
- * than rendering nothing.
+ * Whether a scored candidate is still the Resume Screening list's to decide. Approved ones are in
+ * Phone screening or Interviews and rejected ones in Rejected, so only these belong on that list.
  */
-export function describeStage(stage: ShortlistStage, jobId: string): StageView {
-  if (stage.kind === 'screening') {
-    const known = SCREENING_STATES[stage.state]
-    // Paused (screening off) rows are listed where they were: Flagged if they had a flag.
-    const tab = stage.state === 'paused' && stage.reason ? 'flagged' : (known?.tab ?? 'pending')
-    return {
-      phase: 'screening',
-      title: 'Phone screening',
-      detail: (stage.state === 'flagged' && stage.reason) || known?.detail || 'In this stage',
-      tone: known?.tone ?? 'neutral',
-      to: `/jobs/${jobId}/screening?tab=${tab}`,
-      toLabel: 'Open Phone screening',
-    }
-  }
-  const known = INTERVIEW_STATES[stage.state]
-  if (stage.state === 'finalist') {
-    // A finalist is past the interview stage: they live on the Finalists page, not in Interviews.
-    return {
-      phase: 'finalist',
-      title: known.title ?? 'Finalist',
-      detail: known.detail,
-      tone: known.tone,
-      to: `/jobs/${jobId}/finalists`,
-      toLabel: 'Open Finalists',
-    }
-  }
-  return {
-    phase: 'interview',
-    title: known?.title ?? 'Interview',
-    detail: (stage.state === 'flagged' && stage.reason) || known?.detail || 'In this stage',
-    at: stage.state === 'link_sent' && stage.scheduled_at ? formatDateTime(stage.scheduled_at) : undefined,
-    tone: known?.tone ?? 'neutral',
-    to: `/jobs/${jobId}/interviews?tab=${known?.tab ?? 'scheduled'}`,
-    toLabel: 'Open Interviews',
-  }
+export function isAwaitingDecision(result: Pick<ShortlistResultWithCandidate, 'hr_decision'>): boolean {
+  return result.hr_decision !== 'approved' && result.hr_decision !== 'rejected'
 }
 
 export interface DecisionCopy {

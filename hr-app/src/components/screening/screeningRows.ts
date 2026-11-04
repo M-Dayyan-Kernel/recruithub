@@ -26,12 +26,6 @@ export interface ScreeningRow {
   isActive: boolean
   isScheduledRetry: boolean
   flagReason?: string
-  /**
-   * An interview owns this candidate now (same rule as the Completed list and the server's
-   * stage resolver: a session supersedes the call that led to it). The row stays listed, but
-   * only says where they are and links to Interviews; no call, move or reject from here.
-   */
-  inInterview: boolean
 }
 
 const LIVE_CALL_STATUSES = new Set(['initiated', 'in_progress'])
@@ -301,6 +295,18 @@ function candidatesWithOnlySkippedCalls(calls: ScreeningCall[]): Set<string> {
   return new Set(calls.filter((c) => c.skipped && !withReal.has(c.candidate_id)).map((c) => c.candidate_id))
 }
 
+/**
+ * Whether a candidate has moved past the phone round: an interview session exists, or the server
+ * resolves them to an interview or finalist. A passed call with no interview yet (stage state
+ * `pending`) is still this stage's to act on.
+ */
+function hasLeftPhoneRound(sr: ShortlistResultWithCandidate, latestCall: ScreeningCall | null): boolean {
+  return (
+    Boolean(latestCall?.has_interview_session) ||
+    (sr.stage?.kind === 'interview' && sr.stage.state !== 'pending')
+  )
+}
+
 export function buildScreeningRows(
   approvedShortlist: ShortlistResultWithCandidate[],
   candidatesMap: Record<string, Candidate>,
@@ -316,7 +322,8 @@ export function buildScreeningRows(
   // were skipped moved on to the interview and has no place in this tab.
   const skippedOnly = candidatesWithOnlySkippedCalls(screeningCalls)
   const realCalls = screeningCalls.filter((c) => !c.skipped)
-  return approvedShortlist.filter((sr) => !skippedOnly.has(sr.candidate_id)).map((sr) => {
+  return approvedShortlist.flatMap((sr): ScreeningRow[] => {
+    if (skippedOnly.has(sr.candidate_id)) return []
     const candidate = candidatesMap[sr.candidate_id]
     const phone = candidate?.phone ?? null
     const name =
@@ -325,24 +332,23 @@ export function buildScreeningRows(
       candidate?.name ??
       'Candidate'
     const latestCall = latestCallForCandidate(sr.candidate_id, realCalls)
+    // An interview (or finalist mark) takes the candidate out of the phone round: they are on
+    // that stage's page now, not here. The server's stage resolver says the same.
+    if (hasLeftPhoneRound(sr, latestCall)) return []
     const { tab, flagReason } = classifyTab(latestCall, phone, settings)
     const attemptNumber = latestCall ? (latestCall.retry_count ?? 0) + 1 : 1
     const scheduledRetry = latestCall ? isScheduledRetry(latestCall) : false
     const isActive = latestCall ? isLiveCall(latestCall) : false
-    const inInterview =
-      Boolean(latestCall?.has_interview_session) ||
-      (sr.stage?.kind === 'interview' && sr.stage.state !== 'pending')
-    const canCallNow = !inInterview && screeningOn && canCallNowForRow(tab, phone, latestCall, settings)
+    const canCallNow = screeningOn && canCallNowForRow(tab, phone, latestCall, settings)
     // Mirrors the server: a call that was queued (a row not yet dialled) or that was never
     // created because the candidate is still waiting for auto-dispatch.
     const canCancel =
-      !inInterview &&
       screeningOn &&
       tab === 'pending' &&
       isCallablePhone(phone, settings) &&
       (latestCall === null ? true : isScheduledRetry(latestCall))
 
-    return {
+    return [{
       candidateId: sr.candidate_id,
       candidateName: name,
       phone,
@@ -357,7 +363,6 @@ export function buildScreeningRows(
       canCallNow,
       canCancel,
       canPlace:
-        !inInterview &&
         !isOnItsWay(latestCall) &&
         (tab === 'flagged' ||
           latestCall?.call_status === 'cancelled' ||
@@ -366,8 +371,7 @@ export function buildScreeningRows(
       isActive,
       isScheduledRetry: scheduledRetry,
       flagReason,
-      inInterview,
-    }
+    }]
   })
 }
 

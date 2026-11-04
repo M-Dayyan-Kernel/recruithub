@@ -240,7 +240,8 @@ test('Resume Screening tab supports table approve', async ({ page }) => {
   // Approving asks first: it starts a call or sends an invite.
   await page.getByRole('dialog').getByRole('button', { name: /^Approve and/ }).click()
 
-  await expect(page.getByText('Approved').first()).toBeVisible({ timeout: 5000 })
+  // An approved candidate leaves this list for the stage they are now in.
+  await expect(page.getByRole('cell', { name: 'Alice Sharma', exact: true })).toHaveCount(0)
   expect(patched).toHaveLength(1)
   expect(patched[0].id).toBe(SHORTLIST_IDS.alice)
   expect(patched[0].hr_decision).toBe('approved')
