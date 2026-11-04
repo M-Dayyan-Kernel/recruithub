@@ -1,16 +1,22 @@
 import { useState } from 'react'
-import { Link, useOutletContext } from 'react-router-dom'
+import { Link, useNavigate, useOutletContext } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileText, Loader2, Send, Undo2, UserX } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
-import type { RejectedCandidate, RejectedListResponse, RejectionEmailResponse } from '@/types/api'
+import type {
+  ReconsiderResponse,
+  RejectedCandidate,
+  RejectedListResponse,
+  RejectionEmailResponse,
+} from '@/types/api'
 import type { JobOutletContext } from '@/components/JobLayout'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { BTN_PRIMARY, BTN_SECONDARY } from '@/components/ui/Surface'
 import { REJECTED_FROM_LABEL, REJECTED_LABEL } from '@/lib/stageLabels'
 import StageHeader from '@/components/stage/StageHeader'
 import { WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
+import { reconsiderPath } from '@/lib/reconsiderLanding'
 
 const BATCH = 10 // the server takes at most this many per request
 
@@ -42,6 +48,7 @@ function EmailState({ c }: { c: RejectedCandidate }) {
 export default function JobRejectedPage() {
   const { jobId } = useOutletContext<JobOutletContext>()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [confirmAll, setConfirmAll] = useState(false)
   const [allError, setAllError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -109,13 +116,20 @@ export default function JobRejectedPage() {
   })
 
   const reconsider = useMutation({
-    mutationFn: (c: RejectedCandidate) => api.post(`/api/jobs/${jobId}/rejected/${c.candidate_id}/reconsider`),
+    mutationFn: (c: RejectedCandidate) =>
+      api.post(`/api/jobs/${jobId}/rejected/${c.candidate_id}/reconsider`) as unknown as Promise<ReconsiderResponse>,
     onMutate: (c) => setBusyId(c.candidate_id),
-    onSuccess: (_d, c) =>
+    onSuccess: (out, c) => {
+      // `restored_to` is where they are now, which can differ from where they were rejected
+      // from (a phone rejection with screening off lands in an interview).
       toast.success(
-        `${c.candidate_name ?? 'Candidate'} is back in ${REJECTED_FROM_LABEL[c.rejected_from ?? 'resume']}` +
-          (c.rejected_from === 'interview' ? '. Send them a new interview link.' : ''),
-      ),
+        `${c.candidate_name ?? 'Candidate'} is back in ${REJECTED_FROM_LABEL[out.restored_to]}` +
+          (out.restored_to === 'interview' ? '. Send them a new interview link.' : ''),
+      )
+      // One at a time, so opening their stage is what was asked for. A bulk reconsider (there
+      // is none today) should not call this: jumping away after each would break the batch.
+      navigate(reconsiderPath(jobId, out.restored_to, out.tab))
+    },
     onError: (err: Error) => toast.error(err.message || 'Could not reconsider'),
     onSettled: () => {
       setBusyId(null)

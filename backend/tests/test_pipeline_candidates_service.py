@@ -108,5 +108,43 @@ class SummarizeTests(unittest.TestCase):
         self.assertEqual(out.total, 6)
 
 
+
+class LandingTabTests(unittest.TestCase):
+    """The tab of the stage page that lists a candidate, so a screen can open right on it."""
+
+    def tab(self, stage_key, position=None, interview_tab=None):
+        from app.services.pipeline_candidates_service import landing_tab
+
+        return landing_tab(stage_key, position, interview_tab)
+
+    def test_resume_opens_the_results_tab(self):
+        self.assertEqual(self.tab("resume"), "results")
+
+    def test_phone_follows_the_call_state(self):
+        cases = {
+            "queued": "pending", "live": "pending", "scheduled": "pending", "retrying": "pending",
+            "cancelled": "pending", "review": "completed", "failed": "completed",
+            "pending": "completed", "flagged": "flagged",
+        }
+        for state, expect in cases.items():
+            with self.subTest(state):
+                self.assertEqual(self.tab("phone", stage("screening", state)), expect)
+
+    def test_a_paused_phone_candidate_is_filed_under_flagged_only_when_there_is_a_reason(self):
+        paused = ShortlistStage(kind="screening", state="paused", reason="No phone number on file")
+        self.assertEqual(self.tab("phone", paused), "flagged")
+        self.assertEqual(self.tab("phone", stage("screening", "paused")), "pending")
+
+    def test_interview_uses_the_interviews_tab_and_files_needs_a_link_under_scheduled(self):
+        for given, expect in {"scheduled": "scheduled", "ongoing": "ongoing", "completed": "completed",
+                              "flagged": "flagged", "pending": "scheduled", None: "scheduled"}.items():
+            with self.subTest(given):
+                self.assertEqual(self.tab("interview", None, given), expect)
+
+    def test_other_stages_have_no_tab(self):
+        for key in ("processing", "failed", "finalist", "rejected"):
+            self.assertIsNone(self.tab(key))
+
+
 if __name__ == "__main__":
     unittest.main()
