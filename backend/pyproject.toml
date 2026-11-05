@@ -26,9 +26,13 @@ dependencies = [
     "livekit-agents[openai]>=1.6.2",
     "livekit-api>=0.7.0",
     "openai>=2.36.0,<3.0.0",
-    # Celery's Redis transport (kombu) imports it. Some kombu releases import it without
-    # declaring it, which made the API fail at the first task dispatch with
-    # "No module named 'packaging'". Declared here so the image always has it.
+    # kombu is Celery's messaging library. Celery 5.4.0 only asks for kombu>=5.3.4,<6.0 and the
+    # images install with `pip install .` (no lock), so every build took the newest kombu.
+    # kombu 5.7.0 (2026-11-03) imports `packaging` but lists it only under its optional `redis`
+    # extra, which Celery never selects, so images built after that crashed at the first task
+    # dispatch with "No module named 'packaging'". Pinned to the version uv.lock has used
+    # since the import, and `packaging` is declared explicitly so it can never go missing.
+    "kombu==5.6.2",
     "packaging>=24.0",
     "passlib>=1.7.4",
     "prometheus-client>=0.21.0",
