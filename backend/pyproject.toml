@@ -26,6 +26,10 @@ dependencies = [
     "livekit-agents[openai]>=1.6.2",
     "livekit-api>=0.7.0",
     "openai>=2.36.0,<3.0.0",
+    # Celery's Redis transport (kombu) imports it. Some kombu releases import it without
+    # declaring it, which made the API fail at the first task dispatch with
+    # "No module named 'packaging'". Declared here so the image always has it.
+    "packaging>=24.0",
     "passlib>=1.7.4",
     "prometheus-client>=0.21.0",
     "pydantic-settings==2.3.4",
