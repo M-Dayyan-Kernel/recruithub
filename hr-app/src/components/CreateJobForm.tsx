@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, type DragEvent, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  X,
   Loader2,
   AlertCircle,
   Upload,
@@ -9,7 +8,6 @@ import {
   Briefcase,
   MapPin,
   Target,
-  MessagesSquare,
   PhoneCall,
   ShieldCheck,
   ArrowLeft,
@@ -17,9 +15,15 @@ import {
   Check,
   Pencil,
   ClipboardCheck,
+  RotateCcw,
+  Save,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
+import { useAuth } from '@/context/AuthContext'
+import { readJobCreationDraft, type JobCreationDraft } from '@/lib/jobCreationDraft'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { JobSkillsField } from '@/components/job/JobSkillsField'
 import type {
   Job,
   ParsedJobDescription,
@@ -88,7 +92,9 @@ function FormSection({
   title,
   description,
   children,
+  action,
 }: {
+  action?: ReactNode
   icon: ReactNode
   title: string
   description?: string
@@ -96,16 +102,17 @@ function FormSection({
 }) {
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm [&_[role=radiogroup]]:flex-wrap">
-      <div className="flex items-start gap-3 border-b border-slate-100 bg-white px-6 py-5">
+      <div className="flex flex-wrap items-start gap-3 border-b border-slate-100 bg-white px-6 py-5">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm ring-1 ring-slate-200/60">
           {icon}
         </div>
-        <div className="min-w-0 pt-0.5">
+        <div className="min-w-0 flex-1 pt-0.5">
           <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
           {description && (
             <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{description}</p>
           )}
         </div>
+        {action}
       </div>
       <div className="space-y-5 p-4 sm:p-6">{children}</div>
     </section>
@@ -138,6 +145,11 @@ const steps = ['Job info', 'Requirements', 'Screening', 'Review']
 
 export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props) {
   const queryClient = useQueryClient()
+  const { user } = useAuth()
+  const draftKey = `hr-job-draft:${user?.active_tenant_id ?? user?.tenant_id}:${user?.id}`
+  const [savedDraft, setSavedDraft] = useState(() => readJobCreationDraft(draftKey))
+  const [draftSaved, setDraftSaved] = useState(false)
+  const draftRestored = useRef(false)
   const progressRef = useRef<HTMLElement>(null)
   const previousStep = useRef(step)
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -157,6 +169,7 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
   // The role-specific and custom screening questions; the locked standard ones come from the API.
   const [extraQuestions, setExtraQuestions] = useState<ScreeningQuestion[]>([])
   // The pool the interviews draw from. The JD parser proposes it; HR reviews it here.
+  const [topicsWriting, setTopicsWriting] = useState(false)
   const [interviewTopics, setInterviewTopics] = useState<InterviewTopic[]>([])
   const [voiceScreeningEnabled, setVoiceScreeningEnabled] = useState(true)
   const [extensionCheckEnabled, setExtensionCheckEnabled] = useState(true)
@@ -170,6 +183,8 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
   const [wasPrefilled, setWasPrefilled] = useState(false)
+  const [parsedDefaults, setParsedDefaults] = useState<ParsedJobDescription | null>(null)
+  const [resetSection, setResetSection] = useState<'requirements' | 'screening' | null>(null)
 
   const { data: standardData } = useStandardScreeningQuestions(title, workMode, workLocation)
   const standardQuestions = standardData?.standard ?? []
@@ -183,7 +198,7 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
   })
 
   useEffect(() => {
-    if (settings) {
+    if (settings && !draftRestored.current) {
       setVoiceScreeningEnabled(settings.screening_enabled)
     }
   }, [settings])
@@ -202,6 +217,7 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
       setFieldErrors({})
       setSubmitError(null)
       setWasPrefilled(true)
+      setParsedDefaults(structuredClone(parsed))
 
       if (parsed.title) setTitle(parsed.title)
       if (parsed.description) setDescription(parsed.description)
@@ -232,6 +248,7 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
     mutationFn: (payload: CreateJobPayload) =>
       api.post('/api/jobs', payload) as unknown as Promise<Job>,
     onSuccess: (job) => {
+      try { localStorage.removeItem(draftKey) } catch { /* Job creation still succeeds if storage is unavailable. */ }
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
       toast.success('Job created successfully')
       onSuccess?.(job)
@@ -284,6 +301,43 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
     setSkills((prev) => prev.filter((s) => s !== skill))
   }
 
+  const saveDraft = () => {
+    const draft: JobCreationDraft = {
+      version: 1, step, title, description, skills, skillInput, seniority, workMode,
+      workLocation, extraQuestions, interviewTopics, voiceScreeningEnabled,
+      extensionCheckEnabled, extensionCheckMode,
+    }
+    try {
+      localStorage.setItem(draftKey, JSON.stringify(draft))
+      setDraftSaved(true)
+      toast.success('Draft saved in this browser')
+    } catch {
+      toast.error('Could not save the draft in this browser')
+    }
+  }
+
+  const resumeDraft = () => {
+    if (!savedDraft) return
+    draftRestored.current = true
+    setTitle(savedDraft.title)
+    setDescription(savedDraft.description)
+    setSkills(savedDraft.skills)
+    setSkillInput(savedDraft.skillInput)
+    setSeniority(savedDraft.seniority)
+    setWorkMode(savedDraft.workMode)
+    setWorkLocation(savedDraft.workLocation)
+    setExtraQuestions(savedDraft.extraQuestions)
+    setInterviewTopics(withIds(savedDraft.interviewTopics))
+    setVoiceScreeningEnabled(savedDraft.voiceScreeningEnabled)
+    setExtensionCheckEnabled(savedDraft.extensionCheckEnabled)
+    setExtensionCheckMode(savedDraft.extensionCheckMode)
+    workEditedByHand.current = { mode: true, location: true }
+    setSavedDraft(null)
+    setFieldErrors({})
+    onStepChange(savedDraft.step)
+    toast.success('Draft restored')
+  }
+
   const validateStep = (current: number): boolean => {
     const errors: FieldErrors = {}
     if (current === 1) {
@@ -293,8 +347,8 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
       else if (locationError) errors.workMode = locationError
     }
     if (current === 2 && !seniority) errors.seniority = 'Choose the seniority level'
-    if (current === 3) {
-      if (firstQuestionError) errors.screeningQuestions = firstQuestionError
+    if (current === 3 && firstQuestionError) errors.screeningQuestions = firstQuestionError
+    if (current === 4) {
       const topicError = validateTopicPool(interviewTopics)
       if (topicError) errors.interviewTopics = topicError
     }
@@ -305,6 +359,10 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
   const goToStep = (next: number) => {
     onStepChange(next)
     setSubmitError(null)
+    if (next === step) {
+      headingRef.current?.focus({ preventScroll: true })
+      progressRef.current?.scrollIntoView({ block: 'start' })
+    }
   }
 
   useEffect(() => {
@@ -315,7 +373,7 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
   }, [step])
 
   const handleSubmit = () => {
-    for (const current of [1, 2, 3]) {
+    for (const current of [1, 2, 3, 4]) {
       if (!validateStep(current)) {
         goToStep(current)
         return
@@ -346,7 +404,7 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
   }
 
   const isParsing = parseMutation.isPending
-  const isBusy = mutation.isPending || isParsing
+  const isBusy = mutation.isPending || isParsing || topicsWriting
   // The first problem in the questions HR can edit, if any. The standard ones are never wrong.
   const firstQuestionError =
     extraQuestions
@@ -356,6 +414,14 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
 
   return (
     <>
+      {savedDraft && <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-accent-border bg-accent-soft p-4">
+        <Save size={17} className="text-accent" />
+        <p className="min-w-0 flex-1 text-xs leading-relaxed text-ink">You have a saved job draft in this browser.</p>
+        <button type="button" onClick={resumeDraft} className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink hover:bg-accent-hover">Resume draft</button>
+        <button type="button" onClick={() => {
+          try { localStorage.removeItem(draftKey); setSavedDraft(null) } catch { toast.error('Could not remove this draft') }
+        }} className="text-xs text-ink-muted hover:text-ink">Discard</button>
+      </div>}
       <nav ref={progressRef} aria-label="Job creation progress" className="mb-10 mt-2 scroll-mt-6">
         <ol className="flex items-start">
           {steps.map((label, index) => {
@@ -391,7 +457,7 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
           {['Tell us about the role', 'Define your ideal candidate', 'Set up the screening process', 'Review your job'][step - 1]}
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-slate-500">
-          {['Import a job description or enter the details below.', 'Choose the skills and experience this role needs.', 'Configure phone screening, interview topics, and candidate checks.', 'Check each section before creating your job.'][step - 1]}
+          {['Import a job description or enter the details below.', 'Choose the skills and experience this role needs.', 'Review the questions your phone screening agent will ask.', 'Fine-tune the interview guide and check your job before creating it.'][step - 1]}
         </p>
       </div>
       {submitError && <p role="alert" className="mb-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{submitError}</p>}
@@ -561,50 +627,22 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
 
         </>)}
         {step === 2 && (<>
+          {parsedDefaults && (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-pos/20 bg-pos-soft px-4 py-3">
+              <Sparkles size={17} className="shrink-0 text-pos" />
+              <p className="min-w-0 flex-1 text-xs font-medium leading-relaxed text-pos">Pre-filled requirements — review and adjust to fit your role.</p>
+              <button type="button" disabled={isBusy} onClick={() => setResetSection('requirements')} className="inline-flex items-center gap-1.5 rounded-md border border-pos/20 bg-white px-2.5 py-1.5 text-xs font-medium text-pos hover:bg-pos-soft disabled:opacity-50"><RotateCcw size={12} />Reset to pre-filled</button>
+            </div>
+          )}
             {/* Requirements */}
             <FormSection
               icon={<Target size={17} />}
               title="Requirements"
               description="Skills and experience used for screening and shortlisting."
             >
-              <div>
-                <FieldLabel hint="Press Enter or comma to add each skill.">
-                  Required skills
-                </FieldLabel>
-                <div className="min-h-[48px] rounded-lg border border-slate-200 bg-white p-2.5 transition-colors focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15">
-                  <div className="mb-1.5 flex flex-wrap gap-1.5">
-                    {skills.map((skill) => (
-                      <span
-                        key={skill}
-                        className="inline-flex items-center gap-1 rounded-md bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent ring-1 ring-accent-border"
-                      >
-                        {skill}
-                        <button
-                          type="button"
-                          onClick={() => removeSkill(skill)}
-                          aria-label={`Remove ${skill}`}
-                          className="rounded p-0.5 leading-none text-accent transition-colors hover:bg-accent-soft hover:text-accent"
-                        >
-                          <X size={10} />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                  <input
-                    type="text"
-                    value={skillInput}
-                    onChange={(e) => setSkillInput(e.target.value)}
-                    onKeyDown={handleSkillKeyDown}
-                    onBlur={() => {
-                      if (skillInput.trim()) addSkill(skillInput)
-                    }}
-                    placeholder={skills.length === 0 ? 'React, TypeScript, Node.js…' : 'Add another…'}
-                    aria-label="Add required skill"
-                    className="w-full bg-transparent text-sm placeholder:text-slate-400 focus:outline-none"
-                  />
-                </div>
-              </div>
-
+              <JobSkillsField skills={skills} input={skillInput} onInputChange={setSkillInput}
+                onKeyDown={handleSkillKeyDown} onAdd={addSkill} onRemove={removeSkill} disabled={isBusy} />
+              <div className="border-t border-line pt-5">
               <SeniorityField
                 value={seniority}
                 onChange={(level) => {
@@ -614,23 +652,30 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
                 error={fieldErrors.seniority}
                 hint={wasPrefilled ? 'Suggested from the job description. Change it if it is wrong.' : undefined}
               />
+              </div>
             </FormSection>
 
         </>)}
         {step === 3 && (<>
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-accent-border bg-accent-soft px-4 py-3">
+            <Sparkles size={17} className="shrink-0 text-accent" />
+            <p className="min-w-0 flex-1 text-xs font-medium leading-relaxed text-accent">{standardQuestions.length ? 'Standard screening questions applied — review or customize below.' : 'Standard questions load from your backend. You can add your own below.'}</p>
+            <button type="button" disabled={isBusy} onClick={() => setResetSection('screening')} className="inline-flex items-center gap-1.5 rounded-md border border-accent-border bg-white px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent-soft disabled:opacity-50"><RotateCcw size={12} />Reset to defaults</button>
+          </div>
             {/* Phone screening: the AI call that comes before the interview */}
             <FormSection
               icon={<PhoneCall size={17} />}
               title="Phone screening"
               description="The short AI call that checks the basics before a candidate is invited to interview."
-            >
-              <VoiceScreeningSwitch
+              action={<VoiceScreeningSwitch
                 checked={voiceScreeningEnabled}
                 disabled={isBusy}
                 onChange={setVoiceScreeningEnabled}
-                className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5"
-              />
-
+                className="rounded-lg border border-line bg-surface-2 px-3 py-2.5"
+              />}
+            >
+              <p className="text-xs leading-relaxed text-ink-muted">{voiceScreeningEnabled ? 'Candidates receive a short phone call before moving on to the interview.' : 'Phone screening is off for this job. Your questions are kept if you enable it later.'}</p>
+            </FormSection>
               <div>
                 <ScreeningQuestionsEditor
                   standard={standardQuestions}
@@ -644,7 +689,7 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
                   maxTotal={maxTotalQuestions}
                   maxChars={maxQuestionChars}
                   disabled={isBusy}
-                  scrollable
+                  appearance="panel"
                 />
                 {fieldErrors.screeningQuestions && (
                   <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600" role="alert">
@@ -653,15 +698,10 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
                   </p>
                 )}
               </div>
-            </FormSection>
 
-            {/* The AI interview itself */}
-            <FormSection
-              icon={<MessagesSquare size={17} />}
-              title="AI interview"
-              description="What the AI interviewer covers. Each candidate gets their own questions, drawn from these topics."
-            >
-              <div>
+
+        </>)}
+        {step === 4 && (<>
                 <InterviewTopicsEditor
                   topics={interviewTopics}
                   onChange={(next) => {
@@ -673,16 +713,18 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
                   job={{ title, description, required_skills: skills, seniority_level: seniority }}
                   disabled={isBusy}
                   error={fieldErrors.interviewTopics}
-                  scrollable
+                  appearance="guide"
+                  onWritingChange={setTopicsWriting}
+                  defaults={parsedDefaults?.interview_topics}
                 />
-              </div>
-            </FormSection>
-
             {/* AI extension check */}
             <FormSection
               icon={<ShieldCheck size={17} />}
               title="AI extension check"
               description="Blocks candidates who run AI-assistant browser extensions during the interview."
+              action={<VoiceScreeningSwitch label="AI extension check" checked={extensionCheckEnabled}
+                disabled={isBusy || !extensionOrgEnabled} onChange={setExtensionCheckEnabled}
+                className="rounded-lg border border-line bg-surface-2 px-3 py-2.5" />}
             >
               <ExtensionCheckFields
                 enabled={extensionCheckEnabled}
@@ -691,13 +733,16 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
                 onModeChange={setExtensionCheckMode}
                 disabled={isBusy}
                 locked={!extensionOrgEnabled}
+                hideSwitch
               />
             </FormSection>
-        </>)}
-        {step === 4 && (<>
+
+          <details className="group rounded-2xl border border-line bg-surface">
+            <summary className="cursor-pointer px-6 py-5 text-sm font-semibold text-ink">Review job details and screening</summary>
+            <div className="space-y-5 border-t border-line p-4 sm:p-6">
           <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             <ClipboardCheck size={19} className="shrink-0" />
-            Your job is ready for a final check. You can edit any section below.
+            Review your job details below. Your interview settings above will be saved with the job.
           </div>
           {[
             { title: 'Job info', target: 1, content: <>
@@ -730,28 +775,30 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
               <div className="space-y-4 p-6">{section.content}</div>
             </section>
           ))}
+            </div>
+          </details>
         </>)}
       </div>
+      {resetSection && <ConfirmDialog title={resetSection === 'requirements' ? 'Reset requirements?' : 'Reset screening questions?'}
+        body={<p>Your edits in this section will be replaced with {parsedDefaults ? 'the original document suggestions' : 'the standard defaults'}. Other sections stay as they are.</p>}
+        confirmLabel="Reset section" tone="accent" onClose={() => setResetSection(null)}
+        onConfirm={() => {
+          if (resetSection === 'requirements' && parsedDefaults) {
+            setSkills([...(parsedDefaults.required_skills ?? [])])
+            setSkillInput('')
+            setSeniority(parsedDefaults.seniority_level)
+          } else {
+            setExtraQuestions(structuredClone(parsedDefaults?.screening_questions ?? []).slice(0, remainingQuestionSlots(standardQuestions.length, 0, maxTotalQuestions)))
+          }
+          setFieldErrors(previous => resetSection === 'requirements' ? { ...previous, seniority: undefined } : { ...previous, screeningQuestions: undefined })
+          setResetSection(null)
+        }} />}
 
       {/* Footer */}
-      <div className="mt-6 flex items-center justify-between gap-4 rounded-xl border border-slate-200/80 bg-white px-5 py-4 shadow-sm">
-        <p className="hidden text-xs text-slate-400 sm:block">
-          Step {step} of 4 · {steps[step - 1]}
-        </p>
-        <div className="flex w-full justify-end gap-3 sm:w-auto">
-          {onCancel && (
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={isBusy}
-              className="rounded-lg px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-          )}
-          {step > 1 && (
-            <button type="button" disabled={isBusy} onClick={() => goToStep(step - 1)} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"><ArrowLeft size={15} />Back</button>
-          )}
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-line py-5">
+        <button type="button" disabled={isBusy} onClick={() => step > 1 ? goToStep(step - 1) : onCancel?.()} className="inline-flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-ink-muted hover:text-ink disabled:opacity-50"><ArrowLeft size={14} />{step > 1 ? 'Back' : 'Cancel'}</button>
+        <div className="ml-auto flex items-center gap-2 sm:gap-3">
+          <button type="button" disabled={isBusy} onClick={saveDraft} title="Save a draft on this device" className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2.5 text-xs font-medium text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-50"><Save size={14} /><span>{draftSaved ? 'Save draft again' : 'Save as draft'}</span></button>
           <button
             type="button"
             onClick={() => {

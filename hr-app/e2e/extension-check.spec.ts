@@ -270,9 +270,9 @@ test.describe('create job', () => {
     await page.getByRole('button', { name: 'Continue', exact: true }).click()
     await page.getByRole('radio', { name: 'Senior', exact: true }).click()
     await page.getByRole('button', { name: 'Continue', exact: true }).click()
+    await page.getByRole('button', { name: 'Continue', exact: true }).click()
     await expect(page.getByRole('checkbox', { name: 'AI extension check' })).toBeChecked()
     await change(page)
-    await page.getByRole('button', { name: 'Continue', exact: true }).click()
     await page.getByRole('button', { name: 'Create job', exact: true }).click()
     await expect.poll(() => posts.length).toBe(1)
     return posts[0]
