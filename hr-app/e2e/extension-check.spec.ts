@@ -208,9 +208,9 @@ test.describe('per-job switch', () => {
     await expect(toggle).toBeChecked()
     await toggle.evaluate((el: HTMLInputElement) => el.click())
 
-    await expect(page.getByText('Turn off the extension check?')).toBeVisible()
+    await expect(page.getByText('Disable the extension check?')).toBeVisible()
     expect(patches).toHaveLength(0)
-    await page.getByRole('button', { name: 'Turn off', exact: true }).click()
+    await page.getByRole('button', { name: 'Disable', exact: true }).click()
     await expect.poll(() => patches.length).toBe(1)
     expect(patches[0]).toEqual({ extension_check_enabled: false })
   })
@@ -219,7 +219,7 @@ test.describe('per-job switch', () => {
     const patches = await openJob(page)
     await page.getByRole('checkbox', { name: /Extension check/ }).evaluate((el: HTMLInputElement) => el.click())
     await page.getByRole('button', { name: 'Cancel' }).click()
-    await expect(page.getByText('Turn off the extension check?')).toHaveCount(0)
+    await expect(page.getByText('Disable the extension check?')).toHaveCount(0)
     expect(patches).toHaveLength(0)
   })
 

@@ -152,15 +152,15 @@ export function VoiceScreeningToggle({
   const needsChoice = waiting.length > 0
   // Opened from "Place them" while screening is already off: same choice, no flag change.
   const placingOnly = target === false && !enabled
-  const title = target ? 'Turn on voice screening?' : placingOnly ? 'Place the candidates still waiting' : 'Turn off voice screening?'
+  const title = target ? 'Enable voice screening?' : placingOnly ? 'Place the candidates still waiting' : 'Disable voice screening?'
   const confirmLabel = target
-    ? 'Turn on'
+    ? 'Enable screening'
     : !needsChoice
-      ? 'Turn off'
+      ? 'Disable screening'
       : moveTo === 'interview'
-        ? `${placingOnly ? 'Email' : 'Turn off and email'} ${plural(waiting.length, 'interview link')}`
+        ? `${placingOnly ? 'Email' : 'Disable and email'} ${plural(waiting.length, 'interview link')}`
         : moveTo === 'resume'
-          ? `${placingOnly ? 'Return' : 'Turn off and return'} ${plural(waiting.length, 'candidate')}`
+          ? `${placingOnly ? 'Return' : 'Disable and return'} ${plural(waiting.length, 'candidate')}`
           : 'Choose where they go'
 
   return (
@@ -225,7 +225,10 @@ export function VoiceScreeningToggle({
                 <p>Nobody is waiting from the phone round any more.</p>
               ) : !needsChoice ? (
                 <>
-                  <p>Approved candidates will skip the call: approving them emails the interview link straight away.</p>
+                  <p>
+                    Candidates will no longer be required to complete a voice screening call. Once a candidate is approved,
+                    the interview invitation will be sent to them automatically via email.
+                  </p>
                   {unaffectedNotes(preview!).map((n) => (
                     <p key={n}>{n}</p>
                   ))}
@@ -275,7 +278,7 @@ export function VoiceScreeningToggle({
 
               <div className="flex flex-wrap justify-end gap-2 pt-1">
                 <button type="button" onClick={close} disabled={busy} className={BTN_GHOST}>
-                  {result || (placingOnly && !needsChoice) ? 'Close' : placingOnly ? 'Not now' : target ? 'Keep it off' : 'Keep it on'}
+                  {result || (placingOnly && !needsChoice) ? 'Close' : placingOnly ? 'Not now' : 'Cancel'}
                 </button>
                 {result ? (
                   result.failed.length > 0 && (
