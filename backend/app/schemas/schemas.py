@@ -326,6 +326,9 @@ class JobParseResponse(BaseModel):
     screening_questions: List[ScreeningQuestion] = []
     # The topic pool the parser proposes; HR reviews it before the job is created.
     interview_topics: List[InterviewTopicIn] = []
+    # The text read from the uploaded document (capped), so the create-job page can show what
+    # was parsed next to the form, including for Word files a browser cannot render itself.
+    source_text: str = ""
 
 
 class InterviewTopicsRequest(BaseModel):
