@@ -22,6 +22,7 @@ from app.schemas.schemas import (
     PipelineCandidatesResponse,
     PipelineSort,
     PipelineStageKey,
+    ResumeLinkResponse,
     ResumeUploadResponse,
 )
 from app.services.candidate_directory_service import CandidateDirectoryService
@@ -113,6 +114,16 @@ async def list_candidates(
         has_shortlist_result=has_shortlist_result,
         pagination=pagination,
     )
+
+
+@router.get("/candidates/{candidate_id}/resume-link", response_model=ResumeLinkResponse)
+async def get_candidate_resume_link(
+    candidate_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    service: CandidateDirectoryService = Depends(get_candidate_directory_service),
+):
+    """A short-lived link to the candidate's stored resume file."""
+    return await service.get_resume_link(actor, candidate_id)
 
 
 @router.get("/candidates/{candidate_id}", response_model=CandidateProfileResponse)

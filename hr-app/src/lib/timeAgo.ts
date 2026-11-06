@@ -21,3 +21,10 @@ export function initialsOf(name: string): string {
   const last = parts.length > 1 ? parts[parts.length - 1][0] : ''
   return (first + last).toUpperCase()
 }
+
+/** "6 Nov": a short date for a timeline, in the reader's locale. Empty for a bad date. */
+export function shortDate(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+}

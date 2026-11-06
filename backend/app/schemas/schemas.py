@@ -634,6 +634,13 @@ class CandidateListItem(BaseModel):
     pipeline_status: str
 
 
+PipelineStageKey = Literal["processing", "failed", "resume", "phone", "interview", "finalist", "rejected"]
+PipelineSort = Literal["match", "updated", "name"]
+PIPELINE_STAGES: tuple[str, ...] = (
+    "processing", "failed", "resume", "phone", "interview", "finalist", "rejected",
+)
+
+
 class CandidateProfileResponse(CandidateListItem):
     """Full candidate profile for the directory module."""
     parsed_data: Optional[dict] = None
@@ -643,6 +650,20 @@ class CandidateProfileResponse(CandidateListItem):
     screening: Optional["ScreeningCallResponse"] = None
     interview_sessions: List["InterviewSessionResponse"] = []
     timeline: List["AuditLogResponse"] = []
+    # The one stage the candidate is in now, decided the same way as the job's stage pages and
+    # Candidates view (unlike `hiring_stage`, a coarser label for the directory). None only if
+    # working it out failed.
+    pipeline_stage: Optional[PipelineStageKey] = None
+    stage_state: Optional[str] = None
+    stage_reason: Optional[str] = None
+    stage_scheduled_at: Optional[datetime] = None
+
+
+class ResumeLinkResponse(BaseModel):
+    """A short-lived link to a candidate's resume file."""
+    url: str
+    filename: str
+    expires_in: int
 
 
 class ResumeUploadResponse(BaseModel):
@@ -688,13 +709,6 @@ class ShortlistStage(BaseModel):
     scheduled_at: Optional[datetime] = None
     # Why a screening is flagged, in a sentence HR can read.
     reason: Optional[str] = None
-
-
-PipelineStageKey = Literal["processing", "failed", "resume", "phone", "interview", "finalist", "rejected"]
-PipelineSort = Literal["match", "updated", "name"]
-PIPELINE_STAGES: tuple[str, ...] = (
-    "processing", "failed", "resume", "phone", "interview", "finalist", "rejected",
-)
 
 
 class PipelineCandidate(BaseModel):

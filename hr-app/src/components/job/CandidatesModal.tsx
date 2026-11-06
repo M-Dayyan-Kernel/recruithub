@@ -16,26 +16,16 @@ import { fetchCandidateProfile } from '@/lib/candidates'
 import { buildCandidateSteps, type StepState } from '@/lib/candidateSteps'
 import {
   describePipelineCandidate,
+  PIPELINE_STAGE_DOT,
   PIPELINE_STAGE_LABEL,
   PIPELINE_STAGE_ORDER,
   type StageTone,
 } from '@/lib/pipelineStages'
 import { buildPipelineCsv } from '@/lib/pipelineExport'
 import { downloadTextFile, exportTimestamp, slugifyFilename } from '@/lib/shortlistReportExport'
-import { initialsOf, timeAgo } from '@/lib/timeAgo'
+import { Avatar } from '@/components/candidate/Avatar'
+import { timeAgo } from '@/lib/timeAgo'
 import { cn } from '@/lib/utils'
-
-// The dot beside a stage. Only a verdict gets a colour (a finalist, a rejection, a failure); the
-// working stages share one neutral dot, since green, amber and red mean status (docs/UI.md §2).
-const STAGE_DOT: Record<PipelineStageKey, string> = {
-  processing: 'bg-ink-subtle',
-  failed: 'bg-neg',
-  resume: 'bg-ink-subtle',
-  phone: 'bg-ink-subtle',
-  interview: 'bg-ink-subtle',
-  finalist: 'bg-pos',
-  rejected: 'bg-neg',
-}
 
 const TONE_TEXT: Record<StageTone, string> = {
   neutral: 'text-ink',
@@ -102,17 +92,6 @@ function StepTracker({ candidate }: { candidate: PipelineCandidate }) {
   )
 }
 
-function Avatar({ name }: { name: string }) {
-  return (
-    <span
-      aria-hidden
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-3 text-[12px] font-semibold text-ink-muted"
-    >
-      {initialsOf(name)}
-    </span>
-  )
-}
-
 /** The match percentage and a bar for it. Colour is the verdict: strong, middling or weak. */
 function MatchScore({ score }: { score: number | null | undefined }) {
   if (score == null) return <span className="text-ink-subtle">—</span>
@@ -121,7 +100,7 @@ function MatchScore({ score }: { score: number | null | undefined }) {
   return (
     <span className="flex items-center gap-2.5">
       <span className={cn('w-9 font-mono text-sm font-semibold tabular-nums', text)}>{Math.round(score)}%</span>
-      <span aria-hidden className="h-1.5 w-20 overflow-hidden rounded-full bg-surface-3">
+      <span aria-hidden className="h-1.5 w-20 overflow-hidden rounded-full bg-line-strong">
         <span className={cn('block h-full rounded-full', fill)} style={{ width: `${Math.max(3, Math.min(100, score))}%` }} />
       </span>
     </span>
@@ -155,7 +134,7 @@ function CandidateRow({
         </td>
         <td className="px-3 py-3">
           <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-line bg-surface px-2 py-1 text-[12px] font-medium text-ink">
-            <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', STAGE_DOT[candidate.stage])} />
+            <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', PIPELINE_STAGE_DOT[candidate.stage])} />
             {view.label}
           </span>
         </td>
@@ -315,7 +294,7 @@ export function CandidatesModal({ jobId, jobTitle, onClose }: { jobId: string; j
         </button>
         {PIPELINE_STAGE_ORDER.filter((key) => (counts?.[key] ?? 0) > 0 || key === stage).map((key) => (
           <button key={key} type="button" onClick={() => setStage(key)} aria-pressed={stage === key} className={tab(stage === key)}>
-            <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', STAGE_DOT[key])} />
+            <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', PIPELINE_STAGE_DOT[key])} />
             {PIPELINE_STAGE_LABEL[key]}
             <span className={countBadge(stage === key)}>{counts?.[key] ?? 0}</span>
           </button>

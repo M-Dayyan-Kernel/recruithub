@@ -312,10 +312,23 @@ no interview yet is still `phone`), then `interview`.
 
 ---
 
-#### `GET /api/candidates/{candidate_id}`
-Get a single candidate by UUID.
+#### `GET /api/candidates/{candidate_id}/resume-link`
+A short-lived link to the candidate's stored resume file, for the candidate page's Documents.
 
-**Response `200`:** `CandidateResponse`
+**Response `200`:** `{ url, filename, expires_in }` (`expires_in` in seconds)
+
+**Errors:** `404` — candidate not found, no resume file stored (for example a locally stored file), or the link could not be signed
+
+---
+
+#### `GET /api/candidates/{candidate_id}`
+Get a candidate's full profile by UUID: the directory fields, parsed resume data, shortlist result, phone screening,
+interview rounds and activity timeline.
+
+**Response `200`:** `CandidateProfileResponse`. Besides `hiring_stage` (the directory's coarser label) it carries
+`pipeline_stage` (`processing`, `failed`, `resume`, `phone`, `interview`, `finalist` or `rejected`), the one stage the
+candidate is in, decided the same way as the job's stage pages and Candidates view, with `stage_state`, `stage_reason` and
+`stage_scheduled_at` for the call or interview state inside it. `pipeline_stage` is null only if working it out failed.
 
 **Errors:** `404 Candidate not found`
 

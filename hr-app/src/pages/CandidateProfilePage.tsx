@@ -1,23 +1,26 @@
 import { useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { ChevronRight, Loader2 } from 'lucide-react'
+import { api } from '@/lib/api'
+import type { Job } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
-import { CandidateOverviewForm } from '@/components/candidates/CandidateOverviewForm'
+import { CandidateHeader } from '@/components/candidate/CandidateHeader'
+import { DetailsCard, DocumentsCard, PipelineCard, ScoresCard, SkillsCard } from '@/components/candidate/CandidateCards'
 import { CandidateAiTab } from '@/components/candidates/CandidateAiTab'
 import { CandidateScreeningTab } from '@/components/candidates/CandidateScreeningTab'
 import { CandidateInterviewTab } from '@/components/candidates/CandidateInterviewTab'
 import { CandidateTimelineTab } from '@/components/candidates/CandidateTimelineTab'
+import StageTabs from '@/components/stage/StageTabs'
 import { useCandidateProfile } from '@/hooks/useCandidateProfile'
-import { formatHiringStage } from '@/lib/candidates'
 import { PHONE_SCREENING_LABEL } from '@/lib/stageLabels'
-import { cn } from '@/lib/utils'
 
 const TABS = [
-  { id: 'Overview', label: 'Overview' },
-  { id: 'AI Analysis', label: 'AI Analysis' },
-  { id: 'Screening', label: PHONE_SCREENING_LABEL },
-  { id: 'Interview', label: 'Interview' },
-  { id: 'Timeline', label: 'Timeline' },
+  { id: 'overview', label: 'Overview' },
+  { id: 'resume', label: 'Resume analysis' },
+  { id: 'phone', label: PHONE_SCREENING_LABEL },
+  { id: 'interviews', label: 'Interviews' },
+  { id: 'activity', label: 'Activity' },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
@@ -25,15 +28,21 @@ type TabId = (typeof TABS)[number]['id']
 export default function CandidateProfilePage() {
   const { candidateId = '' } = useParams<{ candidateId: string }>()
   const location = useLocation()
-  const [activeTab, setActiveTab] = useState<TabId>('Overview')
+  const [tab, setTab] = useState<TabId>('overview')
   const { data: profile, isLoading, isError, refetch } = useCandidateProfile(candidateId)
+  const { data: job } = useQuery<Job>({
+    queryKey: ['job', profile?.job_id],
+    queryFn: () => api.get(`/api/jobs/${profile?.job_id}`) as unknown as Promise<Job>,
+    enabled: !!profile?.job_id,
+  })
 
-  const backHref = `/candidates${location.search}`
+  // Back to the candidate list with the search and filters it was left with.
+  const listHref = `/candidates${location.search}`
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-slate-300" />
+        <Loader2 className="h-8 w-8 animate-spin text-ink-subtle" aria-label="Loading candidate" />
       </div>
     )
   }
@@ -41,8 +50,7 @@ export default function CandidateProfilePage() {
   if (isError || !profile) {
     return (
       <div className="space-y-4">
-        <Link to={backHref} className="inline-flex items-center gap-1.5 text-sm text-indigo-600">
-          <ArrowLeft size={14} />
+        <Link to={listHref} className="text-sm font-medium text-ink-muted hover:text-ink">
           Back to candidates
         </Link>
         <BackendError onRetry={() => void refetch()} />
@@ -51,47 +59,45 @@ export default function CandidateProfilePage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <Link
-          to={backHref}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-800"
-        >
-          <ArrowLeft size={14} />
-          Back to candidates
+    <div className="mx-auto max-w-6xl space-y-5">
+      <nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm text-ink-muted">
+        <Link to={listHref} className="hover:text-ink">
+          Candidates
         </Link>
-        <h1 className="mt-3 break-words text-2xl font-semibold text-slate-900">{profile.name}</h1>
-        <p className="mt-1 break-words text-sm text-slate-500">
-          {profile.job_title} · {formatHiringStage(profile.hiring_stage)} ·{' '}
-          {profile.match_score != null ? `${Math.round(profile.match_score)}% match` : 'No score yet'}
-        </p>
-      </div>
+        <ChevronRight size={13} aria-hidden className="shrink-0 text-ink-subtle" />
+        <Link to={`/jobs/${profile.job_id}`} className="max-w-[16rem] truncate hover:text-ink">
+          {profile.job_title}
+        </Link>
+        <ChevronRight size={13} aria-hidden className="shrink-0 text-ink-subtle" />
+        <span aria-current="page" className="truncate font-medium text-ink">
+          {profile.name}
+        </span>
+      </nav>
 
-      <div className="flex flex-wrap gap-1.5 border-b border-slate-200 pb-px">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setActiveTab(tab.id)}
-            className={cn(
-              'rounded-t-md px-3 py-2 text-sm font-medium transition-colors',
-              activeTab === tab.id
-                ? 'border-b-2 border-indigo-600 text-indigo-700'
-                : 'text-slate-500 hover:text-slate-800',
-            )}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <CandidateHeader profile={profile} />
 
-      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        {activeTab === 'Overview' && <CandidateOverviewForm profile={profile} />}
-        {activeTab === 'AI Analysis' && <CandidateAiTab profile={profile} />}
-        {activeTab === 'Screening' && <CandidateScreeningTab profile={profile} />}
-        {activeTab === 'Interview' && <CandidateInterviewTab profile={profile} />}
-        {activeTab === 'Timeline' && <CandidateTimelineTab profile={profile} />}
-      </div>
+      <StageTabs label="Candidate sections" tabs={TABS.map(({ id, label }) => ({ id, label }))} active={tab} onChange={setTab} />
+
+      {tab === 'overview' ? (
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+          <div className="min-w-0 space-y-5">
+            <DetailsCard profile={profile} />
+            <SkillsCard profile={profile} requiredSkills={job?.required_skills ?? []} />
+          </div>
+          <div className="min-w-0 space-y-5">
+            <ScoresCard profile={profile} />
+            <PipelineCard profile={profile} />
+            <DocumentsCard profile={profile} />
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-line bg-surface p-5">
+          {tab === 'resume' && <CandidateAiTab profile={profile} />}
+          {tab === 'phone' && <CandidateScreeningTab profile={profile} />}
+          {tab === 'interviews' && <CandidateInterviewTab profile={profile} />}
+          {tab === 'activity' && <CandidateTimelineTab profile={profile} />}
+        </div>
+      )}
     </div>
   )
 }

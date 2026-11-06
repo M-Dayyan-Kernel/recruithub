@@ -31,6 +31,20 @@ export const PIPELINE_STAGE_LABEL: Record<PipelineStageKey, string> = {
   rejected: REJECTED_LABEL,
 }
 
+/**
+ * The dot beside a stage. Only a verdict gets a colour (a finalist, a rejection, a failure); the
+ * working stages share one neutral dot, since green, amber and red mean status (docs/UI.md §2).
+ */
+export const PIPELINE_STAGE_DOT: Record<PipelineStageKey, string> = {
+  processing: 'bg-ink-subtle',
+  failed: 'bg-neg',
+  resume: 'bg-ink-subtle',
+  phone: 'bg-ink-subtle',
+  interview: 'bg-ink-subtle',
+  finalist: 'bg-pos',
+  rejected: 'bg-neg',
+}
+
 const PHONE_STATES: Record<string, { detail: string; tone: StageTone }> = {
   queued: { detail: 'Waiting for the call', tone: 'neutral' },
   scheduled: { detail: 'Call scheduled', tone: 'neutral' },

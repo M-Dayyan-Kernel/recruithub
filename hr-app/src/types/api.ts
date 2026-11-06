@@ -519,6 +519,11 @@ export interface CandidateProfile extends CandidateListItem {
   screening?: ScreeningCall | null
   interview_sessions?: InterviewSession[]
   timeline?: AuditLogEntry[]
+  /** The one stage the candidate is in now; null only if the server could not place them. */
+  pipeline_stage?: PipelineStageKey | null
+  stage_state?: string | null
+  stage_reason?: string | null
+  stage_scheduled_at?: string | null
 }
 
 export interface CandidateUpdatePayload {
@@ -758,4 +763,11 @@ export interface RejectionEmailResponse {
   results: { candidate_id: string; status: 'sent' | 'failed' | 'no_email' | 'skipped' }[]
   sent: number
   failed: number
+}
+
+/** A short-lived link to a candidate's stored resume file. */
+export interface ResumeLink {
+  url: string
+  filename: string
+  expires_in: number
 }

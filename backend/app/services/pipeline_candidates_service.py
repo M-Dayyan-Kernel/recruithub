@@ -136,6 +136,8 @@ def landing_tab(
 class Landing:
     stage: str
     tab: Optional[str]
+    # The raw state inside the stage (a call or interview state), with its reason and time.
+    position: Optional[ShortlistStage] = None
 
 
 async def resolve_landing(
@@ -154,7 +156,7 @@ async def resolve_landing(
         _, sessions, has_report = inputs.get(candidate.id, ([], [], False))
         current = latest_round(sessions)
         interview_tab = classify_interview_tab(current, has_report=has_report) if current is not None else None
-    return Landing(stage=stage, tab=landing_tab(stage, position, interview_tab))
+    return Landing(stage=stage, tab=landing_tab(stage, position, interview_tab), position=position)
 
 
 def last_activity(candidate: Candidate, record: Optional[ShortlistResult], stage_inputs_for: tuple) -> datetime:

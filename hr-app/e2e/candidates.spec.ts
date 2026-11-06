@@ -7,6 +7,7 @@ import {
   CANDIDATE_IDS,
   JOB_IDS,
   mockAuthenticatedSession,
+  mockUnmockedApi,
   mockGetJobs,
   mockGetCandidateDirectory,
   mockCandidateProfileApi,
@@ -14,6 +15,7 @@ import {
 } from './fixtures'
 
 test.beforeEach(async ({ page }) => {
+  await mockUnmockedApi(page) // first, so the specific mocks below win
   await mockAuthenticatedSession(page)
   await mockGetJobs(page)
   await mockAllJobSubEndpoints(page)
@@ -81,14 +83,15 @@ test('profile opens with tabs and edit persists', async ({ page }) => {
   await page.goto(`/candidates/${CANDIDATE_IDS.alice}`)
   await page.waitForLoadState('networkidle')
 
-  await expect(page.getByRole('main').getByRole('button', { name: 'Overview' })).toBeVisible()
-  await expect(page.getByRole('main').getByRole('button', { name: 'AI Analysis' })).toBeVisible()
-  await expect(page.getByRole('main').getByRole('button', { name: 'Screening' })).toBeVisible()
-  await expect(page.getByRole('main').getByRole('button', { name: 'Interview' })).toBeVisible()
-  await expect(page.getByRole('main').getByRole('button', { name: 'Timeline' })).toBeVisible()
+  const tabs = page.getByRole('main').getByRole('tablist', { name: 'Candidate sections' })
+  for (const name of ['Overview', 'Resume analysis', 'Phone Screening', 'Interviews', 'Activity']) {
+    await expect(tabs.getByRole('tab', { name })).toBeVisible()
+  }
 
-  await page.locator('main').locator('div').filter({ hasText: /^Current CTC$/ }).locator('input').fill('20 LPA')
-  await page.getByRole('main').getByRole('button', { name: 'Save changes' }).click()
+  // The details are edited in a modal opened from the Collected details card.
+  await page.getByRole('main').getByRole('button', { name: 'Edit' }).click()
+  await page.getByLabel('Current CTC').fill('20 LPA')
+  await page.getByRole('button', { name: 'Save changes' }).click()
 
   await expect.poll(() => patched).toBe(true)
 })
@@ -104,7 +107,8 @@ test('back link preserves job filter', async ({ page }) => {
   await page.waitForLoadState('networkidle')
 
   await page.locator('tbody tr').filter({ hasText: 'Alice Sharma' }).locator('td').first().click()
-  await page.getByRole('link', { name: /Back to candidates/i }).click()
+  // The breadcrumb's first link goes back to the list with its filters.
+  await page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Candidates' }).click()
 
   await expect(page).toHaveURL(`/candidates?job_id=${JOB_IDS.frontend}`)
 })
