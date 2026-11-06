@@ -16,6 +16,7 @@ import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { EditJobModal } from '@/components/EditJobModal'
 import { JobStatusBadge } from '@/components/JobStatusBadge'
+import { RequiredSkills } from '@/components/job/RequiredSkills'
 import { VoiceScreeningToggle } from '@/components/screening/VoiceScreeningToggle'
 import { ExtensionCheckToggle } from '@/components/job/ExtensionCheckToggle'
 import { cn } from '@/lib/utils'
@@ -23,7 +24,6 @@ import { workArrangementLabel } from '@/lib/screeningQuestions'
 import { seniorityLabel } from '@/lib/seniority'
 
 const DESCRIPTION_PREVIEW_LINES = 3
-const SKILL_PREVIEW_COUNT = 8
 
 export function JobHeaderSkeleton() {
   return (
@@ -80,7 +80,6 @@ export function JobHeader({ job, showDelete = false }: Props) {
   const [editOpen, setEditOpen] = useState(false)
   const [showStatusMenu, setShowStatusMenu] = useState(false)
   const [descriptionExpanded, setDescriptionExpanded] = useState(false)
-  const [skillsExpanded, setSkillsExpanded] = useState(false)
   const statusMenuRef = useRef<HTMLDivElement>(null)
 
   const skills = job.required_skills ?? []
@@ -137,8 +136,6 @@ export function JobHeader({ job, showDelete = false }: Props) {
 
   const isActionPending =
     statusMutation.isPending || deleteMutation.isPending
-  const visibleSkills = skillsExpanded ? skills : skills.slice(0, SKILL_PREVIEW_COUNT)
-  const hiddenSkillCount = skills.length - SKILL_PREVIEW_COUNT
 
   return (
     <>
@@ -278,42 +275,7 @@ export function JobHeader({ job, showDelete = false }: Props) {
             )}
           </div>
 
-          {skills.length > 0 && (
-            <div
-              // Hover or keyboard focus reveals every skill; leaving folds it back. Nothing to click.
-              onMouseEnter={() => setSkillsExpanded(true)}
-              onMouseLeave={() => setSkillsExpanded(false)}
-              onFocus={() => setSkillsExpanded(true)}
-              onBlur={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setSkillsExpanded(false)
-              }}
-            >
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
-                Required skills
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {visibleSkills.map((skill) => (
-                  <span
-                    key={skill}
-                    className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700"
-                  >
-                    {skill}
-                  </span>
-                ))}
-                {!skillsExpanded && hiddenSkillCount > 0 && (
-                  // Still a button so touch and keyboard users can open it; hover does the same.
-                  <button
-                    type="button"
-                    onClick={() => setSkillsExpanded(true)}
-                    aria-label={`Show ${hiddenSkillCount} more required skills`}
-                    className="rounded-full border border-dashed border-slate-300 px-2.5 py-0.5 text-xs font-medium text-slate-500"
-                  >
-                    +{hiddenSkillCount} more
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+          <RequiredSkills skills={skills} />
         </div>
       </div>
 
