@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Lock, MessageCircle, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
 import type { ScreeningQuestion, ScreeningQuestionKind } from '@/types/api'
 import { Badge } from '@/components/ui/Surface'
@@ -20,6 +20,7 @@ interface Props {
   scrollable?: boolean
   /** Leave out the title and explanation, for a modal that already has them. */
   compact?: boolean
+  appearance?: 'default' | 'panel'
 }
 
 const fieldClass =
@@ -73,7 +74,10 @@ export function ScreeningQuestionsEditor({
   disabled,
   scrollable,
   compact,
+  appearance = 'default',
 }: Props) {
+  const panel = appearance === 'panel'
+  const [expanded, setExpanded] = useState(false)
   const total = standard.length + questions.length
   const slots = remainingQuestionSlots(standard.length, questions.length, maxTotal)
   const atCap = slots === 0
@@ -87,15 +91,18 @@ export function ScreeningQuestionsEditor({
   }
 
   const addQuestion = () => {
-    if (!atCap) onChange([...questions, createScreeningQuestion()])
+    if (!atCap) {
+      setExpanded(true)
+      onChange([...questions, createScreeningQuestion()])
+    }
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
+    <div className={panel ? "overflow-hidden rounded-2xl border border-line bg-surface shadow-sm" : "space-y-3"}>
+      <div className={`flex flex-wrap items-center justify-between gap-3 ${panel ? "border-b border-line px-5 py-5 sm:px-6" : ""}`}>
         {!compact ? (
           <div>
-            <p className="text-sm font-medium text-ink">Screening questions</p>
+            <p className="text-sm font-semibold text-ink">Screening questions</p>
             <p className="mt-0.5 text-xs text-ink-muted">
               What the AI voice agent asks during phone screening. Standard questions are fixed.
             </p>
@@ -105,7 +112,7 @@ export function ScreeningQuestionsEditor({
         )}
         <div className="flex shrink-0 items-center gap-3">
           <span
-            className="font-mono text-xs tabular-nums text-ink-muted"
+            className="rounded-md bg-surface-2 px-2 py-1 font-mono text-[11px] tabular-nums text-ink-muted"
             aria-live="polite"
             data-testid="screening-question-count"
           >
@@ -126,32 +133,32 @@ export function ScreeningQuestionsEditor({
 
       <ol
         className={
-          scrollable
+          panel ? 'space-y-3 p-3 sm:p-4' : scrollable
             ? 'scrollbar-thin-light max-h-[20rem] space-y-2 overflow-y-auto pr-1.5'
             : 'space-y-2'
         }
       >
-        {standard.map((q, index) => (
+        {(panel && !expanded ? standard.slice(0, 6) : standard).map((q, index) => (
           <li
             key={q.id}
-            className="flex items-start gap-3 rounded-md border border-line bg-surface-2 px-3 py-2"
+            className="grid grid-cols-[1.25rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 rounded-xl border border-line bg-surface px-3 py-4 sm:grid-cols-[1.25rem_minmax(0,1fr)_auto]"
           >
             <span className="w-5 shrink-0 pt-0.5 text-center font-mono text-xs tabular-nums text-ink-subtle">
               {index + 1}
             </span>
             <p className="min-w-0 flex-1 text-sm leading-relaxed text-ink">{q.question}</p>
-            <KindBadge kind="standard" />
+            <span className="col-start-2 sm:col-start-auto"><KindBadge kind="standard" /></span>
           </li>
         ))}
 
-        {questions.map((q, index) => {
+        {(panel && !expanded ? questions.slice(0, Math.max(0, 6 - standard.length)) : questions).map((q, index) => {
           const kind = questionKind(q)
           const position = standard.length + index + 1
           const blank = !q.question.trim()
           return (
             <li
               key={q.id}
-              className="flex items-start gap-3 rounded-md border border-line bg-surface px-3 py-2"
+              className="grid grid-cols-[1.25rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 rounded-xl border border-line bg-surface px-3 py-4 sm:grid-cols-[1.25rem_minmax(0,1fr)_auto]"
             >
               <span className="w-5 shrink-0 pt-2 text-center font-mono text-xs tabular-nums text-ink-subtle">
                 {position}
@@ -174,7 +181,7 @@ export function ScreeningQuestionsEditor({
                   </p>
                 )}
               </div>
-              <div className="flex shrink-0 items-center gap-1 pt-1">
+              <div className="col-start-2 flex shrink-0 items-center gap-1 pt-1 sm:col-start-auto">
                 <KindBadge kind={kind} />
                 <button
                   type="button"
@@ -192,8 +199,14 @@ export function ScreeningQuestionsEditor({
         })}
       </ol>
 
+      {panel && total > 6 && (
+        <button type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}
+          className="w-full border-t border-line bg-surface-2 px-4 py-3 text-xs font-medium text-ink-muted hover:bg-accent-soft hover:text-accent">
+          {expanded ? 'Show fewer questions' : `Show ${total - 6} more questions`}
+        </button>
+      )}
       {questions.length === 0 && (
-        <div className="flex items-center gap-3 rounded-md border border-dashed border-line bg-surface-2 px-3 py-3">
+        <div className={`flex items-center gap-3 rounded-lg border border-dashed border-line bg-surface-2 px-3 py-3 ${panel ? "m-4" : ""}`}>
           <MessageCircle size={16} className="shrink-0 text-ink-subtle" aria-hidden />
           <p className="text-xs text-ink-muted">
             No role-specific questions yet. You can add up to {slots} more.

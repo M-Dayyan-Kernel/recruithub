@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { AlertCircle, Loader2, ListChecks, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react'
+import { AlertCircle, Loader2, ListChecks, MessagesSquare, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import type { InterviewTopic, SeniorityLevel } from '@/types/api'
@@ -37,6 +37,9 @@ interface Props {
   error?: string | null
   /** Cap the visible rows; the rest scroll inside the list. */
   scrollable?: boolean
+  appearance?: 'default' | 'guide'
+  defaults?: InterviewTopic[]
+  onWritingChange?: (writing: boolean) => void
 }
 
 const fieldClass =
@@ -50,7 +53,11 @@ function canWrite(job: TopicJobContext | null): job is TopicJobContext & { senio
   return Boolean(job && job.title.trim() && job.description.trim() && job.seniority_level)
 }
 
-export function InterviewTopicsEditor({ topics, onChange, job, disabled, error, scrollable }: Props) {
+export function InterviewTopicsEditor({ topics, onChange, job, disabled, error, scrollable, appearance = 'default', defaults, onWritingChange }: Props) {
+  const guide = appearance === 'guide'
+  const [generatedDefaults, setGeneratedDefaults] = useState<InterviewTopic[] | null>(null)
+  const resetDefaults = defaults?.length ? defaults : generatedDefaults
+  const [confirmReset, setConfirmReset] = useState(false)
   const [confirmReplace, setConfirmReplace] = useState(false)
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
   const mandatoryCount = topics.filter((t) => t.is_mandatory).length
@@ -68,7 +75,9 @@ export function InterviewTopicsEditor({ topics, onChange, job, disabled, error, 
         seniority_level: job!.seniority_level,
       }) as unknown as Promise<{ topics: InterviewTopic[] }>,
     onSuccess: (data) => {
-      onChange(withIds(data.topics))
+      const written = withIds(data.topics)
+      if (!generatedDefaults) setGeneratedDefaults(structuredClone(written))
+      onChange(written)
       toast.success(`${data.topics.length} topics written — review them before saving`)
     },
     onError: (err: Error) => toast.error(err.message || 'Could not write topics'),
@@ -93,29 +102,36 @@ export function InterviewTopicsEditor({ topics, onChange, job, disabled, error, 
     onSettled: () => setRegeneratingId(null),
   })
 
+  const writing = generate.isPending || regenerate.isPending
+  useEffect(() => {
+    onWritingChange?.(writing)
+    return () => onWritingChange?.(false)
+  }, [writing, onWritingChange])
+
   const busy = disabled || generate.isPending || regenerate.isPending
   const startGenerate = () => (topics.length > 0 ? setConfirmReplace(true) : generate.mutate())
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-[13px] font-medium text-ink">
-            {topics.length === 0
-              ? 'No topics yet'
-              : `${topics.length} topic${topics.length === 1 ? '' : 's'}`}
-            {mandatoryCount > 0 && (
-              <span className="ml-2 text-[12px] font-normal text-ink-muted">
-                {mandatoryCount} asked in every interview
-              </span>
-            )}
-          </p>
-          <p className="text-[12px] text-ink-muted">
-            Each interview asks an introduction and {TOPICS_PER_INTERVIEW} of these, chosen
-            differently for every candidate.
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+    <div className={guide ? "space-y-5" : "space-y-3"}>
+      <div className={`flex flex-wrap items-center justify-between gap-4 ${guide ? "rounded-2xl border border-line bg-surface p-5 shadow-sm sm:p-6" : ""}`}>
+        {guide ? (
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line bg-surface-2 text-ink-muted"><MessagesSquare size={18} /></span>
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-ink">AI interview guide</h2>
+              <p className="mt-1 max-w-60 text-xs leading-relaxed text-ink-muted">Define topics for the detailed AI technical interview.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="min-w-0">
+            <p className="text-[13px] font-medium text-ink">{topics.length === 0 ? 'No topics yet' : `${topics.length} topic${topics.length === 1 ? '' : 's'}`}
+              {mandatoryCount > 0 && <span className="ml-2 text-xs font-normal text-ink-muted">{mandatoryCount} asked in every interview</span>}
+            </p>
+            <p className="text-xs text-ink-muted">Each interview asks an introduction and {TOPICS_PER_INTERVIEW} of these, chosen differently for every candidate.</p>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {guide && resetDefaults?.length ? <button type="button" disabled={busy} onClick={() => setConfirmReset(true)} className={smallButton}><RefreshCw size={13} />Reset to defaults</button> : null}
           <button
             type="button"
             onClick={startGenerate}
@@ -130,13 +146,18 @@ export function InterviewTopicsEditor({ topics, onChange, job, disabled, error, 
             type="button"
             onClick={() => onChange([...topics, createTopic()])}
             disabled={busy || topics.length >= TOPIC_POOL_MAX}
-            className={smallButton}
+            className={guide ? "inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-medium text-accent-ink transition-colors hover:bg-accent-hover disabled:opacity-50" : smallButton}
           >
             <Plus size={13} />
             Add topic
           </button>
         </div>
       </div>
+
+      {guide && <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs">
+        <p className="font-semibold text-ink">{topics.length} topics total{mandatoryCount > 0 && <span className="ml-2 font-normal text-ink-muted">· {mandatoryCount} asked in every interview</span>}</p>
+        <p className="text-ink-muted">Each interview asks an introduction and {TOPICS_PER_INTERVIEW} of these.</p>
+      </div>}
 
       {error && (
         <p role="alert" className="flex items-start gap-1.5 text-[12px] text-neg">
@@ -155,19 +176,19 @@ export function InterviewTopicsEditor({ topics, onChange, job, disabled, error, 
         </div>
       ) : (
         <ul
-          className={`space-y-2 ${scrollable ? 'scrollbar-thin-light max-h-[28rem] overflow-y-auto pr-1.5' : ''}`}
+          className={`${guide ? 'space-y-4' : 'space-y-2'} ${scrollable ? 'scrollbar-thin-light max-h-[28rem] overflow-y-auto pr-1.5' : ''}`}
         >
           {topics.map((topic, index) => {
             const id = topic.id
             const incomplete = isIncomplete(topic)
             const lockedOut = !topic.is_mandatory && mandatoryCount >= TOPIC_MAX_MANDATORY
             return (
-              <li key={id ?? index} className="rounded-lg border border-line bg-surface p-3">
-                <div className="flex flex-wrap items-end gap-2">
+              <li key={id ?? index} className={guide ? "overflow-hidden rounded-2xl border border-line bg-surface shadow-sm" : "rounded-lg border border-line bg-surface p-3"}>
+                <div className={`flex flex-wrap items-end gap-2 ${guide ? "border-b border-line bg-surface-2/60 p-4 sm:px-5" : ""}`}>
                   <span className="w-5 pb-2 text-center text-[12px] font-medium tabular-nums text-ink-subtle">
                     {index + 1}
                   </span>
-                  <div className="min-w-[10rem] flex-1">
+                  <div className="min-w-0 basis-40 flex-1">
                     <label className={labelClass} htmlFor={`topic-name-${index}`}>Topic</label>
                     <input
                       id={`topic-name-${index}`}
@@ -210,7 +231,7 @@ export function InterviewTopicsEditor({ topics, onChange, job, disabled, error, 
                       checked={topic.is_mandatory}
                       disabled={busy || lockedOut}
                       onChange={(e) => update(id, { is_mandatory: e.target.checked })}
-                      className="h-3.5 w-3.5 rounded border-line text-accent focus:ring-accent"
+                      className="h-3.5 w-3.5 rounded border-line accent-accent focus:ring-accent"
                     />
                     Ask everyone
                   </label>
@@ -238,31 +259,31 @@ export function InterviewTopicsEditor({ topics, onChange, job, disabled, error, 
                     <Trash2 size={14} />
                   </button>
                 </div>
-                <div className="mt-2 grid gap-2 pl-7 sm:grid-cols-2">
+                <div className={guide ? "grid gap-4 p-4 sm:grid-cols-2 sm:p-5" : "mt-2 grid gap-2 pl-7 sm:grid-cols-2"}>
                   <div>
                     <label className={labelClass} htmlFor={`topic-scope-${index}`}>What to probe</label>
                     <textarea
                       id={`topic-scope-${index}`}
-                      rows={2}
+                      rows={guide ? 4 : 2}
                       value={topic.scope}
                       maxLength={TOPIC_SCOPE_MAX}
                       onChange={(e) => update(id, { scope: e.target.value })}
                       disabled={busy}
                       aria-invalid={!topic.scope.trim()}
-                      className={`${fieldClass} resize-none ${topic.scope.trim() ? '' : missingClass}`}
+                      className={`${fieldClass} ${guide ? 'bg-surface-2 leading-relaxed' : ''} resize-y ${topic.scope.trim() ? '' : missingClass}`}
                     />
                   </div>
                   <div>
                     <label className={labelClass} htmlFor={`topic-question-${index}`}>Example question</label>
                     <textarea
                       id={`topic-question-${index}`}
-                      rows={2}
+                      rows={guide ? 4 : 2}
                       value={topic.seed_question}
                       maxLength={TOPIC_QUESTION_MAX}
                       onChange={(e) => update(id, { seed_question: e.target.value })}
                       disabled={busy}
                       aria-invalid={!topic.seed_question.trim()}
-                      className={`${fieldClass} resize-none ${topic.seed_question.trim() ? '' : missingClass}`}
+                      className={`${fieldClass} ${guide ? 'bg-surface-2 leading-relaxed' : ''} resize-y ${topic.seed_question.trim() ? '' : missingClass}`}
                     />
                   </div>
                 </div>
@@ -272,6 +293,11 @@ export function InterviewTopicsEditor({ topics, onChange, job, disabled, error, 
         </ul>
       )}
 
+      {confirmReset && <ConfirmDialog title="Reset interview topics?" body={<p>Your current topics will be replaced with the original suggested topics.</p>} confirmLabel="Reset topics" tone="accent"
+        onClose={() => setConfirmReset(false)} onConfirm={() => {
+          onChange(withIds(structuredClone(resetDefaults ?? [])))
+          setConfirmReset(false)
+        }} />}
       {confirmReplace && (
         <ConfirmDialog
           title="Replace the current topics?"

@@ -17,9 +17,12 @@ import {
   mockGetScreening,
   mockAuthenticatedSession,
   mockStandardScreeningQuestions,
+  mockUnmockedApi,
+  mockGetInterviewPipeline,
 } from './fixtures'
 
 async function mockLayoutWithJobs(page: import('@playwright/test').Page) {
+  await mockUnmockedApi(page)
   await mockAuthenticatedSession(page)
   await mockGetJobsSafe(page)
 }
@@ -84,19 +87,19 @@ test('expanding a job shows Resume Screening, Screening, Interviews, and Finalis
 // 3. Create Job link navigates to create page
 // ---------------------------------------------------------------------------
 
-test('Create Job link in sidebar navigates to create page', async ({ page }) => {
+test('Create Job link in jobs page navigates to create page', async ({ page }) => {
   await mockLayoutWithJobs(page)
 
-  await page.goto('/')
+  await page.goto('/jobs')
   await page.waitForLoadState('networkidle')
 
   await expect(createJobLink(page)).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Create New Job' })).not.toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Tell us about the role' })).not.toBeVisible()
 
   await createJobLink(page).click()
 
   await expect(page).toHaveURL('/jobs/new')
-  await expect(page.getByRole('heading', { name: 'Create New Job' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Tell us about the role' })).toBeVisible()
   await expect(page.locator('input[placeholder*="Senior Frontend"]')).toBeVisible()
 })
 
@@ -112,10 +115,8 @@ test('Create Job form shows validation errors on empty submit', async ({ page })
   await page.waitForLoadState('networkidle')
 
   await expect(page.getByText('Import from document')).toBeVisible()
-  // The button stays disabled until the job says how the work is done.
-  await expect(page.getByRole('button', { name: 'Create Job' })).toBeDisabled()
-  await page.getByRole('radio', { name: 'Remote' }).click()
-  await page.getByRole('button', { name: 'Create Job' }).click()
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await expect(page.getByText('Choose how the work is done')).toBeVisible()
 
   await expect(page.getByText('Job title is required')).toBeVisible()
   await expect(page.getByText('Description is required')).toBeVisible()
@@ -143,6 +144,10 @@ test('Create Job success navigates to new job Resume Screening page', async ({ p
   await mockGetShortlist(page, newJobId, [])
   await mockGetShortlistStatus(page, newJobId)
   await mockGetScreening(page, newJobId, [])
+  await mockGetInterviewPipeline(page, newJobId)
+  await page.route(`**/api/jobs/${newJobId}/pipeline-candidates*`, route => route.fulfill({
+    json: { items: [], total: 0, counts: {}, limit: 25, offset: 0 },
+  }))
   await mockStandardScreeningQuestions(page)
 
   await page.goto('/jobs/new')
@@ -151,7 +156,11 @@ test('Create Job success navigates to new job Resume Screening page', async ({ p
   await page.locator('input[placeholder*="Senior Frontend"]').fill('New Test Role')
   await page.locator('textarea').first().fill('This is a test job description.')
   await page.getByRole('radio', { name: 'Remote' }).click()
-  await page.getByRole('button', { name: 'Create Job' }).click()
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.getByRole('radio', { name: 'Senior', exact: true }).click()
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.getByRole('button', { name: 'Create job', exact: true }).click()
 
   await expect(page.getByText('Job created successfully')).toBeVisible({ timeout: 5000 })
   await expect(page).toHaveURL(`/jobs/${newJobId}`)
@@ -173,13 +182,17 @@ test('Create Job shows error on 422 API error', async ({ page }) => {
   await page.locator('input[placeholder*="Senior Frontend"]').fill('Bad Job')
   await page.locator('textarea').first().fill('This should fail.')
   await page.getByRole('radio', { name: 'Remote' }).click()
-  await page.getByRole('button', { name: 'Create Job' }).click()
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.getByRole('radio', { name: 'Senior', exact: true }).click()
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.getByRole('button', { name: 'Create job', exact: true }).click()
 
   await expect(
     page.locator('text=Failed to create job').or(page.locator('text=Validation error')).first(),
   ).toBeVisible({ timeout: 5000 })
   await expect(page).toHaveURL('/jobs/new')
-  await expect(page.getByText('Import from document')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Review your job' })).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
@@ -201,7 +214,7 @@ test('empty state shows no jobs message in sidebar', async ({ page }) => {
   await expect(page.getByRole('navigation').getByText('No active jobs')).toBeVisible()
   await createJobLink(page).click()
   await expect(page).toHaveURL('/jobs/new')
-  await expect(page.getByRole('heading', { name: 'Create New Job' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Tell us about the role' })).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------

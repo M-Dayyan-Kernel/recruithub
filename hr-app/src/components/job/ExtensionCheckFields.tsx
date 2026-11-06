@@ -14,6 +14,7 @@ export function ExtensionCheckFields({
   onModeChange,
   disabled,
   locked,
+  hideSwitch = false,
 }: {
   enabled: boolean
   mode: ExtensionPolicyMode
@@ -21,6 +22,7 @@ export function ExtensionCheckFields({
   onModeChange: (next: ExtensionPolicyMode) => void
   disabled?: boolean
   locked: boolean
+  hideSwitch?: boolean
 }) {
   const frozen = locked || !!disabled
 
@@ -32,16 +34,16 @@ export function ExtensionCheckFields({
         for this job. You can change it later on the job page.
       </p>
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <VoiceScreeningSwitch
+      {(!hideSwitch || locked) && <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {!hideSwitch && <VoiceScreeningSwitch
           label="AI extension check"
           checked={enabled}
           disabled={frozen}
           onChange={onEnabledChange}
-          className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5"
-        />
+          className="rounded-lg border border-line bg-surface-2 px-3 py-2.5"
+        />}
         {locked && <ExtensionOrgOffHelp />}
-      </div>
+      </div>}
 
       {locked && (
         <p className="text-xs leading-relaxed text-slate-500" role="status">
@@ -57,9 +59,9 @@ export function ExtensionCheckFields({
             {EXTENSION_MODES.map((m) => (
               <label
                 key={m.id}
-                className={`rounded-lg border p-3.5 transition-colors ${
+                className={`rounded-xl border p-4 transition-colors ${
                   mode === m.id
-                    ? 'border-indigo-300 bg-indigo-50/60'
+                    ? 'border-accent bg-accent-soft'
                     : 'border-slate-200 bg-white hover:bg-slate-50'
                 } ${frozen ? 'cursor-not-allowed' : 'cursor-pointer'}`}
               >
@@ -67,6 +69,7 @@ export function ExtensionCheckFields({
                   <input
                     type="radio"
                     name="extension-check-mode"
+                    className="accent-accent focus-visible:outline-accent"
                     checked={mode === m.id}
                     onChange={() => onModeChange(m.id)}
                   />

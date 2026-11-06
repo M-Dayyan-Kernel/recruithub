@@ -1,0 +1,40 @@
+# Virtual environments, including backups
+.venv/
+.venv-*/
+venv/
+env/
+
+# Python bytecode and packaging output
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Test, coverage, and tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Local configuration (keep example files available)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Runtime output
+logs/*.log
+logs/*.log.*
+celerybeat-schedule*
+celerybeat.pid
+uploads/
+
+# macOS metadata
+.DS_Store

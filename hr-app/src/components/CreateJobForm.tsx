@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, type DragEvent, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  X,
   Loader2,
   AlertCircle,
   Upload,
@@ -9,12 +8,22 @@ import {
   Briefcase,
   MapPin,
   Target,
-  MessagesSquare,
   PhoneCall,
   ShieldCheck,
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Pencil,
+  ClipboardCheck,
+  RotateCcw,
+  Save,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
+import { useAuth } from '@/context/AuthContext'
+import { readJobCreationDraft, type JobCreationDraft } from '@/lib/jobCreationDraft'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { JobSkillsField } from '@/components/job/JobSkillsField'
 import type {
   Job,
   ParsedJobDescription,
@@ -65,41 +74,47 @@ interface FieldErrors {
   screeningQuestions?: string
   interviewTopics?: string
   seniority?: string
+  workMode?: string
 }
 
 interface Props {
   onSuccess?: (job: Job) => void
   onCancel?: () => void
+  step: number
+  onStepChange: (step: number) => void
 }
 
 const inputClass =
-  'w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/15'
+  'w-full rounded-lg border border-slate-200 bg-slate-50/80 px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/15'
 
 function FormSection({
   icon,
   title,
   description,
   children,
+  action,
 }: {
+  action?: ReactNode
   icon: ReactNode
   title: string
   description?: string
   children: ReactNode
 }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm">
-      <div className="flex items-start gap-3 border-b border-slate-100 bg-slate-50/50 px-5 py-4">
+    <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm [&_[role=radiogroup]]:flex-wrap">
+      <div className="flex flex-wrap items-start gap-3 border-b border-slate-100 bg-white px-6 py-5">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm ring-1 ring-slate-200/60">
           {icon}
         </div>
-        <div className="min-w-0 pt-0.5">
+        <div className="min-w-0 flex-1 pt-0.5">
           <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
           {description && (
             <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{description}</p>
           )}
         </div>
+        {action}
       </div>
-      <div className="space-y-4 p-5">{children}</div>
+      <div className="space-y-5 p-4 sm:p-6">{children}</div>
     </section>
   )
 }
@@ -126,8 +141,18 @@ function FieldLabel({
   )
 }
 
-export function CreateJobForm({ onSuccess, onCancel }: Props) {
+const steps = ['Job info', 'Requirements', 'Screening', 'Review']
+
+export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props) {
   const queryClient = useQueryClient()
+  const { user } = useAuth()
+  const draftKey = `hr-job-draft:${user?.active_tenant_id ?? user?.tenant_id}:${user?.id}`
+  const [savedDraft, setSavedDraft] = useState(() => readJobCreationDraft(draftKey))
+  const [draftSaved, setDraftSaved] = useState(false)
+  const draftRestored = useRef(false)
+  const progressRef = useRef<HTMLElement>(null)
+  const previousStep = useRef(step)
+  const headingRef = useRef<HTMLHeadingElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [title, setTitle] = useState('')
@@ -144,6 +169,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
   // The role-specific and custom screening questions; the locked standard ones come from the API.
   const [extraQuestions, setExtraQuestions] = useState<ScreeningQuestion[]>([])
   // The pool the interviews draw from. The JD parser proposes it; HR reviews it here.
+  const [topicsWriting, setTopicsWriting] = useState(false)
   const [interviewTopics, setInterviewTopics] = useState<InterviewTopic[]>([])
   const [voiceScreeningEnabled, setVoiceScreeningEnabled] = useState(true)
   const [extensionCheckEnabled, setExtensionCheckEnabled] = useState(true)
@@ -157,6 +183,8 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
   const [wasPrefilled, setWasPrefilled] = useState(false)
+  const [parsedDefaults, setParsedDefaults] = useState<ParsedJobDescription | null>(null)
+  const [resetSection, setResetSection] = useState<'requirements' | 'screening' | null>(null)
 
   const { data: standardData } = useStandardScreeningQuestions(title, workMode, workLocation)
   const standardQuestions = standardData?.standard ?? []
@@ -170,7 +198,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
   })
 
   useEffect(() => {
-    if (settings) {
+    if (settings && !draftRestored.current) {
       setVoiceScreeningEnabled(settings.screening_enabled)
     }
   }, [settings])
@@ -189,6 +217,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
       setFieldErrors({})
       setSubmitError(null)
       setWasPrefilled(true)
+      setParsedDefaults(structuredClone(parsed))
 
       if (parsed.title) setTitle(parsed.title)
       if (parsed.description) setDescription(parsed.description)
@@ -219,6 +248,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
     mutationFn: (payload: CreateJobPayload) =>
       api.post('/api/jobs', payload) as unknown as Promise<Job>,
     onSuccess: (job) => {
+      try { localStorage.removeItem(draftKey) } catch { /* Job creation still succeeds if storage is unavailable. */ }
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
       toast.success('Job created successfully')
       onSuccess?.(job)
@@ -271,22 +301,84 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
     setSkills((prev) => prev.filter((s) => s !== skill))
   }
 
-  const handleSubmit = () => {
-    const errors: FieldErrors = {}
-    if (!title.trim()) errors.title = 'Job title is required'
-    if (!description.trim()) errors.description = 'Description is required'
-    if (!seniority) errors.seniority = 'Choose the seniority level'
-    // Blank rows used to be dropped silently, so half-typed questions disappeared on save.
-    const questionError = firstQuestionError
-    if (questionError) errors.screeningQuestions = questionError
-    const topicError = validateTopicPool(interviewTopics)
-    if (topicError) errors.interviewTopics = topicError
-
-    if (Object.keys(errors).length > 0) {
-      setFieldErrors(errors)
-      return
+  const saveDraft = () => {
+    const draft: JobCreationDraft = {
+      version: 1, step, title, description, skills, skillInput, seniority, workMode,
+      workLocation, extraQuestions, interviewTopics, voiceScreeningEnabled,
+      extensionCheckEnabled, extensionCheckMode,
     }
+    try {
+      localStorage.setItem(draftKey, JSON.stringify(draft))
+      setDraftSaved(true)
+      toast.success('Draft saved in this browser')
+    } catch {
+      toast.error('Could not save the draft in this browser')
+    }
+  }
 
+  const resumeDraft = () => {
+    if (!savedDraft) return
+    draftRestored.current = true
+    setTitle(savedDraft.title)
+    setDescription(savedDraft.description)
+    setSkills(savedDraft.skills)
+    setSkillInput(savedDraft.skillInput)
+    setSeniority(savedDraft.seniority)
+    setWorkMode(savedDraft.workMode)
+    setWorkLocation(savedDraft.workLocation)
+    setExtraQuestions(savedDraft.extraQuestions)
+    setInterviewTopics(withIds(savedDraft.interviewTopics))
+    setVoiceScreeningEnabled(savedDraft.voiceScreeningEnabled)
+    setExtensionCheckEnabled(savedDraft.extensionCheckEnabled)
+    setExtensionCheckMode(savedDraft.extensionCheckMode)
+    workEditedByHand.current = { mode: true, location: true }
+    setSavedDraft(null)
+    setFieldErrors({})
+    onStepChange(savedDraft.step)
+    toast.success('Draft restored')
+  }
+
+  const validateStep = (current: number): boolean => {
+    const errors: FieldErrors = {}
+    if (current === 1) {
+      if (!title.trim()) errors.title = 'Job title is required'
+      if (!description.trim()) errors.description = 'Description is required'
+      if (!workMode) errors.workMode = 'Choose how the work is done'
+      else if (locationError) errors.workMode = locationError
+    }
+    if (current === 2 && !seniority) errors.seniority = 'Choose the seniority level'
+    if (current === 3 && firstQuestionError) errors.screeningQuestions = firstQuestionError
+    if (current === 4) {
+      const topicError = validateTopicPool(interviewTopics)
+      if (topicError) errors.interviewTopics = topicError
+    }
+    setFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
+  const goToStep = (next: number) => {
+    onStepChange(next)
+    setSubmitError(null)
+    if (next === step) {
+      headingRef.current?.focus({ preventScroll: true })
+      progressRef.current?.scrollIntoView({ block: 'start' })
+    }
+  }
+
+  useEffect(() => {
+    if (previousStep.current === step) return
+    previousStep.current = step
+    headingRef.current?.focus({ preventScroll: true })
+    progressRef.current?.scrollIntoView({ block: 'start' })
+  }, [step])
+
+  const handleSubmit = () => {
+    for (const current of [1, 2, 3, 4]) {
+      if (!validateStep(current)) {
+        goToStep(current)
+        return
+      }
+    }
     setFieldErrors({})
     setSubmitError(null)
 
@@ -312,338 +404,409 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
   }
 
   const isParsing = parseMutation.isPending
-  const isBusy = mutation.isPending || isParsing
+  const isBusy = mutation.isPending || isParsing || topicsWriting
   // The first problem in the questions HR can edit, if any. The standard ones are never wrong.
   const firstQuestionError =
     extraQuestions
       .map((q) => validateScreeningQuestionText(q.question, maxQuestionChars))
       .find(Boolean) ?? null
   const locationError = validateWorkLocation(workMode, workLocation, maxLocationChars)
-  // A job cannot be created until it says how the work is done (and where, if not remote).
-  const createBlocked = !workMode || Boolean(locationError) || Boolean(firstQuestionError)
 
   return (
     <>
-      <div className="space-y-5">
-        {/* Upload */}
-        <FormSection
-          icon={<Upload size={17} />}
-          title="Import from document"
-          description="Drop a PDF or DOCX job description to auto-fill the form below."
-        >
-          <label
-            htmlFor="jd-upload"
-            onDragOver={(e: DragEvent) => {
-              e.preventDefault()
-              setIsDragOver(true)
-            }}
-            onDragLeave={() => setIsDragOver(false)}
-            onDrop={(e: DragEvent) => {
-              e.preventDefault()
-              setIsDragOver(false)
-              handleJdFile(e.dataTransfer.files[0] ?? null)
-            }}
-            className={`relative block rounded-xl border-2 border-dashed px-6 py-8 text-center transition-all duration-200 ${
-              isParsing
-                ? 'pointer-events-none border-indigo-200 bg-indigo-50/50'
-                : isDragOver
-                  ? 'cursor-copy border-indigo-300 bg-indigo-50/40'
-                  : 'cursor-pointer border-slate-200 bg-slate-50/40 hover:border-indigo-200 hover:bg-indigo-50/30'
-            }`}
-          >
-            {isParsing ? (
-              <div className="flex flex-col items-center">
-                <Loader2 size={24} className="mb-3 animate-spin text-indigo-600" />
-                <p className="text-sm font-medium text-slate-700">
-                  Reading {uploadedFileName ?? 'document'}…
-                </p>
-                <p className="mt-1 text-xs text-slate-400">Usually takes a few seconds</p>
-              </div>
-            ) : (
-              <>
-                <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-white text-indigo-500 shadow-sm ring-1 ring-slate-200/80">
-                  <Upload size={20} />
-                </div>
-                <p className="text-sm font-medium text-slate-700">
-                  Drag & drop here, or{' '}
-                  <span className="text-indigo-600 underline decoration-indigo-200 underline-offset-2">
-                    browse files
+      {savedDraft && <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-accent-border bg-accent-soft p-4">
+        <Save size={17} className="text-accent" />
+        <p className="min-w-0 flex-1 text-xs leading-relaxed text-ink">You have a saved job draft in this browser.</p>
+        <button type="button" onClick={resumeDraft} className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink hover:bg-accent-hover">Resume draft</button>
+        <button type="button" onClick={() => {
+          try { localStorage.removeItem(draftKey); setSavedDraft(null) } catch { toast.error('Could not remove this draft') }
+        }} className="text-xs text-ink-muted hover:text-ink">Discard</button>
+      </div>}
+      <nav ref={progressRef} aria-label="Job creation progress" className="mb-10 mt-2 scroll-mt-6">
+        <ol className="flex items-start">
+          {steps.map((label, index) => {
+            const number = index + 1
+            const active = step === number
+            const complete = step > number
+            return (
+              <li key={label} className="relative flex flex-1 flex-col items-center">
+                {index < steps.length - 1 && (
+                  <span aria-hidden="true" className={`absolute left-1/2 top-4 h-px w-full ${complete ? 'bg-accent' : 'bg-slate-200'}`} />
+                )}
+                <button
+                  type="button"
+                  aria-current={active ? 'step' : undefined}
+                  aria-label={`Step ${number}: ${label}`}
+                  disabled={!complete || isBusy}
+                  onClick={() => goToStep(number)}
+                  className="relative z-10 flex flex-col items-center gap-2.5 disabled:cursor-default focus-visible:outline-accent"
+                >
+                  <span className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold transition-colors ${active ? 'bg-accent text-accent-ink shadow-sm ring-4 ring-accent-soft' : complete ? 'bg-accent-soft text-accent' : 'border-2 border-slate-200 bg-white text-slate-400'}`}>
+                    {complete ? <Check size={15} /> : number}
                   </span>
-                </p>
-                <p className="mt-1.5 text-xs text-slate-400">PDF or DOCX · up to 20 MB</p>
-              </>
-            )}
-            <input
-              ref={fileInputRef}
-              id="jd-upload"
-              type="file"
-              accept=".pdf,.docx,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              className="sr-only"
-              disabled={isParsing}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                handleJdFile(e.target.files?.[0] ?? null)
-                e.target.value = ''
-              }}
-            />
-          </label>
-          {uploadError && (
-            <p className="flex items-center gap-1.5 text-xs text-rose-600">
-              <AlertCircle size={12} className="shrink-0" />
-              {uploadError}
-            </p>
-          )}
-        </FormSection>
-
-        {wasPrefilled && !isParsing && (
-          <div className="flex items-center gap-2.5 rounded-xl border border-emerald-200/80 bg-emerald-50/50 px-4 py-3 text-sm text-emerald-800">
-            <Sparkles size={15} className="shrink-0 text-emerald-600" />
-            <span>Pre-filled from your document — review each section before publishing.</span>
-          </div>
-        )}
-
-        {submitError && (
-          <div className="flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
-            <AlertCircle size={15} className="mt-0.5 shrink-0 text-rose-500" />
-            <p className="text-sm text-rose-700">{submitError}</p>
-          </div>
-        )}
-
-        {/* Job details */}
-        <FormSection
-          icon={<Briefcase size={17} />}
-          title="Job details"
-          description="Core information shown to candidates and used in matching."
-        >
-          <div>
-            <FieldLabel htmlFor="job-title" required>
-              Job title
-            </FieldLabel>
-            <input
-              id="job-title"
-              type="text"
-              value={title}
-              onChange={(e) => {
-                setTitle(e.target.value)
-                if (fieldErrors.title) setFieldErrors((p) => ({ ...p, title: undefined }))
-              }}
-              placeholder="e.g. Senior Frontend Engineer"
-              className={`${inputClass} ${fieldErrors.title ? 'border-rose-300 ring-rose-500/15' : ''}`}
-            />
-            {fieldErrors.title && (
-              <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600">
-                <AlertCircle size={11} />
-                {fieldErrors.title}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <FieldLabel htmlFor="job-description" required>
-              Description
-            </FieldLabel>
-            <textarea
-              id="job-description"
-              rows={5}
-              value={description}
-              onChange={(e) => {
-                setDescription(e.target.value)
-                if (fieldErrors.description) setFieldErrors((p) => ({ ...p, description: undefined }))
-              }}
-              placeholder="Role overview, responsibilities, and what you're looking for…"
-              className={`${inputClass} resize-y min-h-[120px] ${fieldErrors.description ? 'border-rose-300 ring-rose-500/15' : ''}`}
-            />
-            {fieldErrors.description && (
-              <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600">
-                <AlertCircle size={11} />
-                {fieldErrors.description}
-              </p>
-            )}
-          </div>
-        </FormSection>
-
-        {/* Requirements */}
-        <FormSection
-          icon={<Target size={17} />}
-          title="Requirements"
-          description="Skills and experience used for screening and shortlisting."
-        >
-          <div>
-            <FieldLabel hint="Press Enter or comma to add each skill.">
-              Required skills
-            </FieldLabel>
-            <div className="min-h-[48px] rounded-lg border border-slate-200 bg-white p-2.5 transition-colors focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-500/15">
-              <div className="mb-1.5 flex flex-wrap gap-1.5">
-                {skills.map((skill) => (
-                  <span
-                    key={skill}
-                    className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 ring-1 ring-indigo-100"
-                  >
-                    {skill}
-                    <button
-                      type="button"
-                      onClick={() => removeSkill(skill)}
-                      aria-label={`Remove ${skill}`}
-                      className="rounded p-0.5 leading-none text-indigo-400 transition-colors hover:bg-indigo-100 hover:text-indigo-800"
-                    >
-                      <X size={10} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-              <input
-                type="text"
-                value={skillInput}
-                onChange={(e) => setSkillInput(e.target.value)}
-                onKeyDown={handleSkillKeyDown}
-                onBlur={() => {
-                  if (skillInput.trim()) addSkill(skillInput)
-                }}
-                placeholder={skills.length === 0 ? 'React, TypeScript, Node.js…' : 'Add another…'}
-                aria-label="Add required skill"
-                className="w-full bg-transparent text-sm placeholder:text-slate-400 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <SeniorityField
-            value={seniority}
-            onChange={(level) => {
-              setSeniority(level)
-              setFieldErrors((p) => ({ ...p, seniority: undefined }))
-            }}
-            error={fieldErrors.seniority}
-            hint={wasPrefilled ? 'Suggested from the job description. Change it if it is wrong.' : undefined}
-          />
-        </FormSection>
-
-        {/* Work arrangement */}
-        <FormSection
-          icon={<MapPin size={17} />}
-          title="Work arrangement"
-          description="Remote, hybrid or on-site. The screening call asks candidates about the location based on this."
-        >
-          <WorkModeFields
-            mode={workMode}
-            location={workLocation}
-            onModeChange={(next) => {
-              workEditedByHand.current.mode = true
-              setWorkMode(next)
-            }}
-            onLocationChange={(next) => {
-              workEditedByHand.current.location = true
-              setWorkLocation(next)
-            }}
-            disabled={isBusy}
-            locationError={workLocation ? locationError : null}
-            maxLocationChars={maxLocationChars}
-            hint={
-              workMode
-                ? undefined
-                : wasPrefilled
-                  ? 'The job description does not say how the work is done. Choose one to continue.'
-                  : 'Choose one to continue. A job description that states it fills this in for you.'
-            }
-          />
-        </FormSection>
-
-        {/* Phone screening: the AI call that comes before the interview */}
-        <FormSection
-          icon={<PhoneCall size={17} />}
-          title="Phone screening"
-          description="The short AI call that checks the basics before a candidate is invited to interview."
-        >
-          <VoiceScreeningSwitch
-            checked={voiceScreeningEnabled}
-            disabled={isBusy}
-            onChange={setVoiceScreeningEnabled}
-            className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5"
-          />
-
-          <div>
-            <ScreeningQuestionsEditor
-              standard={standardQuestions}
-              questions={extraQuestions}
-              onChange={(next) => {
-                setExtraQuestions(next)
-                if (fieldErrors.screeningQuestions) {
-                  setFieldErrors((p) => ({ ...p, screeningQuestions: undefined }))
-                }
-              }}
-              maxTotal={maxTotalQuestions}
-              maxChars={maxQuestionChars}
-              disabled={isBusy}
-              scrollable
-            />
-            {fieldErrors.screeningQuestions && (
-              <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600" role="alert">
-                <AlertCircle size={11} />
-                {fieldErrors.screeningQuestions}
-              </p>
-            )}
-          </div>
-        </FormSection>
-
-        {/* The AI interview itself */}
-        <FormSection
-          icon={<MessagesSquare size={17} />}
-          title="AI interview"
-          description="What the AI interviewer covers. Each candidate gets their own questions, drawn from these topics."
-        >
-          <div>
-            <InterviewTopicsEditor
-              topics={interviewTopics}
-              onChange={(next) => {
-                setInterviewTopics(next)
-                if (fieldErrors.interviewTopics) {
-                  setFieldErrors((p) => ({ ...p, interviewTopics: undefined }))
-                }
-              }}
-              job={{ title, description, required_skills: skills, seniority_level: seniority }}
-              disabled={isBusy}
-              error={fieldErrors.interviewTopics}
-              scrollable
-            />
-          </div>
-        </FormSection>
-
-        {/* AI extension check */}
-        <FormSection
-          icon={<ShieldCheck size={17} />}
-          title="AI extension check"
-          description="Blocks candidates who run AI-assistant browser extensions during the interview."
-        >
-          <ExtensionCheckFields
-            enabled={extensionCheckEnabled}
-            mode={extensionCheckMode}
-            onEnabledChange={setExtensionCheckEnabled}
-            onModeChange={setExtensionCheckMode}
-            disabled={isBusy}
-            locked={!extensionOrgEnabled}
-          />
-        </FormSection>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider sm:text-xs ${active ? 'text-accent' : complete ? 'text-slate-600' : 'text-slate-400'}`}>{label}</span>
+                </button>
+              </li>
+            )
+          })}
+        </ol>
+      </nav>
+      <div className="mb-6">
+        <p className="mb-1 text-xs font-medium uppercase tracking-widest text-accent">Step {step} of 4</p>
+        <h1 ref={headingRef} tabIndex={-1} className="scroll-mt-6 text-2xl font-semibold tracking-tight text-slate-900 outline-none">
+          {['Tell us about the role', 'Define your ideal candidate', 'Set up the screening process', 'Review your job'][step - 1]}
+        </h1>
+        <p className="mt-2 text-sm leading-relaxed text-slate-500">
+          {['Import a job description or enter the details below.', 'Choose the skills and experience this role needs.', 'Review the questions your phone screening agent will ask.', 'Fine-tune the interview guide and check your job before creating it.'][step - 1]}
+        </p>
       </div>
+      {submitError && <p role="alert" className="mb-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{submitError}</p>}
+      <div className="space-y-5">
+        {step === 1 && (<>
+            {/* Upload */}
+            <FormSection
+              icon={<Upload size={17} />}
+              title="Import from document"
+              description="Drop a PDF or DOCX job description to auto-fill the form below."
+            >
+              <label
+                htmlFor="jd-upload"
+                onDragOver={(e: DragEvent) => {
+                  e.preventDefault()
+                  setIsDragOver(true)
+                }}
+                onDragLeave={() => setIsDragOver(false)}
+                onDrop={(e: DragEvent) => {
+                  e.preventDefault()
+                  setIsDragOver(false)
+                  handleJdFile(e.dataTransfer.files[0] ?? null)
+                }}
+                className={`relative block rounded-xl border-2 border-dashed px-6 py-8 text-center transition-all duration-200 ${
+                  isParsing
+                    ? 'pointer-events-none border-accent-border bg-accent-soft/50'
+                    : isDragOver
+                      ? 'cursor-copy border-accent bg-accent-soft/40'
+                      : 'cursor-pointer border-slate-200 bg-slate-50/40 hover:border-accent-border hover:bg-accent-soft/30'
+                }`}
+              >
+                {isParsing ? (
+                  <div className="flex flex-col items-center">
+                    <Loader2 size={24} className="mb-3 animate-spin text-accent" />
+                    <p className="text-sm font-medium text-slate-700">
+                      Reading {uploadedFileName ?? 'document'}…
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">Usually takes a few seconds</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-white text-accent shadow-sm ring-1 ring-slate-200/80">
+                      <Upload size={20} />
+                    </div>
+                    <p className="text-sm font-medium text-slate-700">
+                      Drag & drop here, or{' '}
+                      <span className="text-accent underline decoration-accent-border underline-offset-2">
+                        browse files
+                      </span>
+                    </p>
+                    <p className="mt-1.5 text-xs text-slate-400">PDF or DOCX · up to 20 MB</p>
+                  </>
+                )}
+                <input
+                  ref={fileInputRef}
+                  id="jd-upload"
+                  type="file"
+                  accept=".pdf,.docx,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  className="sr-only"
+                  disabled={isParsing}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                    handleJdFile(e.target.files?.[0] ?? null)
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+              {uploadError && (
+                <p className="flex items-center gap-1.5 text-xs text-rose-600">
+                  <AlertCircle size={12} className="shrink-0" />
+                  {uploadError}
+                </p>
+              )}
+            </FormSection>
+
+            {wasPrefilled && !isParsing && (
+              <div className="flex items-center gap-2.5 rounded-xl border border-emerald-200/80 bg-emerald-50/50 px-4 py-3 text-sm text-emerald-800">
+                <Sparkles size={15} className="shrink-0 text-emerald-600" />
+                <span>Pre-filled from your document — review each section before publishing.</span>
+              </div>
+            )}
+
+            {/* Job details */}
+            <FormSection
+              icon={<Briefcase size={17} />}
+              title="Job details"
+              description="Core information shown to candidates and used in matching."
+            >
+              <div>
+                <FieldLabel htmlFor="job-title" required>
+                  Job title
+                </FieldLabel>
+                <input
+                  id="job-title"
+                  type="text"
+                  value={title}
+                  onChange={(e) => {
+                    setTitle(e.target.value)
+                    if (fieldErrors.title) setFieldErrors((p) => ({ ...p, title: undefined }))
+                  }}
+                  placeholder="e.g. Senior Frontend Engineer"
+                  className={`${inputClass} ${fieldErrors.title ? 'border-rose-300 ring-rose-500/15' : ''}`}
+                />
+                {fieldErrors.title && (
+                  <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600">
+                    <AlertCircle size={11} />
+                    {fieldErrors.title}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <FieldLabel htmlFor="job-description" required>
+                  Description
+                </FieldLabel>
+                <textarea
+                  id="job-description"
+                  rows={5}
+                  value={description}
+                  onChange={(e) => {
+                    setDescription(e.target.value)
+                    if (fieldErrors.description) setFieldErrors((p) => ({ ...p, description: undefined }))
+                  }}
+                  placeholder="Role overview, responsibilities, and what you're looking for…"
+                  className={`${inputClass} resize-y min-h-[120px] ${fieldErrors.description ? 'border-rose-300 ring-rose-500/15' : ''}`}
+                />
+                {fieldErrors.description && (
+                  <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600">
+                    <AlertCircle size={11} />
+                    {fieldErrors.description}
+                  </p>
+                )}
+              </div>
+            </FormSection>
+
+            {/* Work arrangement */}
+            <FormSection
+              icon={<MapPin size={17} />}
+              title="Work arrangement"
+              description="Remote, hybrid or on-site. The screening call asks candidates about the location based on this."
+            >
+              <WorkModeFields
+                mode={workMode}
+                location={workLocation}
+                onModeChange={(next) => {
+                  workEditedByHand.current.mode = true
+                  setWorkMode(next)
+                  setFieldErrors((previous) => ({ ...previous, workMode: undefined }))
+                }}
+                onLocationChange={(next) => {
+                  workEditedByHand.current.location = true
+                  setWorkLocation(next)
+                  setFieldErrors((previous) => ({ ...previous, workMode: undefined }))
+                }}
+                disabled={isBusy}
+                modeError={!workMode ? fieldErrors.workMode : null}
+                locationError={workMode ? fieldErrors.workMode ?? (workLocation ? locationError : null) : null}
+                maxLocationChars={maxLocationChars}
+                hint={
+                  workMode
+                    ? undefined
+                    : wasPrefilled
+                      ? 'The job description does not say how the work is done. Choose one to continue.'
+                      : 'Choose one to continue. A job description that states it fills this in for you.'
+                }
+              />
+            </FormSection>
+
+        </>)}
+        {step === 2 && (<>
+          {parsedDefaults && (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-pos/20 bg-pos-soft px-4 py-3">
+              <Sparkles size={17} className="shrink-0 text-pos" />
+              <p className="min-w-0 flex-1 text-xs font-medium leading-relaxed text-pos">Pre-filled requirements — review and adjust to fit your role.</p>
+              <button type="button" disabled={isBusy} onClick={() => setResetSection('requirements')} className="inline-flex items-center gap-1.5 rounded-md border border-pos/20 bg-white px-2.5 py-1.5 text-xs font-medium text-pos hover:bg-pos-soft disabled:opacity-50"><RotateCcw size={12} />Reset to pre-filled</button>
+            </div>
+          )}
+            {/* Requirements */}
+            <FormSection
+              icon={<Target size={17} />}
+              title="Requirements"
+              description="Skills and experience used for screening and shortlisting."
+            >
+              <JobSkillsField skills={skills} input={skillInput} onInputChange={setSkillInput}
+                onKeyDown={handleSkillKeyDown} onAdd={addSkill} onRemove={removeSkill} disabled={isBusy} />
+              <div className="border-t border-line pt-5">
+              <SeniorityField
+                value={seniority}
+                onChange={(level) => {
+                  setSeniority(level)
+                  setFieldErrors((p) => ({ ...p, seniority: undefined }))
+                }}
+                error={fieldErrors.seniority}
+                hint={wasPrefilled ? 'Suggested from the job description. Change it if it is wrong.' : undefined}
+              />
+              </div>
+            </FormSection>
+
+        </>)}
+        {step === 3 && (<>
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-accent-border bg-accent-soft px-4 py-3">
+            <Sparkles size={17} className="shrink-0 text-accent" />
+            <p className="min-w-0 flex-1 text-xs font-medium leading-relaxed text-accent">{standardQuestions.length ? 'Standard screening questions applied — review or customize below.' : 'Standard questions load from your backend. You can add your own below.'}</p>
+            <button type="button" disabled={isBusy} onClick={() => setResetSection('screening')} className="inline-flex items-center gap-1.5 rounded-md border border-accent-border bg-white px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent-soft disabled:opacity-50"><RotateCcw size={12} />Reset to defaults</button>
+          </div>
+            {/* Phone screening: the AI call that comes before the interview */}
+            <FormSection
+              icon={<PhoneCall size={17} />}
+              title="Phone screening"
+              description="The short AI call that checks the basics before a candidate is invited to interview."
+              action={<VoiceScreeningSwitch
+                checked={voiceScreeningEnabled}
+                disabled={isBusy}
+                onChange={setVoiceScreeningEnabled}
+                className="rounded-lg border border-line bg-surface-2 px-3 py-2.5"
+              />}
+            >
+              <p className="text-xs leading-relaxed text-ink-muted">{voiceScreeningEnabled ? 'Candidates receive a short phone call before moving on to the interview.' : 'Phone screening is off for this job. Your questions are kept if you enable it later.'}</p>
+            </FormSection>
+              <div>
+                <ScreeningQuestionsEditor
+                  standard={standardQuestions}
+                  questions={extraQuestions}
+                  onChange={(next) => {
+                    setExtraQuestions(next)
+                    if (fieldErrors.screeningQuestions) {
+                      setFieldErrors((p) => ({ ...p, screeningQuestions: undefined }))
+                    }
+                  }}
+                  maxTotal={maxTotalQuestions}
+                  maxChars={maxQuestionChars}
+                  disabled={isBusy}
+                  appearance="panel"
+                />
+                {fieldErrors.screeningQuestions && (
+                  <p className="mt-1.5 flex items-center gap-1 text-xs text-rose-600" role="alert">
+                    <AlertCircle size={11} />
+                    {fieldErrors.screeningQuestions}
+                  </p>
+                )}
+              </div>
+
+
+        </>)}
+        {step === 4 && (<>
+                <InterviewTopicsEditor
+                  topics={interviewTopics}
+                  onChange={(next) => {
+                    setInterviewTopics(next)
+                    if (fieldErrors.interviewTopics) {
+                      setFieldErrors((p) => ({ ...p, interviewTopics: undefined }))
+                    }
+                  }}
+                  job={{ title, description, required_skills: skills, seniority_level: seniority }}
+                  disabled={isBusy}
+                  error={fieldErrors.interviewTopics}
+                  appearance="guide"
+                  onWritingChange={setTopicsWriting}
+                  defaults={parsedDefaults?.interview_topics}
+                />
+            {/* AI extension check */}
+            <FormSection
+              icon={<ShieldCheck size={17} />}
+              title="AI extension check"
+              description="Blocks candidates who run AI-assistant browser extensions during the interview."
+              action={<VoiceScreeningSwitch label="AI extension check" checked={extensionCheckEnabled}
+                disabled={isBusy || !extensionOrgEnabled} onChange={setExtensionCheckEnabled}
+                className="rounded-lg border border-line bg-surface-2 px-3 py-2.5" />}
+            >
+              <ExtensionCheckFields
+                enabled={extensionCheckEnabled}
+                mode={extensionCheckMode}
+                onEnabledChange={setExtensionCheckEnabled}
+                onModeChange={setExtensionCheckMode}
+                disabled={isBusy}
+                locked={!extensionOrgEnabled}
+                hideSwitch
+              />
+            </FormSection>
+
+          <details className="group rounded-2xl border border-line bg-surface">
+            <summary className="cursor-pointer px-6 py-5 text-sm font-semibold text-ink">Review job details and screening</summary>
+            <div className="space-y-5 border-t border-line p-4 sm:p-6">
+          <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            <ClipboardCheck size={19} className="shrink-0" />
+            Review your job details below. Your interview settings above will be saved with the job.
+          </div>
+          {[
+            { title: 'Job info', target: 1, content: <>
+              <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-600">{description}</p>
+              <p className="text-sm text-slate-600"><span className="font-medium text-slate-800">Work arrangement: </span>{workMode === 'remote' ? 'Remote' : `${workMode === 'hybrid' ? 'Hybrid' : 'On-site'} · ${workLocation}`}</p>
+            </> },
+            { title: 'Requirements', target: 2, content: <>
+              <p className="text-sm capitalize text-slate-600"><span className="font-medium text-slate-800">Seniority: </span>{seniority}</p>
+              <div className="flex flex-wrap gap-2">{skills.length ? skills.map((skill) => <span key={skill} className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-700">{skill}</span>) : <p className="text-sm text-slate-500">No specific skills added.</p>}</div>
+            </> },
+            { title: 'Screening & interview', target: 3, content: <>
+              <p className="text-sm text-slate-600"><span className="font-medium text-slate-800">Phone screening: </span>{voiceScreeningEnabled ? 'Enabled' : 'Disabled'}</p>
+              <div><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Screening questions ({standardQuestions.length + extraQuestions.length})</p>
+                <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-600">{[...standardQuestions, ...extraQuestions].map((question, index) => <li key={index}>{question.question}</li>)}</ol>
+                {!standardQuestions.length && !extraQuestions.length && <p className="text-sm text-slate-500">No screening questions loaded.</p>}
+              </div>
+              <div><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Interview topics ({interviewTopics.length})</p>
+                <div className="space-y-3">{interviewTopics.map((topic) => <div key={topic.id} className="rounded-lg bg-slate-50 p-3 text-sm"><p className="font-medium text-slate-800">{topic.name}{topic.is_mandatory ? ' · Mandatory' : ''}</p><p className="mt-1 text-slate-600">{topic.scope}</p><p className="mt-1 text-xs text-slate-500">Skill: {topic.skill_tag}</p><p className="mt-2 text-slate-600">{topic.seed_question}</p></div>)}</div>
+                {!interviewTopics.length && <p className="text-sm text-slate-500">No interview topics added.</p>}
+              </div>
+              <p className="text-sm text-slate-600"><span className="font-medium text-slate-800">AI extension check: </span>{!extensionOrgEnabled ? 'Disabled by your organization' : extensionCheckEnabled ? `Enabled · ${extensionCheckMode}` : 'Disabled'}</p>
+            </> },
+          ].map((section) => (
+            <section key={section.title} className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+              <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+                <h2 className="text-sm font-semibold text-slate-900">{section.title}</h2>
+                <button type="button" disabled={isBusy} onClick={() => goToStep(section.target)} aria-label={`Edit ${section.title}`} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-accent hover:bg-accent-soft disabled:opacity-50"><Pencil size={12} />Edit</button>
+              </div>
+              <div className="space-y-4 p-6">{section.content}</div>
+            </section>
+          ))}
+            </div>
+          </details>
+        </>)}
+      </div>
+      {resetSection && <ConfirmDialog title={resetSection === 'requirements' ? 'Reset requirements?' : 'Reset screening questions?'}
+        body={<p>Your edits in this section will be replaced with {parsedDefaults ? 'the original document suggestions' : 'the standard defaults'}. Other sections stay as they are.</p>}
+        confirmLabel="Reset section" tone="accent" onClose={() => setResetSection(null)}
+        onConfirm={() => {
+          if (resetSection === 'requirements' && parsedDefaults) {
+            setSkills([...(parsedDefaults.required_skills ?? [])])
+            setSkillInput('')
+            setSeniority(parsedDefaults.seniority_level)
+          } else {
+            setExtraQuestions(structuredClone(parsedDefaults?.screening_questions ?? []).slice(0, remainingQuestionSlots(standardQuestions.length, 0, maxTotalQuestions)))
+          }
+          setFieldErrors(previous => resetSection === 'requirements' ? { ...previous, seniority: undefined } : { ...previous, screeningQuestions: undefined })
+          setResetSection(null)
+        }} />}
 
       {/* Footer */}
-      <div className="mt-6 flex items-center justify-between gap-4 rounded-xl border border-slate-200/80 bg-white px-5 py-4 shadow-sm">
-        <p className="hidden text-xs text-slate-400 sm:block">
-          Required fields are marked with <span className="text-rose-500">*</span>
-        </p>
-        <div className="flex w-full justify-end gap-3 sm:w-auto">
-          {onCancel && (
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={isBusy}
-              className="rounded-lg px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-          )}
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-line py-5">
+        <button type="button" disabled={isBusy} onClick={() => step > 1 ? goToStep(step - 1) : onCancel?.()} className="inline-flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-ink-muted hover:text-ink disabled:opacity-50"><ArrowLeft size={14} />{step > 1 ? 'Back' : 'Cancel'}</button>
+        <div className="ml-auto flex items-center gap-2 sm:gap-3">
+          <button type="button" disabled={isBusy} onClick={saveDraft} title="Save a draft on this device" className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2.5 text-xs font-medium text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-50"><Save size={14} /><span>{draftSaved ? 'Save draft again' : 'Save as draft'}</span></button>
           <button
             type="button"
-            onClick={handleSubmit}
-            disabled={isBusy || createBlocked}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-indigo-700 hover:shadow disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => {
+              if (step === 4) handleSubmit()
+              else if (validateStep(step)) goToStep(step + 1)
+            }}
+            disabled={isBusy}
+            className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-accent-ink shadow-accent transition-all hover:bg-accent-hover hover:shadow disabled:cursor-not-allowed disabled:opacity-50"
           >
             {mutation.isPending ? (
               <>
@@ -651,7 +814,7 @@ export function CreateJobForm({ onSuccess, onCancel }: Props) {
                 Creating…
               </>
             ) : (
-              'Create job'
+              <>{step === 4 ? 'Create job' : 'Continue'}{step < 4 && <ArrowRight size={15} />}</>
             )}
           </button>
         </div>

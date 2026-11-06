@@ -147,13 +147,8 @@ export default function Layout() {
         />
       )}
 
-      {/*
-        A floating rail, inset from the viewport rather than flush to it, so the page ground
-        runs behind it on all four sides. On desktop the wrapper reserves the collapsed width
-        and the rail grows over the page when opened, so the content never shifts under the
-        pointer. On mobile the wrapper vanishes and the rail is a drawer.
-      */}
-      <div className="contents lg:relative lg:m-3 lg:block lg:w-[76px] lg:shrink-0">
+      {/* Reserve the collapsed width; the full-height sidebar expands over the content. */}
+      <div className="contents lg:relative lg:block lg:w-[76px] lg:shrink-0">
         <aside
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
@@ -163,7 +158,7 @@ export default function Layout() {
           }}
           className={cn(
             'fixed inset-y-0 left-0 z-30 flex w-60 flex-col overflow-hidden rounded-none bg-rail transition-[width,transform] duration-200',
-            'lg:absolute lg:inset-y-0 lg:translate-x-0 lg:rounded-card lg:shadow-e3',
+            'border-r border-rail-line lg:absolute lg:inset-y-0 lg:translate-x-0',
             collapsed ? 'lg:w-[76px]' : 'lg:w-60',
             sidebarOpen ? 'translate-x-0' : '-translate-x-full',
           )}
