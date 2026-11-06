@@ -147,7 +147,7 @@ function JobStageNav({
           </span>
         )}
       </button>
-      {candidatesOpen && <CandidatesModal jobId={jobId} onClose={() => setCandidatesOpen(false)} />}
+      {candidatesOpen && <CandidatesModal jobId={jobId} jobTitle={job.title} onClose={() => setCandidatesOpen(false)} />}
     </div>
   )
 }

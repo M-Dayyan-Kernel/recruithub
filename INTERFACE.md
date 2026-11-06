@@ -296,10 +296,11 @@ the single definition of which stage page a candidate belongs on.
 **Query params (optional):**
 - `stage` — `processing`, `failed`, `resume`, `phone`, `interview`, `finalist` or `rejected`
 - `q` — search name or email
+- `sort` — `match` (default: highest first, unscored last), `updated` (latest first) or `name`
 - `limit` (max 200), `offset`
 
 **Response `200`:** `{ items, total, counts, limit, offset }`. `items[]` is `{ candidate_id, name, email, phone,
-stage, state, reason, scheduled_at, match_score, recommendation, hr_decision, applied_at, failure_reason }`; `state`
+stage, state, reason, scheduled_at, match_score, recommendation, hr_decision, applied_at, updated_at, failure_reason }`; `updated_at` is the latest decision, call, interview round or rejection (or when they applied); `state`
 is the raw call or interview state inside the stage (for example `link_sent`, `flagged`). `total` is for the chosen
 stage; `counts` has every stage and covers the whole (searched) job.
 

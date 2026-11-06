@@ -477,8 +477,12 @@ export interface PipelineCandidate {
   recommendation?: string | null
   hr_decision?: string | null
   applied_at: string
+  /** The latest decision, call, interview round or rejection; when they applied if none. */
+  updated_at: string
   failure_reason?: string | null
 }
+
+export type PipelineSort = 'match' | 'updated' | 'name'
 
 export interface PipelineCandidatesResponse {
   items: PipelineCandidate[]

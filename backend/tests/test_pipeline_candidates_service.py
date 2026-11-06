@@ -63,9 +63,10 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(classify_pipeline_stage(cand(status="hired"), rec("approved"), None), "finalist")
 
 
-def row(name, stage_key, email=None):
+def row(name, stage_key, email=None, score=None, updated=NOW):
     return PipelineCandidate(
-        candidate_id=uuid.uuid4(), name=name, email=email, stage=stage_key, applied_at=NOW
+        candidate_id=uuid.uuid4(), name=name, email=email, stage=stage_key, applied_at=NOW,
+        match_score=score, updated_at=updated,
     )
 
 
@@ -80,7 +81,7 @@ class SummarizeTests(unittest.TestCase):
     ]
 
     def page(self, **kw):
-        return summarize(self.ROWS, stage=kw.get("stage"), q=kw.get("q"), pagination=PaginationParams(limit=kw.get("limit", 50), offset=kw.get("offset", 0)))
+        return summarize(self.ROWS, stage=kw.get("stage"), q=kw.get("q"), sort=kw.get("sort", "name"), pagination=PaginationParams(limit=kw.get("limit", 50), offset=kw.get("offset", 0)))
 
     def test_counts_cover_every_stage_even_empty_ones(self):
         out = self.page()
@@ -107,6 +108,41 @@ class SummarizeTests(unittest.TestCase):
         self.assertEqual([r.name for r in out.items], ["Chitra S", "Dev P"])
         self.assertEqual(out.total, 6)
 
+
+
+class SortTests(unittest.TestCase):
+    def order(self, rows, sort):
+        out = summarize(rows, stage=None, q=None, sort=sort, pagination=PaginationParams(limit=50, offset=0))
+        return [r.name for r in out.items]
+
+    def test_match_is_highest_first_with_unscored_last(self):
+        rows = [row("A", "resume", score=58), row("B", "phone"), row("C", "resume", score=92), row("D", "interview", score=71)]
+        self.assertEqual(self.order(rows, "match"), ["C", "D", "A", "B"])
+
+    def test_updated_is_latest_first(self):
+        later = datetime.datetime(2026, 11, 6)
+        rows = [row("Old", "resume"), row("New", "resume", updated=later)]
+        self.assertEqual(self.order(rows, "updated"), ["New", "Old"])
+
+    def test_name_is_alphabetical_and_ignores_case(self):
+        rows = [row("bala", "resume"), row("Asha", "resume"), row("Chitra", "resume")]
+        self.assertEqual(self.order(rows, "name"), ["Asha", "bala", "Chitra"])
+
+
+class LastActivityTests(unittest.TestCase):
+    def test_it_is_the_latest_moment_and_falls_back_to_applying(self):
+        from app.services.pipeline_candidates_service import last_activity
+
+        applied = datetime.datetime(2026, 11, 1)
+        decided = datetime.datetime(2026, 11, 2)
+        called = datetime.datetime(2026, 11, 3)
+        done = datetime.datetime(2026, 11, 5)
+        c = NS(created_at=applied)
+        self.assertEqual(last_activity(c, None, ([], [], False)), applied)
+        record = NS(created_at=decided, rejected_at=None, finalist_at=None)
+        call = NS(updated_at=called, created_at=decided)
+        session = NS(created_at=called, started_at=None, completed_at=done)
+        self.assertEqual(last_activity(c, record, ([call], [session], False)), done)
 
 
 class LandingTabTests(unittest.TestCase):

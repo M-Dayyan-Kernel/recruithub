@@ -691,6 +691,7 @@ class ShortlistStage(BaseModel):
 
 
 PipelineStageKey = Literal["processing", "failed", "resume", "phone", "interview", "finalist", "rejected"]
+PipelineSort = Literal["match", "updated", "name"]
 PIPELINE_STAGES: tuple[str, ...] = (
     "processing", "failed", "resume", "phone", "interview", "finalist", "rejected",
 )
@@ -712,6 +713,9 @@ class PipelineCandidate(BaseModel):
     recommendation: Optional[str] = None
     hr_decision: Optional[str] = None
     applied_at: datetime
+    # The latest thing that happened to this candidate (a decision, call, interview round or
+    # rejection), falling back to when they applied.
+    updated_at: datetime
     failure_reason: Optional[str] = None
 
 

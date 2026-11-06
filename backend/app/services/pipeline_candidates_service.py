@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import select
@@ -23,6 +24,7 @@ from app.schemas.schemas import (
     PIPELINE_STAGES,
     PipelineCandidate,
     PipelineCandidatesResponse,
+    PipelineSort,
     ShortlistStage,
 )
 from app.services.interview_pipeline_service import classify_interview_tab
@@ -155,14 +157,36 @@ async def resolve_landing(
     return Landing(stage=stage, tab=landing_tab(stage, position, interview_tab))
 
 
+def last_activity(candidate: Candidate, record: Optional[ShortlistResult], stage_inputs_for: tuple) -> datetime:
+    """When something last happened to a candidate: a decision, rejection, call or interview round.
+    Falls back to when they applied, so every candidate has one."""
+    calls, sessions, _ = stage_inputs_for
+    moments = [candidate.created_at]
+    if record is not None:
+        moments += [record.created_at, record.rejected_at, record.finalist_at]
+    moments += [c.updated_at or c.created_at for c in calls]
+    for session in sessions:
+        moments += [session.created_at, session.started_at, session.completed_at]
+    return max(m for m in moments if m is not None)
+
+
+_SORTS = {
+    # Highest first; candidates with no score sort last.
+    "match": lambda r: (r.match_score is None, -(r.match_score or 0.0), r.name.lower()),
+    "updated": lambda r: (-r.updated_at.timestamp(), r.name.lower()),
+    "name": lambda r: (r.name.lower(),),
+}
+
+
 def summarize(
     rows: list[PipelineCandidate],
     *,
     stage: Optional[str],
     q: Optional[str],
     pagination: PaginationParams,
+    sort: PipelineSort = "match",
 ) -> PipelineCandidatesResponse:
-    """Search, count per stage, filter by stage and page: the pure part of the listing.
+    """Search, count per stage, filter by stage, sort and page: the pure part of the listing.
 
     Counts cover the search results across all stages (so the stage chips say what each would
     show), while `total` and the page are for the chosen stage.
@@ -173,7 +197,7 @@ def summarize(
     counts = {key: 0 for key in PIPELINE_STAGES}
     for r in rows:
         counts[r.stage] += 1
-    chosen = [r for r in rows if stage is None or r.stage == stage]
+    chosen = sorted((r for r in rows if stage is None or r.stage == stage), key=_SORTS[sort])
     page = chosen[pagination.offset : pagination.offset + pagination.limit]
     return PipelineCandidatesResponse(
         items=page,
@@ -197,6 +221,7 @@ class PipelineCandidatesService:
         stage: Optional[str],
         q: Optional[str],
         pagination: PaginationParams,
+        sort: PipelineSort = "match",
     ) -> PipelineCandidatesResponse:
         job = await get_tenant_job(self._session, job_id, actor.tenant_id)
 
@@ -238,6 +263,7 @@ class PipelineCandidatesService:
                     recommendation=record.recommendation if record is not None else None,
                     hr_decision=record.hr_decision if record is not None else None,
                     applied_at=candidate.created_at,
+                    updated_at=last_activity(candidate, record, stage_inputs.get(candidate.id, ([], [], False))),
                     failure_reason=(
                         summarize_processing_failure(candidate.pipeline_error)
                         if key == "failed"
@@ -245,4 +271,4 @@ class PipelineCandidatesService:
                     ),
                 )
             )
-        return summarize(rows, stage=stage, q=q, pagination=pagination)
+        return summarize(rows, stage=stage, q=q, pagination=pagination, sort=sort)
