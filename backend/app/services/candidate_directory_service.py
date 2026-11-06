@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from sqlalchemy import select
@@ -9,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import PaginationParams
 from app.exceptions import NotFoundError
-from app.models.models import InterviewSession, User
+from app.models.models import InterviewSession, Job, User
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.candidate_directory_repository import (
     CandidateDirectoryRepository,
@@ -19,6 +20,7 @@ from app.schemas.schemas import (
     AuditLogResponse,
     CandidateListItem,
     CandidateProfileResponse,
+    ResumeLinkResponse,
     PaginatedResponse,
     ScreeningCallResponse,
     ShortlistResultResponse,
@@ -29,6 +31,9 @@ from app.services.candidate_stage_filter import (
     stage_filter_label,
 )
 from app.services.hiring_stage_resolver import resolve_hiring_stage
+from app.services.pipeline_candidates_service import resolve_landing
+
+logger = logging.getLogger(__name__)
 
 
 class CandidateDirectoryService:
@@ -153,8 +158,23 @@ class CandidateDirectoryService:
             screening_response = ScreeningCallResponse.model_validate(screening)
             screening_response.has_interview_session = row.interview_session is not None
 
+        stage_fields: dict = {}
+        try:
+            job = await self._session.get(Job, row.candidate.job_id)
+            landing = await resolve_landing(self._session, actor, job, row.candidate, row.shortlist)
+            position = landing.position
+            stage_fields = {
+                "pipeline_stage": landing.stage,
+                "stage_state": position.state if position is not None else None,
+                "stage_reason": position.reason if position is not None else None,
+                "stage_scheduled_at": position.scheduled_at if position is not None else None,
+            }
+        except Exception:  # noqa: BLE001 - the profile still loads; the page falls back to hiring_stage
+            logger.exception("Could not resolve the pipeline stage for candidate=%s", candidate_id)
+
         return CandidateProfileResponse(
             **base.model_dump(),
+            **stage_fields,
             parsed_data=row.candidate.parsed_data,
             resume_file_path=row.candidate.resume_file_path,
             pipeline_error=row.candidate.pipeline_error,
@@ -197,4 +217,26 @@ class CandidateDirectoryService:
             status=candidate.status,
             date_applied=candidate.created_at,
             pipeline_status=candidate.pipeline_status,
+        )
+
+
+    async def get_resume_link(self, actor: User, candidate_id: uuid.UUID) -> "ResumeLinkResponse":
+        """A short-lived link to the candidate's resume file, for the candidate page's Documents."""
+        from app.services.s3_service import generate_presigned_get_url_async, is_s3_object_key
+
+        row = await self._directory.get_profile_row(actor.tenant_id, candidate_id)
+        if row is None:
+            raise NotFoundError(public_message="Candidate not found")
+        path = row.candidate.resume_file_path
+        if not path or not is_s3_object_key(path):
+            raise NotFoundError(public_message="No resume file is stored for this candidate")
+        url = await generate_presigned_get_url_async(path)
+        if not url:
+            raise NotFoundError(public_message="The resume file could not be linked")
+        from app.services.s3_service import PRESIGN_EXPIRES_SECONDS
+
+        return ResumeLinkResponse(
+            url=url,
+            filename=row.candidate.original_filename or path.rsplit("/", 1)[-1],
+            expires_in=PRESIGN_EXPIRES_SECONDS,
         )
