@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils'
 
 /** A ring for the resume match score: the arc is the percentage, its colour is the verdict. */
-export function MatchRing({ score, size = 60 }: { score: number; size?: number }) {
+export function MatchRing({ score, size = 64 }: { score: number; size?: number }) {
   const value = Math.max(0, Math.min(100, score))
   const stroke = 5
   const radius = (size - stroke) / 2
@@ -10,7 +10,7 @@ export function MatchRing({ score, size = 60 }: { score: number; size?: number }
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }} role="img" aria-label={`${Math.round(value)} percent match`}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" strokeWidth={stroke} className="stroke-surface-3" />
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" strokeWidth={stroke} className="stroke-line-strong" />
         <circle
           cx={size / 2}
           cy={size / 2}

@@ -42,7 +42,7 @@ export function DetailsCard({ profile }: { profile: CandidateProfile }) {
         {sections.length === 0 ? (
           <p className="text-sm text-ink-muted">Nothing collected yet. Edit to add details.</p>
         ) : (
-          <div className="grid gap-6 md:grid-cols-3">
+          <div className={cn('grid gap-x-8 gap-y-6', sections.length >= 3 ? 'md:grid-cols-3' : sections.length === 2 ? 'md:grid-cols-2' : '')}>
             {sections.map((section) => (
               <div key={section.title} className="min-w-0 space-y-3">
                 <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">{section.title}</h3>
@@ -74,6 +74,9 @@ export function DetailsCard({ profile }: { profile: CandidateProfile }) {
 export function SkillsCard({ profile, requiredSkills }: { profile: CandidateProfile; requiredSkills: string[] }) {
   const summary = skillSummary(profile, requiredSkills)
   if (!summary) return null
+  // Matched first, then gaps, then what could not be confirmed: the answer reads left to right.
+  const rank = { matched: 0, gap: 1, unclear: 2 } as const
+  const ordered = [...summary.entries].sort((a, b) => rank[a.status] - rank[b.status])
   return (
     <Card
       title="Skills"
@@ -83,8 +86,13 @@ export function SkillsCard({ profile, requiredSkills }: { profile: CandidateProf
         </span>
       }
     >
+      <p className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-ink-muted" aria-hidden>
+        <span className="inline-flex items-center gap-1.5"><Check size={12} /> Matched</span>
+        <span className="inline-flex items-center gap-1.5"><X size={12} className="text-neg" /> Gap</span>
+        <span className="inline-flex items-center gap-1.5"><Minus size={12} /> Not confirmed</span>
+      </p>
       <ul className="flex flex-wrap gap-1.5" aria-label="Required skills">
-        {summary.entries.map((entry) => (
+        {ordered.map((entry) => (
           <li
             key={entry.skill}
             className={cn(
@@ -142,7 +150,7 @@ export function ScoresCard({ profile }: { profile: CandidateProfile }) {
               <dt className="text-[12px] text-ink-muted">Resume match</dt>
               <dd className="font-mono text-lg font-semibold tabular-nums text-ink">{Math.round(resume.match_score)}</dd>
             </div>
-            <div aria-hidden className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-3">
+            <div aria-hidden className="mt-2 h-2 overflow-hidden rounded-full bg-line-strong">
               <div className={cn('h-full rounded-full', bar)} style={{ width: `${Math.max(3, Math.min(100, resume.match_score))}%` }} />
             </div>
             {verdict && <p className="mt-1.5 text-[12px] text-ink-muted">{verdict.label}</p>}

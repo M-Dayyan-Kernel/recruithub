@@ -15,6 +15,16 @@ export function profileStageKey(profile: CandidateProfile): PipelineStageKey | n
   return profile.pipeline_stage ?? null
 }
 
+/**
+ * A best guess at the stage from what the profile holds, for the timeline when the server could not
+ * say (an older API, or a failed lookup). Never used to offer a move: that needs the real state.
+ */
+function inferStage(profile: CandidateProfile): PipelineStageKey | null {
+  if ((profile.interview_sessions ?? []).length > 0) return 'interview'
+  if (profile.screening && !profile.screening.skipped) return 'phone'
+  return profile.shortlist ? 'resume' : null
+}
+
 /** The stage as words. Falls back to the directory's label if the server could not place them. */
 export function profileStageView(profile: CandidateProfile): CandidateStageView {
   const stage = profile.pipeline_stage
@@ -135,7 +145,7 @@ export interface PipelineEvent {
 
 /** The pipeline as a timeline: each step's state and result, and the day it happened. */
 export function pipelineEvents(profile: CandidateProfile): PipelineEvent[] {
-  const stage = profile.pipeline_stage
+  const stage = profile.pipeline_stage ?? inferStage(profile)
   if (!stage) return []
   const { steps, outcome } = buildCandidateSteps(stage, profile)
   const sessions = profile.interview_sessions ?? []

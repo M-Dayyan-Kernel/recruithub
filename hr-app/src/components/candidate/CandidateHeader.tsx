@@ -1,10 +1,10 @@
 import { Mail, MapPin, Phone } from 'lucide-react'
 import type { CandidateProfile } from '@/types/api'
+import { Avatar } from '@/components/candidate/Avatar'
 import { MatchRing } from '@/components/candidate/MatchRing'
 import { MoveStageMenu } from '@/components/candidate/MoveStageMenu'
 import { headerChips, matchVerdict, profileStageKey, profileStageView } from '@/lib/candidateProfileView'
 import { PIPELINE_STAGE_DOT } from '@/lib/pipelineStages'
-import { initialsOf } from '@/lib/timeAgo'
 import { isPlaceholderEmail } from '@/lib/validation'
 import { cn } from '@/lib/utils'
 
@@ -21,14 +21,9 @@ export function CandidateHeader({ profile }: { profile: CandidateProfile }) {
   const location = profile.screening && !profile.screening.skipped ? profile.screening.location_preference : null
 
   return (
-    <header className="rounded-xl border border-line bg-surface p-5">
-      <div className="flex flex-wrap items-start gap-4">
-        <span
-          aria-hidden
-          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-surface-3 text-lg font-semibold text-ink-muted"
-        >
-          {initialsOf(profile.name)}
-        </span>
+    <header className="rounded-xl border border-line bg-surface p-6">
+      <div className="flex flex-wrap items-center gap-5">
+        <Avatar name={profile.name} size="lg" />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">
@@ -65,7 +60,7 @@ export function CandidateHeader({ profile }: { profile: CandidateProfile }) {
           {chips.length > 0 && (
             <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Key facts">
               {chips.map((chip) => (
-                <li key={chip} className="rounded-full bg-surface-3 px-2.5 py-1 text-[12px] font-medium text-ink">
+                <li key={chip} className="rounded-full border border-line bg-surface-2 px-3 py-1 text-[12px] font-medium text-ink">
                   {chip}
                 </li>
               ))}
@@ -73,7 +68,7 @@ export function CandidateHeader({ profile }: { profile: CandidateProfile }) {
           )}
         </div>
 
-        <div className="flex shrink-0 flex-col items-end gap-3">
+        <div className="flex shrink-0 flex-col items-end gap-4">
           {profile.shortlist && (
             <div className="flex items-center gap-3">
               {verdict && (

@@ -87,3 +87,10 @@ test('the pipeline timeline carries each step’s result and day, and a rejectio
   assert.equal(events[4].state, 'rejected')
   assert.deepEqual(pipelineEvents(base()), [])
 })
+
+test('without a server stage the timeline is guessed from what exists, and nothing is guessed from nothing', () => {
+  assert.equal(pipelineEvents(base({ shortlist }))[0].state, 'current')
+  const withCall = pipelineEvents(base({ shortlist, screening: { call_status: 'completed', result: 'pass', skipped: false } as NonNullable<CandidateProfile['screening']> }))
+  assert.deepEqual(withCall.map((e) => e.state), ['done', 'current', 'upcoming', 'upcoming'])
+  assert.deepEqual(pipelineEvents(base({ pipeline_stage: null })), [])
+})

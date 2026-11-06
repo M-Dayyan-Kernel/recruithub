@@ -23,7 +23,8 @@ import {
 } from '@/lib/pipelineStages'
 import { buildPipelineCsv } from '@/lib/pipelineExport'
 import { downloadTextFile, exportTimestamp, slugifyFilename } from '@/lib/shortlistReportExport'
-import { initialsOf, timeAgo } from '@/lib/timeAgo'
+import { Avatar } from '@/components/candidate/Avatar'
+import { timeAgo } from '@/lib/timeAgo'
 import { cn } from '@/lib/utils'
 
 const TONE_TEXT: Record<StageTone, string> = {
@@ -91,17 +92,6 @@ function StepTracker({ candidate }: { candidate: PipelineCandidate }) {
   )
 }
 
-function Avatar({ name }: { name: string }) {
-  return (
-    <span
-      aria-hidden
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-3 text-[12px] font-semibold text-ink-muted"
-    >
-      {initialsOf(name)}
-    </span>
-  )
-}
-
 /** The match percentage and a bar for it. Colour is the verdict: strong, middling or weak. */
 function MatchScore({ score }: { score: number | null | undefined }) {
   if (score == null) return <span className="text-ink-subtle">—</span>
@@ -110,7 +100,7 @@ function MatchScore({ score }: { score: number | null | undefined }) {
   return (
     <span className="flex items-center gap-2.5">
       <span className={cn('w-9 font-mono text-sm font-semibold tabular-nums', text)}>{Math.round(score)}%</span>
-      <span aria-hidden className="h-1.5 w-20 overflow-hidden rounded-full bg-surface-3">
+      <span aria-hidden className="h-1.5 w-20 overflow-hidden rounded-full bg-line-strong">
         <span className={cn('block h-full rounded-full', fill)} style={{ width: `${Math.max(3, Math.min(100, score))}%` }} />
       </span>
     </span>
