@@ -19,6 +19,7 @@ import { JobStatusBadge } from '@/components/JobStatusBadge'
 import { VoiceScreeningToggle } from '@/components/screening/VoiceScreeningToggle'
 import { ExtensionCheckToggle } from '@/components/job/ExtensionCheckToggle'
 import { cn } from '@/lib/utils'
+import { jobStatusErrorToast, jobStatusToast } from '@/lib/jobActionMessages'
 import { workArrangementLabel } from '@/lib/screeningQuestions'
 import { seniorityLabel } from '@/lib/seniority'
 
@@ -104,14 +105,15 @@ export function JobHeader({ job, showDelete = false }: Props) {
   const statusMutation = useMutation<Job, Error, Job['status']>({
     mutationFn: (status) =>
       api.patch(`/api/jobs/${job.id}`, { status }) as Promise<Job>,
-    onSuccess: () => {
+    onSuccess: (_job, status) => {
       queryClient.invalidateQueries({ queryKey: ['job', job.id] })
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
-      toast.success('Job status updated')
+      // `job.status` is still the status it moved from: the query refetches after this runs.
+      toast.success(jobStatusToast(job.status, status))
       setShowStatusMenu(false)
     },
-    onError: () => {
-      toast.error('Failed to update job status')
+    onError: (_err, status) => {
+      toast.error(jobStatusErrorToast(job.status, status))
     },
   })
 

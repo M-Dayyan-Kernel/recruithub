@@ -11,6 +11,7 @@ import { OnDot, iconChipClass } from '@/components/ui/IconToggle'
 import { VoiceScreeningSwitch } from '@/components/screening/VoiceScreeningSwitch'
 import { useExtensionOrgEnabled } from '@/components/extensions/useExtensionOrgPolicy'
 import { EXTENSION_MODES, ExtensionOrgOffHelp } from '@/components/job/extensionCheckCopy'
+import { extensionCheckErrorToast, extensionCheckToast } from '@/lib/jobActionMessages'
 
 interface Change {
   enabled?: boolean
@@ -49,15 +50,15 @@ export function ExtensionCheckToggle({
         ...(change.enabled !== undefined && { extension_check_enabled: change.enabled }),
         ...(change.mode !== undefined && { extension_check_mode: change.mode }),
       }) as unknown as Promise<Job>,
-    onSuccess: () => {
+    onSuccess: (_job, change) => {
       void queryClient.invalidateQueries({ queryKey: ['job', job.id] })
       void queryClient.invalidateQueries({ queryKey: ['jobs'] })
       setPending(null)
-      toast.success('Extension check updated')
+      toast.success(extensionCheckToast(change))
     },
-    onError: (err) => {
+    onError: (err, change) => {
       setPending(null)
-      toast.error(err instanceof Error && err.message ? err.message : 'Could not update the extension check')
+      toast.error(err instanceof Error && err.message ? err.message : extensionCheckErrorToast(change))
     },
   })
 
@@ -75,13 +76,13 @@ export function ExtensionCheckToggle({
     <ConfirmDialog
       open
       tone="warning"
-      title={turningOff ? 'Turn off the extension check?' : 'Switch to Shadow mode?'}
+      title={turningOff ? 'Disable the extension check?' : 'Switch to Shadow mode?'}
       message={
         turningOff
           ? 'Candidates for this job will not be checked for AI-assistant extensions, and nothing will be recorded. The report will say the check was turned off.\nInterviews already started keep the setting they started with.'
-          : 'Extensions on the blocklist are still blocked, but extensions that only look like AI assistants will be recorded for HR instead of blocked.'
+          : 'Switching to Shadow mode will allow extensions that resemble AI assistants to be monitored and recorded for HR review instead of being blocked. Extensions on your blocklist will remain blocked.'
       }
-      confirmLabel={turningOff ? 'Turn off' : 'Switch to Shadow'}
+      confirmLabel={turningOff ? 'Disable' : 'Switch to Shadow'}
       busy={save.isPending}
       onConfirm={() => save.mutate(pending)}
       onCancel={() => setPending(null)}
