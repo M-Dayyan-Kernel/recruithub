@@ -20,6 +20,7 @@ from app.schemas.schemas import (
     CandidateUpdate,
     PaginatedResponse,
     PipelineCandidatesResponse,
+    PipelineSort,
     PipelineStageKey,
     ResumeUploadResponse,
 )
@@ -76,10 +77,11 @@ async def list_pipeline_candidates(
     pagination: PaginationParams = Depends(),
     stage: Optional[PipelineStageKey] = Query(None, description="Only candidates in this stage"),
     q: Optional[str] = Query(None, description="Search name or email"),
+    sort: PipelineSort = Query("match", description="match (highest first), updated (latest first) or name"),
     service: PipelineCandidatesService = Depends(get_pipeline_candidates_service),
 ):
     """Every candidate on a job with the one stage each is in, and the count per stage."""
-    return await service.list(actor, job_id, stage=stage, q=q, pagination=pagination)
+    return await service.list(actor, job_id, stage=stage, q=q, pagination=pagination, sort=sort)
 
 
 @router.get("/jobs/{job_id}/candidates", response_model=PaginatedResponse)
