@@ -16,6 +16,7 @@ import { fetchCandidateProfile } from '@/lib/candidates'
 import { buildCandidateSteps, type StepState } from '@/lib/candidateSteps'
 import {
   describePipelineCandidate,
+  PIPELINE_STAGE_DOT,
   PIPELINE_STAGE_LABEL,
   PIPELINE_STAGE_ORDER,
   type StageTone,
@@ -24,18 +25,6 @@ import { buildPipelineCsv } from '@/lib/pipelineExport'
 import { downloadTextFile, exportTimestamp, slugifyFilename } from '@/lib/shortlistReportExport'
 import { initialsOf, timeAgo } from '@/lib/timeAgo'
 import { cn } from '@/lib/utils'
-
-// The dot beside a stage. Only a verdict gets a colour (a finalist, a rejection, a failure); the
-// working stages share one neutral dot, since green, amber and red mean status (docs/UI.md §2).
-const STAGE_DOT: Record<PipelineStageKey, string> = {
-  processing: 'bg-ink-subtle',
-  failed: 'bg-neg',
-  resume: 'bg-ink-subtle',
-  phone: 'bg-ink-subtle',
-  interview: 'bg-ink-subtle',
-  finalist: 'bg-pos',
-  rejected: 'bg-neg',
-}
 
 const TONE_TEXT: Record<StageTone, string> = {
   neutral: 'text-ink',
@@ -155,7 +144,7 @@ function CandidateRow({
         </td>
         <td className="px-3 py-3">
           <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-line bg-surface px-2 py-1 text-[12px] font-medium text-ink">
-            <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', STAGE_DOT[candidate.stage])} />
+            <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', PIPELINE_STAGE_DOT[candidate.stage])} />
             {view.label}
           </span>
         </td>
@@ -315,7 +304,7 @@ export function CandidatesModal({ jobId, jobTitle, onClose }: { jobId: string; j
         </button>
         {PIPELINE_STAGE_ORDER.filter((key) => (counts?.[key] ?? 0) > 0 || key === stage).map((key) => (
           <button key={key} type="button" onClick={() => setStage(key)} aria-pressed={stage === key} className={tab(stage === key)}>
-            <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', STAGE_DOT[key])} />
+            <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', PIPELINE_STAGE_DOT[key])} />
             {PIPELINE_STAGE_LABEL[key]}
             <span className={countBadge(stage === key)}>{counts?.[key] ?? 0}</span>
           </button>
