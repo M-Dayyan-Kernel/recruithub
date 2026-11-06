@@ -81,6 +81,8 @@ export interface ParsedJobDescription {
   screening_questions?: ScreeningQuestion[]
   /** The topic pool the parser proposes; HR reviews it before the job is created. */
   interview_topics?: InterviewTopic[]
+  /** The text read from the uploaded document, for the preview. */
+  source_text?: string
 }
 
 export interface Job {

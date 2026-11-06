@@ -22,6 +22,10 @@ from app.services.tenant_integrations_service import TenantIntegrationsService
 
 logger = logging.getLogger(__name__)
 
+# The extracted text returned for the create-job page's preview. A JD is a page or two; this only
+# stops an enormous document from bloating the response.
+SOURCE_TEXT_MAX_CHARS = 60_000
+
 
 def _parsed_seniority(raw: object) -> SeniorityLevel:
     """The model's suggestion, or mid-level when it is missing or not one of the four levels."""
@@ -99,4 +103,5 @@ class JobDescriptionParseService:
             interview_topics=[
                 InterviewTopicIn(**t) for t in (parsed.get("interview_topics") or [])
             ],
+            source_text=raw_text[:SOURCE_TEXT_MAX_CHARS],
         )
