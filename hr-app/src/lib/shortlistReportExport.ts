@@ -1,17 +1,10 @@
 import { buildSkillMatchMap } from '@/lib/skillMatch'
 import { SKILL_STATUS_LABEL, formatHrDecision, formatRecommendation } from '@/lib/reportLabels'
 import type { ShortlistResultWithCandidate } from '@/types/api'
+import { csvEscape } from './csv.ts'
 
 export function slugifyFilename(value: string): string {
   return value.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'export'
-}
-
-function csvEscape(value: string | number | null | undefined): string {
-  const text = value == null ? '' : String(value)
-  if (/[",\n\r]/.test(text)) {
-    return `"${text.replace(/"/g, '""')}"`
-  }
-  return text
 }
 
 export function buildShortlistCsv(

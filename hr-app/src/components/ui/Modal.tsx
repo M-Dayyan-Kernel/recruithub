@@ -17,17 +17,20 @@ export default function Modal({
   busy = false,
   size = 'md',
   blur = false,
+  headerActions,
   children,
 }: {
-  title: string
-  description?: string
+  title: ReactNode
+  description?: ReactNode
   onClose: () => void
   /** Blocks every way of closing while an action runs. */
   busy?: boolean
-  /** `xl` is for long editors (settings); `md` for confirmations and short forms. */
-  size?: 'md' | 'xl'
+  /** `xl` is for long editors (settings), `2xl` for a table; `md` for confirmations and short forms. */
+  size?: 'md' | 'xl' | '2xl'
   /** Blur the page behind the scrim. Used where the dialog is a whole workspace, not a prompt. */
   blur?: boolean
+  /** Buttons beside the close button, e.g. Export. */
+  headerActions?: ReactNode
   children: ReactNode
 }) {
   const titleId = useId()
@@ -69,7 +72,7 @@ export default function Modal({
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
         className={`flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-card border border-line bg-surface shadow-e3 sm:rounded-card ${
-          size === 'xl' ? 'sm:max-w-3xl' : 'sm:max-w-lg'
+          size === '2xl' ? 'sm:max-w-5xl' : size === 'xl' ? 'sm:max-w-3xl' : 'sm:max-w-lg'
         }`}
       >
         <div className="flex shrink-0 items-start gap-3 border-b border-line px-5 py-4">
@@ -83,6 +86,7 @@ export default function Modal({
               </p>
             )}
           </div>
+          {headerActions}
           <button
             type="button"
             onClick={onClose}

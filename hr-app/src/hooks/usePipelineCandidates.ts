@@ -1,12 +1,13 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import type { PipelineCandidatesResponse, PipelineStageKey } from '@/types/api'
+import type { PipelineCandidatesResponse, PipelineSort, PipelineStageKey } from '@/types/api'
 
 export const PIPELINE_PAGE_SIZE = 25
 
 interface Options {
   stage?: PipelineStageKey | null
   q?: string
+  sort?: PipelineSort
   offset?: number
   limit?: number
   enabled?: boolean
@@ -18,13 +19,13 @@ interface Options {
  * stage pages cannot disagree. Asking for `limit: 1` is the cheap way to get just the counts.
  */
 export function usePipelineCandidates(jobId: string, options: Options = {}) {
-  const { stage = null, q = '', offset = 0, limit = PIPELINE_PAGE_SIZE, enabled = true } = options
+  const { stage = null, q = '', sort = 'match', offset = 0, limit = PIPELINE_PAGE_SIZE, enabled = true } = options
   return useQuery<PipelineCandidatesResponse>({
     // Under ['candidates', jobId] so every upload, decision, deletion and retry that already
     // invalidates the job's candidates refreshes this too.
-    queryKey: ['candidates', jobId, 'stages', { stage, q, offset, limit }],
+    queryKey: ['candidates', jobId, 'stages', { stage, q, sort, offset, limit }],
     queryFn: () => {
-      const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+      const params = new URLSearchParams({ limit: String(limit), offset: String(offset), sort })
       if (stage) params.set('stage', stage)
       if (q.trim()) params.set('q', q.trim())
       return api.get(`/api/jobs/${jobId}/pipeline-candidates?${params}`) as unknown as Promise<PipelineCandidatesResponse>
