@@ -166,7 +166,8 @@ def last_activity(candidate: Candidate, record: Optional[ShortlistResult], stage
     moments = [candidate.created_at]
     if record is not None:
         moments += [record.created_at, record.rejected_at, record.finalist_at]
-    moments += [c.updated_at or c.created_at for c in calls]
+    # ScreeningCall has created_at only — no updated_at column.
+    moments += [c.created_at for c in calls]
     for session in sessions:
         moments += [session.created_at, session.started_at, session.completed_at]
     return max(m for m in moments if m is not None)
