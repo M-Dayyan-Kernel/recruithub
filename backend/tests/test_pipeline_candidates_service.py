@@ -140,7 +140,8 @@ class LastActivityTests(unittest.TestCase):
         c = NS(created_at=applied)
         self.assertEqual(last_activity(c, None, ([], [], False)), applied)
         record = NS(created_at=decided, rejected_at=None, finalist_at=None)
-        call = NS(updated_at=called, created_at=decided)
+        # ScreeningCall has no updated_at — use created_at only, as production does.
+        call = NS(created_at=called)
         session = NS(created_at=called, started_at=None, completed_at=done)
         self.assertEqual(last_activity(c, record, ([call], [session], False)), done)
 
