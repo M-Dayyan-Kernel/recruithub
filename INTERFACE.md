@@ -141,7 +141,8 @@ Upload a job description document (PDF or DOCX) and extract structured fields vi
       "seed_question": "string, one spoken technical question, up to 600 chars",
       "is_mandatory": false
     }
-  ]
+  ],
+  "source_text": "string, the text read from the document (capped at 60,000 characters), for the create-job preview"
 }
 ```
 

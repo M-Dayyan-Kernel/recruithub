@@ -17,6 +17,8 @@ import {
   ClipboardCheck,
   RotateCcw,
   Save,
+  Eye,
+  FileText,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
@@ -24,6 +26,8 @@ import { useAuth } from '@/context/AuthContext'
 import { readJobCreationDraft, type JobCreationDraft } from '@/lib/jobCreationDraft'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { JobSkillsField } from '@/components/job/JobSkillsField'
+import { JdPreviewModal } from '@/components/job/JdPreviewModal'
+import { formatFileSize } from '@/lib/jdPreview'
 import type {
   Job,
   ParsedJobDescription,
@@ -183,6 +187,11 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
   const [wasPrefilled, setWasPrefilled] = useState(false)
+  // The uploaded document and the text read from it, kept for the preview until the page is closed
+  // or the job is created. Held in memory only: a File cannot go into the saved draft.
+  const [jdFile, setJdFile] = useState<File | null>(null)
+  const [jdText, setJdText] = useState('')
+  const [previewOpen, setPreviewOpen] = useState(false)
   const [parsedDefaults, setParsedDefaults] = useState<ParsedJobDescription | null>(null)
   const [resetSection, setResetSection] = useState<'requirements' | 'screening' | null>(null)
 
@@ -211,7 +220,9 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
         timeout: 90_000,
       }) as unknown as Promise<ParsedJobDescription>
     },
-    onSuccess: (parsed) => {
+    onSuccess: (parsed, file) => {
+      setJdFile(file)
+      setJdText(parsed.source_text ?? '')
       setUploadedFileName(null)
       setUploadError(null)
       setFieldErrors({})
@@ -452,7 +463,15 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
         </ol>
       </nav>
       <div className="mb-6">
-        <p className="mb-1 text-xs font-medium uppercase tracking-widest text-accent">Step {step} of 4</p>
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <p className="text-xs font-medium uppercase tracking-widest text-accent">Step {step} of 4</p>
+          {jdFile && (
+            <button type="button" onClick={() => setPreviewOpen(true)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line-strong bg-surface px-3 text-[12px] font-medium text-ink transition-colors hover:bg-surface-2">
+              <Eye size={13} aria-hidden />
+              Preview JD
+            </button>
+          )}
+        </div>
         <h1 ref={headingRef} tabIndex={-1} className="scroll-mt-6 text-2xl font-semibold tracking-tight text-slate-900 outline-none">
           {['Tell us about the role', 'Define your ideal candidate', 'Set up the screening process', 'Review your job'][step - 1]}
         </h1>
@@ -529,6 +548,22 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
                   <AlertCircle size={12} className="shrink-0" />
                   {uploadError}
                 </p>
+              )}
+              {jdFile && !isParsing && (
+                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface-2/60 px-4 py-3">
+                  <FileText size={16} aria-hidden className="shrink-0 text-ink-muted" />
+                  <p className="min-w-0 flex-1 truncate text-sm font-medium text-ink" title={jdFile.name}>
+                    {jdFile.name}
+                    <span className="ml-2 font-normal text-ink-muted">{formatFileSize(jdFile.size)}</span>
+                  </p>
+                  <button type="button" onClick={() => setPreviewOpen(true)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line-strong bg-surface px-3 text-[12px] font-medium text-ink transition-colors hover:bg-surface-2">
+                    <Eye size={13} aria-hidden />
+                    Preview
+                  </button>
+                  <button type="button" onClick={() => fileInputRef.current?.click()} className="text-[12px] font-medium text-ink-muted hover:text-ink">
+                    Replace
+                  </button>
+                </div>
               )}
             </FormSection>
 
@@ -819,6 +854,7 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
           </button>
         </div>
       </div>
+      {previewOpen && jdFile && <JdPreviewModal file={jdFile} text={jdText} onClose={() => setPreviewOpen(false)} />}
     </>
   )
 }
