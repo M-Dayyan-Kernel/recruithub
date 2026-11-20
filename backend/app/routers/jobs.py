@@ -18,6 +18,7 @@ from app.schemas.schemas import (
     InterviewTopicsResponse,
     JobCreate,
     JobParseResponse,
+    JobParseTextRequest,
     JobResponse,
     JobUpdate,
     StandardScreeningQuestionsResponse,
@@ -68,6 +69,19 @@ async def parse_jd(
     """Extract and parse a job description from an uploaded PDF or DOCX file."""
     try:
         return await service.parse_upload(file, actor.tenant_id)
+    except DomainError as exc:
+        _raise_domain(exc)
+
+
+@router.post("/parse-jd-text", response_model=JobParseResponse)
+async def parse_jd_text(
+    payload: JobParseTextRequest,
+    actor: RequireAdminOrHr,
+    service: JobDescriptionParseService = Depends(get_job_description_parse_service),
+):
+    """Parse a job description pasted as text, the same way an uploaded document is parsed."""
+    try:
+        return await service.parse_text(payload.text, actor.tenant_id)
     except DomainError as exc:
         _raise_domain(exc)
 

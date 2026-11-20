@@ -312,6 +312,26 @@ class JobResponse(BaseModel):
         return value
 
 
+# Pasted job descriptions: the minimum matches what the parser accepts (parsing.min_jd_chars), and
+# the cap matches the length of the source text sent back for the preview.
+JD_TEXT_MIN_CHARS = 50
+JD_TEXT_MAX_CHARS = 60_000
+
+
+class JobParseTextRequest(BaseModel):
+    """A job description pasted as text, to be parsed the same way as an uploaded document."""
+
+    text: str = Field(max_length=JD_TEXT_MAX_CHARS)
+
+    @field_validator("text")
+    @classmethod
+    def text_is_long_enough(cls, value: str) -> str:
+        text = value.strip()
+        if len(text) < JD_TEXT_MIN_CHARS:
+            raise ValueError(f"Paste at least {JD_TEXT_MIN_CHARS} characters of the job description")
+        return text
+
+
 class JobParseResponse(BaseModel):
     title: str
     description: str

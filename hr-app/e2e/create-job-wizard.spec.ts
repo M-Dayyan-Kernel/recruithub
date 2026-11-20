@@ -167,6 +167,26 @@ for (const width of [1440, 390]) {
   })
 }
 
+test('pasting a job description fills the form and replaces earlier values', async ({ page }) => {
+  let sent: unknown
+  await page.route('**/api/jobs/parse-jd-text', route => {
+    sent = route.request().postDataJSON()
+    return route.fulfill({ json: parsedRole })
+  })
+  const paste = page.getByLabel('Or paste the job description')
+  const autofill = page.getByRole('button', { name: 'Auto-fill from text', exact: true })
+  await page.getByLabel('Job title', { exact: false }).fill('Old title')
+  await paste.fill('Too short')
+  await expect(autofill).toBeDisabled()
+  expect((await paste.boundingBox())!.height).toBeGreaterThan(150)
+  const text = 'Senior Frontend Engineer. Build accessible web applications with React and TypeScript.'
+  await paste.fill(text)
+  await autofill.click()
+  await expect(page.getByLabel('Job title', { exact: false })).toHaveValue(parsedRole.title)
+  expect(sent).toEqual({ text })
+  await expect(paste).toHaveValue(text)
+})
+
 test('saved drafts restore the current step, requirements, and screening settings', async ({ page }) => {
   const next = page.getByRole('button', { name: 'Continue', exact: true })
   await page.getByLabel('Job title', { exact: false }).fill('Draft engineer')
