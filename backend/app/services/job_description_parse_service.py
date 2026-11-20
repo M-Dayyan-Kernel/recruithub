@@ -65,6 +65,13 @@ class JobDescriptionParseService:
                 public_message=f"Could not read file: {exc}",
             ) from exc
 
+        return await self._parse_text(raw_text, tenant_id, filename)
+
+    async def parse_text(self, text: str, tenant_id: uuid.UUID) -> JobParseResponse:
+        """Parse a job description pasted as text, exactly as an uploaded document is."""
+        return await self._parse_text(text, tenant_id, "pasted text")
+
+    async def _parse_text(self, raw_text: str, tenant_id: uuid.UUID, source: str) -> JobParseResponse:
         if not raw_text:
             raise EmptyJobDescriptionError(
                 public_message="No text could be extracted from the document.",
@@ -80,7 +87,7 @@ class JobDescriptionParseService:
         except Exception as exc:
             if isinstance(exc, (JobParseUnavailableError, EmptyJobDescriptionError, ValidationError)):
                 raise
-            logger.exception("JD parse failed for tenant %s file %s", tenant_id, filename)
+            logger.exception("JD parse failed for tenant %s file %s", tenant_id, source)
             raise JobParseFailedError(
                 public_message=f"Failed to parse job description: {exc}",
             ) from exc

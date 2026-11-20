@@ -88,6 +88,10 @@ interface Props {
   onStepChange: (step: number) => void
 }
 
+// Mirrors the API: a pasted description shorter than this is not read.
+const MIN_JD_TEXT_CHARS = 50
+const MAX_JD_TEXT_CHARS = 60_000
+
 const inputClass =
   'w-full rounded-lg border border-slate-200 bg-slate-50/80 px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/15'
 
@@ -191,6 +195,8 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
   // or the job is created. Held in memory only: a File cannot go into the saved draft.
   const [jdFile, setJdFile] = useState<File | null>(null)
   const [jdText, setJdText] = useState('')
+  // The job description HR pastes to be read, kept so it can be edited and read again.
+  const [pastedJd, setPastedJd] = useState('')
   const [previewOpen, setPreviewOpen] = useState(false)
   const [parsedDefaults, setParsedDefaults] = useState<ParsedJobDescription | null>(null)
   const [resetSection, setResetSection] = useState<'requirements' | 'screening' | null>(null)
@@ -212,6 +218,43 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
     }
   }, [settings])
 
+  // Fills the form from a parsed job description, whether it came from a file or pasted text.
+  // `file` is the uploaded document for the preview; null when the text was pasted.
+  const applyParsed = (parsed: ParsedJobDescription, file: File | null) => {
+    setJdFile(file)
+    setJdText(parsed.source_text ?? '')
+    setUploadedFileName(null)
+    setUploadError(null)
+    setFieldErrors({})
+    setSubmitError(null)
+    setWasPrefilled(true)
+    setParsedDefaults(structuredClone(parsed))
+
+    if (parsed.title) setTitle(parsed.title)
+    if (parsed.description) setDescription(parsed.description)
+    if (parsed.required_skills?.length) setSkills(parsed.required_skills)
+    setSeniority(parsed.seniority_level)
+    if (parsed.work_mode && !workEditedByHand.current.mode) setWorkMode(parsed.work_mode)
+    if (parsed.work_location && !workEditedByHand.current.location) {
+      setWorkLocation(parsed.work_location)
+    }
+    // Only the role-specific questions are replaced: custom ones typed by hand stay, within the cap.
+    if (parsed.screening_questions?.length) {
+      setExtraQuestions((prev) => {
+        const room = remainingQuestionSlots(standardQuestions.length, 0, maxTotalQuestions)
+        return [...parsed.screening_questions!, ...prev.filter((q) => q.kind !== 'role')].slice(0, room)
+      })
+    }
+    if (parsed.interview_topics?.length) setInterviewTopics(withIds(parsed.interview_topics))
+
+    toast.success('Fields extracted — review before creating')
+  }
+
+  const handleParseError = (err: Error) => {
+    setUploadError(err.message ?? 'Failed to parse job description.')
+    toast.error('Failed to parse job description')
+  }
+
   const parseMutation = useMutation({
     mutationFn: async (file: File) => {
       const formData = new FormData()
@@ -220,39 +263,17 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
         timeout: 90_000,
       }) as unknown as Promise<ParsedJobDescription>
     },
-    onSuccess: (parsed, file) => {
-      setJdFile(file)
-      setJdText(parsed.source_text ?? '')
-      setUploadedFileName(null)
-      setUploadError(null)
-      setFieldErrors({})
-      setSubmitError(null)
-      setWasPrefilled(true)
-      setParsedDefaults(structuredClone(parsed))
+    onSuccess: (parsed, file) => applyParsed(parsed, file),
+    onError: handleParseError,
+  })
 
-      if (parsed.title) setTitle(parsed.title)
-      if (parsed.description) setDescription(parsed.description)
-      if (parsed.required_skills?.length) setSkills(parsed.required_skills)
-      setSeniority(parsed.seniority_level)
-      if (parsed.work_mode && !workEditedByHand.current.mode) setWorkMode(parsed.work_mode)
-      if (parsed.work_location && !workEditedByHand.current.location) {
-        setWorkLocation(parsed.work_location)
-      }
-      // Only the role-specific questions are replaced: custom ones typed by hand stay, within the cap.
-      if (parsed.screening_questions?.length) {
-        setExtraQuestions((prev) => {
-          const room = remainingQuestionSlots(standardQuestions.length, 0, maxTotalQuestions)
-          return [...parsed.screening_questions!, ...prev.filter((q) => q.kind !== 'role')].slice(0, room)
-        })
-      }
-      if (parsed.interview_topics?.length) setInterviewTopics(withIds(parsed.interview_topics))
-
-      toast.success('Fields extracted — review before creating')
-    },
-    onError: (err: Error) => {
-      setUploadError(err.message ?? 'Failed to parse job description.')
-      toast.error('Failed to parse job description')
-    },
+  const parseTextMutation = useMutation({
+    mutationFn: async (text: string) =>
+      api.post('/api/jobs/parse-jd-text', { text }, {
+        timeout: 90_000,
+      }) as unknown as Promise<ParsedJobDescription>,
+    onSuccess: (parsed) => applyParsed(parsed, null),
+    onError: handleParseError,
   })
 
   const mutation = useMutation({
@@ -288,6 +309,13 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
 
     setUploadedFileName(file.name)
     parseMutation.mutate(file)
+  }
+
+  const pastedJdLength = pastedJd.trim().length
+  const handleJdText = () => {
+    if (pastedJdLength < MIN_JD_TEXT_CHARS) return
+    setUploadError(null)
+    parseTextMutation.mutate(pastedJd.trim())
   }
 
   const addSkill = (raw: string) => {
@@ -414,7 +442,8 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
     })
   }
 
-  const isParsing = parseMutation.isPending
+  const isParsingText = parseTextMutation.isPending
+  const isParsing = parseMutation.isPending || isParsingText
   const isBusy = mutation.isPending || isParsing || topicsWriting
   // The first problem in the questions HR can edit, if any. The standard ones are never wrong.
   const firstQuestionError =
@@ -482,95 +511,138 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
       {submitError && <p role="alert" className="mb-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{submitError}</p>}
       <div className="space-y-5">
         {step === 1 && (<>
-            {/* Upload */}
+            {/* Import: upload a document or paste the text, side by side */}
             <FormSection
               icon={<Upload size={17} />}
-              title="Import from document"
-              description="Drop a PDF or DOCX job description to auto-fill the form below."
+              title="Import job description"
+              description="Upload a PDF or DOCX, or paste the text, to auto-fill the form below."
             >
-              <label
-                htmlFor="jd-upload"
-                onDragOver={(e: DragEvent) => {
-                  e.preventDefault()
-                  setIsDragOver(true)
-                }}
-                onDragLeave={() => setIsDragOver(false)}
-                onDrop={(e: DragEvent) => {
-                  e.preventDefault()
-                  setIsDragOver(false)
-                  handleJdFile(e.dataTransfer.files[0] ?? null)
-                }}
-                className={`relative block rounded-xl border-2 border-dashed px-6 py-8 text-center transition-all duration-200 ${
-                  isParsing
-                    ? 'pointer-events-none border-accent-border bg-accent-soft/50'
-                    : isDragOver
-                      ? 'cursor-copy border-accent bg-accent-soft/40'
-                      : 'cursor-pointer border-slate-200 bg-slate-50/40 hover:border-accent-border hover:bg-accent-soft/30'
-                }`}
-              >
-                {isParsing ? (
-                  <div className="flex flex-col items-center">
-                    <Loader2 size={24} className="mb-3 animate-spin text-accent" />
-                    <p className="text-sm font-medium text-slate-700">
-                      Reading {uploadedFileName ?? 'document'}…
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">Usually takes a few seconds</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-white text-accent shadow-sm ring-1 ring-slate-200/80">
-                      <Upload size={20} />
+              <div className="grid gap-4 lg:grid-cols-2 lg:gap-5">
+                <div className="flex min-w-0 flex-col gap-3">
+                  <label
+                    htmlFor="jd-upload"
+                    onDragOver={(e: DragEvent) => {
+                      e.preventDefault()
+                      setIsDragOver(true)
+                    }}
+                    onDragLeave={() => setIsDragOver(false)}
+                    onDrop={(e: DragEvent) => {
+                      e.preventDefault()
+                      setIsDragOver(false)
+                      handleJdFile(e.dataTransfer.files[0] ?? null)
+                    }}
+                    className={`relative flex min-h-[220px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-8 text-center transition-all duration-200 ${
+                      isParsing
+                        ? 'pointer-events-none border-accent-border bg-accent-soft/50'
+                        : isDragOver
+                          ? 'cursor-copy border-accent bg-accent-soft/40'
+                          : 'cursor-pointer border-slate-200 bg-slate-50/40 hover:border-accent-border hover:bg-accent-soft/30'
+                    }`}
+                  >
+                    {isParsing ? (
+                      <div className="flex flex-col items-center">
+                        <Loader2 size={24} className="mb-3 animate-spin text-accent" />
+                        <p className="text-sm font-medium text-slate-700">
+                          {isParsingText ? 'Reading pasted text…' : `Reading ${uploadedFileName ?? 'document'}…`}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">Usually takes a few seconds</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-white text-accent shadow-sm ring-1 ring-slate-200/80">
+                          <Upload size={20} />
+                        </div>
+                        <p className="text-sm font-medium text-slate-700">
+                          Drag & drop here, or{' '}
+                          <span className="text-accent underline decoration-accent-border underline-offset-2">
+                            browse files
+                          </span>
+                        </p>
+                        <p className="mt-1.5 text-xs text-slate-400">PDF or DOCX · up to 20 MB</p>
+                      </>
+                    )}
+                    <input
+                      ref={fileInputRef}
+                      id="jd-upload"
+                      type="file"
+                      accept=".pdf,.docx,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      className="sr-only"
+                      disabled={isParsing}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                        handleJdFile(e.target.files?.[0] ?? null)
+                        e.target.value = ''
+                      }}
+                    />
+                  </label>
+                  {jdFile && !isParsing && (
+                    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface-2/60 px-4 py-3">
+                      <FileText size={16} aria-hidden className="shrink-0 text-ink-muted" />
+                      <p className="min-w-0 flex-1 truncate text-sm font-medium text-ink" title={jdFile.name}>
+                        {jdFile.name}
+                        <span className="ml-2 font-normal text-ink-muted">{formatFileSize(jdFile.size)}</span>
+                      </p>
+                      <button type="button" onClick={() => setPreviewOpen(true)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line-strong bg-surface px-3 text-[12px] font-medium text-ink transition-colors hover:bg-surface-2">
+                        <Eye size={13} aria-hidden />
+                        Preview
+                      </button>
+                      <button type="button" onClick={() => fileInputRef.current?.click()} className="text-[12px] font-medium text-ink-muted hover:text-ink">
+                        Replace
+                      </button>
                     </div>
-                    <p className="text-sm font-medium text-slate-700">
-                      Drag & drop here, or{' '}
-                      <span className="text-accent underline decoration-accent-border underline-offset-2">
-                        browse files
-                      </span>
+                  )}
+                </div>
+
+                <div className="flex min-w-0 flex-col gap-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <label htmlFor="jd-paste" className="text-xs font-medium text-slate-600">
+                      Or paste the job description
+                    </label>
+                    <span
+                      className={`text-[11px] tabular-nums ${pastedJdLength > 0 && pastedJdLength < MIN_JD_TEXT_CHARS ? 'text-amber-600' : 'text-slate-400'}`}
+                    >
+                      {pastedJdLength.toLocaleString()} characters
+                    </span>
+                  </div>
+                  <textarea
+                    id="jd-paste"
+                    rows={9}
+                    maxLength={MAX_JD_TEXT_CHARS}
+                    value={pastedJd}
+                    disabled={isParsing}
+                    onChange={(e) => setPastedJd(e.target.value)}
+                    placeholder="Paste the full job description here: responsibilities, requirements, location…"
+                    className={`${inputClass} min-h-[220px] flex-1 resize-y leading-relaxed disabled:opacity-60`}
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-xs text-slate-400">
+                      {pastedJdLength > 0 && pastedJdLength < MIN_JD_TEXT_CHARS
+                        ? `Add at least ${MIN_JD_TEXT_CHARS} characters so it can be read.`
+                        : 'Replaces the fields below with what it finds.'}
                     </p>
-                    <p className="mt-1.5 text-xs text-slate-400">PDF or DOCX · up to 20 MB</p>
-                  </>
-                )}
-                <input
-                  ref={fileInputRef}
-                  id="jd-upload"
-                  type="file"
-                  accept=".pdf,.docx,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  className="sr-only"
-                  disabled={isParsing}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                    handleJdFile(e.target.files?.[0] ?? null)
-                    e.target.value = ''
-                  }}
-                />
-              </label>
+                    <button
+                      type="button"
+                      onClick={handleJdText}
+                      disabled={isParsing || pastedJdLength < MIN_JD_TEXT_CHARS}
+                      className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3.5 text-sm font-medium text-accent-ink transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isParsingText ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Sparkles size={14} aria-hidden />}
+                      {isParsingText ? 'Reading…' : 'Auto-fill from text'}
+                    </button>
+                  </div>
+                </div>
+              </div>
               {uploadError && (
-                <p className="flex items-center gap-1.5 text-xs text-rose-600">
+                <p role="alert" className="flex items-center gap-1.5 text-xs text-rose-600">
                   <AlertCircle size={12} className="shrink-0" />
                   {uploadError}
                 </p>
-              )}
-              {jdFile && !isParsing && (
-                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface-2/60 px-4 py-3">
-                  <FileText size={16} aria-hidden className="shrink-0 text-ink-muted" />
-                  <p className="min-w-0 flex-1 truncate text-sm font-medium text-ink" title={jdFile.name}>
-                    {jdFile.name}
-                    <span className="ml-2 font-normal text-ink-muted">{formatFileSize(jdFile.size)}</span>
-                  </p>
-                  <button type="button" onClick={() => setPreviewOpen(true)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line-strong bg-surface px-3 text-[12px] font-medium text-ink transition-colors hover:bg-surface-2">
-                    <Eye size={13} aria-hidden />
-                    Preview
-                  </button>
-                  <button type="button" onClick={() => fileInputRef.current?.click()} className="text-[12px] font-medium text-ink-muted hover:text-ink">
-                    Replace
-                  </button>
-                </div>
               )}
             </FormSection>
 
             {wasPrefilled && !isParsing && (
               <div className="flex items-center gap-2.5 rounded-xl border border-emerald-200/80 bg-emerald-50/50 px-4 py-3 text-sm text-emerald-800">
                 <Sparkles size={15} className="shrink-0 text-emerald-600" />
-                <span>Pre-filled from your document — review each section before publishing.</span>
+                <span>Pre-filled from your job description — review each section before publishing.</span>
               </div>
             )}
 
