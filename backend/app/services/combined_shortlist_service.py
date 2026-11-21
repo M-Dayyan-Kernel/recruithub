@@ -207,7 +207,15 @@ class CombinedShortlistService:
 
         stored = candidate.resume_file_path or ""
         if is_s3_object_key(stored):
-            file_bytes = await download_bytes_async(stored)
+            try:
+                file_bytes = await download_bytes_async(stored)
+            except Exception as exc:
+                # A missing object is permanent; boto reports it as a ClientError, which the
+                # worker would otherwise retry as transient before failing with a vague reason.
+                code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+                if code in ("NoSuchKey", "404", "NotFound"):
+                    raise FileNotFoundError(stored) from exc
+                raise
             suffix = Path(stored).suffix.lower() or Path(
                 candidate.original_filename or ""
             ).suffix.lower()

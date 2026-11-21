@@ -1,10 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import type { Candidate, ShortlistResultWithCandidate } from '@/types/api'
 import { fetchJobCandidates, isInProgressPipelineStatus } from '@/lib/workflow'
+import { useResumeProcessingStatus } from '@/hooks/useResumeProcessingStatus'
 
 const PIPELINE_POLL_MS = 2_000
+const PAUSED_POLL_MS = 30_000
 
 interface Options {
   watchCandidateIds?: string[]
@@ -15,6 +17,11 @@ export function useJobPipelineCandidates(jobId: string, options: Options = {}) {
   const [pollStartTime] = useState(() => Date.now())
   /** Stable batch of IDs for progress — seeds from upload watch list and/or accumulates in-flight. */
   const [batchIds, setBatchIds] = useState<string[]>([])
+
+  // Whether anything was in flight in the last fetched list (set by the effect below). Held in
+  // state so the status hook can sit above the query, whose poll interval reads its answer.
+  const [inFlightSeen, setInFlightSeen] = useState(false)
+  const processingAvailable = useResumeProcessingStatus(inFlightSeen)
 
   const pipelineQuery = useQuery<Candidate[]>({
     queryKey: ['candidates', jobId, 'pipeline'],
@@ -35,6 +42,8 @@ export function useJobPipelineCandidates(jobId: string, options: Options = {}) {
             batchSet.has(c.id) && isInProgressPipelineStatus(c.pipeline_status),
         )
       if (!inFlight && !batchUnsettled && watchCandidateIds.length === 0) return false
+      // Nothing moves while no worker is listening; the status check says when that changes.
+      if (processingAvailable === false) return PAUSED_POLL_MS
       return Date.now() - pollStartTime > 120_000 ? 5_000 : PIPELINE_POLL_MS
     },
   })
@@ -53,12 +62,27 @@ export function useJobPipelineCandidates(jobId: string, options: Options = {}) {
     },
   })
 
+  // The list polls slowly while paused; once the worker is back, catch up at once instead of
+  // showing "Paused" rows for up to 30 s after they have already moved on.
+  const wasPaused = useRef(false)
+  useEffect(() => {
+    if (processingAvailable === false) wasPaused.current = true
+    else if (processingAvailable === true && wasPaused.current) {
+      wasPaused.current = false
+      void pipelineQuery.refetch()
+    }
+  }, [processingAvailable, pipelineQuery])
+
   const candidates = pipelineQuery.data ?? []
 
   const processingCandidates = useMemo(
     () => candidates.filter((c) => isInProgressPipelineStatus(c.pipeline_status)),
     [candidates],
   )
+
+  useEffect(() => {
+    setInFlightSeen(processingCandidates.length > 0)
+  }, [processingCandidates.length])
 
   const failedCandidates = useMemo(
     () => candidates.filter((c) => c.pipeline_status === 'failed'),
@@ -124,6 +148,8 @@ export function useJobPipelineCandidates(jobId: string, options: Options = {}) {
     watchedDone,
     watchedTotal,
     hasProcessingInFlight: processingCandidates.length > 0,
+    /** Whether a worker is listening; undefined while unknown or nothing is in flight. */
+    processingAvailable,
     clearProgressBatch,
     isLoading: pipelineQuery.isLoading,
     isError: pipelineQuery.isError,

@@ -5,6 +5,7 @@ from typing import Optional, List
 from sqlalchemy import (
     String, Text, Integer, Float, Boolean, DateTime, Date, ForeignKey, Index, UniqueConstraint, func, literal_column, text, Time
 )
+from sqlalchemy import event
 from sqlalchemy.orm import relationship, mapped_column, Mapped
 from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSON
 
@@ -218,6 +219,17 @@ class Candidate(Base):
     pipeline_status: Mapped[str] = mapped_column(String(50), nullable=False, default="queued")
     pipeline_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Attempts started since the upload or the last manual retry. Celery's own retry counter
+    # restarts whenever recovery sends a fresh task, so this is the cap that actually holds.
+    processing_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Set while an attempt failed and the next automatic one is waiting. Recovery leaves these
+    # rows alone until the retry is overdue, so a wait is never mistaken for a stuck attempt.
+    processing_retry_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The dispatched task's token. A task carrying any other token is a stale duplicate (left in
+    # Redis by recovery or a manual retry) and does nothing.
+    processing_token: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    # When pipeline_status last changed (kept by the listener below). Drives "waiting 12 min".
+    pipeline_status_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="active", server_default="active")
     years_experience: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     current_ctc: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
@@ -636,3 +648,17 @@ class AuditLog(Base):
     after_state: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     job_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
     candidate_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+
+
+@event.listens_for(Candidate.pipeline_status, "set")
+def _stamp_pipeline_status_change(target, value, oldvalue, initiator):
+    """Record when the processing status changed, whichever code path changed it.
+
+    A listener rather than a line at each call site: the status is written from the upload, the
+    queue, the worker, recovery and the retry endpoint, and one missed site would show HR a wrong
+    "waiting since".
+    """
+    if value != oldvalue:
+        from datetime import timezone
+
+        target.pipeline_status_at = datetime.now(timezone.utc)

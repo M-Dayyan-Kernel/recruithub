@@ -151,6 +151,10 @@ class CandidateNotRetryableError(ValidationError):
     public_message = "Candidate is not in a retryable state"
 
 
+class CandidateBeingReviewedError(ConflictError):
+    public_message = "This resume is being reviewed right now. Retry it if it stalls."
+
+
 class NoEligibleCandidatesError(ValidationError):
     public_message = "No eligible candidates found for shortlisting."
 

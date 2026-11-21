@@ -4,6 +4,7 @@ import { AlertCircle, CheckCircle2, Loader2, RotateCcw } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Candidate } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
+import { RemoveResumeButton } from '@/components/RemoveResumeButton'
 import { BTN_PRIMARY, BTN_SECONDARY } from '@/components/ui/Surface'
 import { WORKFLOW_CARD_CLASS, formatUploadedAt, resumeDisplayName } from '@/lib/workflow'
 
@@ -102,15 +103,24 @@ export function FailedTab({ jobId, candidates, isLoading = false, isError = fals
                     {candidate.failure_reason?.trim() || 'No reason was recorded.'}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => retryOne.mutate(candidate.id)}
-                  disabled={busy}
-                  className={BTN_SECONDARY}
-                >
-                  <RotateCcw size={13} aria-hidden />
-                  Retry
-                </button>
+                <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => retryOne.mutate(candidate.id)}
+                    disabled={busy}
+                    className={BTN_SECONDARY}
+                  >
+                    <RotateCcw size={13} aria-hidden />
+                    Retry
+                  </button>
+                  {/* For what Retry cannot fix: a duplicate, or a file that will never read. */}
+                  <RemoveResumeButton
+                    jobId={jobId}
+                    candidateId={candidate.id}
+                    name={resumeDisplayName(candidate)}
+                    disabled={busy}
+                  />
+                </div>
               </li>
             ))}
           </ul>

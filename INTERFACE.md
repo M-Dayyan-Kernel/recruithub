@@ -261,9 +261,24 @@ Upload one or more resume files (PDF or DOCX), or ZIP archives containing them. 
   "skipped_files": ["john_doe.pdf"],
   "candidate_ids": ["uuid1", "uuid2"],
   "extracted_from_zip": 4,
-  "skipped_oversized": ["large_resume.pdf"]
+  "skipped_oversized": ["large_resume.pdf"],
+  "worker_warning": null
 }
 ```
+
+`worker_warning` is a sentence for HR when no worker is listening on the resume queue: the files are saved and will be reviewed once a worker is back. Show it instead of a success message.
+
+#### `GET /api/resume-processing/status`
+Whether a worker is listening for resume reviews. HR/admin auth. Returns only `{"available": true|false}`, so worker names and queue depths stay on the internal `/health/celery`. Cached server-side for 5 s. The HR app polls it every 30 s while resumes are in flight, to show "AI review is paused".
+
+#### Resume processing fields on `CandidateResponse`
+- `processing_attempts`: attempts started since upload or the last manual retry.
+- `processing_max_attempts`: the cap. A resume is marked failed after this many.
+- `processing_started_at`: start of the current attempt.
+- `processing_retry_at`: when the next automatic retry is due. Null unless one is waiting.
+- `pipeline_status_at`: when `pipeline_status` last changed. Null on rows from before it was recorded.
+
+`POST /api/jobs/{job_id}/candidates/{candidate_id}/retry-processing` returns `409` for a resume that is still being reviewed (or waiting on its automatic retry). A stalled one can be retried.
 
 **Errors:**
 - `404` — job not found
@@ -1061,6 +1076,8 @@ VITE_API_URL=http://localhost:8080
 | GET | `/api/candidates/{id}` | Get candidate |
 | PATCH | `/api/candidates/{id}` | Update candidate contact fields |
 | POST | `/api/jobs/{id}/candidates/{id}/retry-parse` | Re-queue failed parse |
+| POST | `/api/jobs/{id}/candidates/{id}/retry-processing` | Re-queue a failed or stalled resume |
+| GET | `/api/resume-processing/status` | Whether resume review is running (`{available}`) |
 | POST | `/api/jobs/{id}/shortlist` | Trigger AI shortlisting |
 | GET | `/api/jobs/{id}/shortlist/status` | Shortlist run progress |
 | GET | `/api/jobs/{id}/shortlist` | Get shortlist results |

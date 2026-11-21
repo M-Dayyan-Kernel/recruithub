@@ -28,7 +28,13 @@ class SummarizeTests(unittest.TestCase):
             "UnsupportedDocumentError: scanned pdf": "could not be read",
             "FileNotFoundError: /app/uploads/x.docx": "could not be found",
             "openai.AuthenticationError: Incorrect API key provided: sk-abc": "key is missing or invalid",
-            "openai.RateLimitError: You exceeded your current quota": "rate limited",
+            "openai.RateLimitError: Rate limit reached for requests": "rate limited",
+            "insufficient_quota: openai.RateLimitError: You exceeded your current quota": "out of credits",
+            "Duplicate candidate for job (existing id=1)": "already on this job",
+            "Resume text too short or empty": "scanned image",
+            "Tenant integrations incomplete: missing openai_api_key.": "key is missing or invalid",
+            "Retries exhausted after 4 attempts: openai.RateLimitError: Rate limit": "after several tries",
+            "Stopped repeatedly: no result after 4 attempts": "kept stopping",
             "Job 3f2a not found": "job for this resume",
         }
         for raw, expect in cases.items():

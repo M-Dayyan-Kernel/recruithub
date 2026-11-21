@@ -456,6 +456,16 @@ export interface Candidate {
   notice_period?: string | null
   last_working_day?: string | null
   created_at: string
+  /** Attempts started since upload or the last manual retry. */
+  processing_attempts?: number
+  /** The attempt cap; sent by the API so the app keeps no copy of it. */
+  processing_max_attempts?: number
+  /** Start of the current attempt, while processing. */
+  processing_started_at?: string | null
+  /** When the next automatic retry is due; set only while one is waiting. */
+  processing_retry_at?: string | null
+  /** When pipeline_status last changed; null on rows from before it was recorded. */
+  pipeline_status_at?: string | null
 }
 
 export type PipelineStageKey =

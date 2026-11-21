@@ -204,10 +204,12 @@ class ResumeUploadService:
         from app.core.celery_queues import RESUME_QUEUE
         from app.services.celery_health import (
             CELERY_RESUME_UNAVAILABLE_MSG,
+            RESUME_PROCESSING_PAUSED_MSG,
             celery_queue_available_async,
         )
 
         if not await celery_queue_available_async(RESUME_QUEUE):
+            # The operator detail goes to the log; HR is shown what it means for them.
             logger.warning(CELERY_RESUME_UNAVAILABLE_MSG)
-            return CELERY_RESUME_UNAVAILABLE_MSG
+            return RESUME_PROCESSING_PAUSED_MSG
         return None
