@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Download } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
@@ -17,8 +17,15 @@ type View = 'document' | 'text'
 export function JdPreviewModal({ file, text, onClose }: { file: File; text: string; onClose: () => void }) {
   const kind = jdPreviewKind(file)
   const [view, setView] = useState<View>(kind === 'pdf' ? 'document' : 'text')
-  const url = useMemo(() => URL.createObjectURL(file), [file])
-  useEffect(() => () => URL.revokeObjectURL(url), [url])
+  // Created and revoked in the same effect. Creating it during render and revoking it in a cleanup
+  // leaves a dead link whenever the effect is re-run (React StrictMode does this in development):
+  // the browser then fails the download with a network error.
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file)
+    setUrl(objectUrl)
+    return () => URL.revokeObjectURL(objectUrl)
+  }, [file])
 
   return createPortal(
     <Modal
@@ -28,10 +35,12 @@ export function JdPreviewModal({ file, text, onClose }: { file: File; text: stri
       blur
       onClose={onClose}
       headerActions={
-        <a href={url} download={file.name} className={BTN_SECONDARY}>
-          <Download size={14} aria-hidden />
-          Download
-        </a>
+        url ? (
+          <a href={url} download={file.name} className={BTN_SECONDARY}>
+            <Download size={14} aria-hidden />
+            Download
+          </a>
+        ) : null
       }
     >
       {kind === 'pdf' && (
@@ -49,6 +58,7 @@ export function JdPreviewModal({ file, text, onClose }: { file: File; text: stri
       )}
 
       {view === 'document' ? (
+        url &&
         <iframe title={`Preview of ${file.name}`} src={url} className="h-[70vh] w-full border-0 bg-surface-2" />
       ) : (
         <div>
