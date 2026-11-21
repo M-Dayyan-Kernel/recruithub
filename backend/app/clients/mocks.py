@@ -224,6 +224,7 @@ def mock_screening_extraction() -> dict:
         "current_ctc": "12 LPA",
         "expected_ctc": "16-18 LPA",
         "notice_period": "30 days",
+        "notice_buyout": None,  # 30 days is not over 30, so the buyout question is not asked
         "location_preference": "Open to hybrid",
         "communication_quality": "good",
         "willingness_to_proceed": True,

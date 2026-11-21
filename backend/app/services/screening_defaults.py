@@ -24,11 +24,26 @@ QUESTION_KINDS = ("standard", "role", "custom")
 
 #: Every standard question's id starts with this; a client row carrying it is never kept.
 STANDARD_ID_PREFIX = "screening-default-"
+AVAILABILITY_QUESTION_ID = "screening-default-availability"
 LOCATION_QUESTION_ID = "screening-default-location"
+
+#: The one conditional follow-up on a call. It is added when the list is formatted for a prompt,
+#: not stored on the job: the voice agent decides mid-call whether the condition holds (our backend
+#: is not in the loop while the call is live), and keeping it out of the stored list means a job
+#: saved before this existed still gets it and HR cannot edit it away.
+NOTICE_BUYOUT_QUESTION = "Does your company offer a notice period buyout?"
+_FOLLOW_UPS = {
+    AVAILABILITY_QUESTION_ID: (
+        "Follow-up, ask only if the notice period is more than 30 days: "
+        f'"{NOTICE_BUYOUT_QUESTION}" Do not ask it for 30 days / 1 month or less, an immediate '
+        "joiner, or someone not currently employed. If they are already serving notice, judge by "
+        "the time left. Ask it once and add no further follow-up to the answer."
+    ),
+}
 
 _STANDARD_TEMPLATES: list[tuple[str, str]] = [
     (
-        "screening-default-availability",
+        AVAILABILITY_QUESTION_ID,
         "When are you available to start? If you are serving a notice period, "
         "please tell me how long.",
     ),
@@ -242,7 +257,11 @@ def normalize_role_questions(raw: Optional[Iterable[Any]]) -> list[dict]:
 
 
 def format_screening_questions_for_prompt(questions: Optional[Iterable[Any]]) -> str:
-    """The numbered list the voice agent and the extraction prompt read."""
+    """The numbered list the voice agent and the extraction prompt read.
+
+    A standard question with a conditional follow-up gets it as an indented line under it, so it
+    takes no question slot and does not shift the numbering.
+    """
     lines = []
     number = 0
     for q in questions or []:
@@ -252,4 +271,7 @@ def format_screening_questions_for_prompt(questions: Optional[Iterable[Any]]) ->
         if text:
             number += 1
             lines.append(f"{number}. {text}")
+            follow_up = _FOLLOW_UPS.get(str(q.get("id") or ""))
+            if follow_up:
+                lines.append(f"   - {follow_up}")
     return "\n".join(lines)

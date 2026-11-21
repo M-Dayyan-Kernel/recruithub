@@ -56,6 +56,7 @@ export function buildScreeningReportModel(
     ['Location preference', call.location_preference],
     ['Availability to join', call.availability],
     ['Notice period', call.notice_period],
+    ['Notice buyout', call.notice_buyout],
     ['Current CTC', call.current_ctc],
     ['Expected CTC', call.expected_ctc],
   ]
