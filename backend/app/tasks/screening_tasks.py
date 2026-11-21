@@ -1180,6 +1180,10 @@ async def _async_process_webhook(task_self, payload: dict) -> None:
             screening_call.current_ctc = _clean_extracted_str(extracted.get("current_ctc"))
             screening_call.expected_ctc = _clean_extracted_str(extracted.get("expected_ctc"))
             screening_call.notice_period = _clean_extracted_str(extracted.get("notice_period"))
+            # Capped to the column: an over-long answer would fail the whole write and lose the
+            # rest of the extraction with it.
+            notice_buyout = _clean_extracted_str(extracted.get("notice_buyout"))
+            screening_call.notice_buyout = notice_buyout[:100] if notice_buyout else None
             screening_call.location_preference = _clean_extracted_str(extracted.get("location_preference"))
             screening_call.communication_quality = _clean_extracted_str(extracted.get("communication_quality"))
             # willingness_to_proceed may be bool or "true"/"false" string from GPT

@@ -282,6 +282,8 @@ class ScreeningCall(Base):
     current_ctc: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     expected_ctc: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     notice_period: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # Answer to the buyout follow-up, asked only when notice_period is over 30 days; null = not asked.
+    notice_buyout: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     location_preference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     communication_quality: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     willingness_to_proceed: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)

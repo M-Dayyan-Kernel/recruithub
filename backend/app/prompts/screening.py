@@ -11,6 +11,7 @@ Return ONLY valid JSON with these exact fields:
   "current_ctc": "string — current CTC/salary mentioned (e.g. '12 LPA', '15 lakhs', 'Not disclosed')",
   "expected_ctc": "string — expected CTC/salary (e.g. '18-20 LPA', 'Open to discussion')",
   "notice_period": "string — notice period, often stated when asked about availability (e.g. '30 days', '2 months', 'Immediate joiner'); null if not mentioned",
+  "notice_buyout": "string — the candidate's answer when asked whether their company offers a notice period buyout (e.g. 'Yes', 'No', 'Not sure', 'Yes, partially'); null if it was not asked or not answered",
   "location_preference": "string — location or remote/hybrid preference",
   "communication_quality": "string — one of: excellent, good, fair, poor",
   "willingness_to_proceed": "boolean — true if the candidate expressed interest or engaged with no sign of unwillingness, false only if they said they do not want to proceed, null if unclear",
@@ -25,6 +26,8 @@ Classifier rules for 'result':
 - "needs_review": ambiguous signals, incomplete information, call cut short, mixed signals, or questions not fully answered.
 
 Work location: when the user message states the role's work arrangement and it is on-site or hybrid, and the candidate clearly refuses or says they cannot work from that location, set 'result' to "needs_review" (never "fail") and say why in the summary. This does not apply to a remote role or when the work arrangement is not specified.
+
+Notice buyout: 'notice_buyout' is information for HR only. It must never change 'result' — a long notice period with no buyout is not a reason to fail or flag the candidate.
 
 Be conservative — when in doubt, use "needs_review" rather than "fail".
 """
@@ -61,6 +64,8 @@ Ask the following screening questions one at a time, in a conversational tone (s
 Guidelines:
 - Be friendly, professional, and concise.
 - Listen carefully to answers and acknowledge them naturally.
+- A line starting with "Follow-up" belongs to the question above it: ask it right after that
+  answer, and only when its condition is met. Otherwise skip it without mentioning it.
 - If the candidate seems confused, rephrase the question simply.
 - Do not make promises about the outcome of the screening.
 - Keep the total call under 10 minutes.

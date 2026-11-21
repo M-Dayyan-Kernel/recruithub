@@ -579,6 +579,8 @@ export function ScreeningCallDetails({
   const expectedCtc = displayField(call.expected_ctc)
   const availability = displayField(call.availability)
   const noticePeriod = displayField(call.notice_period)
+  // Null unless the notice period was over 30 days, so older calls show nothing new.
+  const noticeBuyout = displayField(call.notice_buyout)
   const summary = displayField(call.summary)
   const isGenerating = isScreeningReportGenerating(call)
 
@@ -592,7 +594,8 @@ export function ScreeningCallDetails({
     Boolean(currentCtc) ||
     Boolean(expectedCtc) ||
     Boolean(availability) ||
-    Boolean(noticePeriod)
+    Boolean(noticePeriod) ||
+    Boolean(noticeBuyout)
 
   const hasDetailContent =
     Boolean(summary) || hasBackground || hasCompensation || quickStats.length > 0
@@ -708,6 +711,7 @@ export function ScreeningCallDetails({
                   )}
                   <DetailCard label="Availability to join" value={availability} />
                   <DetailCard label="Notice period" value={noticePeriod} />
+                  <DetailCard label="Notice buyout" value={noticeBuyout} />
                 </section>
               )}
             </div>

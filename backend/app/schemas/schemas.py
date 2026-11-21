@@ -824,6 +824,7 @@ class ScreeningCallResponse(BaseModel):
     current_ctc: Optional[str] = None
     expected_ctc: Optional[str] = None
     notice_period: Optional[str] = None
+    notice_buyout: Optional[str] = None
     location_preference: Optional[str] = None
     communication_quality: Optional[str] = None
     willingness_to_proceed: Optional[bool] = None

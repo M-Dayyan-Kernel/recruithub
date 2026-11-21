@@ -199,6 +199,8 @@ export interface ScreeningCall {
   current_ctc?: string | null
   expected_ctc?: string | null
   notice_period?: string | null
+  /** Answer to the buyout follow-up, asked only when the notice period is over 30 days. */
+  notice_buyout?: string | null
   location_preference?: string | null
   communication_quality?: CommunicationQuality | null
   willingness_to_proceed?: boolean | null

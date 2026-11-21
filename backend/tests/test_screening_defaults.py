@@ -20,6 +20,7 @@ from app.services.jd_parser_service import JdParserService
 from app.services.screening_defaults import (
     MAX_SCREENING_QUESTION_CHARS,
     MAX_SCREENING_QUESTIONS,
+    NOTICE_BUYOUT_QUESTION,
     build_standard_questions,
     effective_screening_questions,
     format_screening_questions_for_prompt,
@@ -187,6 +188,21 @@ class EffectiveQuestionTests(unittest.TestCase):
         self.assertTrue(text.startswith("1. When are you available"))
         self.assertTrue(text.splitlines()[-1].startswith("7. Extra?"))
 
+    def test_the_buyout_follow_up_sits_under_availability_only(self):
+        lines = format_screening_questions_for_prompt(
+            build_standard_questions("T", "remote")).splitlines()
+        self.assertTrue(lines[0].startswith("1. When are you available"))
+        self.assertTrue(lines[1].startswith("   - Follow-up"))
+        self.assertIn(NOTICE_BUYOUT_QUESTION, lines[1])
+        self.assertIn("more than 30 days", lines[1])
+        self.assertTrue(lines[2].startswith("2. "))
+        self.assertEqual(sum(NOTICE_BUYOUT_QUESTION in line for line in lines), 1)
+
+    def test_the_buyout_follow_up_takes_no_question_slot(self):
+        rows = _write([{"id": f"c{i}", "question": f"Q{i}?"} for i in range(4)])
+        self.assertEqual(len(rows), MAX_SCREENING_QUESTIONS)
+        self.assertNotIn(NOTICE_BUYOUT_QUESTION, " ".join(r["question"] for r in rows))
+
     def test_the_job_response_reports_the_effective_list(self):
         now = datetime.now(timezone.utc)
         job = SimpleNamespace(
@@ -278,6 +294,10 @@ class ExtractionPromptTests(unittest.TestCase):
         self.assertIn("needs_review", EXTRACTION_SYSTEM_PROMPT)
         self.assertIn("a notice period is welcome but not required", EXTRACTION_SYSTEM_PROMPT)
         self.assertNotIn("acceptable availability and notice period", EXTRACTION_SYSTEM_PROMPT)
+
+    def test_notice_buyout_is_extracted_and_never_changes_the_result(self):
+        self.assertIn('"notice_buyout"', EXTRACTION_SYSTEM_PROMPT)
+        self.assertIn("must never change 'result'", EXTRACTION_SYSTEM_PROMPT)
 
 
 class EndpointTests(unittest.TestCase):
