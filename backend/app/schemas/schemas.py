@@ -620,6 +620,21 @@ class CandidateResponse(BaseModel):
     notice_period: Optional[str] = None
     last_working_day: Optional[date] = None
     created_at: datetime
+    # Processing progress, for "Retrying · attempt 2 of 4" and "waiting 12 min".
+    processing_attempts: int = 0
+    # Start of the current attempt; the status stays `processing` across retries, so
+    # pipeline_status_at alone would count the waits as one long attempt.
+    processing_started_at: Optional[datetime] = None
+    processing_retry_at: Optional[datetime] = None
+    pipeline_status_at: Optional[datetime] = None
+
+    @computed_field
+    @property
+    def processing_max_attempts(self) -> int:
+        """The attempt cap, sent so the app never keeps its own copy of the number."""
+        from app.services.processing_queue_service import MAX_PROCESSING_ATTEMPTS
+
+        return MAX_PROCESSING_ATTEMPTS
 
     @computed_field
     @property

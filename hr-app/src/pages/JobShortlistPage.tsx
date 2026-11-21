@@ -104,6 +104,7 @@ export default function JobShortlistPage() {
           isError={pipeline.isError}
           onRetry={pipeline.refetch}
           onComplete={handleProcessingComplete}
+          processingAvailable={pipeline.processingAvailable}
         />
       )}
     </div>

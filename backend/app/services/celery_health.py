@@ -22,6 +22,13 @@ CELERY_RESUME_UNAVAILABLE_MSG = (
     "(see backend/DEPLOY-CELERY.md)."
 )
 
+#: What HR sees after an upload when no resume worker is listening. The files are saved and their
+#: tasks wait in Redis, so the review resumes by itself once a worker is back.
+RESUME_PROCESSING_PAUSED_MSG = (
+    "AI review is paused because the processing service is offline. These resumes are saved "
+    "and will be reviewed automatically once it's back."
+)
+
 CELERY_SCREENING_UNAVAILABLE_MSG = (
     "No Celery worker is listening on the screening queue. "
     "Start a worker with queue 'screening' (see backend/DEPLOY-CELERY.md)."

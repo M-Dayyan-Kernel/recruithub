@@ -10,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_actor_label, log_event
 from app.core.pagination import PaginationParams
 from app.core.tenancy import get_tenant_candidate, get_tenant_job
-from app.exceptions import CandidateNotFoundForJobError, CandidateNotRetryableError
+from app.exceptions import (
+    CandidateBeingReviewedError,
+    CandidateNotFoundForJobError,
+    CandidateNotRetryableError,
+)
 from app.models.models import Candidate, User
 from app.repositories.candidate_repository import CandidateRepository
 from app.schemas.schemas import (
@@ -21,7 +25,7 @@ from app.schemas.schemas import (
 )
 from app.services.audit_service import AuditService
 from app.services.live_work_guard import assert_candidate_not_live
-from app.services.processing_queue_service import ProcessingQueueService
+from app.services.processing_queue_service import ProcessingQueueService, is_processing_stalled
 from app.services.resume_storage_service import ResumeStorageService
 from app.services.retention_service import erase_candidate_pii
 
@@ -214,10 +218,18 @@ class CandidateService:
             raise CandidateNotFoundForJobError()
         if candidate.pipeline_status not in _RETRYABLE_STATUSES:
             raise CandidateNotRetryableError()
+        if candidate.pipeline_status == "processing" and not is_processing_stalled(candidate):
+            # A live attempt (or one waiting on its automatic retry) would race a second one.
+            raise CandidateBeingReviewedError()
 
         before_status = candidate.pipeline_status
         candidate.pipeline_status = "queued"
         candidate.processing_started_at = None
+        # A fresh start: the full number of attempts again, and any message still in flight
+        # for the old dispatch becomes stale.
+        candidate.processing_attempts = 0
+        candidate.processing_retry_at = None
+        candidate.processing_token = None
         await self._audit.log_change(
             actor=actor,
             action="candidate.retry_processing",

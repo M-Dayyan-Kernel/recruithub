@@ -1,7 +1,7 @@
 import { useState, useRef, type DragEvent, type ChangeEvent } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Upload, Loader2, AlertCircle, FileText, Archive } from 'lucide-react'
+import { Upload, Loader2, AlertCircle, AlertTriangle, FileText, Archive } from 'lucide-react'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -66,13 +66,24 @@ export function ResumeUploadZone({
         created: number
         skipped_oversized?: string[]
         candidate_ids?: string[]
+        /** Set when no worker is listening: the files are saved, but the review is paused. */
+        worker_warning?: string | null
       }
       queryClient.invalidateQueries({ queryKey: ['candidates', jobId] })
       queryClient.invalidateQueries({ queryKey: ['candidates'] })
       if (result.created > 0) {
-        toast.success(
-          `${result.created} resume${result.created !== 1 ? 's' : ''} queued for AI review`,
-        )
+        if (result.worker_warning) {
+          // Not a success: saying "queued for AI review" here is what left HR watching a
+          // spinner that could not move.
+          toast(result.worker_warning, {
+            icon: <AlertTriangle size={16} className="shrink-0 text-warn" aria-hidden />,
+            duration: 8000,
+          })
+        } else {
+          toast.success(
+            `${result.created} resume${result.created !== 1 ? 's' : ''} queued for AI review`,
+          )
+        }
         onUploadSuccess?.(result.candidate_ids ?? [])
       } else {
         toast.success('Upload complete — no new resumes added')

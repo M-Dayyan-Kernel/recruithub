@@ -56,6 +56,18 @@ async def list_tenant_candidates(
     return await service.list(actor, job_id=job_id, stage=stage, q=q, pagination=pagination)
 
 
+@router.get("/resume-processing/status")
+async def resume_processing_status(actor: RequireAdminOrHr) -> dict[str, bool]:
+    """Whether a worker is listening for resume reviews, so the app can say when they are paused.
+
+    Only the yes/no: worker names and queue depths stay on the internal /health/celery route.
+    """
+    from app.core.celery_queues import RESUME_QUEUE
+    from app.services.celery_health import celery_queue_available_async
+
+    return {"available": await celery_queue_available_async(RESUME_QUEUE)}
+
+
 @router.post(
     "/jobs/{job_id}/resumes",
     response_model=ResumeUploadResponse,
