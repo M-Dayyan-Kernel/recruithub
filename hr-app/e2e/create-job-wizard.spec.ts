@@ -187,6 +187,18 @@ test('pasting a job description fills the form and replaces earlier values', asy
   await expect(paste).toHaveValue(text)
 })
 
+test('the JD preview can download the original file', async ({ page }) => {
+  await page.route('**/api/jobs/parse-jd', route => route.fulfill({ json: { ...parsedRole, source_text: 'Read text' } }))
+  await page.locator('#jd-upload').setInputFiles({ name: 'role.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: Buffer.from('mocked document') })
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('link', { name: 'Download' }).click(),
+  ])
+  expect(download.suggestedFilename()).toBe('role.docx')
+  expect(await download.failure()).toBeNull()
+})
+
 test('saved drafts restore the current step, requirements, and screening settings', async ({ page }) => {
   const next = page.getByRole('button', { name: 'Continue', exact: true })
   await page.getByLabel('Job title', { exact: false }).fill('Draft engineer')
