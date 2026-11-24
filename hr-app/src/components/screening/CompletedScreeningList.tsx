@@ -13,6 +13,7 @@ import { api } from '@/lib/api'
 import {
   WORKFLOW_TABLE_CLASS,
 } from '@/lib/workflow'
+import { errorMessage } from '@/lib/errorMessage'
 
 async function scheduleInterviewForRow(row: ScreeningRow) {
   const call = row.latestCall
@@ -223,7 +224,7 @@ export function CompletedScreeningList({
         toast.error(`Scheduled ${succeeded} of ${total}; ${failed} failed`)
       }
     },
-    onError: () => toast.error('Failed to schedule interviews'),
+    onError: (err) => toast.error(errorMessage(err, 'Failed to schedule interviews')),
   })
 
   if (rows.length === 0) {

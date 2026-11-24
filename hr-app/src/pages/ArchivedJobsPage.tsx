@@ -9,6 +9,7 @@ import { JobStatusBadge } from '@/components/JobStatusBadge'
 import { filterArchivedJobs } from '@/lib/jobStatus'
 import { workArrangementLabel } from '@/lib/screeningQuestions'
 import { seniorityLabel } from '@/lib/seniority'
+import { errorMessage } from '@/lib/errorMessage'
 
 type StatusFilter = 'all' | 'paused' | 'closed'
 
@@ -30,7 +31,7 @@ function ArchivedJobCard({ job }: { job: Job }) {
       toast.success(`"${job.title}" reactivated`)
       navigate(`/jobs/${job.id}`)
     },
-    onError: () => toast.error('Failed to reactivate job'),
+    onError: (err) => toast.error(errorMessage(err, 'Failed to reactivate job')),
   })
 
   const levelLabel = seniorityLabel(job.seniority_level)
@@ -182,7 +183,7 @@ export default function ArchivedJobsPage() {
         </div>
       )}
 
-      {!isLoading && archivedJobs.length === 0 && (
+      {!isLoading && !isError && archivedJobs.length === 0 && (
         <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center">
           <Archive className="mx-auto mb-3 h-10 w-10 text-slate-300" />
           <p className="text-sm font-medium text-slate-700">No archived jobs</p>

@@ -12,6 +12,7 @@ import {
   formatTimeForInput,
   isWithinCallWindow,
 } from '@/components/screening/screeningUtils'
+import { errorMessage } from '@/lib/errorMessage'
 
 const inputClass =
   'h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20'
@@ -165,7 +166,7 @@ export function ScreeningSettingsPanel({ job }: { job: Job }) {
       queryClient.invalidateQueries({ queryKey: ['job', job.id] })
       toast.success('Call window saved')
     },
-    onError: () => toast.error('Failed to save call window'),
+    onError: (err) => toast.error(errorMessage(err, 'Failed to save call window')),
   })
 
   return (

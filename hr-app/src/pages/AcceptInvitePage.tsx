@@ -7,7 +7,9 @@ import { useAuth } from '@/context/AuthContext'
 import type { InvitePublic } from '@/types/api'
 import { WORKFLOW_INPUT_CLASS, WORKFLOW_PRIMARY_BUTTON_CLASS } from '@/lib/workflow'
 import { PasswordInput } from '@/components/PasswordInput'
-import { RequiredMark } from '@/components/FieldError'
+import { FieldError, RequiredMark } from '@/components/FieldError'
+import { FormAlert } from '@/components/ui/FormAlert'
+import { errorMessage } from '@/lib/errorMessage'
 import {
   PASSWORD_HINT,
   PASSWORD_MAX_LENGTH,
@@ -28,6 +30,9 @@ export default function AcceptInvitePage() {
   const [fullName, setFullName] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [nameError, setNameError] = useState<string | null>(null)
+  const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!token) {
@@ -41,7 +46,7 @@ export default function AcceptInvitePage() {
         if (!cancelled) setInvite(data)
       } catch (err) {
         if (!cancelled) {
-          setLoadError(err instanceof Error ? err.message : 'Invite not found or expired')
+          setLoadError(errorMessage(err, 'Invite not found or expired'))
         }
       }
     })()
@@ -67,11 +72,12 @@ export default function AcceptInvitePage() {
     if (!token) return
 
     // Mirrors the backend AcceptInviteRequest schema.
-    const fieldError = validateName(fullName, 'Full name') ?? validatePassword(password)
-    if (fieldError) {
-      toast.error(fieldError)
-      return
-    }
+    const nameProblem = validateName(fullName, 'Full name')
+    const passwordProblem = validatePassword(password)
+    setNameError(nameProblem)
+    setPasswordError(passwordProblem)
+    setFormError(null)
+    if (nameProblem || passwordProblem) return
 
     setSubmitting(true)
     try {
@@ -79,7 +85,7 @@ export default function AcceptInvitePage() {
       toast.success('Welcome aboard')
       navigate('/', { replace: true })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not accept invite')
+      setFormError(errorMessage(err, 'Could not accept invite'))
     } finally {
       setSubmitting(false)
     }
@@ -104,7 +110,7 @@ export default function AcceptInvitePage() {
 
         {loadError ? (
           <div className="space-y-4">
-            <p className="text-sm text-red-600">{loadError}</p>
+            <FormAlert>{loadError}</FormAlert>
             <Link to="/login" className="text-sm font-medium text-indigo-600 hover:text-indigo-500">
               Back to sign in
             </Link>
@@ -112,7 +118,7 @@ export default function AcceptInvitePage() {
         ) : !invite ? (
           <div className="h-24 animate-pulse rounded-xl bg-slate-100" />
         ) : (
-          <form onSubmit={onSubmit} className="space-y-4">
+          <form onSubmit={onSubmit} noValidate className="space-y-4">
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
               <input
@@ -132,10 +138,17 @@ export default function AcceptInvitePage() {
                 required
                 maxLength={PERSON_NAME_MAX_LENGTH}
                 value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
+                onChange={(e) => {
+                  setFullName(e.target.value)
+                  setNameError(null)
+                  setFormError(null)
+                }}
+                aria-invalid={nameError ? true : undefined}
+                aria-describedby={nameError ? 'name-error' : undefined}
                 className={WORKFLOW_INPUT_CLASS}
                 placeholder="Jane Doe"
               />
+              <FieldError id="name-error" message={nameError} />
             </div>
             <div>
               <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-slate-700">
@@ -149,12 +162,23 @@ export default function AcceptInvitePage() {
                 minLength={PASSWORD_MIN_LENGTH}
                 maxLength={PASSWORD_MAX_LENGTH}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value)
+                  setPasswordError(null)
+                  setFormError(null)
+                }}
+                aria-invalid={passwordError ? true : undefined}
+                aria-describedby={passwordError ? 'password-error' : 'password-hint'}
                 className={WORKFLOW_INPUT_CLASS}
                 placeholder="••••••••"
               />
-              <p className="mt-1.5 text-xs text-slate-500">{PASSWORD_HINT}</p>
+              {passwordError ? (
+                <FieldError id="password-error" message={passwordError} />
+              ) : (
+                <p id="password-hint" className="mt-1.5 text-xs text-slate-500">{PASSWORD_HINT}</p>
+              )}
             </div>
+            {formError && <FormAlert>{formError}</FormAlert>}
             <button
               type="submit"
               disabled={submitting}

@@ -16,6 +16,40 @@ export interface JobCreationDraft {
   voiceScreeningEnabled: boolean
   extensionCheckEnabled: boolean
   extensionCheckMode: ExtensionPolicyMode
+  /** A pasted job description not yet read into the form. Optional: older drafts lack it. */
+  pastedJd?: string
+}
+
+/** What the job form holds that would be lost by leaving: the draft fields, without the step. */
+export type JobFormContent = Omit<JobCreationDraft, 'version' | 'step'>
+
+/**
+ * One string for the form's content, compared to tell whether there are unsaved changes.
+ * Topics and questions are reduced to what HR wrote: their client-side ids are regenerated when
+ * a draft is restored and must not make a restored form look edited.
+ */
+export function jobFormSnapshot(content: JobFormContent): string {
+  return JSON.stringify({
+    title: content.title,
+    description: content.description,
+    skills: content.skills,
+    skillInput: content.skillInput,
+    seniority: content.seniority,
+    workMode: content.workMode,
+    workLocation: content.workLocation,
+    extraQuestions: content.extraQuestions.map((q) => [q.question, q.kind ?? null]),
+    interviewTopics: content.interviewTopics.map((t) => [
+      t.name,
+      t.scope,
+      t.skill_tag,
+      t.seed_question,
+      t.is_mandatory,
+    ]),
+    voiceScreeningEnabled: content.voiceScreeningEnabled,
+    extensionCheckEnabled: content.extensionCheckEnabled,
+    extensionCheckMode: content.extensionCheckMode,
+    pastedJd: content.pastedJd ?? '',
+  })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

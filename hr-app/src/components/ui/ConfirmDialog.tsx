@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
 import { BTN_GHOST } from '@/components/ui/Surface'
+import { WRAP_SAFE } from '@/components/ui/FormAlert'
 
 const CONFIRM_BASE =
   'inline-flex h-9 items-center justify-center gap-2 rounded-md px-4 text-[13px] font-semibold text-accent-ink transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60'
@@ -49,7 +50,7 @@ export default function ConfirmDialog({
         {!error && <div className="text-[13px] leading-relaxed text-ink-muted">{body}</div>}
         {!error && children}
         {error && (
-          <p role="alert" className="flex items-start gap-1.5 text-[12px] text-neg">
+          <p role="alert" className={`flex items-start gap-1.5 text-[12px] text-neg ${WRAP_SAFE}`}>
             <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden />
             {error}
           </p>

@@ -679,6 +679,8 @@ export function InterviewsTab({ job, jobId }: Props) {
   const [search, setSearch] = useState(searchParams.get('search') ?? '')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [topicsDirty, setTopicsDirty] = useState(false)
+  // Closing topic settings with unsaved edits asks in the app's dialog (it was the browser's pop-up).
+  const [confirmDiscardTopics, setConfirmDiscardTopics] = useState(false)
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1)
   const pageSize = 10
 
@@ -784,10 +786,18 @@ export function InterviewsTab({ job, jobId }: Props) {
     </StageHeader>
   )
 
-  const closeSettings = () => {
-    if (topicsDirty && !window.confirm('Discard your unsaved topic changes?')) return
+  const discardTopicsAndClose = () => {
+    setConfirmDiscardTopics(false)
     setTopicsDirty(false)
     setSettingsOpen(false)
+  }
+
+  const closeSettings = () => {
+    if (topicsDirty) {
+      setConfirmDiscardTopics(true)
+      return
+    }
+    discardTopicsAndClose()
   }
 
   const settingsModal = settingsOpen && (
@@ -797,6 +807,16 @@ export function InterviewsTab({ job, jobId }: Props) {
       onClose={closeSettings}
     >
       <InterviewTopicsPanel job={job} onDirtyChange={setTopicsDirty} />
+      {confirmDiscardTopics && (
+        <ConfirmDialog
+          title="Discard your topic changes?"
+          body="Your edits to the interview topics have not been saved."
+          confirmLabel="Discard changes"
+          cancelLabel="Keep editing"
+          onConfirm={discardTopicsAndClose}
+          onClose={() => setConfirmDiscardTopics(false)}
+        />
+      )}
     </SettingsModal>
   )
 

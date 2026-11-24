@@ -7,7 +7,9 @@ import { useAuth } from '@/context/AuthContext'
 import type { PasswordTokenInfo } from '@/types/api'
 import AuthLayout, { AUTH_BUTTON_CLASS, AUTH_INPUT_CLASS } from '@/components/auth/AuthLayout'
 import { PasswordInput } from '@/components/PasswordInput'
-import { RequiredMark } from '@/components/FieldError'
+import { FieldError, RequiredMark } from '@/components/FieldError'
+import { FormAlert } from '@/components/ui/FormAlert'
+import { errorMessage } from '@/lib/errorMessage'
 import {
   PASSWORD_HINT,
   PASSWORD_MAX_LENGTH,
@@ -31,6 +33,10 @@ export default function ResetPasswordPage() {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // Field problems sit under their field; a refusal from the server sits above the button.
+  const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [confirmError, setConfirmError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!token) {
@@ -46,11 +52,7 @@ export default function ResetPasswordPage() {
         if (!cancelled) setInfo(data)
       } catch (err) {
         if (!cancelled) {
-          setLoadError(
-            err instanceof Error
-              ? err.message
-              : 'This link is invalid or has expired. Request a new one.',
-          )
+          setLoadError(errorMessage(err, 'This link is invalid or has expired. Request a new one.'))
         }
       }
     })()
@@ -62,14 +64,11 @@ export default function ResetPasswordPage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     const fieldError = validatePassword(password, 'Password')
-    if (fieldError) {
-      toast.error(fieldError)
-      return
-    }
-    if (password !== confirm) {
-      toast.error('The two passwords do not match')
-      return
-    }
+    const mismatch = !fieldError && password !== confirm ? 'The two passwords do not match' : null
+    setPasswordError(fieldError)
+    setConfirmError(mismatch)
+    setFormError(null)
+    if (fieldError || mismatch) return
 
     setSubmitting(true)
     try {
@@ -79,7 +78,7 @@ export default function ResetPasswordPage() {
       toast.success('Password updated. Please sign in.')
       navigate('/login', { replace: true })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not update the password')
+      setFormError(errorMessage(err, 'Could not update the password'))
     } finally {
       setSubmitting(false)
     }
@@ -100,8 +99,8 @@ export default function ResetPasswordPage() {
       switchTo="/login"
     >
       {loadError ? (
-        <div className="space-y-4" role="alert">
-          <p className="text-sm text-red-600">{loadError}</p>
+        <div className="space-y-4">
+          <FormAlert>{loadError}</FormAlert>
           <Link
             to="/forgot-password"
             className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
@@ -137,11 +136,21 @@ export default function ResetPasswordPage() {
               minLength={PASSWORD_MIN_LENGTH}
               maxLength={PASSWORD_MAX_LENGTH}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                setPasswordError(null)
+                setFormError(null)
+              }}
+              aria-invalid={passwordError ? true : undefined}
+              aria-describedby={passwordError ? 'password-error' : 'password-hint'}
               className={AUTH_INPUT_CLASS}
               placeholder="••••••••"
             />
-            <p className="mt-1.5 text-xs text-slate-500">{PASSWORD_HINT}</p>
+            {passwordError ? (
+              <FieldError id="password-error" message={passwordError} />
+            ) : (
+              <p id="password-hint" className="mt-1.5 text-xs text-slate-500">{PASSWORD_HINT}</p>
+            )}
           </div>
           <div>
             <label
@@ -157,11 +166,19 @@ export default function ResetPasswordPage() {
               required
               maxLength={PASSWORD_MAX_LENGTH}
               value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
+              onChange={(e) => {
+                setConfirm(e.target.value)
+                setConfirmError(null)
+                setFormError(null)
+              }}
+              aria-invalid={confirmError ? true : undefined}
+              aria-describedby={confirmError ? 'confirm-error' : undefined}
               className={AUTH_INPUT_CLASS}
               placeholder="••••••••"
             />
+            <FieldError id="confirm-error" message={confirmError} />
           </div>
+          {formError && <FormAlert>{formError}</FormAlert>}
           <button type="submit" disabled={submitting} className={`${AUTH_BUTTON_CLASS} !mt-6`}>
             {submitting && <Loader2 size={16} className="animate-spin" />}
             {submitting ? 'Saving…' : isOnboarding ? 'Set password' : 'Update password'}

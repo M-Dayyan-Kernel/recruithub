@@ -1,3 +1,5 @@
+import { WRAP_SAFE } from '@/components/ui/FormAlert'
+
 /**
  * Asterisk marking a mandatory field, placed inside the field's `<label>`.
  *
@@ -6,17 +8,20 @@
  */
 export function RequiredMark() {
   return (
-    <span aria-hidden="true" className="ml-0.5 text-rose-500">
+    <span aria-hidden="true" className="ml-0.5 text-neg">
       *
     </span>
   )
 }
 
-/** Inline validation message rendered under a form field. */
-export function FieldError({ message }: { message?: string | null }) {
+/**
+ * Inline validation message rendered under a form field. `id` lets the input point at it with
+ * aria-describedby, so a screen reader reads the message with the field.
+ */
+export function FieldError({ message, id }: { message?: string | null; id?: string }) {
   if (!message) return null
   return (
-    <p role="alert" className="mt-1.5 text-xs text-neg">
+    <p id={id} role="alert" className={`mt-1.5 text-xs text-neg ${WRAP_SAFE}`}>
       {message}
     </p>
   )

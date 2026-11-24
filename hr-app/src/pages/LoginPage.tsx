@@ -1,12 +1,14 @@
 import { type FormEvent, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/context/AuthContext'
 import { takeSignedOutReason } from '@/lib/api'
 import AuthLayout, { AUTH_BUTTON_CLASS, AUTH_INPUT_CLASS } from '@/components/auth/AuthLayout'
 import { PasswordInput } from '@/components/PasswordInput'
 import { RequiredMark } from '@/components/FieldError'
+import { FormAlert } from '@/components/ui/FormAlert'
+import { errorMessage } from '@/lib/errorMessage'
 
 export default function LoginPage() {
   const { login, isAuthenticated, isLoading } = useAuth()
@@ -17,6 +19,9 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // Kept on the form until the user changes something: a toast was gone before most people
+  // had read it, and sat half off-screen in a narrow window.
+  const [formError, setFormError] = useState<string | null>(null)
   // Read once on mount and clear, so the notice survives the redirect's full
   // page load but does not reappear on the next visit.
   const [signedOutReason, setSignedOutReason] = useState(takeSignedOutReason)
@@ -37,6 +42,7 @@ export default function LoginPage() {
     e.preventDefault()
     setSubmitting(true)
     setSignedOutReason(null)
+    setFormError(null)
     try {
       const signedIn = await login({ email: email.trim(), password })
       toast.success('Signed in')
@@ -46,7 +52,7 @@ export default function LoginPage() {
           : from
       navigate(dest, { replace: true })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Login failed')
+      setFormError(errorMessage(err, 'Sign in failed. Try again.'))
     } finally {
       setSubmitting(false)
     }
@@ -61,16 +67,9 @@ export default function LoginPage() {
       switchTo="/signup"
     >
       {signedOutReason && (
-        <div
-          role="alert"
-          className="mb-6 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3"
-        >
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-          <div>
-            <p className="text-sm font-medium text-amber-900">You have been signed out</p>
-            <p className="mt-0.5 text-sm text-amber-800">{signedOutReason}</p>
-          </div>
-        </div>
+        <FormAlert tone="warn" title="You have been signed out" className="mb-6">
+          {signedOutReason}
+        </FormAlert>
       )}
 
       <form onSubmit={onSubmit} className="space-y-4">
@@ -88,7 +87,10 @@ export default function LoginPage() {
             autoComplete="email"
             required
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              setEmail(e.target.value)
+              setFormError(null)
+            }}
             className={AUTH_INPUT_CLASS}
             placeholder="you@company.com"
           />
@@ -112,11 +114,22 @@ export default function LoginPage() {
             autoComplete="current-password"
             required
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value)
+              setFormError(null)
+            }}
+            aria-invalid={formError ? true : undefined}
+            aria-describedby={formError ? 'login-error' : undefined}
             className={AUTH_INPUT_CLASS}
             placeholder="••••••••"
           />
         </div>
+
+        {formError && (
+          <div id="login-error">
+            <FormAlert>{formError}</FormAlert>
+          </div>
+        )}
 
         <button type="submit" disabled={submitting} className={`${AUTH_BUTTON_CLASS} !mt-6`}>
           {submitting && <Loader2 size={16} className="animate-spin" />}

@@ -203,7 +203,7 @@ export default function JobsPage() {
         </div>
       )}
 
-      {!isLoading && activeJobs.length === 0 && (
+      {!isLoading && !isError && activeJobs.length === 0 && (
         <div className="rounded-card border border-dashed border-line-strong bg-surface px-6 py-16 text-center">
           <Briefcase className="mx-auto mb-3 h-10 w-10 text-ink-subtle" />
           <p className="text-sm font-semibold text-ink">No active jobs</p>
@@ -218,7 +218,7 @@ export default function JobsPage() {
         </div>
       )}
 
-      {!isLoading && activeJobs.length > 0 && filteredJobs.length === 0 && (
+      {!isLoading && !isError && activeJobs.length > 0 && filteredJobs.length === 0 && (
         <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
           <Search className="mx-auto mb-3 h-8 w-8 text-slate-300" />
           <p className="text-sm font-medium text-slate-700">No jobs match “{search.trim()}”</p>

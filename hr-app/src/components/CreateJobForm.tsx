@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type DragEvent, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useState, useRef, useEffect, type DragEvent, type MutableRefObject, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Loader2,
@@ -23,7 +23,7 @@ import {
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
-import { readJobCreationDraft, type JobCreationDraft } from '@/lib/jobCreationDraft'
+import { jobFormSnapshot, readJobCreationDraft, type JobCreationDraft } from '@/lib/jobCreationDraft'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { JobSkillsField } from '@/components/job/JobSkillsField'
 import { JdPreviewModal } from '@/components/job/JdPreviewModal'
@@ -86,6 +86,10 @@ interface Props {
   onCancel?: () => void
   step: number
   onStepChange: (step: number) => void
+  /** Told whenever the form gains or loses unsaved changes, so the page can guard leaving. */
+  onDirtyChange?: (dirty: boolean) => void
+  /** Filled with a quiet "save a draft" the page's leave dialog can call; true when it saved. */
+  saveDraftRef?: MutableRefObject<(() => boolean) | null>
 }
 
 // Mirrors the API: a pasted description shorter than this is not read.
@@ -151,7 +155,7 @@ function FieldLabel({
 
 const steps = ['Job info', 'Requirements', 'Screening', 'Review']
 
-export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props) {
+export function CreateJobForm({ onSuccess, onCancel, step, onStepChange, onDirtyChange, saveDraftRef }: Props) {
   const queryClient = useQueryClient()
   const { user } = useAuth()
   const draftKey = `hr-job-draft:${user?.active_tenant_id ?? user?.tenant_id}:${user?.id}`
@@ -198,6 +202,18 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
   // The job description HR pastes to be read, kept so it can be edited and read again.
   const [pastedJd, setPastedJd] = useState('')
   const [previewOpen, setPreviewOpen] = useState(false)
+
+  // Unsaved changes are the form's content against the last point it was saved or loaded:
+  // empty on arrival, then each draft save, draft restore, or created job.
+  const snapshot = jobFormSnapshot({
+    title, description, skills, skillInput, seniority, workMode, workLocation, extraQuestions,
+    interviewTopics, voiceScreeningEnabled, extensionCheckEnabled, extensionCheckMode, pastedJd,
+  })
+  const [cleanSnapshot, setCleanSnapshot] = useState(snapshot)
+  const dirty = snapshot !== cleanSnapshot
+  useEffect(() => {
+    onDirtyChange?.(dirty)
+  }, [dirty, onDirtyChange])
   const [parsedDefaults, setParsedDefaults] = useState<ParsedJobDescription | null>(null)
   const [resetSection, setResetSection] = useState<'requirements' | 'screening' | null>(null)
 
@@ -281,6 +297,9 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
       api.post('/api/jobs', payload) as unknown as Promise<Job>,
     onSuccess: (job) => {
       try { localStorage.removeItem(draftKey) } catch { /* Job creation still succeeds if storage is unavailable. */ }
+      // Created: nothing is unsaved any more, so the redirect to the new job is not held.
+      setCleanSnapshot(snapshot)
+      onDirtyChange?.(false)
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
       toast.success('Job created successfully')
       onSuccess?.(job)
@@ -340,20 +359,26 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
     setSkills((prev) => prev.filter((s) => s !== skill))
   }
 
-  const saveDraft = () => {
+  /** Saves a draft in this browser. `quiet` leaves reporting to the caller (the leave dialog). */
+  const saveDraft = ({ quiet = false }: { quiet?: boolean } = {}): boolean => {
     const draft: JobCreationDraft = {
       version: 1, step, title, description, skills, skillInput, seniority, workMode,
       workLocation, extraQuestions, interviewTopics, voiceScreeningEnabled,
-      extensionCheckEnabled, extensionCheckMode,
+      extensionCheckEnabled, extensionCheckMode, pastedJd,
     }
     try {
       localStorage.setItem(draftKey, JSON.stringify(draft))
       setDraftSaved(true)
-      toast.success('Draft saved in this browser')
+      setCleanSnapshot(snapshot)
+      onDirtyChange?.(false)
+      if (!quiet) toast.success('Draft saved in this browser')
+      return true
     } catch {
-      toast.error('Could not save the draft in this browser')
+      if (!quiet) toast.error('Could not save the draft in this browser')
+      return false
     }
   }
+  if (saveDraftRef) saveDraftRef.current = () => saveDraft({ quiet: true })
 
   const resumeDraft = () => {
     if (!savedDraft) return
@@ -370,6 +395,10 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
     setVoiceScreeningEnabled(savedDraft.voiceScreeningEnabled)
     setExtensionCheckEnabled(savedDraft.extensionCheckEnabled)
     setExtensionCheckMode(savedDraft.extensionCheckMode)
+    setPastedJd(savedDraft.pastedJd ?? '')
+    // The restored draft is the new clean point. Taken from the draft itself: the fields set
+    // above only land on the next render.
+    setCleanSnapshot(jobFormSnapshot({ ...savedDraft, pastedJd: savedDraft.pastedJd ?? '' }))
     workEditedByHand.current = { mode: true, location: true }
     setSavedDraft(null)
     setFieldErrors({})
@@ -905,7 +934,7 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange }: Props
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-line py-5">
         <button type="button" disabled={isBusy} onClick={() => step > 1 ? goToStep(step - 1) : onCancel?.()} className="inline-flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-ink-muted hover:text-ink disabled:opacity-50"><ArrowLeft size={14} />{step > 1 ? 'Back' : 'Cancel'}</button>
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
-          <button type="button" disabled={isBusy} onClick={saveDraft} title="Save a draft on this device" className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2.5 text-xs font-medium text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-50"><Save size={14} /><span>{draftSaved ? 'Save draft again' : 'Save as draft'}</span></button>
+          <button type="button" disabled={isBusy} onClick={() => saveDraft()} title="Save a draft on this device" className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2.5 text-xs font-medium text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-50"><Save size={14} /><span>{draftSaved ? 'Save draft again' : 'Save as draft'}</span></button>
           <button
             type="button"
             onClick={() => {

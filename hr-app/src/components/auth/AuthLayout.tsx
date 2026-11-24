@@ -85,6 +85,10 @@ export default function AuthLayout({
 export const AUTH_BUTTON_CLASS =
   'inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 text-[14px] font-semibold text-white shadow-lg shadow-indigo-600/25 transition-all hover:bg-indigo-700 hover:shadow-xl hover:shadow-indigo-600/30 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none'
 
-/** Inputs here are taller and rounder than the workflow default. */
+/**
+ * Inputs here are taller and rounder than the workflow default. A field marked aria-invalid
+ * (one with a FieldError under it, or the password after a failed sign-in) shows the error
+ * border, so the input and its message read as one.
+ */
 export const AUTH_INPUT_CLASS =
-  'h-12 w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 text-[14px] text-slate-800 placeholder:text-slate-400 transition-colors focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100'
+  'h-12 w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 text-[14px] text-slate-800 placeholder:text-slate-400 transition-colors focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100 aria-[invalid=true]:border-neg aria-[invalid=true]:focus:border-neg aria-[invalid=true]:focus:ring-neg/15'
