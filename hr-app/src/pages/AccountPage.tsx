@@ -6,7 +6,9 @@ import { useAuth } from '@/context/AuthContext'
 import type { TokenResponse } from '@/types/api'
 import { Card, PageHeader } from '@/components/ui/Surface'
 import { PasswordInput } from '@/components/PasswordInput'
-import { RequiredMark } from '@/components/FieldError'
+import { FieldError, RequiredMark } from '@/components/FieldError'
+import { FormAlert } from '@/components/ui/FormAlert'
+import { errorMessage } from '@/lib/errorMessage'
 import { WORKFLOW_INPUT_CLASS, WORKFLOW_PRIMARY_BUTTON_CLASS } from '@/lib/workflow'
 import {
   PASSWORD_HINT,
@@ -22,22 +24,26 @@ export default function AccountPage() {
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // Field problems sit under their field; a refusal from the server (a wrong current password,
+  // say) sits above the button until the user changes something.
+  const [nextError, setNextError] = useState<string | null>(null)
+  const [confirmError, setConfirmError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const clearErrors = () => {
+    setFormError(null)
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
-    const fieldError = validatePassword(next, 'New password')
-    if (fieldError) {
-      toast.error(fieldError)
-      return
-    }
-    if (next !== confirm) {
-      toast.error('The two new passwords do not match')
-      return
-    }
-    if (next === current) {
-      toast.error('Choose a password different from your current one')
-      return
-    }
+    const fieldError =
+      validatePassword(next, 'New password') ??
+      (next === current ? 'Choose a password different from your current one' : null)
+    const mismatch = !fieldError && next !== confirm ? 'The two new passwords do not match' : null
+    setNextError(fieldError)
+    setConfirmError(mismatch)
+    setFormError(null)
+    if (fieldError || mismatch) return
 
     setSubmitting(true)
     try {
@@ -53,7 +59,7 @@ export default function AccountPage() {
       setConfirm('')
       toast.success('Password updated')
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not update the password')
+      setFormError(errorMessage(err, 'Could not update the password'))
     } finally {
       setSubmitting(false)
     }
@@ -88,7 +94,10 @@ export default function AccountPage() {
               required
               maxLength={PASSWORD_MAX_LENGTH}
               value={current}
-              onChange={(e) => setCurrent(e.target.value)}
+              onChange={(e) => {
+                setCurrent(e.target.value)
+                clearErrors()
+              }}
               className={WORKFLOW_INPUT_CLASS}
             />
           </div>
@@ -104,10 +113,20 @@ export default function AccountPage() {
               minLength={PASSWORD_MIN_LENGTH}
               maxLength={PASSWORD_MAX_LENGTH}
               value={next}
-              onChange={(e) => setNext(e.target.value)}
+              onChange={(e) => {
+                setNext(e.target.value)
+                setNextError(null)
+                clearErrors()
+              }}
+              aria-invalid={nextError ? true : undefined}
+              aria-describedby={nextError ? 'new-error' : 'new-hint'}
               className={WORKFLOW_INPUT_CLASS}
             />
-            <p className="mt-1.5 text-xs text-ink-muted">{PASSWORD_HINT}</p>
+            {nextError ? (
+              <FieldError id="new-error" message={nextError} />
+            ) : (
+              <p id="new-hint" className="mt-1.5 text-xs text-ink-muted">{PASSWORD_HINT}</p>
+            )}
           </div>
           <div>
             <label htmlFor="confirm" className="mb-1.5 block text-xs font-medium text-ink-muted">
@@ -120,10 +139,18 @@ export default function AccountPage() {
               required
               maxLength={PASSWORD_MAX_LENGTH}
               value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
+              onChange={(e) => {
+                setConfirm(e.target.value)
+                setConfirmError(null)
+                clearErrors()
+              }}
+              aria-invalid={confirmError ? true : undefined}
+              aria-describedby={confirmError ? 'confirm-error' : undefined}
               className={WORKFLOW_INPUT_CLASS}
             />
+            <FieldError id="confirm-error" message={confirmError} />
           </div>
+          {formError && <FormAlert>{formError}</FormAlert>}
           <button
             type="submit"
             disabled={submitting}

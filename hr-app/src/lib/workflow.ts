@@ -8,7 +8,7 @@ export const WORKFLOW_TABLE_EMPTY_ROW_CLASS = 'h-[360px]'
 export const WORKFLOW_TABLE_EMPTY_CELL_CLASS =
   'h-[360px] align-middle px-6 text-center text-sm text-slate-400'
 export const WORKFLOW_INPUT_CLASS =
-  'h-11 w-full rounded-lg border border-slate-200 bg-white px-4 text-sm text-slate-700 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100'
+  'h-11 w-full rounded-lg border border-slate-200 bg-white px-4 text-sm text-slate-700 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 aria-[invalid=true]:border-neg aria-[invalid=true]:focus:border-neg aria-[invalid=true]:focus:ring-neg/15'
 export const WORKFLOW_PRIMARY_BUTTON_CLASS =
   'inline-flex h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50'
 

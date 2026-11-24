@@ -2,6 +2,8 @@ import { useEffect, useState, type KeyboardEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Loader2, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { UnsavedChangesDialog } from '@/components/UnsavedChangesDialog'
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import { api } from '@/lib/api'
 import { RequiredMark } from '@/components/FieldError'
 import type { Job, InterviewTopic, ScreeningQuestion, SeniorityLevel, WorkMode } from '@/types/api'
@@ -101,39 +103,8 @@ export function EditJobModal({ job, open, onClose }: Props) {
     setSkills((prev) => prev.filter((s) => s !== skill))
   }
 
-  const handleSubmit = () => {
-    if (!title.trim()) {
-      setSubmitError('Job title is required')
-      return
-    }
-    if (!description.trim()) {
-      setSubmitError('Description is required')
-      return
-    }
-    if (!workMode) {
-      setSubmitError('Choose a work mode: remote, hybrid or on-site')
-      return
-    }
-    if (locationError) {
-      setSubmitError(locationError)
-      return
-    }
-    // Blank rows used to be dropped silently on save; reject them instead.
-    if (firstQuestionError) {
-      setSubmitError(firstQuestionError)
-      return
-    }
-    if (overCap) {
-      setSubmitError(`A call can have at most ${maxTotalQuestions} questions. Remove some to save.`)
-      return
-    }
-    const topicError = validateTopicPool(interviewTopics)
-    if (topicError) {
-      setSubmitError(topicError)
-      return
-    }
-    setSubmitError(null)
-
+  /** The fields that differ from the saved job, as the PATCH body. Empty when nothing changed. */
+  const buildPayload = (): Record<string, unknown> => {
     // Flush any pending skill input
     const finalSkills = [...skills]
     if (skillInput.trim()) {
@@ -169,6 +140,54 @@ export function EditJobModal({ job, open, onClose }: Props) {
       payload.interview_topics = nextTopics
     }
 
+    return payload
+  }
+
+  // Closing with unsaved edits asks first (it used to drop them on X, Cancel or a link).
+  const dirty = Object.keys(buildPayload()).length > 0
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const blocker = useUnsavedChangesGuard(open && dirty)
+  const requestClose = () => {
+    if (mutation.isPending) return
+    if (dirty) setConfirmDiscard(true)
+    else onClose()
+  }
+
+  const handleSubmit = () => {
+    if (!title.trim()) {
+      setSubmitError('Job title is required')
+      return
+    }
+    if (!description.trim()) {
+      setSubmitError('Description is required')
+      return
+    }
+    if (!workMode) {
+      setSubmitError('Choose a work mode: remote, hybrid or on-site')
+      return
+    }
+    if (locationError) {
+      setSubmitError(locationError)
+      return
+    }
+    // Blank rows used to be dropped silently on save; reject them instead.
+    if (firstQuestionError) {
+      setSubmitError(firstQuestionError)
+      return
+    }
+    if (overCap) {
+      setSubmitError(`A call can have at most ${maxTotalQuestions} questions. Remove some to save.`)
+      return
+    }
+    const topicError = validateTopicPool(interviewTopics)
+    if (topicError) {
+      setSubmitError(topicError)
+      return
+    }
+    setSubmitError(null)
+
+    const payload = buildPayload()
+
     if (Object.keys(payload).length === 0) {
       toast('No changes to save')
       onClose()
@@ -198,7 +217,7 @@ export function EditJobModal({ job, open, onClose }: Props) {
         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">Edit Job</h2>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             disabled={mutation.isPending}
             className="p-1 text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-100 transition-colors"
           >
@@ -366,7 +385,7 @@ export function EditJobModal({ job, open, onClose }: Props) {
         {/* Footer */}
         <div className="flex shrink-0 justify-end gap-3 border-t border-slate-100 px-6 py-4">
           <button
-            onClick={onClose}
+            onClick={requestClose}
             disabled={mutation.isPending}
             className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 disabled:opacity-50 transition-colors"
           >
@@ -388,6 +407,22 @@ export function EditJobModal({ job, open, onClose }: Props) {
           </button>
         </div>
       </div>
+
+      {(confirmDiscard || blocker.state === 'blocked') && (
+        <UnsavedChangesDialog
+          title="Discard your changes to this job?"
+          body="Your edits have not been saved."
+          onStay={() => {
+            setConfirmDiscard(false)
+            if (blocker.state === 'blocked') blocker.reset()
+          }}
+          onDiscard={() => {
+            setConfirmDiscard(false)
+            if (blocker.state === 'blocked') blocker.proceed()
+            else onClose()
+          }}
+        />
+      )}
     </div>
   )
 }

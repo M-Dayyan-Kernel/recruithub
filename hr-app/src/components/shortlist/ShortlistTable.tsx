@@ -10,6 +10,7 @@ import { useShortlistApproveNavigation } from '@/hooks/useShortlistApproveNaviga
 import { useDeleteCandidate } from '@/hooks/useDeleteCandidate'
 import { WORKFLOW_CARD_CLASS, WORKFLOW_TABLE_CLASS } from '@/lib/workflow'
 import { api } from '@/lib/api'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import type { SystemSettings } from '@/types/api'
 import { isVoiceScreeningEffective } from '@/lib/voiceScreening'
 
@@ -146,17 +147,23 @@ export function ShortlistTable({
 
   const clearSelection = () => setSelectedIds(new Set())
 
-  const handleDeleteSelected = async () => {
+  // Asks in the app's dialog (it was the browser's own pop-up), then removes.
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const removeTitle =
+    selectedCount === 1
+      ? `Remove ${selectedResults[0]?.candidate_name ?? 'this candidate'}?`
+      : `Remove ${selectedCount} candidates?`
+  const removeBody =
+    selectedCount === 1
+      ? 'This deletes the resume and all related shortlist data. It cannot be undone.'
+      : 'This deletes their resumes and all related shortlist data. It cannot be undone.'
+
+  const handleDeleteSelected = () => {
     if (selectedCount === 0) return
+    setConfirmRemove(true)
+  }
 
-    const names = selectedResults.map((r) => r.candidate_name ?? 'Candidate')
-    const message =
-      selectedCount === 1
-        ? `Remove ${names[0]}? This deletes the resume and all related shortlist data.`
-        : `Remove ${selectedCount} candidates? This deletes their resumes and all related shortlist data.`
-
-    if (!window.confirm(message)) return
-
+  const runDeleteSelected = async () => {
     setDeleting(true)
     const ids = [...selectedIds]
     let failed = 0
@@ -192,11 +199,22 @@ export function ShortlistTable({
       }
     } finally {
       setDeleting(false)
+      setConfirmRemove(false)
     }
   }
 
   return (
     <>
+      {confirmRemove && (
+        <ConfirmDialog
+          title={removeTitle}
+          body={removeBody}
+          confirmLabel="Remove"
+          busy={deleting}
+          onConfirm={() => void runDeleteSelected()}
+          onClose={() => setConfirmRemove(false)}
+        />
+      )}
       <div className={`${WORKFLOW_CARD_CLASS} min-h-[360px]`}>
         <div
           className={`flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 transition-colors ${

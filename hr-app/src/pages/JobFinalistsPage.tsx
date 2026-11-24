@@ -57,7 +57,7 @@ export default function JobFinalistsPage() {
         </div>
       )}
 
-      {!isLoading && candidates.length === 0 && (
+      {!isLoading && !isError && candidates.length === 0 && (
         <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center">
           <Users className="mx-auto mb-3 h-10 w-10 text-slate-300" />
           <p className="text-sm font-medium text-slate-700">No finalists yet</p>

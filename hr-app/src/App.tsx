@@ -37,7 +37,13 @@ export default function App() {
         position="top-right"
         toastOptions={{
           duration: 4000,
-          style: { fontSize: '14px' },
+          // Long server messages (an email, a URL) wrap inside the toast instead of running off a
+          // narrow screen.
+          style: {
+            fontSize: '14px',
+            maxWidth: 'min(420px, calc(100vw - 32px))',
+            overflowWrap: 'anywhere',
+          },
         }}
       />
       <Routes>

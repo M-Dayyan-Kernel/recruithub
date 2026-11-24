@@ -41,6 +41,7 @@ import {
   validateName,
   validateOrgName,
 } from '@/lib/validation'
+import { errorMessage } from '@/lib/errorMessage'
 
 interface CreateFormErrors {
   name?: string | null
@@ -299,7 +300,7 @@ function OrganizationsView() {
         filename: filename || 'gst-document.pdf',
         url: null,
         loading: false,
-        error: err instanceof Error ? err.message : 'Could not open GST document',
+        error: errorMessage(err, 'Could not open GST document'),
       })
     }
   }
@@ -434,7 +435,7 @@ function OrganizationsView() {
       toast.success(`Entered ${tenant.name}`)
       navigate('/jobs')
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not switch organization')
+      toast.error(errorMessage(err, 'Could not switch organization'))
     }
   }
 

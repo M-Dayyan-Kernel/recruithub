@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { EmptyState, LINK_ACTION, PageHeader, SectionCard } from '@/components/ui/Surface'
+import { FormAlert } from '@/components/ui/FormAlert'
 import { useQuery, useQueries } from '@tanstack/react-query'
 import {
   Briefcase,
@@ -178,6 +179,13 @@ export default function DashboardPage() {
     })),
   })
 
+  // A job whose candidates or calls failed to load was counted as zero, so the totals were
+  // quietly low. Say so instead, and let HR retry just those.
+  const failedFigureQueries = [...candidateQueries, ...screeningQueries].filter((q) => q.isError)
+  const retryFailedFigures = () => {
+    for (const q of failedFigureQueries) void q.refetch()
+  }
+
   // ── Build flat candidates map for name lookup ─────────────────────────────
   const allCandidatesMap = useMemo(() => {
     const map: Record<string, Candidate> = {}
@@ -287,6 +295,20 @@ export default function DashboardPage() {
 
       <PageHeader title="Dashboard" subtitle="Pipeline overview across all active jobs" />
 
+      {!jobsError && failedFigureQueries.length > 0 && (
+        <FormAlert
+          tone="warn"
+          className="mb-6"
+          action={
+            <button type="button" onClick={retryFailedFigures} className="text-[13px] font-semibold underline">
+              Retry
+            </button>
+          }
+        >
+          Some figures couldn&apos;t load and are left out of the totals below.
+        </FormAlert>
+      )}
+
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <SummaryCard
@@ -337,7 +359,10 @@ export default function DashboardPage() {
               </Link>
             }
           >
-            {jobList.length === 0 ? (
+            {jobsError ? (
+              // Not "No jobs yet": the list failed to load, and the banner above says so.
+              <p className="px-5 py-10 text-center text-[13px] text-ink-muted">Jobs couldn&apos;t be loaded.</p>
+            ) : jobList.length === 0 ? (
               <EmptyState
                 icon={<Briefcase size={22} />}
                 title="No jobs yet"

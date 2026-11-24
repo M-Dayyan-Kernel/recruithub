@@ -30,6 +30,7 @@ import {
   isScreeningReportGenerating,
 } from '@/components/screening/screeningUtils'
 import { parseTranscript } from '@/lib/transcript'
+import { errorMessage } from '@/lib/errorMessage'
 
 function formatCallDate(iso: string): string {
   try {
@@ -177,7 +178,7 @@ function ScreeningActionBar({
       invalidate()
       toast.success('Decision saved')
     },
-    onError: () => toast.error('Failed to update decision'),
+    onError: (err) => toast.error(errorMessage(err, 'Failed to update decision')),
   })
 
   const [confirmReject, setConfirmReject] = useState(false)

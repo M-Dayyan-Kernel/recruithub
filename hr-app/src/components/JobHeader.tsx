@@ -23,6 +23,8 @@ import { cn } from '@/lib/utils'
 import { jobStatusErrorToast, jobStatusToast } from '@/lib/jobActionMessages'
 import { workArrangementLabel } from '@/lib/screeningQuestions'
 import { seniorityLabel } from '@/lib/seniority'
+import { errorMessage } from '@/lib/errorMessage'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 const DESCRIPTION_PREVIEW_LINES = 3
 
@@ -111,8 +113,10 @@ export function JobHeader({ job, showDelete = false }: Props) {
       toast.success(jobStatusToast(job.status, status))
       setShowStatusMenu(false)
     },
-    onError: (_err, status) => {
-      toast.error(jobStatusErrorToast(job.status, status))
+    onError: (err, status) => {
+      // Closing runs from its confirm dialog, which shows the refusal in place.
+      if (status === 'closed') return
+      toast.error(errorMessage(err, jobStatusErrorToast(job.status, status)))
     },
   })
 
@@ -124,16 +128,40 @@ export function JobHeader({ job, showDelete = false }: Props) {
       toast.success('Job deleted')
       navigate('/jobs')
     },
-    onError: (err: Error) => {
-      toast.error(err.message || 'Failed to delete job')
-    },
+    // Refusals show inside the delete dialog (runConfirmed), not as a toast behind it.
   })
 
-  const handleDelete = () => {
-    const confirmed = window.confirm(
-      `Delete "${job.title}"? This will permanently remove the job and all candidates, shortlist results, screening calls, and interviews.`,
-    )
-    if (confirmed) deleteMutation.mutate()
+  // Closing and deleting ask first, in the app's own dialog, which also shows the server's
+  // reason in place if it refuses. Pause and reactivate are one click: both are undone the
+  // same way they were done.
+  const [confirming, setConfirming] = useState<'close' | 'delete' | null>(null)
+  const [confirmError, setConfirmError] = useState<string | null>(null)
+
+  const openConfirm = (kind: 'close' | 'delete') => {
+    setShowStatusMenu(false)
+    setConfirmError(null)
+    setConfirming(kind)
+  }
+
+  const closeConfirm = () => {
+    setConfirming(null)
+    setConfirmError(null)
+  }
+
+  const handleDelete = () => openConfirm('delete')
+
+  const runConfirmed = () => {
+    if (confirming === 'delete') {
+      deleteMutation.mutate(undefined, {
+        onError: (err) => setConfirmError(errorMessage(err, 'Failed to delete job')),
+      })
+    } else if (confirming === 'close') {
+      statusMutation.mutate('closed', {
+        onSuccess: closeConfirm,
+        onError: (err) =>
+          setConfirmError(errorMessage(err, jobStatusErrorToast(job.status, 'closed'))),
+      })
+    }
   }
 
   const isActionPending =
@@ -217,7 +245,9 @@ export function JobHeader({ job, showDelete = false }: Props) {
                         key={opt.value}
                         type="button"
                         role="menuitem"
-                        onClick={() => statusMutation.mutate(opt.value)}
+                        onClick={() =>
+                          opt.value === 'closed' ? openConfirm('close') : statusMutation.mutate(opt.value)
+                        }
                         disabled={isActionPending}
                         className={cn(menuItem, 'pl-[2.4rem] text-ink hover:bg-surface-2')}
                       >
@@ -283,6 +313,31 @@ export function JobHeader({ job, showDelete = false }: Props) {
 
       {editOpen && (
         <EditJobModal job={job} open={editOpen} onClose={() => setEditOpen(false)} />
+      )}
+
+      {confirming === 'close' && (
+        <ConfirmDialog
+          title={`Close "${job.title}"?`}
+          body="It moves to Archived and stops appearing in Jobs. You can reactivate it from Archived at any time."
+          confirmLabel="Close job"
+          tone="accent"
+          busy={statusMutation.isPending}
+          error={confirmError}
+          onConfirm={runConfirmed}
+          onClose={closeConfirm}
+        />
+      )}
+
+      {confirming === 'delete' && (
+        <ConfirmDialog
+          title={`Delete "${job.title}"?`}
+          body="This permanently removes the job and all its candidates, shortlist results, screening calls and interviews. It cannot be undone."
+          confirmLabel="Delete job"
+          busy={deleteMutation.isPending}
+          error={confirmError}
+          onConfirm={runConfirmed}
+          onClose={closeConfirm}
+        />
       )}
     </>
   )

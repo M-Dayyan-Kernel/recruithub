@@ -22,6 +22,8 @@ import {
   WORKFLOW_PRIMARY_BUTTON_CLASS,
 } from '@/lib/workflow'
 import { useAuth } from '@/context/AuthContext'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { errorMessage } from '@/lib/errorMessage'
 import {
   PASSWORD_HINT,
   PASSWORD_MAX_LENGTH,
@@ -110,13 +112,21 @@ export default function UsersPage() {
     onError: (err: Error) => toast.error(err.message || 'Failed to update user'),
   })
 
+  // Deleting a user or revoking an invite asks in the app's dialog (it was the browser's pop-up).
+  const [pendingRemoval, setPendingRemoval] = useState<
+    { kind: 'user'; user: User } | { kind: 'invite'; invite: InviteListItem } | null
+  >(null)
+  const [removalError, setRemovalError] = useState<string | null>(null)
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/api/users/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
       toast.success('User deleted')
+      setPendingRemoval(null)
     },
-    onError: (err: Error) => toast.error(err.message || 'Failed to delete user'),
+    // Shown inside the confirm dialog, which stays open with the server's reason.
+    onError: (err: Error) => setRemovalError(errorMessage(err, 'Failed to delete user')),
   })
 
   const revokeInviteMutation = useMutation({
@@ -124,24 +134,24 @@ export default function UsersPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user-invites'] })
       toast.success('Invite revoked')
+      setPendingRemoval(null)
     },
-    onError: (err: Error) => toast.error(err.message || 'Failed to revoke invite'),
+    onError: (err: Error) => setRemovalError(errorMessage(err, 'Failed to revoke invite')),
   })
 
   function onDelete(user: User) {
-    if (
-      !window.confirm(
-        `Delete ${user.full_name} (${user.email})? This cannot be undone.`,
-      )
-    ) {
-      return
-    }
-    deleteMutation.mutate(user.id)
+    setRemovalError(null)
+    setPendingRemoval({ kind: 'user', user })
   }
 
   function onRevokeInvite(invite: InviteListItem) {
-    if (!window.confirm(`Revoke invite for ${invite.email}?`)) return
-    revokeInviteMutation.mutate(invite.id)
+    setRemovalError(null)
+    setPendingRemoval({ kind: 'invite', invite })
+  }
+
+  function closeRemoval() {
+    setPendingRemoval(null)
+    setRemovalError(null)
   }
 
   async function copyUrl(url: string) {
@@ -499,6 +509,30 @@ export default function UsersPage() {
           </table>
         </div>
       </div>
+
+      {pendingRemoval && (
+        <ConfirmDialog
+          title={
+            pendingRemoval.kind === 'user'
+              ? `Delete ${pendingRemoval.user.full_name}?`
+              : `Revoke the invite for ${pendingRemoval.invite.email}?`
+          }
+          body={
+            pendingRemoval.kind === 'user'
+              ? `${pendingRemoval.user.email} loses access to this organization. This cannot be undone.`
+              : 'The invite link stops working. You can send a new invite later.'
+          }
+          confirmLabel={pendingRemoval.kind === 'user' ? 'Delete user' : 'Revoke invite'}
+          busy={deleteMutation.isPending || revokeInviteMutation.isPending}
+          error={removalError}
+          onConfirm={() => {
+            setRemovalError(null)
+            if (pendingRemoval.kind === 'user') deleteMutation.mutate(pendingRemoval.user.id)
+            else revokeInviteMutation.mutate(pendingRemoval.invite.id)
+          }}
+          onClose={closeRemoval}
+        />
+      )}
     </div>
   )
 }

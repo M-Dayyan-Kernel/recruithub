@@ -5,7 +5,9 @@ import toast from 'react-hot-toast'
 import { useAuth } from '@/context/AuthContext'
 import AuthLayout, { AUTH_BUTTON_CLASS, AUTH_INPUT_CLASS } from '@/components/auth/AuthLayout'
 import { PasswordInput } from '@/components/PasswordInput'
-import { RequiredMark } from '@/components/FieldError'
+import { FieldError, RequiredMark } from '@/components/FieldError'
+import { FormAlert } from '@/components/ui/FormAlert'
+import { errorMessage } from '@/lib/errorMessage'
 import {
   PASSWORD_HINT,
   PASSWORD_MAX_LENGTH,
@@ -34,6 +36,16 @@ function isPdfFile(file: File): boolean {
   )
 }
 
+type SignupField = 'org' | 'name' | 'email' | 'password' | 'gst'
+const SIGNUP_FIELDS: SignupField[] = ['org', 'name', 'email', 'password', 'gst']
+const SIGNUP_FIELD_IDS: Record<SignupField, string> = {
+  org: 'org',
+  name: 'fullName',
+  email: 'email',
+  password: 'password',
+  gst: 'gst',
+}
+
 export default function SignupPage() {
   const { signup, isAuthenticated, isLoading } = useAuth()
   const navigate = useNavigate()
@@ -47,6 +59,19 @@ export default function SignupPage() {
   const [gstDocument, setGstDocument] = useState<File | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  // Every problem shows under the field it belongs to, all at once, instead of one toast at a
+  // time; a refusal from the server (an organization that already exists) sits above the button.
+  const [errors, setErrors] = useState<Partial<Record<SignupField, string>>>({})
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const clearError = (field: SignupField) => {
+    setErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev))
+    setFormError(null)
+  }
+  const invalid = (field: SignupField) => ({
+    'aria-invalid': errors[field] ? true : undefined,
+    'aria-describedby': errors[field] ? `${field}-error` : undefined,
+  })
 
   if (isLoading) {
     return (
@@ -66,13 +91,14 @@ export default function SignupPage() {
       return
     }
     if (!isPdfFile(file)) {
-      toast.error('GST document must be a PDF')
+      setErrors((prev) => ({ ...prev, gst: 'GST document must be a PDF' }))
       return
     }
     if (file.size > MAX_GST_BYTES) {
-      toast.error('GST document must be under 10 MB')
+      setErrors((prev) => ({ ...prev, gst: 'GST document must be under 10 MB' }))
       return
     }
+    clearError('gst')
     setGstDocument(file)
   }
 
@@ -97,21 +123,23 @@ export default function SignupPage() {
 
     // Mirrors the backend SignupRequest schema so invalid input never leaves the browser.
     // HTML5 type=email accepts hosts without a TLD (e.g. user@localhost / user@itcart).
-    const fieldError =
-      validateOrgName(organizationName) ??
-      validateName(fullName, 'Your name') ??
-      validateEmail(email, 'Work email') ??
-      validatePassword(password)
-    if (fieldError) {
-      toast.error(fieldError)
-      return
+    const next: Partial<Record<SignupField, string>> = {
+      org: validateOrgName(organizationName) ?? undefined,
+      name: validateName(fullName, 'Your name') ?? undefined,
+      email: validateEmail(email, 'Work email') ?? undefined,
+      password: validatePassword(password) ?? undefined,
+      gst: !gstDocument
+        ? 'GST document (PDF) is required'
+        : !isPdfFile(gstDocument)
+          ? 'GST document must be a PDF'
+          : undefined,
     }
-    if (!gstDocument) {
-      toast.error('GST document (PDF) is required')
-      return
-    }
-    if (!isPdfFile(gstDocument)) {
-      toast.error('GST document must be a PDF')
+    setErrors(next)
+    setFormError(null)
+    const firstBad = SIGNUP_FIELDS.find((f) => next[f])
+    if (firstBad || !gstDocument) {
+      // Put the cursor on the first problem so a long form does not hide it below the fold.
+      if (firstBad) document.getElementById(SIGNUP_FIELD_IDS[firstBad])?.focus()
       return
     }
     const emailNorm = email.trim()
@@ -128,7 +156,7 @@ export default function SignupPage() {
       toast.success(result.message)
       navigate('/login', { replace: true })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Signup failed')
+      setFormError(errorMessage(err, 'Signup failed'))
     } finally {
       setSubmitting(false)
     }
@@ -142,7 +170,7 @@ export default function SignupPage() {
       switchLabel="Sign in"
       switchTo="/login"
     >
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form onSubmit={onSubmit} noValidate className="space-y-4">
           <div>
             <label htmlFor="org" className="mb-1.5 block text-[13px] font-semibold text-slate-700">
               Organization name
@@ -153,10 +181,15 @@ export default function SignupPage() {
               required
               maxLength={ORG_NAME_MAX_LENGTH}
               value={organizationName}
-              onChange={(e) => setOrganizationName(e.target.value)}
+              onChange={(e) => {
+                setOrganizationName(e.target.value)
+                clearError('org')
+              }}
+              {...invalid('org')}
               className={AUTH_INPUT_CLASS}
               placeholder="Acme Corp"
             />
+            <FieldError id="org-error" message={errors.org} />
           </div>
           <div>
             <label htmlFor="fullName" className="mb-1.5 block text-[13px] font-semibold text-slate-700">
@@ -168,10 +201,15 @@ export default function SignupPage() {
               required
               maxLength={PERSON_NAME_MAX_LENGTH}
               value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
+              onChange={(e) => {
+                setFullName(e.target.value)
+                clearError('name')
+              }}
+              {...invalid('name')}
               className={AUTH_INPUT_CLASS}
               placeholder="Jane Doe"
             />
+            <FieldError id="name-error" message={errors.name} />
           </div>
           <div>
             <label htmlFor="email" className="mb-1.5 block text-[13px] font-semibold text-slate-700">
@@ -184,10 +222,15 @@ export default function SignupPage() {
               autoComplete="email"
               required
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value)
+                clearError('email')
+              }}
+              {...invalid('email')}
               className={AUTH_INPUT_CLASS}
               placeholder="you@company.com"
             />
+            <FieldError id="email-error" message={errors.email} />
           </div>
           <div>
             <label htmlFor="password" className="mb-1.5 block text-[13px] font-semibold text-slate-700">
@@ -201,11 +244,19 @@ export default function SignupPage() {
               minLength={PASSWORD_MIN_LENGTH}
               maxLength={PASSWORD_MAX_LENGTH}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                clearError('password')
+              }}
+              {...invalid('password')}
               className={AUTH_INPUT_CLASS}
               placeholder="••••••••"
             />
-            <p className="mt-1.5 text-xs text-slate-500">{PASSWORD_HINT}</p>
+            {errors.password ? (
+              <FieldError id="password-error" message={errors.password} />
+            ) : (
+              <p className="mt-1.5 text-xs text-slate-500">{PASSWORD_HINT}</p>
+            )}
           </div>
 
           <div>
@@ -284,6 +335,7 @@ export default function SignupPage() {
                 <p className="mt-1 text-xs text-slate-500">Required for organization verification</p>
               </label>
             )}
+            <FieldError id="gst-error" message={errors.gst} />
           </div>
 
           <div>
@@ -299,6 +351,7 @@ export default function SignupPage() {
               placeholder="e.g. CIN / registration no."
             />
           </div>
+          {formError && <FormAlert>{formError}</FormAlert>}
           <button type="submit" disabled={submitting} className={`${AUTH_BUTTON_CLASS} !mt-6`}>
             {submitting && <Loader2 size={16} className="animate-spin" />}
             {submitting ? 'Submitting…' : 'Submit for verification'}

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, Mail, Plus, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import type { EmailTemplatesResponse } from '@/types/api'
 import { BTN_GHOST, BTN_PRIMARY, Badge, Card, INPUT } from '@/components/ui/Surface'
 import {
@@ -287,9 +288,15 @@ export function EmailTemplatesSettings() {
     })
   }
 
+  // Switching templates with unsaved edits asks in the app's dialog (it was the browser's pop-up).
+  const [pendingSwitch, setPendingSwitch] = useState<string | null>(null)
+
   const select = (id: string) => {
     if (id === activeId) return
-    if (dirty && !window.confirm('You have unsaved changes. Discard them?')) return
+    if (dirty) {
+      setPendingSwitch(id)
+      return
+    }
     setActiveId(id)
   }
 
@@ -476,6 +483,20 @@ export function EmailTemplatesSettings() {
           </div>
         </Card>
       </div>
+
+      {pendingSwitch && (
+        <ConfirmDialog
+          title="Discard your changes?"
+          body="Your edits to this template have not been saved. Switching templates throws them away."
+          confirmLabel="Discard changes"
+          cancelLabel="Keep editing"
+          onConfirm={() => {
+            setActiveId(pendingSwitch)
+            setPendingSwitch(null)
+          }}
+          onClose={() => setPendingSwitch(null)}
+        />
+      )}
     </div>
   )
 }

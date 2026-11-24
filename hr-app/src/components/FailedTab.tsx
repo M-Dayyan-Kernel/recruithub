@@ -7,6 +7,7 @@ import { BackendError } from '@/components/BackendError'
 import { RemoveResumeButton } from '@/components/RemoveResumeButton'
 import { BTN_PRIMARY, BTN_SECONDARY } from '@/components/ui/Surface'
 import { WORKFLOW_CARD_CLASS, formatUploadedAt, resumeDisplayName } from '@/lib/workflow'
+import { errorMessage } from '@/lib/errorMessage'
 
 interface Props {
   jobId: string
@@ -33,7 +34,7 @@ export function FailedTab({ jobId, candidates, isLoading = false, isError = fals
     mutationFn: (candidateId: string) =>
       api.post(`/api/jobs/${jobId}/candidates/${candidateId}/retry-processing`),
     onSuccess: () => toast.success('Re-queued for AI review'),
-    onError: () => toast.error('Failed to retry'),
+    onError: (err) => toast.error(errorMessage(err, 'Failed to retry')),
     onSettled: refresh,
   })
 

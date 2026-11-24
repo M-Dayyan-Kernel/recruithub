@@ -16,6 +16,7 @@ import {
 import { isPlaceholderEmail } from '@/lib/validation'
 import { WORKFLOW_INPUT_CLASS } from '@/lib/workflow'
 import { FieldError, RequiredMark } from '@/components/FieldError'
+import { FormAlert } from '@/components/ui/FormAlert'
 import { cn } from '@/lib/utils'
 
 // Rejecting is an action (below), not a label: it also cancels calls and links.
@@ -57,13 +58,44 @@ export function CandidateOverviewForm({ profile }: Props) {
   const [form, setForm] = useState<CandidateFormValues>(() => candidateFormFromProfile(profile))
   const [errors, setErrors] = useState<CandidateFormErrors>({})
   const formRef = useRef<HTMLFormElement>(null)
+  // The profile values the form was last filled from. Anything typed since is the user's.
+  const baseline = useRef<CandidateFormValues>(form)
+  const shownId = useRef(profile.id)
+  // A newer profile arrived while the user had unsaved edits; it waits until they ask for it.
+  const [newerProfile, setNewerProfile] = useState(false)
+  const formRefValue = useRef(form)
+  formRefValue.current = form
 
-  // A refreshed profile (after a save, or navigating between candidates)
-  // replaces the form, so stale messages must go with the old values.
+  // A reloaded profile used to replace the form outright, which wiped anything half-typed
+  // (it reloads after a Move stage on this page, or a reconnect). Now it only replaces the
+  // form when that loses nothing: another candidate, no unsaved edits, or our own save
+  // coming back with exactly what is in the form.
   useEffect(() => {
-    setForm(candidateFormFromProfile(profile))
-    setErrors({})
+    const incoming = candidateFormFromProfile(profile)
+    const current = formRefValue.current
+    const sameValues = (a: CandidateFormValues, b: CandidateFormValues) =>
+      JSON.stringify(a) === JSON.stringify(b)
+    const otherCandidate = profile.id !== shownId.current
+    const unchanged = sameValues(current, baseline.current)
+
+    if (otherCandidate || unchanged || sameValues(incoming, current)) {
+      shownId.current = profile.id
+      baseline.current = incoming
+      setForm(incoming)
+      setErrors({})
+      setNewerProfile(false)
+    } else if (!sameValues(incoming, baseline.current)) {
+      setNewerProfile(true)
+    }
   }, [profile])
+
+  const loadLatest = () => {
+    const incoming = candidateFormFromProfile(profile)
+    baseline.current = incoming
+    setForm(incoming)
+    setErrors({})
+    setNewerProfile(false)
+  }
 
   const emailIsMissing = isPlaceholderEmail(profile.email)
 
@@ -102,6 +134,20 @@ export function CandidateOverviewForm({ profile }: Props) {
         </span>{' '}
         Required
       </p>
+
+      {newerProfile && (
+        <FormAlert
+          tone="warn"
+          action={
+            <button type="button" onClick={loadLatest} className="text-[13px] font-semibold underline">
+              Load the latest values
+            </button>
+          }
+        >
+          This profile was updated while you were editing. Your changes are kept until you save
+          or load the latest values.
+        </FormAlert>
+      )}
 
       {emailIsMissing && !form.email && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">

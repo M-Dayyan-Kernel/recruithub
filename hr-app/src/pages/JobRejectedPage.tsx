@@ -12,6 +12,7 @@ import type {
 } from '@/types/api'
 import type { JobOutletContext } from '@/components/JobLayout'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { errorMessage } from '@/lib/errorMessage'
 import { BTN_PRIMARY, BTN_SECONDARY } from '@/components/ui/Surface'
 import { REJECTED_FROM_LABEL, REJECTED_LABEL } from '@/lib/stageLabels'
 import StageHeader from '@/components/stage/StageHeader'
@@ -94,11 +95,19 @@ export default function JobRejectedPage() {
     }
   }
 
+  // One email asks first, like the bulk send: it cannot be taken back, and it ends any chance of
+  // reconsidering the candidate. A refusal shows inside the dialog.
+  const [confirmOne, setConfirmOne] = useState<RejectedCandidate | null>(null)
+  const [oneError, setOneError] = useState<string | null>(null)
+
   const emailOne = useMutation({
     mutationFn: (id: string) => send([id]),
     onMutate: (id) => setBusyId(id),
-    onSuccess: reportEmail,
-    onError: (err: Error) => toast.error(err.message || 'Could not send the email'),
+    onSuccess: (out) => {
+      reportEmail(out)
+      setConfirmOne(null)
+    },
+    onError: (err: Error) => setOneError(errorMessage(err, 'Could not send the email')),
     onSettled: () => {
       setBusyId(null)
       refresh()
@@ -227,7 +236,10 @@ export default function JobRejectedPage() {
                             <button
                               type="button"
                               disabled={busy}
-                              onClick={() => emailOne.mutate(c.candidate_id)}
+                              onClick={() => {
+                                setOneError(null)
+                                setConfirmOne(c)
+                              }}
                               className={BTN_SECONDARY}
                             >
                               {busy && emailOne.isPending ? (
@@ -262,6 +274,29 @@ export default function JobRejectedPage() {
             </table>
           </div>
         </>
+      )}
+
+      {confirmOne && (
+        <ConfirmDialog
+          title={`Email ${confirmOne.candidate_name ?? 'this candidate'}?`}
+          body={
+            <p>
+              They get the rejection email now. This is final: once emailed, they cannot be
+              reconsidered.
+            </p>
+          }
+          confirmLabel="Send email"
+          busy={emailOne.isPending}
+          error={oneError}
+          onConfirm={() => {
+            setOneError(null)
+            emailOne.mutate(confirmOne.candidate_id)
+          }}
+          onClose={() => {
+            setConfirmOne(null)
+            setOneError(null)
+          }}
+        />
       )}
 
       {confirmAll && (
