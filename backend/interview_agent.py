@@ -45,24 +45,28 @@ from app.prompts.interview import (
     build_default_interview_prompt,
     build_interview_structure,
     build_interview_system_prompt,
+    build_noisy_turn_instruction,
     build_start_interview_instruction,
     format_projects,
 )
 from app.core.config_loader import config
+from app.services.interview_turn_guard import UserTurnWatchdog, commit_openai_stt_buffer
 
 logger = logging.getLogger("interview-agent")
 logging.basicConfig(level=logging.INFO)
 
 # ---------------------------------------------------------------------------
-# Noise cancellation — ai_coustics plugin (installed; requires AIC_API_KEY for
-# production-quality enhancement; runs in offline/trial mode without one).
+# Noise cancellation — ai_coustics plugin. On LiveKit Cloud it authenticates and bills
+# through the LiveKit project (QUAIL_L is included free); AIC_API_KEY is only for a direct
+# ai-coustics licence when self-hosting. The plugin was once missing from the dependency
+# list and this import failed silently on every build, so startup now refuses to run with
+# noise cancellation enabled but unavailable (see _validate_agent_env).
 # ---------------------------------------------------------------------------
 try:
     from livekit.plugins import ai_coustics
     _AIC_AVAILABLE = True
 except ImportError:
     _AIC_AVAILABLE = False
-    logger.warning("livekit-plugins-ai-coustics not installed — noise cancellation disabled")
 
 AGENT_NAME = config.livekit.agent_name
 
@@ -79,6 +83,19 @@ def _validate_agent_env() -> None:
             "Interview agent cannot start — set in backend/.env: "
             + ", ".join(missing)
             + ". Then run: python interview_agent.py dev"
+        )
+    if config.livekit.audio.noise_cancellation.enabled and not _AIC_AVAILABLE:
+        raise RuntimeError(
+            "Interview agent cannot start — noise cancellation is enabled in config.yaml "
+            "(livekit.audio.noise_cancellation) but livekit-plugins-ai-coustics is not "
+            "installed. Install backend dependencies, or set enabled: false."
+        )
+    nc_cfg = config.livekit.audio.noise_cancellation
+    if nc_cfg.enabled and not hasattr(ai_coustics.EnhancerModel, nc_cfg.model):
+        raise RuntimeError(
+            f"Interview agent cannot start — unknown ai-coustics model {nc_cfg.model!r} in "
+            "config.yaml (livekit.audio.noise_cancellation.model). Valid: "
+            + ", ".join(m.name for m in ai_coustics.EnhancerModel)
         )
 
 
@@ -294,6 +311,7 @@ async def interview_session(ctx: JobContext):
     transcript_lines: list[str] = []
     transcript_segments: list[dict] = []
     candidate_speech_start: float | None = None
+    turn_watchdog: UserTurnWatchdog | None = None
 
     time_anchor = (
         await _load_session_anchor(session_id) if session_id else None
@@ -366,34 +384,26 @@ async def interview_session(ctx: JobContext):
         audio_cfg = config.livekit.audio
         nc_cfg = audio_cfg.noise_cancellation
         if _AIC_AVAILABLE and nc_cfg.enabled:
+            # Model name is validated at startup. Errors here are logged, not raised: an
+            # interview without noise cancellation is still better than no interview.
             try:
-                aic_api_key = os.environ.get("AIC_API_KEY")
+                aic_api_key = (os.environ.get("AIC_API_KEY") or "").strip()
                 aic_auth = (
-                    ai_coustics.Auth(api_key=aic_api_key)
+                    ai_coustics.Auth.ai_coustics_api(license_key=aic_api_key)
                     if aic_api_key
-                    else None
+                    else ai_coustics.Auth.livekit_cloud()
                 )
-                enhancer_model = getattr(
-                    ai_coustics.EnhancerModel,
-                    nc_cfg.model,
-                    ai_coustics.EnhancerModel.ROOK_S,
-                )
-                noise_cancel = ai_coustics.AICousticsAudioEnhancer(
-                    model=enhancer_model,
-                    vad_settings=ai_coustics.VadSettings(
-                        speech_hold_duration=None,
-                        sensitivity=None,
-                        minimum_speech_duration=None,
-                    ),
+                noise_cancel = ai_coustics.audio_enhancement(
+                    model=getattr(ai_coustics.EnhancerModel, nc_cfg.model),
                     auth=aic_auth,
                 )
                 logger.info(
                     "ai_coustics noise cancellation enabled (model=%s, auth=%s)",
                     nc_cfg.model,
-                    "api_key" if aic_api_key else "offline/trial",
+                    "ai_coustics_api" if aic_api_key else "livekit_cloud",
                 )
             except Exception as exc:
-                logger.warning(
+                logger.error(
                     "Could not initialise ai_coustics enhancer: %s — proceeding without noise cancellation",
                     exc,
                 )
@@ -407,13 +417,26 @@ async def interview_session(ctx: JobContext):
         )
 
         # Realtime STT with server VAD — whisper-1 batch mode often stalls after greeting.
+        # There is no local VAD, so this server VAD alone decides when a turn ends; the
+        # noise reduction and threshold are what keep background noise from holding it open.
         turn = config.livekit.turn_handling
+        stt_cfg = config.livekit.stt
+        stt_kwargs = {}
+        if stt_cfg.noise_reduction:
+            stt_kwargs["noise_reduction_type"] = stt_cfg.noise_reduction
+        stt = lk_openai.STT(
+            model=stt_cfg.name,
+            use_realtime=stt_cfg.realtime,
+            api_key=openai_key,
+            turn_detection={
+                "threshold": stt_cfg.vad_threshold,
+                "prefix_padding_ms": stt_cfg.vad_prefix_padding_ms,
+                "silence_duration_ms": stt_cfg.vad_silence_duration_ms,
+            },
+            **stt_kwargs,
+        )
         session = AgentSession(
-            stt=lk_openai.STT(
-                model=config.livekit.stt.name,
-                use_realtime=config.livekit.stt.realtime,
-                api_key=openai_key,
-            ),
+            stt=stt,
             tts=lk_openai.TTS(
                 model=config.livekit.tts.name,
                 voice=config.livekit.tts.voice,
@@ -445,10 +468,57 @@ async def interview_session(ctx: JobContext):
 
         session.on('conversation_item_added', _on_conversation_item)
 
+        forced_turns = 0
+
+        async def _on_turn_stalled(elapsed: float) -> None:
+            nonlocal forced_turns
+            if session.agent_state in ("initializing", "thinking", "speaking"):
+                # A reply is already on its way; forcing now would talk over it. The
+                # watchdog re-fires after another cap if the turn is still open.
+                logger.info(
+                    "Candidate turn open %.0fs but agent is %s — not forcing",
+                    elapsed,
+                    session.agent_state,
+                )
+                return
+            forced_turns += 1
+            logger.warning(
+                "Candidate turn still open after %.0fs (likely background noise) — "
+                "forcing end of turn #%d",
+                elapsed,
+                forced_turns,
+            )
+            # Start waiting for the transcript *before* committing, so the transcript
+            # OpenAI sends back is the one this waits for. skip_reply: the reply below
+            # carries the noise-aware instruction instead.
+            pending = session.commit_user_turn(
+                transcript_timeout=turn.stalled_turn_transcript_timeout_seconds,
+                skip_reply=True,
+            )
+            streams = await commit_openai_stt_buffer(stt)
+            try:
+                heard = await pending
+            except Exception as exc:
+                logger.warning("Forced turn commit failed: %s", exc)
+                heard = ""
+            logger.info(
+                "Forced turn closed: streams_committed=%d transcript_chars=%d",
+                streams,
+                len(heard),
+            )
+            session.generate_reply(
+                instructions=build_noisy_turn_instruction(first_time=forced_turns == 1)
+            )
+
+        turn_watchdog = UserTurnWatchdog(turn.max_user_turn_seconds, _on_turn_stalled)
+
         def _on_user_state_changed(ev) -> None:
             nonlocal candidate_speech_start
             if getattr(ev, "new_state", None) == "speaking":
                 candidate_speech_start = ev.created_at
+                turn_watchdog.user_started()
+            else:
+                turn_watchdog.user_stopped()
 
         def _on_user_transcribed(ev) -> None:
             nonlocal candidate_speech_start, time_anchor
@@ -508,6 +578,8 @@ async def interview_session(ctx: JobContext):
         logger.exception("Interview agent session error room=%s: %s", room_name, exc)
         raise
     finally:
+        if turn_watchdog is not None:
+            turn_watchdog.close()
         logger.info(
             'Room closed — transcript has %d lines, %d segments for session=%s',
             len(transcript_lines),

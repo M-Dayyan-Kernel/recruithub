@@ -67,6 +67,35 @@ class ConfigLoaderTests(unittest.TestCase):
         self.assertEqual(cfg.logging.backup_count, 5)
         self.assertTrue(cfg.DATABASE_URL)
 
+    def test_shipped_config_turn_taking_tunables(self) -> None:
+        # These values are what keep background noise from stalling interview turns.
+        cfg = load_config(reload=True)
+        self.assertEqual(cfg.livekit.stt.noise_reduction, "far_field")
+        self.assertEqual(cfg.livekit.stt.vad_threshold, 0.6)
+        self.assertEqual(cfg.livekit.stt.vad_silence_duration_ms, 350)
+        self.assertEqual(cfg.livekit.turn_handling.max_user_turn_seconds, 90)
+        self.assertTrue(cfg.livekit.audio.noise_cancellation.enabled)
+        self.assertEqual(cfg.livekit.audio.noise_cancellation.model, "QUAIL_L")
+
+    def test_stt_vad_tunables_validated(self) -> None:
+        stt = {"name": "gpt-test-stt"}
+        config_loader.LiveKitSttConfig.model_validate({**stt, "noise_reduction": None})
+        for bad in (
+            {"vad_threshold": 1.0},
+            {"vad_threshold": 0},
+            {"noise_reduction": "studio"},
+            {"vad_silence_duration_ms": 50},
+        ):
+            with self.subTest(bad=bad), self.assertRaises(ValidationError):
+                config_loader.LiveKitSttConfig.model_validate({**stt, **bad})
+
+    def test_max_user_turn_has_floor(self) -> None:
+        # A cap shorter than a real long answer would cut candidates off mid-answer.
+        with self.assertRaises(ValidationError):
+            config_loader.LiveKitTurnHandlingConfig.model_validate(
+                {"max_user_turn_seconds": 10}
+            )
+
     def test_config_path_env_override(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "custom.yaml"

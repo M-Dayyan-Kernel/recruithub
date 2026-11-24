@@ -24,6 +24,9 @@ dependencies = [
     "google-auth>=2.29.0",
     "httpx==0.27.0",
     "livekit-agents[openai]>=1.6.2",
+    # Noise cancellation for the interview agent (QUAIL_L is included free on LiveKit Cloud).
+    # It was configured but never declared, so every build silently ran without it.
+    "livekit-plugins-ai-coustics>=0.3.6,<0.4",
     "livekit-api>=0.7.0",
     "openai>=2.36.0,<3.0.0",
     # kombu is Celery's messaging library. Celery 5.4.0 only asks for kombu>=5.3.4,<6.0 and the

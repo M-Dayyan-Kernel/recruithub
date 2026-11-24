@@ -153,3 +153,26 @@ def build_candidate_greeting(candidate_name: str) -> str:
 
 def build_start_interview_instruction(greeting: str) -> str:
     return f"Start the interview now. Begin with this exact greeting: '{greeting}'"
+
+
+def build_noisy_turn_instruction(*, first_time: bool) -> str:
+    """Reply instruction used when the agent had to force a candidate turn closed.
+
+    A turn is forced closed only when the speech detector kept hearing "speech" past the
+    configured cap, which in practice means background noise (TV, other voices), so the
+    transcript may be the candidate's real answer, noise words, or empty.
+    """
+    base = (
+        "The candidate's microphone has been picking up continuous background sound, so "
+        "their last turn was closed automatically. If their latest message is a coherent "
+        "answer, respond to it as you normally would. If it is empty, garbled, or clearly "
+        "unrelated speech (for example a TV or other people), do not guess what they meant "
+        "or score it; ask them to answer the question again."
+    )
+    if first_time:
+        return (
+            f"{base} Before continuing, briefly and politely mention that you are hearing a "
+            "lot of background noise and ask if they could move somewhere quieter or reduce "
+            "the noise around them. Keep that to one sentence."
+        )
+    return f"{base} Do not mention the background noise again."
