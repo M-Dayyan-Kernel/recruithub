@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -66,6 +66,13 @@ class LiveKitSttConfig(BaseModel):
     provider: str = "openai"
     name: str
     realtime: bool = True
+    # With no local VAD, OpenAI's server VAD alone decides when the candidate has finished.
+    # Its library defaults (0.5 threshold, no noise reduction) let steady background noise
+    # hold a turn open for minutes. far_field suits built-in laptop mics.
+    noise_reduction: Literal["near_field", "far_field"] | None = "far_field"
+    vad_threshold: float = Field(default=0.6, gt=0, lt=1)
+    vad_prefix_padding_ms: int = Field(default=600, ge=0)
+    vad_silence_duration_ms: int = Field(default=350, ge=100)
 
 
 class LiveKitTtsConfig(BaseModel):
@@ -80,13 +87,20 @@ class LiveKitTurnHandlingConfig(BaseModel):
     endpointing_min_delay: float = 0.5
     preemptive_tts: bool = True
     interruption_enabled: bool = True
+    # Hard cap on one candidate turn. Background noise can keep the server VAD in "speech"
+    # indefinitely; past this the agent forces the turn closed and replies.
+    max_user_turn_seconds: float = Field(default=90.0, ge=30)
+    # How long to wait for OpenAI to transcribe the force-committed audio.
+    stalled_turn_transcript_timeout_seconds: float = Field(default=10.0, gt=0)
 
 
 class NoiseCancellationConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool = True
     provider: str = "ai_coustics"
-    model: str = "ROOK_S"
+    # QUAIL_L is tuned for STT and included free on LiveKit Cloud. Voice Focus (QUAIL_VF_*)
+    # is metered; ROOK_* is tuned for human listeners and can hurt transcription.
+    model: str = "QUAIL_L"
 
 
 class LiveKitAudioConfig(BaseModel):

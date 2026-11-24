@@ -29,6 +29,21 @@ If tenant `livekit_url` is unset, `/start` fails loudly with **503** — do not 
 
 Multi-tenant agent credential routing is out of scope for this deploy model.
 
+## Noise cancellation and turn-taking
+
+The agent cleans candidate audio with ai-coustics (`livekit-plugins-ai-coustics`, a
+backend dependency) before it reaches OpenAI. On LiveKit Cloud it authenticates and bills
+through the LiveKit project. `QUAIL_L` is included at no extra cost; Voice Focus models
+(`QUAIL_VF_*`) are metered. `AIC_API_KEY` is optional and only needed for a direct
+ai-coustics licence (self-hosted LiveKit). The agent refuses to start if noise cancellation
+is enabled in `config.yaml` but the plugin is missing or the model name is unknown.
+
+Turn-taking is decided by OpenAI's server VAD (`livekit.stt.vad_*`, `noise_reduction`).
+Continuous background noise can hold a candidate turn open; after
+`livekit.turn_handling.max_user_turn_seconds` the agent forces the turn closed, replies,
+and asks the candidate once to reduce the noise. Look for
+`forcing end of turn` in the agent log.
+
 ## Webhook security
 
 Configure LiveKit to POST room events to:
