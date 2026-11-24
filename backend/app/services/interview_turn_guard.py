@@ -119,3 +119,34 @@ class UserTurnWatchdog:
             raise
         except Exception:
             logger.exception("Stalled-turn handler failed")
+
+
+async def await_through_stray_cancel(aw: Awaitable[Any], *, label: str) -> bool:
+    """Await `aw`, surviving a CancelledError that LiveKit leaks into the caller.
+
+    `AgentSession.wait_for_idle()` waits on LiveKit's end-of-turn task through
+    `asyncio.shield(...)`, and LiveKit cancels and replaces that task whenever the candidate
+    speaks again or a new final transcript arrives. Awaiting a task that someone else
+    cancelled raises CancelledError in *our* coroutine, which `except Exception` doesn't
+    catch. That ended the interview routine right after the greeting whenever a candidate
+    talked over it, so only the first seconds of the transcript were saved and assessed
+    while the interview carried on.
+
+    `current_task().cancelling()` is 0 for such a leaked cancel and >0 when our task is
+    really being cancelled (job shutdown); only the latter is re-raised.
+
+    Returns True if `aw` completed, False if a stray cancellation was absorbed.
+    """
+    try:
+        await aw
+        return True
+    except asyncio.CancelledError:
+        task = asyncio.current_task()
+        if task is not None and task.cancelling():
+            raise
+        logger.warning(
+            "%s wait was cancelled by LiveKit turn handling (candidate spoke over it) — "
+            "continuing",
+            label,
+        )
+        return False

@@ -6,7 +6,11 @@ import asyncio
 import inspect
 import unittest
 
-from app.services.interview_turn_guard import UserTurnWatchdog, commit_openai_stt_buffer
+from app.services.interview_turn_guard import (
+    UserTurnWatchdog,
+    await_through_stray_cancel,
+    commit_openai_stt_buffer,
+)
 
 
 class _FakeWs:
@@ -127,3 +131,50 @@ class UserTurnWatchdogTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
     async def _noop(elapsed: float) -> None:
         return None
+
+
+class AwaitThroughStrayCancelTests(unittest.IsolatedAsyncioTestCase):
+    """The greeting wait must survive LiveKit cancelling its own end-of-turn task."""
+
+    async def test_returns_true_when_awaitable_completes(self) -> None:
+        self.assertTrue(await await_through_stray_cancel(asyncio.sleep(0), label="t"))
+
+    async def test_stray_cancel_is_absorbed_and_routine_keeps_running(self) -> None:
+        # Mirrors interview_session: wait_for_idle awaits shield(eou_task); LiveKit cancels
+        # eou_task when the candidate speaks again. The routine must go on to wait for the
+        # room to close instead of finalizing a seconds-long transcript.
+        eou_task = asyncio.create_task(asyncio.sleep(5))
+        room_closed = asyncio.Event()
+        finalized_after_close: list[bool] = []
+
+        async def wait_for_idle() -> None:
+            await asyncio.shield(eou_task)
+
+        async def interview_session() -> bool:
+            try:
+                with self.assertLogs("interview-agent", level="WARNING"):
+                    greeted = await await_through_stray_cancel(wait_for_idle(), label="Greeting")
+                await room_closed.wait()
+                return greeted
+            finally:
+                finalized_after_close.append(room_closed.is_set())
+
+        job = asyncio.create_task(interview_session())
+        await asyncio.sleep(0.01)
+        eou_task.cancel()
+        await asyncio.sleep(0.01)
+        self.assertFalse(job.done(), "routine ended on a stray cancellation")
+
+        room_closed.set()
+        self.assertFalse(await job)
+        self.assertEqual(finalized_after_close, [True])
+
+    async def test_real_cancellation_of_our_task_still_propagates(self) -> None:
+        async def interview_session() -> None:
+            await await_through_stray_cancel(asyncio.sleep(5), label="Greeting")
+
+        job = asyncio.create_task(interview_session())
+        await asyncio.sleep(0.01)
+        job.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await job

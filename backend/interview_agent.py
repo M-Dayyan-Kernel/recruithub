@@ -50,7 +50,11 @@ from app.prompts.interview import (
     format_projects,
 )
 from app.core.config_loader import config
-from app.services.interview_turn_guard import UserTurnWatchdog, commit_openai_stt_buffer
+from app.services.interview_turn_guard import (
+    UserTurnWatchdog,
+    await_through_stray_cancel,
+    commit_openai_stt_buffer,
+)
 
 logger = logging.getLogger("interview-agent")
 logging.basicConfig(level=logging.INFO)
@@ -550,13 +554,7 @@ async def interview_session(ctx: JobContext):
         session.on('user_state_changed', _on_user_state_changed)
         session.on('user_input_transcribed', _on_user_transcribed)
 
-        await session.generate_reply(
-            instructions=build_start_interview_instruction(greeting)
-        )
-        await session.wait_for_idle()
-
-        logger.info("Greeting completed — listening for candidate=%s", candidate_name)
-
+        # Registered before the greeting so a disconnect during it is never missed.
         room_closed = asyncio.Event()
 
         def _on_disconnected(*args):
@@ -564,7 +562,20 @@ async def interview_session(ctx: JobContext):
 
         ctx.room.on('disconnected', _on_disconnected)
 
+        async def _greet() -> None:
+            await session.generate_reply(
+                instructions=build_start_interview_instruction(greeting)
+            )
+            await session.wait_for_idle()
+
         try:
+            # Guarded: LiveKit can leak a CancelledError out of wait_for_idle when the
+            # candidate talks over the greeting, which used to end this routine and save
+            # a transcript of only the first few seconds (see await_through_stray_cancel).
+            if await await_through_stray_cancel(_greet(), label="Greeting"):
+                logger.info("Greeting completed — listening for candidate=%s", candidate_name)
+            else:
+                logger.info("Greeting interrupted — listening for candidate=%s", candidate_name)
             await room_closed.wait()
         except asyncio.CancelledError:
             pass
