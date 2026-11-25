@@ -340,3 +340,32 @@ test('the organization-wide extension switch reads as On and Off', () => {
   assert.equal(v.event, 'AI extension check (organization) changed')
   assert.ok(visible(v).includes('On') && visible(v).includes('Off'))
 })
+
+test('a deleted candidate or job is named but not linked, and marked deleted', () => {
+  const live = describeActivity(row({ action: 'resume.uploaded', candidate_exists: true }))
+  assert.equal(live.link, `/candidates/${CAND}`)
+  assert.equal(live.subjectDeleted, false)
+
+  const gone = describeActivity(row({ action: 'candidate.deleted', candidate_exists: false }))
+  assert.equal(gone.link, null)
+  assert.equal(gone.subjectDeleted, true)
+  assert.equal(gone.subject, 'Bhavana Raj R')
+
+  const goneJob = describeActivity(row({ entity_type: 'job', entity_id: JOB, candidate_id: null, job_exists: false }))
+  assert.equal(goneJob.link, null)
+  assert.equal(goneJob.subjectDeleted, true)
+
+  // An older API that does not say keeps linking, as before.
+  assert.equal(describeActivity(row({ action: 'resume.uploaded' })).link, `/candidates/${CAND}`)
+})
+
+test('closing a job says what it cancelled', () => {
+  const v = describeActivity(row({
+    action: 'job.closed', entity_type: 'job', entity_id: JOB, candidate_id: null,
+    after_state: { cancelled_calls: 2, cancelled_interview_links: 1 },
+  }))
+  assert.equal(v.event, 'Job closed')
+  assert.deepEqual(v.change, { kind: 'text', text: 'Cancelled 2 calls, 1 interview link' })
+  const none = describeActivity(row({ action: 'job.closed', entity_type: 'job', entity_id: JOB, after_state: {} }))
+  assert.deepEqual(none.change, { kind: 'text', text: 'Nothing to cancel' })
+})

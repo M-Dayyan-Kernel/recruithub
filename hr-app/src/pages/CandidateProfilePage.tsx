@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronRight, Loader2 } from 'lucide-react'
+import { ChevronRight, Loader2, UserX } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { BackendError } from '@/components/BackendError'
+import { BTN_PRIMARY, BTN_SECONDARY } from '@/components/ui/Surface'
 import { CandidateHeader } from '@/components/candidate/CandidateHeader'
 import { DetailsCard, DocumentsCard, PipelineCard, ScoresCard, SkillsCard } from '@/components/candidate/CandidateCards'
 import { CandidateAiTab } from '@/components/candidates/CandidateAiTab'
@@ -14,6 +15,7 @@ import { CandidateTimelineTab } from '@/components/candidates/CandidateTimelineT
 import StageTabs from '@/components/stage/StageTabs'
 import { useCandidateProfile } from '@/hooks/useCandidateProfile'
 import { PHONE_SCREENING_LABEL } from '@/lib/stageLabels'
+import { isNotFoundError } from '@/lib/errorMessage'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -29,7 +31,7 @@ export default function CandidateProfilePage() {
   const { candidateId = '' } = useParams<{ candidateId: string }>()
   const location = useLocation()
   const [tab, setTab] = useState<TabId>('overview')
-  const { data: profile, isLoading, isError, refetch } = useCandidateProfile(candidateId)
+  const { data: profile, isLoading, isError, error, refetch } = useCandidateProfile(candidateId)
   const { data: job } = useQuery<Job>({
     queryKey: ['job', profile?.job_id],
     queryFn: () => api.get(`/api/jobs/${profile?.job_id}`) as unknown as Promise<Job>,
@@ -43,6 +45,36 @@ export default function CandidateProfilePage() {
     return (
       <div className="flex items-center justify-center py-24">
         <Loader2 className="h-8 w-8 animate-spin text-ink-subtle" aria-label="Loading candidate" />
+      </div>
+    )
+  }
+
+  // Reached from an old link (the Activity log, a report PDF, a bookmark) after the candidate
+  // was deleted. Not an outage, so no Retry: say what happened and where their history is.
+  if (isError && isNotFoundError(error)) {
+    return (
+      <div className="space-y-4">
+        <Link to={listHref} className="text-sm font-medium text-ink-muted hover:text-ink">
+          Back to candidates
+        </Link>
+        <div className="flex flex-col items-center px-6 py-20 text-center">
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-ink-subtle">
+            <UserX size={22} aria-hidden />
+          </div>
+          <p className="font-semibold text-ink">This candidate no longer exists</p>
+          <p className="mt-1 max-w-md text-sm text-ink-muted">
+            They were deleted, along with their resume, calls and interviews. What happened to them is
+            still recorded in Activity.
+          </p>
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <Link to="/activity" className={BTN_SECONDARY}>
+              Open Activity
+            </Link>
+            <Link to={listHref} className={BTN_PRIMARY}>
+              Back to candidates
+            </Link>
+          </div>
+        </div>
       </div>
     )
   }

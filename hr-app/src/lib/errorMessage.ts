@@ -14,3 +14,11 @@ export function errorMessage(err: unknown, fallback: string): string {
   if (typeof err === 'string' && err.trim()) return err.trim()
   return fallback
 }
+
+/**
+ * The server answered "not found": the record is gone (deleted, or never in this organization).
+ * Worth telling apart from an outage, which a retry can fix and this cannot.
+ */
+export function isNotFoundError(err: unknown): boolean {
+  return !!err && typeof err === 'object' && (err as { status?: unknown }).status === 404
+}

@@ -380,7 +380,10 @@ export default function ActivityPage() {
                               {view.subject}
                             </span>
                           )}
-                          <small className="block text-[11.5px] text-ink-muted">{view.kind}</small>
+                          <small className="block text-[11.5px] text-ink-muted">
+                            {view.kind}
+                            {view.subjectDeleted && <span className="text-ink-subtle"> · deleted</span>}
+                          </small>
                         </td>
                         <td className="max-w-[300px] whitespace-nowrap border-b border-line px-3.5 py-3">
                           <ChangeCell change={view.change} />

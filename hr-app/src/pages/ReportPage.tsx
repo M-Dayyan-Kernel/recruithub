@@ -2,7 +2,7 @@ import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { ArrowLeft, AlertCircle, CircleGauge, Clock, Download, Eye, ListChecks, Loader2, MessageSquareText, ShieldAlert, Video } from 'lucide-react'
+import { ArrowLeft, AlertCircle, CircleGauge, Clock, Download, Eye, ListChecks, Loader2, MessageSquareText, ShieldAlert, UserX, Video } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { InterviewReport } from '@/types/api'
 import ProctoringPlayer, { isHard, parseTimestamp, toTimedFlags } from '@/components/interview/ProctoringPlayer'
@@ -147,8 +147,12 @@ export default function ReportPage() {
   })
 
   // ── 404 / not-ready detection ─────────────────────────────────────────────
+  // The report PDF carries a link back to this page, and it outlives the candidate. Once they
+  // are deleted the API says "Candidate not found", which is not a report still being written.
+  const isCandidateGone = isError && /candidate not found/i.test(error?.message ?? '')
   const isReportNotReady =
     isError &&
+    !isCandidateGone &&
     (error?.message?.includes('404') ||
      error?.message?.toLowerCase().includes('not found') ||
      error?.message?.toLowerCase().includes('not ready'))
@@ -248,6 +252,19 @@ export default function ReportPage() {
       {/* Loading */}
       {isLoading && <ReportSkeleton />}
 
+      {isCandidateGone && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface-2">
+            <UserX className="h-7 w-7 text-ink-subtle" aria-hidden />
+          </div>
+          <p className="mb-2 text-lg font-semibold text-ink">This candidate no longer exists</p>
+          <p className="max-w-sm text-sm text-ink-muted">
+            They were deleted, along with their interviews and this report. What happened to them is
+            still recorded in Activity.
+          </p>
+        </div>
+      )}
+
       {/* 404 / Report not ready */}
       {isReportNotReady && (
         <div className="py-20 flex flex-col items-center justify-center text-center">
@@ -262,7 +279,7 @@ export default function ReportPage() {
       )}
 
       {/* Generic error */}
-      {isError && !isReportNotReady && (
+      {isError && !isReportNotReady && !isCandidateGone && (
         <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 rounded-lg px-4 py-3 text-sm text-rose-700">
           <AlertCircle size={16} className="shrink-0" />
           Failed to load report. Please try again.

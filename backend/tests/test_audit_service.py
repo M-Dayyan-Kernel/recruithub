@@ -73,3 +73,46 @@ class AuditListFilterTests(unittest.TestCase):
             self.assertTrue(re.match(pattern, ok), ok)
         for bad in ("", "candidate.", "cand", "tenant", "x%", "job OR 1=1"):
             self.assertFalse(re.match(pattern, bad), bad)
+
+
+class AuditListExistenceTests(unittest.IsolatedAsyncioTestCase):
+    """The log outlives what it names: rows for a deleted candidate or job must say so."""
+
+    async def test_rows_say_whether_their_job_and_candidate_still_exist(self):
+        import uuid
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
+
+        from app.services.audit_service import AuditService
+
+        live_job, gone_job = uuid.uuid4(), uuid.uuid4()
+        live_cand, gone_cand = uuid.uuid4(), uuid.uuid4()
+
+        def row(**kw):
+            base = dict(
+                id=uuid.uuid4(), created_at=datetime.now(timezone.utc), tenant_id=None,
+                actor_user_id=None, actor_name="HR", actor_role="hr", action="x.y",
+                entity_type="candidate", entity_id=None, subject_label="s", feature="f",
+                before_state=None, after_state=None, job_id=None, candidate_id=None,
+            )
+            base.update(kw)
+            return SimpleNamespace(**base)
+
+        rows = [
+            row(entity_type="candidate", entity_id=gone_cand, job_id=live_job),
+            row(entity_type="shortlist", candidate_id=live_cand, job_id=live_job),
+            row(entity_type="job", entity_id=gone_job),
+        ]
+
+        def result(ids):
+            r = MagicMock()
+            r.scalars.return_value = iter(ids)
+            return r
+
+        session = MagicMock()
+        session.execute = AsyncMock(side_effect=[result([live_job]), result([live_cand])])
+        items = await AuditService(session)._with_existence(rows, uuid.uuid4())
+
+        self.assertEqual([(i.job_exists, i.candidate_exists) for i in items],
+                         [(True, False), (True, True), (False, False)])
