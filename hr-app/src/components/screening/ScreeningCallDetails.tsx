@@ -31,6 +31,7 @@ import {
 } from '@/components/screening/screeningUtils'
 import { parseTranscript } from '@/lib/transcript'
 import { errorMessage } from '@/lib/errorMessage'
+import { acceptsNewWork } from '@/lib/jobStatus'
 
 function formatCallDate(iso: string): string {
   try {
@@ -163,6 +164,8 @@ function ScreeningActionBar({
   const [downloadingPdf, setDownloadingPdf] = useState(false)
   const isApproved = call.result === 'pass'
   const hasSession = Boolean(call.has_interview_session)
+  // A paused or closed job sends no interview invites; the job's banner says why.
+  const live = acceptsNewWork(job.status)
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
@@ -290,7 +293,8 @@ function ScreeningActionBar({
         <button
           type="button"
           onClick={() => scheduleMutation.mutate()}
-          disabled={busy || !isApproved}
+          disabled={busy || !isApproved || !live}
+          title={live ? undefined : 'This job is not active, so no interview invites go out.'}
           className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {scheduleMutation.isPending ? (

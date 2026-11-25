@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useJobAcceptsNewWork } from '@/hooks/useJobAcceptsNewWork'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -59,13 +60,15 @@ function BulkActionButtons({
   onRejectAll: () => void
 }) {
   const disabled = approvingAll || rejectingAll
+  const live = useJobAcceptsNewWork()
 
   return (
     <div className="inline-grid w-auto shrink-0 min-w-[15rem] grid-cols-2 gap-px overflow-hidden rounded-md border border-line bg-line">
       <button
         type="button"
         onClick={onApproveAll}
-        disabled={disabled}
+        disabled={disabled || !live}
+        title={live ? undefined : 'This job is not active, so candidates cannot be approved.'}
         className="inline-flex h-9 items-center justify-center gap-1.5 bg-pos-soft px-3 text-sm font-semibold text-pos transition-colors hover:bg-pos hover:text-accent-ink focus:outline-none focus:ring-2 focus:ring-inset focus:ring-pos/30 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {approvingAll ? (

@@ -41,6 +41,7 @@ import {
 } from '@/lib/workflow'
 import { ScreeningStatusTabs, resolveScreeningTab } from '@/components/screening/ScreeningStatusTabs'
 import { PHONE_SCREENING_LABEL } from '@/lib/stageLabels'
+import { acceptsNewWork, isJobEditable } from '@/lib/jobStatus'
 
 const TAB_LABELS: Record<ScreeningTabId, string> = {
   pending: 'Pending',
@@ -66,11 +67,14 @@ function ScreeningTableRow({
   row,
   jobId,
   screeningOn,
+  live,
 }: {
   row: ScreeningRow
   jobId: string
   /** The job's voice-screening switch: with it off there is no call to cancel. */
   screeningOn: boolean
+  /** A paused or closed job places no calls and moves nobody forward; rejecting still works. */
+  live: boolean
 }) {
   const queryClient = useQueryClient()
   const [expanded, setExpanded] = useState(false)
@@ -169,7 +173,7 @@ function ScreeningTableRow({
         </td>
         <td className="px-4 py-3">
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {row.canCallNow && (
+            {row.canCallNow && live && (
               <button
                 type="button"
                 onClick={() => callMutation.mutate()}
@@ -200,6 +204,7 @@ function ScreeningTableRow({
             )}
             {row.canPlace && (
               <>
+                {live && (
                 <button
                   type="button"
                   onClick={() => {
@@ -213,6 +218,7 @@ function ScreeningTableRow({
                   <ArrowRight size={12} aria-hidden />
                   Move to interview
                 </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -341,6 +347,8 @@ export function ScreeningTab({ jobId }: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const activeTab = resolveScreeningTab(searchParams.get('tab'))
   const screeningOn = job?.voice_screening_enabled !== false
+  // Paused or closed: no calls are placed from here, by hand or automatically.
+  const live = !!job && acceptsNewWork(job.status)
   const autoTriggeredRef = useRef<Set<string>>(new Set())
 
   const {
@@ -466,7 +474,7 @@ export function ScreeningTab({ jobId }: Props) {
   )
 
   useEffect(() => {
-    if (!job || neverCalledPendingIds.length === 0 || isLoading) return
+    if (!job || !live || neverCalledPendingIds.length === 0 || isLoading) return
 
     const from = formatTimeForInput(job.screening_call_from, '09:00')
     const to = formatTimeForInput(job.screening_call_to, '18:00')
@@ -497,7 +505,7 @@ export function ScreeningTab({ jobId }: Props) {
     return () => {
       cancelled = true
     }
-  }, [neverCalledPendingIds, isLoading, job, jobId, queryClient])
+  }, [neverCalledPendingIds, isLoading, job, live, jobId, queryClient])
 
   const filteredRows = rows.filter((r) => r.tab === activeTab)
 
@@ -527,16 +535,18 @@ export function ScreeningTab({ jobId }: Props) {
       description="AI calls that check the basics before a candidate is invited to interview."
       count={isLoading ? undefined : rows.length}
       actions={
-        screeningOn && job ? (
+        screeningOn && job && isJobEditable(job.status) ? (
           <>
-            <ScreeningCallActions
-              job={job}
-              eligibleCandidateIds={eligibleForBulkCall}
-              showStart={showCallActions}
-              onCallsTriggered={() => {
-                queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
-              }}
-            />
+            {live && (
+              <ScreeningCallActions
+                job={job}
+                eligibleCandidateIds={eligibleForBulkCall}
+                showStart={showCallActions}
+                onCallsTriggered={() => {
+                  queryClient.invalidateQueries({ queryKey: ['screening', jobId] })
+                }}
+              />
+            )}
             <button type="button" onClick={() => setSettingsOpen(true)} className={BTN_SECONDARY}>
               <Settings2 size={14} aria-hidden />
               Settings
@@ -656,6 +666,7 @@ export function ScreeningTab({ jobId }: Props) {
                     row={row}
                     jobId={jobId}
                     screeningOn={job?.voice_screening_enabled !== false}
+                    live={live}
                   />
                 ))
               )}

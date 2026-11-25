@@ -29,7 +29,19 @@ from app.schemas.schemas import (
 )
 from app.services.interview_flag_service import get_flag_reason, is_flagged_session
 from app.services.interview_report_labels import map_recommendation_label
-from app.services.interview_round_service import available_actions, counted_rounds, latest_round
+from app.services.interview_round_service import (
+    ACTION_NEXT_ROUND,
+    ACTION_RESCHEDULE,
+    ACTION_SCHEDULE,
+    available_actions,
+    counted_rounds,
+    latest_round,
+)
+from app.services.job_status import is_active
+
+# Actions that send a candidate an interview invite. A paused or closed job offers none of them;
+# cancel, reject, finalist and retrying an assessment stay.
+_NEW_WORK_ACTIONS = frozenset({ACTION_SCHEDULE, ACTION_RESCHEDULE, ACTION_NEXT_ROUND})
 from app.services.interview_status import CANCELLED, IN_PROGRESS, TAKEN, is_live
 from app.services.rejection_filter import rejected_candidate_ids
 
@@ -206,6 +218,7 @@ async def get_interview_pipeline(
                 continue
 
         candidate_sessions = sessions_by_candidate.get(candidate_id, [])
+        job_live = is_active(job)
         actions = (
             []
             if candidate is None
@@ -217,6 +230,8 @@ async def get_interview_pipeline(
                 has_report=has_report,
             )
         )
+        if not job_live:
+            actions = [a for a in actions if a not in _NEW_WORK_ACTIONS]
 
         session_response = (
             _enrich_session(session, candidate, job.title) if session else None

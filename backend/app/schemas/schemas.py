@@ -896,6 +896,8 @@ class InterviewSessionResponse(BaseModel):
     interview_url: Optional[str] = None
     candidate_name: Optional[str] = None
     job_title: Optional[str] = None
+    # The job was closed, which cancelled this untaken link ("This position is no longer open").
+    job_closed: bool = False
     mock_mode: bool = False
     capacity_available: Optional[bool] = None
     retry_after_minutes: Optional[int] = None
@@ -909,6 +911,14 @@ class VoiceScreeningCandidate(BaseModel):
     name: str
     # The Resume Screening stage state: queued / scheduled / retrying / flagged / cancelled.
     state: str
+
+
+class JobCloseImpact(BaseModel):
+    """What closing a job would cancel. Shown in the confirm dialog; closing cannot be undone."""
+
+    scheduled_calls: int
+    unused_interview_links: int
+    candidates_in_pipeline: int
 
 
 class VoiceScreeningPreview(BaseModel):

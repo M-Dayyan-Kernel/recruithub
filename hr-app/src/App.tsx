@@ -12,7 +12,7 @@ import JobFinalistsPage from '@/pages/JobFinalistsPage'
 import JobRejectedPage from '@/pages/JobRejectedPage'
 import CandidatesPage from '@/pages/CandidatesPage'
 import CandidateProfilePage from '@/pages/CandidateProfilePage'
-import ArchivedJobsPage from '@/pages/ArchivedJobsPage'
+import ClosedJobsPage from '@/pages/ClosedJobsPage'
 import SettingsPage from '@/pages/SettingsPage'
 import UsersPage from '@/pages/UsersPage'
 import ActivityPage from '@/pages/ActivityPage'
@@ -61,7 +61,9 @@ export default function App() {
 
             <Route path="jobs" element={<JobsPage />} />
             <Route path="jobs/new" element={<CreateJobPage />} />
-            <Route path="jobs/archived" element={<ArchivedJobsPage />} />
+            <Route path="jobs/closed" element={<ClosedJobsPage />} />
+            {/* The page was "Archived" when it held paused jobs too; old links still land. */}
+            <Route path="jobs/archived" element={<Navigate to="/jobs/closed" replace />} />
             <Route path="jobs/:jobId" element={<JobLayout />}>
               <Route index element={<JobDetailsPage />} />
               <Route path="shortlist" element={<JobShortlistPage />} />

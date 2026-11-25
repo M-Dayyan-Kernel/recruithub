@@ -13,7 +13,7 @@ import type {
 } from '@/types/api'
 import { buildScreeningRows, countByTab } from '@/components/screening/screeningRows'
 import { ResumeUploadZone } from '@/components/ResumeUploadZone'
-import { isArchivedJobStatus } from '@/lib/jobStatus'
+import { acceptsNewWork, isClosedJobStatus } from '@/lib/jobStatus'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -102,7 +102,10 @@ export function JobPipelineDashboard({ job }: Props) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const screeningEffective = job.voice_screening_enabled !== false
-  const uploadDisabled = isArchivedJobStatus(job.status)
+  const uploadDisabled = !acceptsNewWork(job.status)
+  const uploadDisabledReason = isClosedJobStatus(job.status)
+    ? 'This job is closed.'
+    : 'This job is paused. Reactivate it to add resumes.'
 
   const [shortlistQuery, screeningQuery, candidatesQuery, pipelineQuery] = useQueries({
     queries: [
@@ -276,6 +279,7 @@ export function JobPipelineDashboard({ job }: Props) {
           jobId={jobId}
           variant="pipeline"
           disabled={uploadDisabled}
+          disabledReason={uploadDisabledReason}
           onUploadSuccess={handleUploadSuccess}
         />
       </div>

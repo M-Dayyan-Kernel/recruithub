@@ -16,10 +16,13 @@ from app.models.models import Candidate, InterviewSession, Job
 from app.repositories.interview_repository import InterviewRepository
 from app.services.interview_guards import seconds_until_open
 from app.services.interview_plan_service import ensure_plan, freeze_plan
-from app.services.interview_status import TERMINAL
+from app.services.interview_status import TERMINAL, UNTAKEN
+from app.services.job_status import CLOSED, is_closed
 from app.schemas.schemas import InterviewSessionResponse, InterviewStartResponse
 
 logger = logging.getLogger(__name__)
+
+POSITION_CLOSED_MESSAGE = "This position is no longer open."
 
 _STUB_INTERVIEW_TRANSCRIPT = (
     "AI: Welcome to your technical interview. Let's begin.\n"
@@ -129,6 +132,9 @@ class InterviewPublicService:
         response_data = InterviewSessionResponse.model_validate(session)
         response_data.candidate_name = candidate.name if candidate else None
         response_data.job_title = job.title if job else None
+        # A closed job cancelled this link; say why rather than "cancelled". An interview the
+        # candidate already started or took reads as usual.
+        response_data.job_closed = bool(job and is_closed(job) and session.status in UNTAKEN)
 
         from app.clients.mocks import mock_livekit_enabled
 
@@ -159,6 +165,12 @@ class InterviewPublicService:
         session = await self._interviews.get_session_by_token(token)
         if not session:
             raise HTTPException(status_code=404, detail="Interview session not found")
+
+        if session.status in UNTAKEN:
+            job_status = await self._session.scalar(select(Job.status).where(Job.id == session.job_id))
+            if job_status == CLOSED:
+                # Rejoining an interview already in progress stays allowed: it finishes.
+                raise HTTPException(status_code=410, detail=POSITION_CLOSED_MESSAGE)
 
         if session.status == "completed":
             raise HTTPException(status_code=409, detail="Interview already completed.")

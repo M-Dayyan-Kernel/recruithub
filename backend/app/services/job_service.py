@@ -20,6 +20,8 @@ from app.schemas.schemas import (
 from app.services.audit_service import AuditService
 from app.services.expected_answer_service import ExpectedAnswerService
 from app.services.interview_topic_service import generate_pool, regenerate_topic, replace_topics
+from app.services.job_close_service import CloseImpact, close_impact, wind_down_closed_job
+from app.services.job_status import CLOSED, assert_editable, assert_status_change_allowed
 from app.services.live_work_guard import assert_job_not_live
 from app.services.screening_defaults import (
     normalize_screening_questions_for_write,
@@ -124,6 +126,10 @@ class JobService:
     async def update(self, actor: User, job_id: uuid.UUID, payload: JobUpdate) -> Job:
         job = await self._jobs.get_for_tenant(job_id, actor.tenant_id)
         updates = payload.model_dump(exclude_unset=True)
+        if "status" in updates:
+            assert_status_change_allowed(job, updates["status"])
+        assert_editable(job)
+        closing = updates.get("status") == CLOSED and job.status != CLOSED
         if any(
             field in updates and updates[field] != getattr(job, field)
             for field in ("extension_check_enabled", "extension_check_mode")
@@ -176,9 +182,29 @@ class JobService:
             changes=changes,
             job_id=job.id,
         )
+        if closing:
+            # In the same transaction as the status, so no call is dialled or link opened
+            # against a job that already reads as closed.
+            cancelled = await wind_down_closed_job(self._session, job.id)
+            await self._audit.log_change(
+                actor=actor,
+                action="job.closed",
+                entity_type="job",
+                entity_id=job.id,
+                subject_label=job.title,
+                feature="job",
+                before=None,
+                after=cancelled,
+                job_id=job.id,
+            )
         await self._session.commit()
         await self._jobs.refresh(job)
         return job
+
+    async def close_impact(self, actor: User, job_id: uuid.UUID) -> CloseImpact:
+        """What closing would cancel, for the confirm dialog. Writes nothing."""
+        job = await self._jobs.get_for_tenant(job_id, actor.tenant_id)
+        return await close_impact(self._session, job.id)
 
     @staticmethod
     def _apply_work_and_screening_updates(job: Job, updates: dict) -> None:

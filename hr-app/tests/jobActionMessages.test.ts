@@ -2,6 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  closeJobConfirmBody,
   extensionCheckErrorToast,
   extensionCheckToast,
   jobStatusAction,
@@ -14,7 +15,6 @@ test('each status change names what happened', () => {
   assert.equal(jobStatusToast('active', 'closed'), 'Job closed')
   assert.equal(jobStatusToast('paused', 'closed'), 'Job closed')
   assert.equal(jobStatusToast('paused', 'open'), 'Job reactivated')
-  assert.equal(jobStatusToast('closed', 'open'), 'Job reactivated')
 })
 
 test('a draft going live is a publish, not a reactivation', () => {
@@ -25,8 +25,21 @@ test('a draft going live is a publish, not a reactivation', () => {
 test('a failed status change says which action failed', () => {
   assert.equal(jobStatusErrorToast('open', 'paused'), 'Could not pause the job')
   assert.equal(jobStatusErrorToast('open', 'closed'), 'Could not close the job')
-  assert.equal(jobStatusErrorToast('closed', 'open'), 'Could not reactivate the job')
+  assert.equal(jobStatusErrorToast('paused', 'open'), 'Could not reactivate the job')
   assert.equal(jobStatusErrorToast('draft', 'open'), 'Could not publish the job')
+})
+
+test('the close dialog names only what applies and always says it is final', () => {
+  const body = closeJobConfirmBody({ scheduled_calls: 2, unused_interview_links: 1, candidates_in_pipeline: 14 })
+  assert.match(body, /^2 scheduled screening calls will be cancelled and 1 unused interview link will stop working\./)
+  assert.match(body, /14 candidates are still in the pipeline/)
+  assert.match(body, /This can't be undone\.$/)
+
+  const quiet = closeJobConfirmBody({ scheduled_calls: 0, unused_interview_links: 0, candidates_in_pipeline: 0 })
+  assert.match(quiet, /^Nothing scheduled needs cancelling\./)
+  assert.doesNotMatch(quiet, /pipeline/)
+
+  assert.match(closeJobConfirmBody(undefined), /This can't be undone\.$/)
 })
 
 test('the extension check says whether it was switched off, on, or changed mode', () => {

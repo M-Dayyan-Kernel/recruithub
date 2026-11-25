@@ -14,6 +14,7 @@ from app.core.async_utils import run_sync
 from app.core.celery_queues import RESUME_QUEUE
 from app.core.logging import get_actor_label, log_event, plural
 from app.core.tenancy import get_tenant_job
+from app.services.job_status import assert_accepts_new_work
 from app.exceptions import (
     NoEligibleCandidatesError,
     ShortlistInProgressError,
@@ -56,6 +57,7 @@ class ShortlistTriggerService:
         body: Optional[ShortlistTriggerRequest] = None,
     ) -> dict:
         job = await get_tenant_job(self._session, job_id, actor.tenant_id)
+        assert_accepts_new_work(job, "re-run the shortlist")
 
         requested_ids = body.candidate_ids if body else None
         force = bool(body.force) if body else False

@@ -20,6 +20,7 @@ class ShortlistTriggerServiceTests(unittest.IsolatedAsyncioTestCase):
         job = MagicMock()
         job.id = uuid.uuid4()
         job.title = "Engineer"
+        job.status = "open"
 
         actor = User(
             id=uuid.uuid4(),
@@ -63,6 +64,7 @@ class ShortlistTriggerServiceTests(unittest.IsolatedAsyncioTestCase):
         job = MagicMock()
         job.id = uuid.uuid4()
         job.title = "Engineer"
+        job.status = "open"
 
         actor = User(
             id=uuid.uuid4(),

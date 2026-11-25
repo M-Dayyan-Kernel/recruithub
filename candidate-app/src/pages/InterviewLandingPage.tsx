@@ -24,6 +24,8 @@ interface InterviewInfo {
   /** When the link stops working; null on sessions created before links expired. */
   expires_at?: string | null
   mock_mode?: boolean
+  /** The company closed the role, which cancelled this untaken interview. */
+  job_closed?: boolean
   capacity_available?: boolean | null
   retry_after_minutes?: number | null
   /** Seconds until a scheduled interview can be started; null once it can be. */
@@ -169,6 +171,19 @@ export default function InterviewLandingPage() {
             ? 'This link may have expired or been replaced. Get in touch if you think that is a mistake.'
             : 'We could not load your interview. Refresh the page, or get in touch if it keeps happening.'
         }
+      />
+    )
+  }
+
+  // Checked before expired/cancelled: closing the role is what ended the link, and saying so
+  // spares the candidate waiting for a new one that will not come.
+  if (info.job_closed) {
+    return (
+      <StatusScreen
+        icon={<Clock size={22} />}
+        tone="muted"
+        title="This position is no longer open"
+        body="Thank you for your interest. The company has closed this role, so this interview link no longer works."
       />
     )
   }

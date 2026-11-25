@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_actor_label, log_event
 from app.core.pagination import PaginationParams
 from app.core.tenancy import get_tenant_candidate, get_tenant_job
+from app.services.job_status import assert_editable
 from app.exceptions import (
     CandidateBeingReviewedError,
     CandidateNotFoundForJobError,
@@ -210,7 +211,9 @@ class CandidateService:
         job_id: uuid.UUID,
         candidate_id: uuid.UUID,
     ) -> dict[str, str]:
-        await get_tenant_job(self._session, job_id, actor.tenant_id)
+        job = await get_tenant_job(self._session, job_id, actor.tenant_id)
+        # Retrying finishes a resume that was already uploaded, so a paused job allows it.
+        assert_editable(job)
         candidate = await get_tenant_candidate(
             self._session, candidate_id, actor.tenant_id
         )

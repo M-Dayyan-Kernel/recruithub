@@ -85,7 +85,7 @@ class PhoneRoundServiceTests(unittest.IsolatedAsyncioTestCase):
         return svc, db, audit, row
 
     def _patches(self):
-        job = SimpleNamespace(id=uuid.uuid4(), voice_screening_enabled=True)
+        job = SimpleNamespace(id=uuid.uuid4(), voice_screening_enabled=True, status="open")
         cand = SimpleNamespace(id=uuid.uuid4(), job_id=job.id, phone="+919876543210", name="Jane", parsed_data={})
         return job, cand, [
             patch("app.services.phone_round_service.get_tenant_job", AsyncMock(return_value=job)),

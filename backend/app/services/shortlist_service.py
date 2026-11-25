@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.async_utils import run_sync
 from app.core.logging import get_actor_label, log_event
 from app.core.tenancy import get_tenant_job
+from app.services.job_status import assert_accepts_new_work, is_active
 from app.exceptions import ConflictError, ValidationError
 from app.models.models import Candidate, Job, User
 from app.repositories.shortlist_repository import ShortlistRepository
@@ -214,6 +215,13 @@ class ShortlistService:
             await RejectService(self._session).reject(actor, record.job_id, record.candidate_id)
             await self._shortlist.refresh(record)
             return ShortlistDecisionResponse.model_validate(record)
+
+        if payload.hr_decision == "approved":
+            # Approval starts a call or sends an invite: new work, which a paused job holds.
+            job = await self._session.get(Job, record.job_id)
+            if job is not None and not is_active(job):
+                await self._session.commit()  # release the row lock, as above
+                assert_accepts_new_work(job, "approve candidates")
 
         record.hr_decision = payload.hr_decision
         candidate = await self._session.get(Candidate, record.candidate_id)

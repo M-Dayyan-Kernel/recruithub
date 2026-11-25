@@ -12,6 +12,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tenancy import get_tenant_job
+from app.services.job_status import assert_accepts_new_work, is_active
 from app.models.models import Candidate, Job, ScreeningCall, ShortlistResult, User
 from app.schemas.schemas import ScreeningTriggerRequest, ScreeningTriggerResponse
 from app.services.audit_service import AuditService
@@ -268,6 +269,8 @@ async def auto_dispatch_unqueued_approved_for_job(
     force: bool = False,
 ) -> tuple[int, int]:
     """Dial approved candidates who have never been screened yet."""
+    if not is_active(job):
+        return 0, 0
     candidate_ids = await find_unqueued_approved_candidate_ids(db, job.id)
     if not candidate_ids:
         return 0, 0
@@ -327,6 +330,7 @@ class ScreeningTriggerService:
             )
 
         job = await get_tenant_job(self._session, job_id, actor.tenant_id)
+        assert_accepts_new_work(job, "place screening calls")
         system_settings = await load_system_settings(self._session, tenant_id=job.tenant_id)
         disabled_reason = screening_disabled_reason(system_settings, job)
         if disabled_reason:

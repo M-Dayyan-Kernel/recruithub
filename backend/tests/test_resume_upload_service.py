@@ -32,6 +32,7 @@ class ResumeUploadServiceTests(unittest.IsolatedAsyncioTestCase):
         candidate_repo.find_by_filename = AsyncMock(return_value=existing)
 
         job = MagicMock()
+        job.status = "open"
         job.id = uuid.uuid4()
         job.title = "Engineer"
 

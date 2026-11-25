@@ -11,7 +11,8 @@ import {
   jobPhasePath,
   jobPhaseSteps,
 } from '@/components/JobPhaseNav'
-import { isArchivedJobStatus } from '@/lib/jobStatus'
+import { isClosedJobStatus, jobListPath } from '@/lib/jobStatus'
+import { JobStatusBanner } from '@/components/job/JobStatusBanner'
 import { CandidatesModal } from '@/components/job/CandidatesModal'
 import { usePipelineCandidates } from '@/hooks/usePipelineCandidates'
 
@@ -43,9 +44,8 @@ function JobStageNav({
   jobId: string
   pathname: string
 }) {
-  const archived = isArchivedJobStatus(job.status)
-  const listPath = archived ? '/jobs/archived' : '/jobs'
-  const listLabel = archived ? 'All archived jobs' : 'All jobs'
+  const listPath = jobListPath(job.status)
+  const listLabel = isClosedJobStatus(job.status) ? 'All closed jobs' : 'All jobs'
   const phase = currentPhaseSegment(pathname, jobId)
   const { visible: showScreening } = usePhoneScreeningVisible(job)
   const steps = jobPhaseSteps(job, showScreening)
@@ -217,6 +217,7 @@ export default function JobLayout() {
       {!isLoading && job && jobId && (
         <>
           <JobStageNav job={job} jobId={jobId} pathname={location.pathname} />
+          <JobStatusBanner job={job} />
           {showJobHeader && <JobHeader job={job} showDelete />}
           <Outlet context={{ job, jobId } satisfies JobOutletContext} />
         </>

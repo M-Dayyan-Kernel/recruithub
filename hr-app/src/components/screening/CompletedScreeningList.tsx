@@ -14,6 +14,7 @@ import {
   WORKFLOW_TABLE_CLASS,
 } from '@/lib/workflow'
 import { errorMessage } from '@/lib/errorMessage'
+import { acceptsNewWork } from '@/lib/jobStatus'
 
 async function scheduleInterviewForRow(row: ScreeningRow) {
   const call = row.latestCall
@@ -29,10 +30,13 @@ function CompletedScreeningRow({
   row,
   jobId,
   onOpenReport,
+  live,
 }: {
   row: ScreeningRow
   jobId: string
   onOpenReport: (row: ScreeningRow) => void
+  /** Paused or closed: no recall and no interview invite; the report and Reject stay. */
+  live: boolean
 }) {
   const queryClient = useQueryClient()
   const call = row.latestCall
@@ -115,7 +119,7 @@ function CompletedScreeningRow({
       </td>
       <td className="px-4 py-3">
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {row.canCallNow && (
+          {row.canCallNow && live && (
             <button
               type="button"
               onClick={() => recallMutation.mutate()}
@@ -136,6 +140,7 @@ function CompletedScreeningRow({
               In progress
             </span>
           )}
+          {live && (
           <button
             type="button"
             onClick={() => scheduleMutation.mutate()}
@@ -149,6 +154,7 @@ function CompletedScreeningRow({
             )}
             Send interview link
           </button>
+          )}
           {isRejected ? (
             <span className="text-[13px] font-medium text-neg">Rejected</span>
           ) : (
@@ -188,6 +194,7 @@ export function CompletedScreeningList({
   const { job } = useOutletContext<JobOutletContext>()
   const queryClient = useQueryClient()
   const [reportRow, setReportRow] = useState<ScreeningRow | null>(null)
+  const live = acceptsNewWork(job.status)
 
   const schedulableRows = useMemo(
     () =>
@@ -237,7 +244,7 @@ export function CompletedScreeningList({
     <>
       <div className="mb-3 flex items-center justify-between gap-2 px-1">
         <p className="text-[11px] text-slate-500">{rows.length} completed</p>
-        {schedulableRows.length > 0 && (
+        {live && schedulableRows.length > 0 && (
           <button
             type="button"
             onClick={() => scheduleAllMutation.mutate()}
@@ -283,6 +290,7 @@ export function CompletedScreeningList({
                   row={row}
                   jobId={jobId}
                   onOpenReport={setReportRow}
+                  live={live}
                 />
               ) : null,
             )}
