@@ -37,7 +37,14 @@ dependencies = [
     # since the import, and `packaging` is declared explicitly so it can never go missing.
     "kombu==5.6.2",
     "packaging>=24.0",
-    "passlib>=1.7.4",
+    # Password hashes are bcrypt. passlib only wraps it: without the bcrypt package every login
+    # raises MissingBackendError (a 500 the browser reports as "Cannot reach API"). The images
+    # install from this file, not requirements.txt, so bcrypt must be declared here.
+    # Pinned to 4.0.1 because passlib 1.7.4 is unmaintained and breaks on newer bcrypt:
+    # 4.1+ removed `__about__` (error logged on every first hash) and 5.x raises ValueError
+    # for >72-byte inputs in passlib's own startup self-test.
+    "passlib[bcrypt]==1.7.4",
+    "bcrypt==4.0.1",
     "prometheus-client>=0.21.0",
     "pydantic-settings==2.3.4",
     "pyotp>=2.9.0",
