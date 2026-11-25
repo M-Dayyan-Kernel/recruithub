@@ -512,7 +512,8 @@ export interface CandidateListItem {
   job_id: string
   job_title: string
   name: string
-  email: string
+  /** Null when the resume had no email; the server never sends its stand-in address here. */
+  email: string | null
   phone?: string | null
   years_experience?: number | null
   current_ctc?: string | null
@@ -527,6 +528,8 @@ export interface CandidateListItem {
 }
 
 export interface CandidateProfile extends CandidateListItem {
+  /** The profile form needs the raw value, stand-in address included, to show it as missing. */
+  email: string
   parsed_data?: ParsedData | null
   resume_file_path?: string | null
   shortlist?: ShortlistResult | null

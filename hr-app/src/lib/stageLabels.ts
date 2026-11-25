@@ -25,7 +25,15 @@ export const REJECTED_FROM_LABEL: Record<string, string> = {
 /** The resume-review round (the API identifier is "AI Shortlisted"). */
 export const RESUME_SCREENING_LABEL = 'Resume Screening'
 
-export type CandidateStageFilter = 'ai_shortlisted' | 'screening' | 'interview' | 'finalists'
+export type CandidateStageFilter =
+  | 'ai_shortlisted'
+  | 'screening'
+  | 'interview'
+  | 'finalists'
+  | 'processing'
+  | 'failed'
+  | 'rejected'
+  | 'hired'
 
 export const CANDIDATE_STAGE_FILTERS: Array<{
   value: CandidateStageFilter | ''
@@ -36,7 +44,23 @@ export const CANDIDATE_STAGE_FILTERS: Array<{
   { value: 'screening', label: PHONE_SCREENING_LABEL },
   { value: 'interview', label: 'Interview' },
   { value: 'finalists', label: 'Finalists' },
+  { value: 'hired', label: 'Hired' },
+  { value: 'processing', label: 'Processing' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'rejected', label: REJECTED_LABEL },
 ]
+
+/** Stage keys the Candidates page accepts from `?stage=`; anything else is ignored. */
+export function parseStageFilter(value: string | null | undefined): CandidateStageFilter | '' {
+  const match = CANDIDATE_STAGE_FILTERS.find((opt) => opt.value !== '' && opt.value === value)
+  return match ? (match.value as CandidateStageFilter) : ''
+}
+
+/** The label of a stage filter key, for "No Failed candidates match…" style messages. */
+export function stageFilterLabel(value: CandidateStageFilter | ''): string {
+  if (!value) return ''
+  return CANDIDATE_STAGE_FILTERS.find((opt) => opt.value === value)?.label ?? ''
+}
 
 /** API stage identifier -> label shown to people. Unlisted stages show as sent. */
 const HIRING_STAGE_DISPLAY: Record<string, string> = {

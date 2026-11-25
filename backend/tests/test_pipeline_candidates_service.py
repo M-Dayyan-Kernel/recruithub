@@ -96,6 +96,18 @@ class SummarizeTests(unittest.TestCase):
         self.assertEqual(out.total, 2)
         self.assertEqual(out.counts["resume"], 1)
 
+    def test_search_matches_a_phone_number_however_it_is_formatted(self):
+        rows = [
+            row("Asha Rao", "resume").model_copy(update={"phone": "+91-98765 43210"}),
+            row("Bala K", "phone").model_copy(update={"phone": None}),
+        ]
+        page = PaginationParams(limit=50, offset=0)
+        for q in ("9876543210", "98765 43210", "+91 (98765) 43210"):
+            out = summarize(rows, stage=None, q=q, sort="name", pagination=page)
+            self.assertEqual([r.name for r in out.items], ["Asha Rao"], q)
+        # Two digits is not a phone search, and letters mean a name search.
+        self.assertEqual(summarize(rows, stage=None, q="98", sort="name", pagination=page).total, 0)
+
     def test_search_matches_name_or_email_and_narrows_the_counts(self):
         self.assertEqual([r.name for r in self.page(q="asha").items], ["Asha Rao"])
         self.assertEqual(self.page(q="chitra@").total, 1)

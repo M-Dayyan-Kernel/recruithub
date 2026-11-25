@@ -9,6 +9,10 @@ CandidateStageFilter = Literal[
     "screening",
     "interview",
     "finalists",
+    "processing",
+    "failed",
+    "rejected",
+    "hired",
 ]
 
 STAGE_FILTER_TO_LABEL: dict[CandidateStageFilter, str] = {
@@ -16,6 +20,10 @@ STAGE_FILTER_TO_LABEL: dict[CandidateStageFilter, str] = {
     "screening": "Screening",
     "interview": "Interview",
     "finalists": "Finalist",
+    "processing": "Processing",
+    "failed": "Failed",
+    "rejected": "Rejected",
+    "hired": "Hired",
 }
 
 

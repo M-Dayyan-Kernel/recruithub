@@ -26,6 +26,7 @@ from app.schemas.schemas import (
     ShortlistResultResponse,
     InterviewSessionResponse,
 )
+from app.services.candidate_contact_service import normalize_email
 from app.services.candidate_stage_filter import (
     CandidateStageFilter,
     stage_filter_label,
@@ -151,7 +152,8 @@ class CandidateDirectoryService:
         )
         timeline = [AuditLogResponse.model_validate(r) for r in audit_rows]
 
-        base = self._build_list_item(row, row.job_title)
+        # The profile form needs the raw address to tell "missing" from "entered".
+        base = self._build_list_item(row, row.job_title, mask_placeholder_email=False)
         screening = row.screening
         screening_response = None
         if screening is not None:
@@ -189,9 +191,16 @@ class CandidateDirectoryService:
         )
 
     def _build_list_item(
-        self, row: CandidateDirectoryRow, job_title: str
+        self,
+        row: CandidateDirectoryRow,
+        job_title: str,
+        *,
+        mask_placeholder_email: bool = True,
     ) -> CandidateListItem:
         candidate = row.candidate
+        email = candidate.email
+        if mask_placeholder_email and not normalize_email(email):
+            email = None
         hiring_stage = resolve_hiring_stage(
             candidate,
             shortlist=row.shortlist,
@@ -205,7 +214,7 @@ class CandidateDirectoryService:
             job_id=candidate.job_id,
             job_title=job_title,
             name=candidate.name,
-            email=candidate.email,
+            email=email,
             phone=candidate.phone,
             years_experience=candidate.years_experience,
             current_ctc=candidate.current_ctc,

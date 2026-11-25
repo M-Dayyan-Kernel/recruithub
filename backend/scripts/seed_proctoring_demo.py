@@ -40,6 +40,7 @@ from app.models.models import (
     Job,
     JobInterviewTopic,
     ScreeningCall,
+    ShortlistResult,
     SystemSettings,
     Tenant,
     User,
@@ -240,6 +241,39 @@ async def _seed_candidate(
             notice_period="30 days",
         )
         db.add(candidate)
+        await db.flush()
+
+    # Without a resume-review result the candidate classifies as "still processing" (the AI has
+    # not scored them), so every profile and list row would read "AI is reading the resume".
+    # Real uploads always get one; the demo has no upload flow, so it is seeded here. Re-runs
+    # keep the existing row, and `--reset` re-approves it in case HR acted on it since.
+    shortlist = (
+        await db.execute(
+            select(ShortlistResult).where(
+                ShortlistResult.candidate_id == candidate.id,
+                ShortlistResult.job_id == job.id,
+            )
+        )
+    ).scalars().first()
+    if not shortlist:
+        db.add(
+            ShortlistResult(
+                candidate_id=candidate.id,
+                job_id=job.id,
+                match_score=82.0,
+                recommendation="shortlisted",
+                strengths=["Relevant experience", "Clear communication"],
+                gaps=[],
+                reason="Seeded resume review for the proctoring demo.",
+                hr_decision="approved",
+            )
+        )
+        await db.flush()
+    elif reset:
+        shortlist.hr_decision = "approved"
+        shortlist.finalist_at = None
+        shortlist.rejected_from = None
+        shortlist.rejected_at = None
         await db.flush()
 
     # Interview routes require a passed screening call for the candidate+job.

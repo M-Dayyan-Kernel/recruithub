@@ -47,12 +47,15 @@ async def list_tenant_candidates(
     job_id: Optional[uuid.UUID] = Query(None, description="Filter by job"),
     stage: Optional[CandidateStageFilter] = Query(
         None,
-        description="Filter by hiring stage: ai_shortlisted, screening, interview, finalists",
+        description=(
+            "Filter by hiring stage: ai_shortlisted, screening, interview, finalists, "
+            "processing, failed, rejected, hired"
+        ),
     ),
-    q: Optional[str] = Query(None, description="Search candidate name"),
+    q: Optional[str] = Query(None, max_length=100, description="Search name, email or phone"),
     service: CandidateDirectoryService = Depends(get_candidate_directory_service),
 ):
-    """List all candidates in the tenant with optional job, stage, and name search."""
+    """List all candidates in the tenant with optional job, stage, and name, email or phone search."""
     return await service.list(actor, job_id=job_id, stage=stage, q=q, pagination=pagination)
 
 
