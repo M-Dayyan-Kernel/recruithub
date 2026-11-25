@@ -1495,6 +1495,10 @@ class AuditLogResponse(BaseModel):
     # Stored on every candidate-related row but not returned until now, so the UI could not
     # link a shortlist or interview event to the candidate it was about.
     candidate_id: Optional[uuid.UUID] = None
+    # Whether the job and candidate the row names still exist. The log outlives them (a row
+    # records a deletion too), so the UI links only to what is still there.
+    job_exists: bool = False
+    candidate_exists: bool = False
 
 
 class AuditLogListResponse(BaseModel):

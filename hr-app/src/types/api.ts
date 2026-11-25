@@ -735,6 +735,9 @@ export interface AuditLog {
   after_state: Record<string, unknown> | null
   job_id: string | null
   candidate_id?: string | null
+  /** Whether the job / candidate the row names still exist (the log outlives them). */
+  job_exists?: boolean
+  candidate_exists?: boolean
 }
 
 export interface AuditLogListResponse {

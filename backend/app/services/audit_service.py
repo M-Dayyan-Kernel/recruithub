@@ -7,11 +7,12 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tenancy import get_tenant_candidate
 from app.exceptions import NotFoundError
-from app.models.models import AuditLog, User
+from app.models.models import AuditLog, Candidate, Job, User
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.schemas.schemas import AuditLogListResponse, AuditLogResponse
 
@@ -156,11 +157,44 @@ class AuditService:
         total = await self._repo.count_filtered(filters)
         rows = await self._repo.list_filtered(filters, limit=limit, offset=offset)
         return AuditLogListResponse(
-            items=[AuditLogResponse.model_validate(r) for r in rows],
+            items=await self._with_existence(rows, tenant_id),
             total=total,
             limit=limit,
             offset=offset,
         )
+
+
+    async def _with_existence(self, rows, tenant_id: uuid.UUID) -> list[AuditLogResponse]:
+        """Mark which of the page's jobs and candidates still exist: two lookups per page."""
+        items = [AuditLogResponse.model_validate(r) for r in rows]
+        job_ids = {i.job_id for i in items if i.job_id} | {
+            i.entity_id for i in items if i.entity_type == "job" and i.entity_id
+        }
+        candidate_ids = {i.candidate_id for i in items if i.candidate_id} | {
+            i.entity_id for i in items if i.entity_type == "candidate" and i.entity_id
+        }
+        live_jobs: set[uuid.UUID] = set()
+        live_candidates: set[uuid.UUID] = set()
+        if job_ids:
+            live_jobs = set(
+                (await self._session.execute(
+                    select(Job.id).where(Job.id.in_(job_ids), Job.tenant_id == tenant_id)
+                )).scalars()
+            )
+        if candidate_ids:
+            live_candidates = set(
+                (await self._session.execute(
+                    select(Candidate.id)
+                    .join(Job, Candidate.job_id == Job.id)
+                    .where(Candidate.id.in_(candidate_ids), Job.tenant_id == tenant_id)
+                )).scalars()
+            )
+        for item in items:
+            job_id = item.job_id or (item.entity_id if item.entity_type == "job" else None)
+            candidate_id = item.candidate_id or (item.entity_id if item.entity_type == "candidate" else None)
+            item.job_exists = job_id in live_jobs
+            item.candidate_exists = candidate_id in live_candidates
+        return items
 
 
 # --- backward-compatible module shims -----------------------------------------

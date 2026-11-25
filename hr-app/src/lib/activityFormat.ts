@@ -49,6 +49,9 @@ export interface ActivityRowInput {
   candidate_id?: string | null
   before_state?: Record<string, unknown> | null
   after_state?: Record<string, unknown> | null
+  /** Whether the row's job / candidate still exist. Absent (older API) reads as still there. */
+  job_exists?: boolean
+  candidate_exists?: boolean
 }
 
 export type ActivityChange =
@@ -63,8 +66,10 @@ export interface ActivityView {
   /** What the row is about, and what kind of thing that is (shown beneath the name). */
   subject: string
   kind: string
-  /** In-app route for the subject, when one can be worked out from the row. */
+  /** In-app route for the subject, when one can be worked out from the row and it still exists. */
   link: string | null
+  /** The subject has since been deleted: shown as plain text, marked, never linked. */
+  subjectDeleted: boolean
   change: ActivityChange
   /** Label and value pairs for the details panel. Never contains an id. */
   details: Array<[string, string]>
@@ -300,14 +305,21 @@ function categoryOf(action: string): string {
   return action.includes('.') ? action.slice(0, action.indexOf('.')) : action
 }
 
-function linkFor(row: ActivityRowInput): string | null {
+/**
+ * Where the row's subject lives, if it still does. The log outlives what it names (it records
+ * deletions too), and a link to a deleted candidate or job only opened a broken page.
+ */
+function linkFor(row: ActivityRowInput): { link: string | null; deleted: boolean } {
   if (row.entity_type === 'job') {
     const id = row.job_id ?? row.entity_id
-    return id && isUuid(id) ? `/jobs/${id}` : null
+    if (!id || !isUuid(id)) return { link: null, deleted: false }
+    return row.job_exists === false ? { link: null, deleted: true } : { link: `/jobs/${id}`, deleted: false }
   }
   const candidate = row.candidate_id ?? (row.entity_type === 'candidate' ? row.entity_id : null)
-  if (candidate && isUuid(candidate)) return `/candidates/${candidate}`
-  return null
+  if (!candidate || !isUuid(candidate)) return { link: null, deleted: false }
+  return row.candidate_exists === false
+    ? { link: null, deleted: true }
+    : { link: `/candidates/${candidate}`, deleted: false }
 }
 
 function techLine(row: ActivityRowInput, extra?: string): string {
@@ -332,12 +344,13 @@ export function describeActivity(row: ActivityRowInput): ActivityView {
   const after = row.after_state ?? null
   const kind = KINDS[row.entity_type] ?? humanize(row.entity_type || 'item')
   const subject = text(row.subject_label?.trim(), '—')
-  const link = linkFor(row)
+  const { link, deleted } = linkFor(row)
 
   const base = {
     subject,
     kind,
     link,
+    subjectDeleted: deleted,
     change: null as ActivityChange,
     details: [] as Array<[string, string]>,
     note: '',
@@ -373,6 +386,26 @@ export function describeActivity(row: ActivityRowInput): ActivityView {
     case 'job.created': {
       const status = formatValue('status', after?.status) ?? 'Open'
       return { ...base, event: 'Job created', change: { kind: 'chip', chip: chip(status, 'plain') }, details: [['Job', subject], ['Status', status]] }
+    }
+    case 'job.closed': {
+      // Written alongside the status change: what closing cancelled that had not started yet.
+      const calls = typeof after?.cancelled_calls === 'number' ? after.cancelled_calls : 0
+      const links = typeof after?.cancelled_interview_links === 'number' ? after.cancelled_interview_links : 0
+      const parts = [
+        calls ? `${calls} call${calls === 1 ? '' : 's'}` : '',
+        links ? `${links} interview link${links === 1 ? '' : 's'}` : '',
+      ].filter(Boolean)
+      return {
+        ...base,
+        event: 'Job closed',
+        change: { kind: 'text', text: parts.length ? `Cancelled ${parts.join(', ')}` : 'Nothing to cancel' },
+        details: [
+          ['Job', subject],
+          ['Screening calls cancelled', String(calls)],
+          ['Interview links cancelled', String(links)],
+        ],
+        note: 'Calls and interviews already under way were left to finish.',
+      }
     }
     case 'job.deleted':
       return { ...base, event: 'Job deleted', change: { kind: 'chip', chip: chip('Deleted', 'neg') }, details: [['Job', subject]] }

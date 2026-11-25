@@ -8,10 +8,15 @@ import {
   ChevronUp,
   CopyPlus,
   Loader2,
+  Lock,
   MapPin,
   MoreVertical,
+  Pause,
   Pencil,
+  Play,
+  Send,
   Trash2,
+  type LucideIcon,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
@@ -55,29 +60,36 @@ export function JobHeaderSkeleton() {
   )
 }
 
-type StatusOption =
-  | { kind: 'status'; label: string; hint?: string; value: Job['status'] }
-  | { kind: 'duplicate'; label: string; hint?: string }
+type StatusOption = { label: string; hint?: string; icon: LucideIcon } & (
+  | { kind: 'status'; value: Job['status'] }
+  | { kind: 'duplicate' }
+)
 
 /**
  * Pause is the safe choice (nothing is lost, reactivate any time), so it says so. Close is
  * final; a closed job's only way forward is a new job copied from it.
  */
 function getStatusOptions(status: Job['status']): StatusOption[] {
-  const close: StatusOption = { kind: 'status', label: 'Close job', hint: "Ends hiring · can't be undone", value: 'closed' }
+  const close: StatusOption = {
+    kind: 'status',
+    label: 'Close job',
+    hint: "Ends hiring · can't be undone",
+    icon: Lock,
+    value: 'closed',
+  }
   switch (status) {
     case 'open':
     case 'active':
       return [
-        { kind: 'status', label: 'Pause job', hint: 'Holds new activity · reactivate any time', value: 'paused' },
+        { kind: 'status', label: 'Pause job', hint: 'Holds new activity · reactivate any time', icon: Pause, value: 'paused' },
         close,
       ]
     case 'paused':
-      return [{ kind: 'status', label: 'Reactivate', value: 'open' }, close]
+      return [{ kind: 'status', label: 'Reactivate', icon: Play, value: 'open' }, close]
     case 'closed':
-      return [{ kind: 'duplicate', label: 'Duplicate as new job', hint: 'Hire for this role again' }]
+      return [{ kind: 'duplicate', label: 'Duplicate as new job', hint: 'Hire for this role again', icon: CopyPlus }]
     default:
-      return [{ kind: 'status', label: 'Publish', value: 'open' }]
+      return [{ kind: 'status', label: 'Publish', icon: Send, value: 'open' }]
   }
 }
 
@@ -257,7 +269,7 @@ export function JobHeader({ job, showDelete = false }: Props) {
                 {showStatusMenu && (
                   <div
                     role="menu"
-                    className="absolute right-0 top-full z-20 mt-1 min-w-[15rem] rounded-lg border border-line bg-surface py-1 shadow-lg"
+                    className="absolute right-0 top-full z-20 mt-1 min-w-[17rem] rounded-lg border border-line bg-surface py-1 shadow-lg"
                   >
                     {editable && (
                       <button
@@ -289,13 +301,9 @@ export function JobHeader({ job, showDelete = false }: Props) {
                           }
                         }}
                         disabled={isActionPending}
-                        className={cn(
-                          menuItem,
-                          'items-start text-ink hover:bg-surface-2',
-                          opt.kind !== 'duplicate' && 'pl-[2.4rem]',
-                        )}
+                        className={cn(menuItem, 'items-start text-ink hover:bg-surface-2')}
                       >
-                        {opt.kind === 'duplicate' && <CopyPlus size={14} className="mt-0.5" aria-hidden />}
+                        <opt.icon size={14} className="mt-0.5 shrink-0" aria-hidden />
                         <span className="flex flex-col">
                           <span>{opt.label}</span>
                           {opt.hint && <span className="text-[11px] text-ink-subtle">{opt.hint}</span>}
