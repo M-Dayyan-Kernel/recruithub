@@ -8,6 +8,7 @@ Phone and Interviews tabs use (`shortlist_stage_service`), not re-derived per sc
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.pagination import PaginationParams
 from app.core.tenancy import get_tenant_job
 from app.models.models import Candidate, Job, ShortlistResult, User
+from app.repositories.candidate_directory_repository import PHONE_MIN_DIGITS, PHONE_QUERY
 from app.repositories.shortlist_repository import ShortlistRepository
 from app.schemas.schemas import (
     PIPELINE_STAGES,
@@ -196,7 +198,15 @@ def summarize(
     """
     needle = (q or "").strip().lower()
     if needle:
-        rows = [r for r in rows if needle in r.name.lower() or needle in (r.email or "").lower()]
+        digits = re.sub(r"\D", "", needle)
+        phone_search = bool(PHONE_QUERY.match(needle)) and len(digits) >= PHONE_MIN_DIGITS
+        rows = [
+            r
+            for r in rows
+            if needle in r.name.lower()
+            or needle in (r.email or "").lower()
+            or (phone_search and digits in re.sub(r"\D", "", r.phone or ""))
+        ]
     counts = {key: 0 for key in PIPELINE_STAGES}
     for r in rows:
         counts[r.stage] += 1

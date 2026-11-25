@@ -658,7 +658,8 @@ class CandidateListItem(BaseModel):
     job_id: uuid.UUID
     job_title: str
     name: str
-    email: str
+    # None when the resume had no email: the stand-in address is never sent to the client.
+    email: Optional[str] = None
     phone: Optional[str] = None
     years_experience: Optional[float] = None
     current_ctc: Optional[str] = None

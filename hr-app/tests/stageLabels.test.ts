@@ -7,6 +7,8 @@ import {
   REJECTED_LABEL,
   RESUME_SCREENING_LABEL,
   formatHiringStage,
+  parseStageFilter,
+  stageFilterLabel,
 } from '../src/lib/stageLabels.ts'
 
 test('the phone round is shown as Phone Screening', () => {
@@ -35,7 +37,7 @@ test('the stage filter shows Phone Screening but keeps its URL key', () => {
   // Bookmarked /candidates?stage=screening links and the API filter depend on these.
   assert.deepEqual(
     CANDIDATE_STAGE_FILTERS.map((f) => f.value),
-    ['', 'ai_shortlisted', 'screening', 'interview', 'finalists'],
+    ['', 'ai_shortlisted', 'screening', 'interview', 'finalists', 'hired', 'processing', 'failed', 'rejected'],
   )
 })
 
@@ -50,4 +52,24 @@ test('rejected candidates have one name, and the places they came from are named
     phone: PHONE_SCREENING_LABEL,
     interview: 'Interview',
   })
+})
+
+test('every stage a row can show is filterable, and the keys are unique', () => {
+  const values = CANDIDATE_STAGE_FILTERS.map((o) => o.value).filter(Boolean)
+  assert.equal(new Set(values).size, values.length)
+  const labels = CANDIDATE_STAGE_FILTERS.map((o) => o.label)
+  for (const stage of ['Processing', 'Failed', 'Rejected', 'Hired', 'Interview']) {
+    assert.ok(labels.includes(stage), stage)
+  }
+})
+
+test('a stage in the URL is only honoured when it is a known filter', () => {
+  assert.equal(parseStageFilter('failed'), 'failed')
+  assert.equal(parseStageFilter('processing'), 'processing')
+  assert.equal(parseStageFilter('rejected'), 'rejected')
+  assert.equal(parseStageFilter('nonsense'), '')
+  assert.equal(parseStageFilter(''), '')
+  assert.equal(parseStageFilter(null), '')
+  assert.equal(stageFilterLabel('failed'), 'Failed')
+  assert.equal(stageFilterLabel(''), '')
 })

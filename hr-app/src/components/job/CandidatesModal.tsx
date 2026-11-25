@@ -302,7 +302,7 @@ export function CandidatesModal({ jobId, jobTitle, onClose }: { jobId: string; j
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
-        <StageSearch value={search} onChange={setSearch} placeholder="Search name or email" />
+        <StageSearch value={search} onChange={setSearch} placeholder="Search name, email or phone" />
         <label className="inline-flex items-center gap-2 text-[13px] text-ink-muted">
           <span className="sr-only sm:not-sr-only">Sort by</span>
           <select
