@@ -36,6 +36,7 @@ class ScreeningTriggerServiceTests(unittest.IsolatedAsyncioTestCase):
         session = AsyncMock()
         audit = AsyncMock()
         job = MagicMock()
+        job.status = "open"
         job.id = uuid.uuid4()
         job.title = "Engineer"
         job.tenant_id = uuid.uuid4()

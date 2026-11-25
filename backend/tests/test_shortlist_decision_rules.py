@@ -200,7 +200,7 @@ def _actor():
 
 def _service(record):
     session = AsyncMock()
-    session.get = AsyncMock(return_value=SimpleNamespace(name="Jane", email="j@example.com", phone=None, parsed_data={}))
+    session.get = AsyncMock(return_value=SimpleNamespace(name="Jane", email="j@example.com", phone=None, parsed_data={}, status="open"))
     repo = MagicMock()
     repo.get_for_tenant_locked = AsyncMock(return_value=record)
     repo.refresh = AsyncMock()
@@ -227,6 +227,16 @@ class DecisionRuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.hr_decision, "approved")
         svc._handle_approval_side_effects.assert_awaited_once()
         audit.log_change.assert_awaited_once()
+
+    async def test_approving_on_a_paused_job_is_held(self):
+        record = _record("pending")
+        svc, session, audit = _service(record)
+        session.get = AsyncMock(return_value=SimpleNamespace(status="paused"))
+        with self.assertRaises(ConflictError) as ctx:
+            await svc.update_decision(_actor(), record.id, ShortlistDecisionUpdate(hr_decision="approved"))
+        self.assertIn("paused", ctx.exception.public_message)
+        self.assertEqual(record.hr_decision, "pending")
+        svc._handle_approval_side_effects.assert_not_awaited()
 
     async def test_a_repeat_approve_does_nothing(self):
         svc, session, audit, record, result, err = await self._decide("approved", "approved")

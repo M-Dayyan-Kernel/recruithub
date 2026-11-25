@@ -60,6 +60,7 @@ class InterviewHrServiceTests(unittest.IsolatedAsyncioTestCase):
         service = InterviewHrService(
             session, interview_repo=interview_repo, audit_service=audit
         )
+        service._require_live_job = AsyncMock()
 
         from fastapi import HTTPException
 

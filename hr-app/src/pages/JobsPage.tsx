@@ -5,7 +5,7 @@ import { ArrowRight, Briefcase, Calendar, ListChecks, Mic, Plus, Search, Trophy,
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
 import { JobStatusBadge } from '@/components/JobStatusBadge'
-import { filterActiveJobs } from '@/lib/jobStatus'
+import { filterJobsList, isPausedJobStatus } from '@/lib/jobStatus'
 import { paletteFor } from '@/components/ui/OrgArt'
 import { PageHeader } from '@/components/ui/Surface'
 import { workArrangementLabel } from '@/lib/screeningQuestions'
@@ -134,25 +134,48 @@ function CardSkeleton() {
   )
 }
 
+type StatusFilter = 'all' | 'active' | 'paused'
+
+const STATUS_FILTERS: Array<{ value: StatusFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'active', label: 'Active' },
+  { value: 'paused', label: 'Paused' },
+]
+
+const NO_JOBS_FOR_FILTER: Record<Exclude<StatusFilter, 'all'>, string> = {
+  active: 'No active jobs. Every job here is paused.',
+  paused: 'No paused jobs.',
+}
+
 export default function JobsPage() {
   const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
   const { data: jobs, isLoading, isError, refetch } = useQuery<Job[]>({
     queryKey: ['jobs'],
     queryFn: () => api.get('/api/jobs') as unknown as Promise<Job[]>,
   })
 
-  const activeJobs = useMemo(() => filterActiveJobs(jobs ?? []), [jobs])
+  // Paused jobs stay here, badged: they are on hold, not finished, and still need a decision.
+  // Closed jobs live on their own page.
+  const listedJobs = useMemo(() => filterJobsList(jobs ?? []), [jobs])
+  const statusJobs = useMemo(
+    () =>
+      statusFilter === 'all'
+        ? listedJobs
+        : listedJobs.filter((job) => isPausedJobStatus(job.status) === (statusFilter === 'paused')),
+    [listedJobs, statusFilter],
+  )
   const filteredJobs = useMemo(
-    () => activeJobs.filter((job) => matchesQuery(job, search)),
-    [activeJobs, search],
+    () => statusJobs.filter((job) => matchesQuery(job, search)),
+    [statusJobs, search],
   )
 
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Jobs"
-        subtitle="Open positions. Jump into any hiring stage from the card actions."
+        subtitle="Open and paused positions. Jump into any hiring stage from the card actions."
         actions={
           <Link
             to="/jobs/new"
@@ -164,7 +187,8 @@ export default function JobsPage() {
         }
       />
 
-      <div className="relative mb-5">
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="relative min-w-0 flex-1">
         <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-subtle" />
         <input
           type="search"
@@ -185,6 +209,26 @@ export default function JobsPage() {
           </button>
         )}
       </div>
+      <div
+        role="group"
+        aria-label="Filter by status"
+        className="inline-flex shrink-0 self-start rounded-full border border-line bg-surface p-1 shadow-e1 sm:self-auto"
+      >
+        {STATUS_FILTERS.map(({ value, label }) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={statusFilter === value}
+            onClick={() => setStatusFilter(value)}
+            className={`h-8 rounded-full px-3.5 text-[13px] font-medium transition-colors ${
+              statusFilter === value ? 'bg-accent-soft text-accent' : 'text-ink-muted hover:text-ink'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      </div>
 
       {isError && (
         <div className="mb-4 rounded-md border border-neg/20 bg-neg-soft px-4 py-3 text-sm text-neg">
@@ -203,10 +247,10 @@ export default function JobsPage() {
         </div>
       )}
 
-      {!isLoading && !isError && activeJobs.length === 0 && (
+      {!isLoading && !isError && listedJobs.length === 0 && (
         <div className="rounded-card border border-dashed border-line-strong bg-surface px-6 py-16 text-center">
           <Briefcase className="mx-auto mb-3 h-10 w-10 text-ink-subtle" />
-          <p className="text-sm font-semibold text-ink">No active jobs</p>
+          <p className="text-sm font-semibold text-ink">No open jobs</p>
           <p className="mt-1 text-sm text-ink-muted">Create a job to start hiring.</p>
           <Link
             to="/jobs/new"
@@ -218,7 +262,20 @@ export default function JobsPage() {
         </div>
       )}
 
-      {!isLoading && !isError && activeJobs.length > 0 && filteredJobs.length === 0 && (
+      {!isLoading && !isError && listedJobs.length > 0 && statusFilter !== 'all' && statusJobs.length === 0 && (
+        <div className="rounded-card border border-dashed border-line-strong bg-surface px-6 py-12 text-center">
+          <p className="text-sm font-medium text-ink">{NO_JOBS_FOR_FILTER[statusFilter]}</p>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('all')}
+            className="mt-3 text-sm font-medium text-accent hover:text-accent-hover"
+          >
+            Show all jobs
+          </button>
+        </div>
+      )}
+
+      {!isLoading && !isError && statusJobs.length > 0 && filteredJobs.length === 0 && (
         <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
           <Search className="mx-auto mb-3 h-8 w-8 text-slate-300" />
           <p className="text-sm font-medium text-slate-700">No jobs match “{search.trim()}”</p>

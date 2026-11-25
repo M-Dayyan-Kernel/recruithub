@@ -19,11 +19,18 @@ import {
   Save,
   Eye,
   FileText,
+  CopyPlus,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
-import { jobFormSnapshot, readJobCreationDraft, type JobCreationDraft } from '@/lib/jobCreationDraft'
+import {
+  jobFormSnapshot,
+  readJobCreationDraft,
+  type JobCreationDraft,
+  type JobFormContent,
+} from '@/lib/jobCreationDraft'
+import { WRAP_SAFE } from '@/components/ui/FormAlert'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { JobSkillsField } from '@/components/job/JobSkillsField'
 import { JdPreviewModal } from '@/components/job/JdPreviewModal'
@@ -90,6 +97,11 @@ interface Props {
   onDirtyChange?: (dirty: boolean) => void
   /** Filled with a quiet "save a draft" the page's leave dialog can call; true when it saved. */
   saveDraftRef?: MutableRefObject<(() => boolean) | null>
+  /**
+   * Start from a copy of another job ("Duplicate as new job"). Applied once; it is the form's
+   * clean point, so leaving without changes does not ask (the original job still exists).
+   */
+  initialContent?: { content: JobFormContent; sourceTitle: string }
 }
 
 // Mirrors the API: a pasted description shorter than this is not read.
@@ -155,7 +167,15 @@ function FieldLabel({
 
 const steps = ['Job info', 'Requirements', 'Screening', 'Review']
 
-export function CreateJobForm({ onSuccess, onCancel, step, onStepChange, onDirtyChange, saveDraftRef }: Props) {
+export function CreateJobForm({
+  onSuccess,
+  onCancel,
+  step,
+  onStepChange,
+  onDirtyChange,
+  saveDraftRef,
+  initialContent,
+}: Props) {
   const queryClient = useQueryClient()
   const { user } = useAuth()
   const draftKey = `hr-job-draft:${user?.active_tenant_id ?? user?.tenant_id}:${user?.id}`
@@ -380,31 +400,46 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange, onDirty
   }
   if (saveDraftRef) saveDraftRef.current = () => saveDraft({ quiet: true })
 
+  /** Fill every field from saved content (a draft, or a job being duplicated). */
+  const applyContent = (content: JobFormContent) => {
+    draftRestored.current = true
+    setTitle(content.title)
+    setDescription(content.description)
+    setSkills(content.skills)
+    setSkillInput(content.skillInput)
+    setSeniority(content.seniority)
+    setWorkMode(content.workMode)
+    setWorkLocation(content.workLocation)
+    setExtraQuestions(content.extraQuestions)
+    setInterviewTopics(withIds(content.interviewTopics))
+    setVoiceScreeningEnabled(content.voiceScreeningEnabled)
+    setExtensionCheckEnabled(content.extensionCheckEnabled)
+    setExtensionCheckMode(content.extensionCheckMode)
+    setPastedJd(content.pastedJd ?? '')
+    // The applied content is the new clean point. Taken from the content itself: the fields set
+    // above only land on the next render.
+    setCleanSnapshot(jobFormSnapshot({ ...content, pastedJd: content.pastedJd ?? '' }))
+    workEditedByHand.current = { mode: true, location: true }
+    setFieldErrors({})
+  }
+
   const resumeDraft = () => {
     if (!savedDraft) return
-    draftRestored.current = true
-    setTitle(savedDraft.title)
-    setDescription(savedDraft.description)
-    setSkills(savedDraft.skills)
-    setSkillInput(savedDraft.skillInput)
-    setSeniority(savedDraft.seniority)
-    setWorkMode(savedDraft.workMode)
-    setWorkLocation(savedDraft.workLocation)
-    setExtraQuestions(savedDraft.extraQuestions)
-    setInterviewTopics(withIds(savedDraft.interviewTopics))
-    setVoiceScreeningEnabled(savedDraft.voiceScreeningEnabled)
-    setExtensionCheckEnabled(savedDraft.extensionCheckEnabled)
-    setExtensionCheckMode(savedDraft.extensionCheckMode)
-    setPastedJd(savedDraft.pastedJd ?? '')
-    // The restored draft is the new clean point. Taken from the draft itself: the fields set
-    // above only land on the next render.
-    setCleanSnapshot(jobFormSnapshot({ ...savedDraft, pastedJd: savedDraft.pastedJd ?? '' }))
-    workEditedByHand.current = { mode: true, location: true }
+    applyContent(savedDraft)
     setSavedDraft(null)
-    setFieldErrors({})
     onStepChange(savedDraft.step)
     toast.success('Draft restored')
   }
+
+  // A duplicate fills the form once, when its source job has loaded. It never touches the
+  // draft saved in this browser.
+  const duplicateApplied = useRef(false)
+  useEffect(() => {
+    if (!initialContent || duplicateApplied.current) return
+    duplicateApplied.current = true
+    applyContent(initialContent.content)
+    onStepChange(1)
+  }, [initialContent])
 
   const validateStep = (current: number): boolean => {
     const errors: FieldErrors = {}
@@ -483,7 +518,16 @@ export function CreateJobForm({ onSuccess, onCancel, step, onStepChange, onDirty
 
   return (
     <>
-      {savedDraft && <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-accent-border bg-accent-soft p-4">
+      {initialContent && (
+        <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-accent-border bg-accent-soft p-4">
+          <CopyPlus size={17} className="text-accent" aria-hidden />
+          <p className={`min-w-0 flex-1 text-xs leading-relaxed text-ink ${WRAP_SAFE}`}>
+            Copied from <span className="font-semibold">{initialContent.sourceTitle}</span>. Review each step
+            and create it as a new job; the original stays closed.
+          </p>
+        </div>
+      )}
+      {savedDraft && !initialContent && <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-accent-border bg-accent-soft p-4">
         <Save size={17} className="text-accent" />
         <p className="min-w-0 flex-1 text-xs leading-relaxed text-ink">You have a saved job draft in this browser.</p>
         <button type="button" onClick={resumeDraft} className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink hover:bg-accent-hover">Resume draft</button>

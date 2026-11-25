@@ -12,8 +12,9 @@ export type JobStatusAction = 'pause' | 'close' | 'reactivate' | 'publish'
 export function jobStatusAction(from: JobStatus, to: JobStatus): JobStatusAction {
   if (to === 'paused') return 'pause'
   if (to === 'closed') return 'close'
-  // Back to open: from paused or closed that is reactivating, from anything else (a draft) publishing.
-  return from === 'paused' || from === 'closed' ? 'reactivate' : 'publish'
+  // Back to open: from paused that is reactivating, from a draft publishing. A closed job
+  // cannot be reopened (the server refuses), so there is no "reactivate" from closed.
+  return from === 'paused' ? 'reactivate' : 'publish'
 }
 
 const STATUS_DONE: Record<JobStatusAction, string> = {
@@ -36,6 +37,49 @@ export function jobStatusToast(from: JobStatus, to: JobStatus): string {
 
 export function jobStatusErrorToast(from: JobStatus, to: JobStatus): string {
   return STATUS_FAILED[jobStatusAction(from, to)]
+}
+
+/** What closing a job would cancel, from GET /api/jobs/{id}/close-impact. */
+export interface JobCloseImpact {
+  scheduled_calls: number
+  unused_interview_links: number
+  candidates_in_pipeline: number
+}
+
+function count(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`
+}
+
+/**
+ * The close dialog's body. Only the consequences that apply are named, and it always ends by
+ * saying closing is final. Without the figures (still loading, or the lookup failed) it says
+ * what closing does in general terms instead.
+ */
+export function closeJobConfirmBody(impact?: JobCloseImpact | null): string {
+  const general =
+    'Scheduled screening calls are cancelled, unused interview links stop working, and the job becomes read-only under Closed jobs.'
+  const finality = "Calls and interviews already under way finish. This can't be undone."
+  if (!impact) return `${general} ${finality}`
+
+  const cancelled: string[] = []
+  if (impact.scheduled_calls > 0) {
+    cancelled.push(`${count(impact.scheduled_calls, 'scheduled screening call', 'scheduled screening calls')} will be cancelled`)
+  }
+  if (impact.unused_interview_links > 0) {
+    const links = count(impact.unused_interview_links, 'unused interview link', 'unused interview links')
+    cancelled.push(`${links} will stop working`)
+  }
+  const parts = [
+    cancelled.length
+      ? `${cancelled.join(' and ')}.`
+      : 'Nothing scheduled needs cancelling.',
+  ]
+  if (impact.candidates_in_pipeline > 0) {
+    const who = count(impact.candidates_in_pipeline, 'candidate is', 'candidates are')
+    parts.push(`${who} still in the pipeline; you can still reject and email them.`)
+  }
+  parts.push('The job becomes read-only under Closed jobs.', finality)
+  return parts.join(' ')
 }
 
 export interface ExtensionCheckChange {

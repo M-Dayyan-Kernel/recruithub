@@ -155,6 +155,20 @@ class CandidateBeingReviewedError(ConflictError):
     public_message = "This resume is being reviewed right now. Retry it if it stalls."
 
 
+class JobPausedError(ConflictError):
+    """New work was asked of a paused job. Reactivating it lets the work through."""
+
+    public_message = "This job is paused. Reactivate it to continue."
+    error_code = "job_paused"
+
+
+class JobClosedError(ConflictError):
+    """A closed job is a read-only record; closing cannot be undone."""
+
+    public_message = "This job is closed. Duplicate it to hire for this role again."
+    error_code = "job_closed"
+
+
 class NoEligibleCandidatesError(ValidationError):
     public_message = "No eligible candidates found for shortlisting."
 

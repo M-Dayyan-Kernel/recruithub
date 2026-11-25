@@ -237,6 +237,7 @@ class ScreeningQuestionRuleTests(unittest.IsolatedAsyncioTestCase):
 
     def _job(self, **over):
         job = MagicMock()
+        job.status = "open"
         job.voice_screening_enabled = True
         job.title = "Backend Engineer"
         job.work_mode = "hybrid"
@@ -376,7 +377,8 @@ class ScreeningQuestionRuleTests(unittest.IsolatedAsyncioTestCase):
         service = self._service()
         job = self._job(work_mode=None, work_location=None, screening_questions=[{"id": "old", "question": "Old?"}])
         service._jobs.get_for_tenant = AsyncMock(return_value=job)
-        await service.update(self._actor(), uuid.uuid4(), JobUpdate(status="closed"))
+        with patch("app.services.job_service.wind_down_closed_job", AsyncMock(return_value={})):
+            await service.update(self._actor(), uuid.uuid4(), JobUpdate(status="closed"))
         self.assertEqual(job.status, "closed")
         self.assertEqual(job.screening_questions, [{"id": "old", "question": "Old?"}])
 
@@ -399,6 +401,52 @@ class ScreeningQuestionRuleTests(unittest.IsolatedAsyncioTestCase):
         service._jobs.get_for_tenant = AsyncMock(return_value=job)
         await service.update(self._actor(), uuid.uuid4(), JobUpdate(voice_screening_enabled=True))
         self.assertTrue(job.voice_screening_enabled)
+
+
+class JobStatusRuleTests(ScreeningQuestionRuleTests):
+    """Pause holds new work and can be undone; close winds the job down and is final."""
+
+    async def _update(self, job, **fields):
+        service = self._service()
+        service._jobs.get_for_tenant = AsyncMock(return_value=job)
+        wind_down = AsyncMock(return_value={"cancelled_calls": 2, "cancelled_interview_links": 1})
+        with patch("app.services.job_service.wind_down_closed_job", wind_down):
+            await service.update(self._actor(), uuid.uuid4(), JobUpdate(**fields))
+        return wind_down
+
+    async def test_closing_cancels_what_has_not_started(self):
+        job = self._job(status="open")
+        wind_down = await self._update(job, status="closed")
+        self.assertEqual(job.status, "closed")
+        wind_down.assert_awaited_once()
+
+    async def test_pausing_cancels_nothing(self):
+        job = self._job(status="open")
+        wind_down = await self._update(job, status="paused")
+        self.assertEqual(job.status, "paused")
+        wind_down.assert_not_awaited()
+
+    async def test_a_paused_job_can_be_reactivated_and_edited(self):
+        job = self._job(status="paused")
+        await self._update(job, title="Staff Engineer")
+        self.assertEqual(job.title, "Staff Engineer")
+        await self._update(job, status="open")
+        self.assertEqual(job.status, "open")
+
+    async def test_a_closed_job_cannot_be_reopened(self):
+        for status in ("open", "active", "paused"):
+            with self.subTest(status=status), self.assertRaises(ConflictError) as ctx:
+                await self._update(self._job(status="closed"), status=status)
+            self.assertIn("cannot be reopened", ctx.exception.public_message)
+
+    async def test_a_closed_job_is_read_only(self):
+        with self.assertRaises(ConflictError) as ctx:
+            await self._update(self._job(status="closed"), title="Renamed")
+        self.assertIn("closed", ctx.exception.public_message)
+
+    async def test_an_unknown_status_is_refused(self):
+        with self.assertRaises(ValidationError):
+            await self._update(self._job(status="open"), status="archived")
 
 
 class SeniorityLevelTests(unittest.IsolatedAsyncioTestCase):

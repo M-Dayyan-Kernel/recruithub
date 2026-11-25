@@ -10,6 +10,8 @@ interface Props {
   onUploadSuccess?: (createdIds: string[]) => void
   variant?: 'default' | 'compact' | 'pipeline'
   disabled?: boolean
+  /** Why uploads are off, shown in the zone. */
+  disabledReason?: string
 }
 
 const FILE_BADGES = ['PDF', 'DOCX', 'ZIP'] as const
@@ -19,6 +21,7 @@ export function ResumeUploadZone({
   onUploadSuccess,
   variant = 'default',
   disabled = false,
+  disabledReason = 'Uploads are not available for this job.',
 }: Props) {
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -156,7 +159,7 @@ export function ResumeUploadZone({
         ) : disabled ? (
           <>
             <p className="text-sm font-medium text-slate-600">Uploads disabled</p>
-            <p className="mt-0.5 text-xs text-slate-400">This job is archived — reopen it to add resumes</p>
+            <p className="mt-0.5 text-xs text-slate-400">{disabledReason}</p>
           </>
         ) : (
           <>

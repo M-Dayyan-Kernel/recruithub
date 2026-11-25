@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
+import { acceptsNewWork, isJobEditable } from '@/lib/jobStatus'
 import { BTN_DANGER, BTN_SECONDARY } from '@/components/ui/Surface'
 import type {
   InterviewAction,
@@ -307,8 +308,10 @@ function CandidateInterviewCard({
     !hasReport &&
     ['not_sent', 'cancelled', 'scheduled', 'link_sent'].includes(interviewStatus)
 
+  // A paused or closed job sends no interview invites (the job's banner says why).
+  const live = acceptsNewWork(job.status)
   const canResendEmail =
-    session?.status === 'pending' && !hasReport && interviewStatus !== 'not_sent'
+    live && session?.status === 'pending' && !hasReport && interviewStatus !== 'not_sent'
   // Only a link the candidate has not opened: stopping a live interview is a separate action.
   const canCancelInterview = availableActions.includes('cancel')
   const canReschedule = availableActions.includes('reschedule') && session?.status === 'pending'
@@ -361,7 +364,7 @@ function CandidateInterviewCard({
           </div>
         </div>
 
-        {(interviewStatus === 'not_sent' || interviewStatus === 'cancelled') && (
+        {live && (interviewStatus === 'not_sent' || interviewStatus === 'cancelled') && (
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             <button
               type="button"
@@ -771,10 +774,12 @@ export function InterviewsTab({ job, jobId }: Props) {
       description="AI video interviews, each with questions written for that candidate."
       count={isLoading ? undefined : totalEligible}
       actions={
-        <button type="button" onClick={() => setSettingsOpen(true)} className={BTN_SECONDARY}>
-          <Settings2 size={14} aria-hidden />
-          Settings
-        </button>
+        isJobEditable(job.status) ? (
+          <button type="button" onClick={() => setSettingsOpen(true)} className={BTN_SECONDARY}>
+            <Settings2 size={14} aria-hidden />
+            Settings
+          </button>
+        ) : undefined
       }
     >
       <StageTabs

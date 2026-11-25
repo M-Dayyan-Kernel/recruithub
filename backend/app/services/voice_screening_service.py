@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tenancy import get_tenant_job
+from app.services.job_status import assert_editable
 from app.exceptions import NotFoundError, ValidationError
 from app.models.models import Candidate, Job, ScreeningCall, ShortlistResult, User
 from app.schemas.schemas import (
@@ -136,6 +137,7 @@ class VoiceScreeningService:
         ).scalars().first()
         if job is None:
             raise NotFoundError(public_message="Job not found")
+        assert_editable(job)
         preview = await classify_candidates(self._session, job, actor.tenant_id)
         waiting = preview.in_phone_round if not body.enabled else []
         if waiting and body.move_to is None:

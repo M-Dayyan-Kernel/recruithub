@@ -18,7 +18,7 @@ import {
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
 import type { Job } from '@/types/api'
-import { filterArchivedJobs } from '@/lib/jobStatus'
+import { filterClosedJobs } from '@/lib/jobStatus'
 import { PHONE_SCREENING_LABEL, RESUME_SCREENING_LABEL } from '@/lib/stageLabels'
 import { useAuth } from '@/context/AuthContext'
 
@@ -79,7 +79,7 @@ function userInitials(name?: string | null, email?: string | null) {
 function isJobsNavActive(pathname: string): boolean {
   if (pathname === '/jobs' || pathname === '/jobs/') return true
   if (pathname === '/jobs/new' || pathname.startsWith('/jobs/new/')) return true
-  if (pathname.startsWith('/jobs/') && !pathname.startsWith('/jobs/archived')) return true
+  if (pathname.startsWith('/jobs/') && !pathname.startsWith('/jobs/closed')) return true
   return false
 }
 
@@ -112,7 +112,7 @@ export default function Layout() {
     queryFn: () => api.get('/api/jobs') as unknown as Promise<Job[]>,
   })
 
-  const archivedCount = filterArchivedJobs(jobs ?? []).length
+  const closedCount = filterClosedJobs(jobs ?? []).length
   const closeSidebar = () => setSidebarOpen(false)
 
   const pageTitle = (() => {
@@ -123,7 +123,7 @@ export default function Layout() {
     }
     if (location.pathname === '/extension-check') return 'AI extension check'
     if (location.pathname === '/jobs/new') return 'Create Job'
-    if (location.pathname === '/jobs/archived') return 'Archived jobs'
+    if (location.pathname === '/jobs/closed') return 'Closed jobs'
     if (location.pathname.match(/^\/jobs\/[^/]+\/screening/)) return PHONE_SCREENING_LABEL
     if (location.pathname.match(/^\/jobs\/[^/]+\/finalists/)) return 'Finalists'
     if (location.pathname.match(/^\/jobs\/[^/]+\/rejected/)) return 'Rejected'
@@ -225,22 +225,22 @@ export default function Layout() {
             <div className="space-y-1 border-t border-rail-line px-3 py-3">
               <div>
                 <SectionLabel collapsed={collapsed}>Library</SectionLabel>
-                <NavLink to="/jobs/archived" onClick={closeSidebar} className={({ isActive }) => navLinkClass(isActive, collapsed)}>
+                <NavLink to="/jobs/closed" onClick={closeSidebar} className={({ isActive }) => navLinkClass(isActive, collapsed)}>
                   <Archive className="h-[18px] w-[18px] shrink-0" />
                   <RailText collapsed={collapsed} className="flex-1">
-                    Archived
+                    Closed jobs
                   </RailText>
-                  {archivedCount > 0 && (
+                  {closedCount > 0 && (
                     <RailText
                       collapsed={collapsed}
                       className={cn(
                         'rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums',
-                        location.pathname === '/jobs/archived'
+                        location.pathname === '/jobs/closed'
                           ? 'bg-black/20 text-accent-ink'
                           : 'bg-rail-2 text-rail-muted',
                       )}
                     >
-                      {archivedCount}
+                      {closedCount}
                     </RailText>
                   )}
                 </NavLink>

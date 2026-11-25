@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useJobAcceptsNewWork } from '@/hooks/useJobAcceptsNewWork'
 import { createPortal } from 'react-dom'
 import { Check, Loader2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -40,6 +41,8 @@ export function ShortlistDecisionControls({
   onApproved?: (data: ShortlistDecisionResponse) => void
 }) {
   const [confirming, setConfirming] = useState<Decision | null>(null)
+  // Approving starts a call or sends an invite, which a paused or closed job does not.
+  const live = useJobAcceptsNewWork()
   const mutation = useShortlistDecision(jobId, result.id, { onApproved, optimistic: false })
   const name = result.candidate_name ?? 'Candidate'
 
@@ -64,10 +67,12 @@ export function ShortlistDecisionControls({
 
   return (
     <>
-      <button type="button" onClick={() => setConfirming('approved')} className={APPROVE_BTN} aria-label={`Approve ${name}`}>
-        <Check size={13} aria-hidden />
-        Approve
-      </button>
+      {live && (
+        <button type="button" onClick={() => setConfirming('approved')} className={APPROVE_BTN} aria-label={`Approve ${name}`}>
+          <Check size={13} aria-hidden />
+          Approve
+        </button>
+      )}
       <button type="button" onClick={() => setConfirming('rejected')} className={REJECT_BTN} aria-label={`Reject ${name}`}>
         <X size={13} aria-hidden />
         Reject

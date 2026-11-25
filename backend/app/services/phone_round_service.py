@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tenancy import get_tenant_candidate, get_tenant_job
+from app.services.job_status import assert_accepts_new_work
 from app.exceptions import ConflictError
 from app.models.models import InterviewSession, ScreeningCall, ShortlistResult, User
 from app.schemas.schemas import PhoneRoundActionResponse
@@ -115,6 +116,7 @@ class PhoneRoundService:
         from app.services.interview_skip_screening_service import advance_approved_candidate_to_interview
 
         job, candidate, row, calls, state = await self._lock(actor, job_id, candidate_id)
+        assert_accepts_new_work(job, "move candidates to interviews")
         name = resolve_candidate_name(candidate)
         cancel_undialled_calls(calls, "Cancelled: moved to interview without a call.")
         # Written now, so it is committed together with the move (the bypass record, the

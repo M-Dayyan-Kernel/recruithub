@@ -48,21 +48,37 @@ test('sidebar lists active jobs by default', async ({ page }) => {
   await expect(sidebar.getByText('Product Designer')).not.toBeVisible()
 })
 
-test('sidebar Archived link opens archived jobs page with cards', async ({ page }) => {
+test('a paused job stays in Jobs with its badge and the Paused filter', async ({ page }) => {
+  await mockLayoutWithJobs(page)
+
+  await page.goto('/jobs')
+  await page.waitForLoadState('networkidle')
+
+  const main = page.getByRole('main')
+  await expect(main.getByText('Product Designer')).toBeVisible()
+  await expect(main.getByText('Paused', { exact: true })).toBeVisible()
+
+  await main.getByRole('button', { name: 'Paused', pressed: false }).click()
+  await expect(main.getByText('Product Designer')).toBeVisible()
+  await expect(main.getByText('Senior Frontend Engineer')).not.toBeVisible()
+})
+
+test('sidebar Closed jobs link opens the closed jobs page; old Archived links land there', async ({ page }) => {
   await mockLayoutWithJobs(page)
 
   await page.goto('/')
   await page.waitForLoadState('networkidle')
 
-  const sidebar = page.locator('aside')
+  await page.locator('aside').getByRole('link', { name: /Closed jobs/i }).click()
 
-  await sidebar.getByRole('link', { name: /Archived/i }).click()
+  await expect(page).toHaveURL('/jobs/closed')
+  await expect(page.getByRole('main').getByRole('heading', { name: 'Closed jobs' })).toBeVisible()
+  // Paused jobs are not here: they are on hold, not finished.
+  await expect(page.getByRole('main').getByText('Product Designer')).not.toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reactivate' })).toHaveCount(0)
 
-  await expect(page).toHaveURL('/jobs/archived')
-  await expect(page.getByRole('main').getByRole('heading', { name: 'Archived jobs' })).toBeVisible()
-  await expect(page.getByText('Product Designer')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Reactivate' }).first()).toBeVisible()
-  await expect(page.getByText('Paused', { exact: true })).toBeVisible()
+  await page.goto('/jobs/archived')
+  await expect(page).toHaveURL('/jobs/closed')
 })
 
 // ---------------------------------------------------------------------------

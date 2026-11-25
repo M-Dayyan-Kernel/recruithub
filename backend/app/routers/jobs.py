@@ -16,6 +16,7 @@ from app.schemas.schemas import (
     InterviewTopicRegenerateResponse,
     InterviewTopicsRequest,
     InterviewTopicsResponse,
+    JobCloseImpact,
     JobCreate,
     JobParseResponse,
     JobParseTextRequest,
@@ -151,6 +152,20 @@ async def update_job(
         return await service.update(actor, job_id, payload)
     except DomainError as exc:
         _raise_domain(exc)
+
+
+@router.get("/{job_id}/close-impact", response_model=JobCloseImpact)
+async def preview_close_job(
+    job_id: uuid.UUID,
+    actor: RequireAdminOrHr,
+    service: JobService = Depends(get_job_service),
+):
+    """What closing the job would cancel (shown in the confirm dialog before it closes)."""
+    try:
+        impact = await service.close_impact(actor, job_id)
+    except DomainError as exc:
+        _raise_domain(exc)
+    return JobCloseImpact(**impact.__dict__)
 
 
 @router.get("/{job_id}/voice-screening", response_model=VoiceScreeningPreview)

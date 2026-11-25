@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_loader import config
 from app.core.tenancy import get_tenant_candidate, get_tenant_job
+from app.services.job_status import assert_accepts_new_work
 from app.models.models import (
     Candidate,
     InterviewReport,
@@ -91,6 +92,12 @@ class InterviewHrService:
         await self._interviews.flush()
         return screening_call
 
+    async def _require_live_job(self, job_id: uuid.UUID, what: str) -> None:
+        """Interview invites are new work: a paused job holds them, a closed one refuses."""
+        job = await self._session.get(Job, job_id)
+        if job is not None:
+            assert_accepts_new_work(job, what)
+
     async def _refuse_if_rejected(self, candidate: Candidate) -> None:
         """Locks the shortlist row first (the order every other path uses) and refuses to
         resend an interview link for a rejected candidate: a rejection cancels the link, so
@@ -117,6 +124,7 @@ class InterviewHrService:
         without sending the interview link yet.
         """
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
+        await self._require_live_job(candidate.job_id, "add candidates to interviews")
 
         await self._mark_interview_queued(candidate_id, candidate.job_id)
         await self._audit.log_change(
@@ -168,6 +176,7 @@ class InterviewHrService:
             )
 
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
+        await self._require_live_job(candidate.job_id, "send interview invites")
         await self._refuse_if_rejected(candidate)
 
         if not await self._interviews.get_latest_pass_screening_call(
@@ -248,6 +257,7 @@ class InterviewHrService:
         from app.services.interview_session_service import create_pending_interview_session
 
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
+        await self._require_live_job(candidate.job_id, "send interview invites")
         await self._refuse_if_rejected(candidate)
 
         screening_result = await self._session.execute(
@@ -447,6 +457,7 @@ class InterviewHrService:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
+        await self._require_live_job(candidate.job_id, "start another interview round")
         session = await schedule_next_round(
             self._session,
             candidate_id=candidate_id,
@@ -492,6 +503,7 @@ class InterviewHrService:
         from app.services.interview_schedule_service import resend_interview_notification_email
 
         candidate = await get_tenant_candidate(self._session, candidate_id, actor.tenant_id)
+        await self._require_live_job(candidate.job_id, "send interview invites")
         await self._refuse_if_rejected(candidate)
 
         session_result = await self._session.execute(
@@ -568,6 +580,7 @@ class InterviewHrService:
             candidate = await get_tenant_candidate(
                 self._session, candidate_id, actor.tenant_id
             )
+            await self._require_live_job(candidate.job_id, "reschedule interviews")
             result, previous_slot = await reschedule_interview(
                 self._session, candidate_id, schedule=body
             )

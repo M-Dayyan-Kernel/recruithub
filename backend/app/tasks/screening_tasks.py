@@ -244,6 +244,21 @@ async def _async_initiate(task_self, screening_call_id: str) -> None:
             await session.commit()
             return
 
+        from app.services.job_close_service import JOB_CLOSED_SUMMARY
+        from app.services.job_status import is_active, is_closed
+
+        if is_closed(job):
+            screening_call.call_status = "cancelled"
+            screening_call.summary = JOB_CLOSED_SUMMARY
+            await session.commit()
+            return
+        if not is_active(job):
+            # Paused: the call stays pending. Once the job is reactivated the beat safety net
+            # (dispatch_pending_screening_calls) sends it again inside the call window.
+            logger.info("Job %s is paused — holding ScreeningCall %s", job.id, screening_call_id)
+            await session.commit()
+            return
+
         from app.services.screening_gate_service import (
             is_voice_screening_effective,
             screening_disabled_reason,
@@ -1302,6 +1317,12 @@ async def _schedule_retry(session, screening_call) -> None:
         )
         return
 
+    from app.services.job_status import is_closed
+
+    if is_closed(job):
+        # A retry is a new call; the role is over. (On a paused job it is queued and held.)
+        logger.info("Job %s is closed — not scheduling a retry", job.id)
+        return
     settings = await load_system_settings(session, tenant_id=job.tenant_id)
     from app.services.screening_gate_service import is_voice_screening_effective
 
@@ -1425,6 +1446,7 @@ async def _async_dispatch_pending() -> None:
 
     from app.models.models import Job, ScreeningCall
     from app.services.call_window_service import is_within_call_window
+    from app.services.job_status import ACTIVE as ACTIVE_JOB_STATUSES
 
     async with get_celery_db() as session:
         max_duration_cutoff = datetime.now(timezone.utc) - timedelta(
@@ -1466,6 +1488,8 @@ async def _async_dispatch_pending() -> None:
             .where(
                 ScreeningCall.call_status == "pending",
                 ScreeningCall.vapi_call_id.is_(None),
+                # Paused jobs hold their calls here until reactivated.
+                Job.status.in_(ACTIVE_JOB_STATUSES),
             )
         )
         rows = result.all()
@@ -1503,7 +1527,7 @@ async def _async_dispatch_pending() -> None:
             auto_dispatch_unqueued_approved_for_job,
         )
 
-        jobs_result = await session.execute(select(Job))
+        jobs_result = await session.execute(select(Job).where(Job.status.in_(ACTIVE_JOB_STATUSES)))
         auto_initiated = 0
         auto_queued = 0
         for job in jobs_result.scalars().all():

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config_loader import config
 from app.core.logging import get_actor_label, log_event, plural
 from app.core.tenancy import get_tenant_job
+from app.services.job_status import assert_accepts_new_work
 from app.exceptions import UploadDirectoryError
 from app.models.models import Candidate, User
 from app.repositories.candidate_repository import CandidateRepository
@@ -53,6 +54,7 @@ class ResumeUploadService:
             self._documents.validate_upload(upload_file)
 
         job = await get_tenant_job(self._session, job_id, actor.tenant_id)
+        assert_accepts_new_work(job, "add resumes")
         upload_dir = self._ensure_upload_dir(actor.tenant_id, job_id)
 
         created_ids: list[str] = []

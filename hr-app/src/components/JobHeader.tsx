@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import {
   Briefcase,
   ChevronDown,
   ChevronUp,
+  CopyPlus,
   Loader2,
   MapPin,
   MoreVertical,
@@ -20,7 +21,14 @@ import { RequiredSkills } from '@/components/job/RequiredSkills'
 import { VoiceScreeningToggle } from '@/components/screening/VoiceScreeningToggle'
 import { ExtensionCheckToggle } from '@/components/job/ExtensionCheckToggle'
 import { cn } from '@/lib/utils'
-import { jobStatusErrorToast, jobStatusToast } from '@/lib/jobActionMessages'
+import {
+  closeJobConfirmBody,
+  jobStatusErrorToast,
+  jobStatusToast,
+  type JobCloseImpact,
+} from '@/lib/jobActionMessages'
+import { isJobEditable } from '@/lib/jobStatus'
+import { duplicateJobPath } from '@/lib/jobDuplicate'
 import { workArrangementLabel } from '@/lib/screeningQuestions'
 import { seniorityLabel } from '@/lib/seniority'
 import { errorMessage } from '@/lib/errorMessage'
@@ -47,25 +55,29 @@ export function JobHeaderSkeleton() {
   )
 }
 
-function getStatusOptions(
-  status: Job['status'],
-): Array<{ label: string; value: Job['status'] }> {
+type StatusOption =
+  | { kind: 'status'; label: string; hint?: string; value: Job['status'] }
+  | { kind: 'duplicate'; label: string; hint?: string }
+
+/**
+ * Pause is the safe choice (nothing is lost, reactivate any time), so it says so. Close is
+ * final; a closed job's only way forward is a new job copied from it.
+ */
+function getStatusOptions(status: Job['status']): StatusOption[] {
+  const close: StatusOption = { kind: 'status', label: 'Close job', hint: "Ends hiring · can't be undone", value: 'closed' }
   switch (status) {
     case 'open':
     case 'active':
       return [
-        { label: 'Pause job', value: 'paused' },
-        { label: 'Close job', value: 'closed' },
+        { kind: 'status', label: 'Pause job', hint: 'Holds new activity · reactivate any time', value: 'paused' },
+        close,
       ]
     case 'paused':
-      return [
-        { label: 'Reactivate', value: 'open' },
-        { label: 'Close job', value: 'closed' },
-      ]
+      return [{ kind: 'status', label: 'Reactivate', value: 'open' }, close]
     case 'closed':
-      return [{ label: 'Reactivate', value: 'open' }]
+      return [{ kind: 'duplicate', label: 'Duplicate as new job', hint: 'Hire for this role again' }]
     default:
-      return [{ label: 'Publish', value: 'open' }]
+      return [{ kind: 'status', label: 'Publish', value: 'open' }]
   }
 }
 
@@ -107,8 +119,13 @@ export function JobHeader({ job, showDelete = false }: Props) {
     mutationFn: (status) =>
       api.patch(`/api/jobs/${job.id}`, { status }) as Promise<Job>,
     onSuccess: (_job, status) => {
-      queryClient.invalidateQueries({ queryKey: ['job', job.id] })
-      queryClient.invalidateQueries({ queryKey: ['jobs'] })
+      if (status === 'closed') {
+        // Closing cancelled calls and interview links across this job's tabs; refetch them all.
+        queryClient.invalidateQueries()
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['job', job.id] })
+        queryClient.invalidateQueries({ queryKey: ['jobs'] })
+      }
       // `job.status` is still the status it moved from: the query refetches after this runs.
       toast.success(jobStatusToast(job.status, status))
       setShowStatusMenu(false)
@@ -136,6 +153,15 @@ export function JobHeader({ job, showDelete = false }: Props) {
   // same way they were done.
   const [confirming, setConfirming] = useState<'close' | 'delete' | null>(null)
   const [confirmError, setConfirmError] = useState<string | null>(null)
+  // What closing would cancel, fetched when the dialog opens so the figures are current.
+  const { data: closeImpact } = useQuery<JobCloseImpact>({
+    queryKey: ['job', job.id, 'close-impact'],
+    queryFn: () => api.get(`/api/jobs/${job.id}/close-impact`) as unknown as Promise<JobCloseImpact>,
+    enabled: confirming === 'close',
+    staleTime: 0,
+    gcTime: 0,
+  })
+  const editable = isJobEditable(job.status)
 
   const openConfirm = (kind: 'close' | 'delete') => {
     setShowStatusMenu(false)
@@ -199,12 +225,17 @@ export function JobHeader({ job, showDelete = false }: Props) {
             </div>
 
             <div className="flex items-center gap-2 sm:shrink-0">
-              {/* The two per-job settings, grouped apart from the actions menu beside them. */}
-              <div className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface-2 p-1">
-                <VoiceScreeningToggle job={job} variant="icon" />
-                <ExtensionCheckToggle job={job} variant="icon" />
-              </div>
-              <span aria-hidden className="h-6 w-px bg-line" />
+              {/* The two per-job settings, grouped apart from the actions menu beside them.
+                  A closed job is read-only, so they are not offered there. */}
+              {editable && (
+                <>
+                  <div className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface-2 p-1">
+                    <VoiceScreeningToggle job={job} variant="icon" />
+                    <ExtensionCheckToggle job={job} variant="icon" />
+                  </div>
+                  <span aria-hidden className="h-6 w-px bg-line" />
+                </>
+              )}
 
               <div className="relative" ref={statusMenuRef}>
                 <button
@@ -226,32 +257,49 @@ export function JobHeader({ job, showDelete = false }: Props) {
                 {showStatusMenu && (
                   <div
                     role="menu"
-                    className="absolute right-0 top-full z-20 mt-1 min-w-[11rem] rounded-lg border border-line bg-surface py-1 shadow-lg"
+                    className="absolute right-0 top-full z-20 mt-1 min-w-[15rem] rounded-lg border border-line bg-surface py-1 shadow-lg"
                   >
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setShowStatusMenu(false)
-                        setEditOpen(true)
-                      }}
-                      className={cn(menuItem, 'text-ink hover:bg-surface-2')}
-                    >
-                      <Pencil size={14} aria-hidden />
-                      Edit
-                    </button>
-                    {getStatusOptions(job.status).map((opt) => (
+                    {editable && (
                       <button
-                        key={opt.value}
                         type="button"
                         role="menuitem"
-                        onClick={() =>
-                          opt.value === 'closed' ? openConfirm('close') : statusMutation.mutate(opt.value)
-                        }
-                        disabled={isActionPending}
-                        className={cn(menuItem, 'pl-[2.4rem] text-ink hover:bg-surface-2')}
+                        onClick={() => {
+                          setShowStatusMenu(false)
+                          setEditOpen(true)
+                        }}
+                        className={cn(menuItem, 'text-ink hover:bg-surface-2')}
                       >
-                        {opt.label}
+                        <Pencil size={14} aria-hidden />
+                        Edit
+                      </button>
+                    )}
+                    {getStatusOptions(job.status).map((opt) => (
+                      <button
+                        key={opt.label}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          if (opt.kind === 'duplicate') {
+                            setShowStatusMenu(false)
+                            navigate(duplicateJobPath(job.id))
+                          } else if (opt.value === 'closed') {
+                            openConfirm('close')
+                          } else {
+                            statusMutation.mutate(opt.value)
+                          }
+                        }}
+                        disabled={isActionPending}
+                        className={cn(
+                          menuItem,
+                          'items-start text-ink hover:bg-surface-2',
+                          opt.kind !== 'duplicate' && 'pl-[2.4rem]',
+                        )}
+                      >
+                        {opt.kind === 'duplicate' && <CopyPlus size={14} className="mt-0.5" aria-hidden />}
+                        <span className="flex flex-col">
+                          <span>{opt.label}</span>
+                          {opt.hint && <span className="text-[11px] text-ink-subtle">{opt.hint}</span>}
+                        </span>
                       </button>
                     ))}
                     {showDelete && (
@@ -311,16 +359,15 @@ export function JobHeader({ job, showDelete = false }: Props) {
         </div>
       </div>
 
-      {editOpen && (
+      {editOpen && editable && (
         <EditJobModal job={job} open={editOpen} onClose={() => setEditOpen(false)} />
       )}
 
       {confirming === 'close' && (
         <ConfirmDialog
           title={`Close "${job.title}"?`}
-          body="It moves to Archived and stops appearing in Jobs. You can reactivate it from Archived at any time."
+          body={closeJobConfirmBody(closeImpact)}
           confirmLabel="Close job"
-          tone="accent"
           busy={statusMutation.isPending}
           error={confirmError}
           onConfirm={runConfirmed}

@@ -14,6 +14,8 @@ import {
   ArrowUpRight,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { JobStatusBadge } from '@/components/JobStatusBadge'
+import { filterJobsList } from '@/lib/jobStatus'
 import { fetchJobCandidates } from '@/lib/workflow'
 import { PHONE_SCREENING_LABEL } from '@/lib/stageLabels'
 import type { Job, Candidate, ScreeningCall } from '@/types/api'
@@ -61,26 +63,6 @@ function SummaryCard({ title, value, icon, tone, subtitle, to }: SummaryCardProp
       <p className="mt-2 text-[13px] font-semibold text-ink">{title}</p>
       {subtitle && <p className="mt-0.5 text-[11px] text-ink-subtle">{subtitle}</p>}
     </Link>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Status badge
-// ---------------------------------------------------------------------------
-
-function StatusBadge({ status }: { status: Job['status'] }) {
-  const cfg: Record<Job['status'], { label: string; className: string }> = {
-    open:   { label: 'Open',   className: 'bg-indigo-100 text-indigo-700' },
-    active: { label: 'Active', className: 'bg-indigo-100 text-indigo-700' },
-    closed: { label: 'Closed', className: 'bg-slate-100 text-slate-600'   },
-    paused: { label: 'Paused', className: 'bg-amber-100 text-amber-700'   },
-    draft:  { label: 'Draft',  className: 'bg-slate-100 text-slate-500'   },
-  }
-  const { label, className } = cfg[status] ?? cfg.open
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${className}`}>
-      {label}
-    </span>
   )
 }
 
@@ -160,7 +142,9 @@ export default function DashboardPage() {
     refetchInterval: 60_000,
   })
 
-  const jobList = jobs ?? []
+  // Closed jobs are a finished record (on Closed jobs), not part of the live pipeline: they
+  // are neither listed nor fetched here. Paused jobs still are; they are on hold, not done.
+  const jobList = useMemo(() => filterJobsList(jobs ?? []), [jobs])
 
   // ── Per-job: fetch candidates in parallel ─────────────────────────────────
   const candidateQueries = useQueries({
@@ -410,7 +394,7 @@ export default function DashboardPage() {
                             )}
                           </td>
                           <td className="px-4 py-3.5">
-                            <StatusBadge status={job.status} />
+                            <JobStatusBadge status={job.status} />
                           </td>
                           <td className="px-4 py-3.5 text-center">
                             {candidatesLoading ? (

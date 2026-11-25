@@ -103,6 +103,7 @@ class SendLinkScopeTests(unittest.IsolatedAsyncioTestCase):
         db.execute = AsyncMock(return_value=none)
         svc = InterviewHrService(db, interview_repo=MagicMock(), audit_service=MagicMock())
         svc._refuse_if_rejected = AsyncMock()
+        svc._require_live_job = AsyncMock()
         cand = NS(id=uuid.uuid4(), job_id=uuid.uuid4())
         with patch("app.services.interview_hr_service.get_tenant_candidate", AsyncMock(return_value=cand)):
             with self.assertRaises(HTTPException) as ctx:
